@@ -1,6 +1,9 @@
 # Cursor IDE
 .cursor/
 
+# Scripts locais
+criar_repo_e_push.ps1
+
 # Flutter / Dart (monorepo)
 **/.dart_tool/
 **/.flutter-plugins-dependencies
