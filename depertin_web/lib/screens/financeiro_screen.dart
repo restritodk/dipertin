@@ -11,8 +11,8 @@ class FinanceiroScreen extends StatefulWidget {
 }
 
 class _FinanceiroScreenState extends State<FinanceiroScreen> {
-  final Color dePertinRoxo = const Color(0xFF6A1B9A);
-  final Color dePertinLaranja = const Color(0xFFFF8F00);
+  final Color diPertinRoxo = const Color(0xFF6A1B9A);
+  final Color diPertinLaranja = const Color(0xFFFF8F00);
 
   DateTime? _dataInicioFiltro;
   DateTime? _dataFimFiltro;
@@ -29,9 +29,9 @@ class _FinanceiroScreenState extends State<FinanceiroScreen> {
         return Theme(
           data: Theme.of(context).copyWith(
             colorScheme: ColorScheme.light(
-              primary: dePertinLaranja,
+              primary: diPertinLaranja,
               onPrimary: Colors.white,
-              onSurface: dePertinRoxo,
+              onSurface: diPertinRoxo,
             ),
           ),
           child: child!,
@@ -124,7 +124,7 @@ class _FinanceiroScreenState extends State<FinanceiroScreen> {
               title: Text(
                 "Lançar Receita Manual",
                 style: TextStyle(
-                  color: dePertinRoxo,
+                  color: diPertinRoxo,
                   fontWeight: FontWeight.bold,
                 ),
               ),
@@ -364,7 +364,7 @@ class _FinanceiroScreenState extends State<FinanceiroScreen> {
                                 style: TextStyle(
                                   fontSize: 32,
                                   fontWeight: FontWeight.bold,
-                                  color: dePertinRoxo,
+                                  color: diPertinRoxo,
                                 ),
                               ),
                               const Text(
@@ -434,7 +434,7 @@ class _FinanceiroScreenState extends State<FinanceiroScreen> {
                                   ),
                                 ),
                                 style: ElevatedButton.styleFrom(
-                                  backgroundColor: dePertinLaranja,
+                                  backgroundColor: diPertinLaranja,
                                   foregroundColor: Colors.white,
                                   padding: const EdgeInsets.symmetric(
                                     horizontal: 20,
@@ -454,8 +454,8 @@ class _FinanceiroScreenState extends State<FinanceiroScreen> {
                         decoration: BoxDecoration(
                           gradient: LinearGradient(
                             colors: [
-                              dePertinRoxo,
-                              dePertinRoxo.withOpacity(0.8),
+                              diPertinRoxo,
+                              diPertinRoxo.withOpacity(0.8),
                             ],
                           ),
                           borderRadius: BorderRadius.circular(15),
@@ -529,7 +529,7 @@ class _FinanceiroScreenState extends State<FinanceiroScreen> {
                             child: _cardResumo(
                               "Destaques & Banners",
                               dados['totalDestaques'],
-                              dePertinLaranja,
+                              diPertinLaranja,
                               Icons.star,
                             ),
                           ),

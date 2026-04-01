@@ -7,8 +7,8 @@ import 'package:cloud_firestore/cloud_firestore.dart';
 import 'package:url_launcher/url_launcher.dart';
 import 'package:firebase_auth/firebase_auth.dart';
 
-const Color dePertinRoxo = Color(0xFF6A1B9A);
-const Color dePertinLaranja = Color(0xFFFF8F00);
+const Color diPertinRoxo = Color(0xFF6A1B9A);
+const Color diPertinLaranja = Color(0xFFFF8F00);
 
 class VagasScreen extends StatefulWidget {
   const VagasScreen({super.key});
@@ -25,7 +25,7 @@ class _VagasScreenState extends State<VagasScreen> {
       ScaffoldMessenger.of(context).showSnackBar(
         const SnackBar(
           content: Text('Faça login ou cadastre-se para anunciar!'),
-          backgroundColor: dePertinLaranja,
+          backgroundColor: diPertinLaranja,
         ),
       );
       Navigator.push(
@@ -54,7 +54,7 @@ class _VagasScreenState extends State<VagasScreen> {
         scheme: 'mailto',
         path: contato.trim(),
         query:
-            'subject=${Uri.encodeComponent("Candidatura para vaga: $cargo (Via App DePertin)")}',
+            'subject=${Uri.encodeComponent("Candidatura para vaga: $cargo (Via App DiPertin)")}',
       );
       try {
         if (await canLaunchUrl(emailUrl)) {
@@ -88,7 +88,7 @@ class _VagasScreenState extends State<VagasScreen> {
             ? numeroLimpo
             : '55$numeroLimpo';
         String mensagem = Uri.encodeComponent(
-          "Olá! Vi a vaga de *$cargo* no aplicativo DePertin e gostaria de me candidatar / obter mais informações.",
+          "Olá! Vi a vaga de *$cargo* no aplicativo DiPertin e gostaria de me candidatar / obter mais informações.",
         );
         final Uri url = Uri.parse('https://wa.me/$zap?text=$mensagem');
         if (await canLaunchUrl(url)) {
@@ -124,7 +124,7 @@ class _VagasScreenState extends State<VagasScreen> {
                   },
                 ),
                 ListTile(
-                  leading: const Icon(Icons.phone, color: dePertinRoxo),
+                  leading: const Icon(Icons.phone, color: diPertinRoxo),
                   title: const Text("Fazer uma Ligação"),
                   onTap: () {
                     Navigator.pop(context);
@@ -249,7 +249,7 @@ class _VagasScreenState extends State<VagasScreen> {
                     style: const TextStyle(
                       fontWeight: FontWeight.bold,
                       fontSize: 16,
-                      color: dePertinRoxo,
+                      color: diPertinRoxo,
                     ),
                   ),
                   subtitle: Column(

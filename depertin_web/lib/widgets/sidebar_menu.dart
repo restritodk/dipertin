@@ -11,7 +11,7 @@ class SidebarMenu extends StatefulWidget {
 }
 
 class _SidebarMenuState extends State<SidebarMenu> {
-  final Color dePertinRoxo = const Color(0xFF6A1B9A);
+  final Color diPertinRoxo = const Color(0xFF6A1B9A);
 
   String _tipoUsuario = 'carregando';
 
@@ -75,7 +75,7 @@ class _SidebarMenuState extends State<SidebarMenu> {
     if (_tipoUsuario == 'carregando') {
       return Container(
         width: 250,
-        color: dePertinRoxo,
+        color: diPertinRoxo,
         child: const Center(
           child: CircularProgressIndicator(color: Colors.white),
         ),
@@ -84,7 +84,7 @@ class _SidebarMenuState extends State<SidebarMenu> {
 
     return Container(
       width: 250,
-      color: dePertinRoxo,
+      color: diPertinRoxo,
       child: Column(
         children: [
           const SizedBox(height: 40),

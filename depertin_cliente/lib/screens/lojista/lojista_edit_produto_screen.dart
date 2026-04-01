@@ -3,8 +3,8 @@
 import 'package:flutter/material.dart';
 import 'package:cloud_firestore/cloud_firestore.dart';
 
-const Color dePertinRoxo = Color(0xFF6A1B9A);
-const Color dePertinLaranja = Color(0xFFFF8F00);
+const Color diPertinRoxo = Color(0xFF6A1B9A);
+const Color diPertinLaranja = Color(0xFFFF8F00);
 
 class LojistaEditProdutoScreen extends StatefulWidget {
   final Map<String, dynamic> produto;
@@ -106,12 +106,12 @@ class _LojistaEditProdutoScreenState extends State<LojistaEditProdutoScreen> {
           "Editar Produto",
           style: TextStyle(color: Colors.white, fontWeight: FontWeight.bold),
         ),
-        backgroundColor: dePertinLaranja,
+        backgroundColor: diPertinLaranja,
         iconTheme: const IconThemeData(color: Colors.white),
       ),
       body: _isSaving
           ? const Center(
-              child: CircularProgressIndicator(color: dePertinLaranja),
+              child: CircularProgressIndicator(color: diPertinLaranja),
             )
           : SingleChildScrollView(
               padding: const EdgeInsets.all(16.0),
@@ -212,7 +212,7 @@ class _LojistaEditProdutoScreenState extends State<LojistaEditProdutoScreen> {
                         ),
                       ),
                       style: ElevatedButton.styleFrom(
-                        backgroundColor: dePertinLaranja,
+                        backgroundColor: diPertinLaranja,
                         padding: const EdgeInsets.symmetric(vertical: 15),
                       ),
                     ),

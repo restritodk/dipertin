@@ -9,8 +9,8 @@ import 'lojista_pedidos_screen.dart';
 import 'lojista_produtos_screen.dart';
 import 'lojista_config_screen.dart'; // <--- NOVO ARQUIVO QUE VAMOS CRIAR
 
-const Color dePertinLaranja = Color(0xFFFF8F00);
-const Color dePertinRoxo = Color(0xFF6A1B9A);
+const Color diPertinLaranja = Color(0xFFFF8F00);
+const Color diPertinRoxo = Color(0xFF6A1B9A);
 
 class LojistaDashboardScreen extends StatefulWidget {
   const LojistaDashboardScreen({super.key});
@@ -80,7 +80,7 @@ class _LojistaDashboardScreenState extends State<LojistaDashboardScreen> {
           "Painel do Lojista",
           style: TextStyle(color: Colors.white, fontWeight: FontWeight.bold),
         ),
-        backgroundColor: dePertinLaranja,
+        backgroundColor: diPertinLaranja,
         iconTheme: const IconThemeData(color: Colors.white),
         actions: [
           IconButton(
@@ -100,7 +100,7 @@ class _LojistaDashboardScreenState extends State<LojistaDashboardScreen> {
         builder: (context, snapshot) {
           if (snapshot.connectionState == ConnectionState.waiting) {
             return const Center(
-              child: CircularProgressIndicator(color: dePertinLaranja),
+              child: CircularProgressIndicator(color: diPertinLaranja),
             );
           }
 
@@ -133,7 +133,7 @@ class _LojistaDashboardScreenState extends State<LojistaDashboardScreen> {
                       size: 80,
                       color: status == 'bloqueado'
                           ? Colors.red
-                          : dePertinLaranja,
+                          : diPertinLaranja,
                     ),
                     const SizedBox(height: 20),
                     Text(
@@ -208,7 +208,7 @@ class _LojistaDashboardScreenState extends State<LojistaDashboardScreen> {
                   titulo: "Configurações da Loja",
                   subtitulo: "Horários de funcionamento, nome e status",
                   icone: Icons.store_mall_directory,
-                  cor: dePertinRoxo,
+                  cor: diPertinRoxo,
                   telaDestino: LojistaConfigScreen(
                     dadosAtuaisDaLoja: dados,
                   ), // <--- Passamos os dados que já temos aqui
@@ -229,15 +229,15 @@ class _LojistaDashboardScreenState extends State<LojistaDashboardScreen> {
                 Container(
                   padding: const EdgeInsets.all(15),
                   decoration: BoxDecoration(
-                    color: dePertinLaranja.withOpacity(0.1),
+                    color: diPertinLaranja.withOpacity(0.1),
                     borderRadius: BorderRadius.circular(10),
-                    border: Border.all(color: dePertinLaranja.withOpacity(0.3)),
+                    border: Border.all(color: diPertinLaranja.withOpacity(0.3)),
                   ),
                   child: const Row(
                     children: [
                       Icon(
                         Icons.desktop_windows,
-                        color: dePertinLaranja,
+                        color: diPertinLaranja,
                         size: 30,
                       ),
                       SizedBox(width: 15),

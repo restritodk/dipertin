@@ -7,8 +7,8 @@ import 'package:cloud_firestore/cloud_firestore.dart';
 import 'package:firebase_auth/firebase_auth.dart';
 import 'package:url_launcher/url_launcher.dart';
 
-const Color dePertinLaranja = Color(0xFFFF8F00);
-const Color dePertinRoxo = Color(0xFF6A1B9A);
+const Color diPertinLaranja = Color(0xFFFF8F00);
+const Color diPertinRoxo = Color(0xFF6A1B9A);
 
 class AchadosScreen extends StatefulWidget {
   const AchadosScreen({super.key});
@@ -55,7 +55,7 @@ class _AchadosScreenState extends State<AchadosScreen> {
         scheme: 'mailto',
         path: contato.trim(),
         query:
-            'subject=${Uri.encodeComponent("Sobre o item $tipo: $item (Via App DePertin)")}',
+            'subject=${Uri.encodeComponent("Sobre o item $tipo: $item (Via App DiPertin)")}',
       );
       try {
         if (await canLaunchUrl(emailUrl)) {
@@ -87,7 +87,7 @@ class _AchadosScreenState extends State<AchadosScreen> {
             ? numeroLimpo
             : '55$numeroLimpo';
         String mensagem = Uri.encodeComponent(
-          "Olá! Vi seu anúncio sobre o item $tipo (*$item*) no aplicativo DePertin e gostaria de ajudar.",
+          "Olá! Vi seu anúncio sobre o item $tipo (*$item*) no aplicativo DiPertin e gostaria de ajudar.",
         );
         final Uri url = Uri.parse('https://wa.me/$zap?text=$mensagem');
         if (await canLaunchUrl(url)) {
@@ -123,7 +123,7 @@ class _AchadosScreenState extends State<AchadosScreen> {
                   },
                 ),
                 ListTile(
-                  leading: const Icon(Icons.phone, color: dePertinLaranja),
+                  leading: const Icon(Icons.phone, color: diPertinLaranja),
                   title: const Text("Fazer uma Ligação"),
                   onTap: () {
                     Navigator.pop(context);
@@ -147,12 +147,12 @@ class _AchadosScreenState extends State<AchadosScreen> {
           "Achados e Perdidos",
           style: TextStyle(color: Colors.white, fontWeight: FontWeight.bold),
         ),
-        backgroundColor: dePertinLaranja,
+        backgroundColor: diPertinLaranja,
         iconTheme: const IconThemeData(color: Colors.white),
       ),
       floatingActionButton: FloatingActionButton.extended(
         onPressed: _falarComAdmin,
-        backgroundColor: dePertinLaranja,
+        backgroundColor: diPertinLaranja,
         icon: const Icon(Icons.campaign, color: Colors.white),
         label: const Text(
           "Anunciar Item",
@@ -169,7 +169,7 @@ class _AchadosScreenState extends State<AchadosScreen> {
         builder: (context, snapshot) {
           if (snapshot.connectionState == ConnectionState.waiting) {
             return const Center(
-              child: CircularProgressIndicator(color: dePertinLaranja),
+              child: CircularProgressIndicator(color: diPertinLaranja),
             );
           }
 

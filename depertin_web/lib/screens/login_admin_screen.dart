@@ -16,8 +16,8 @@ class _LoginAdminScreenState extends State<LoginAdminScreen> {
   bool _isLoading = false;
   bool _ocultarSenha = true;
 
-  final Color dePertinRoxo = const Color(0xFF6A1B9A);
-  final Color dePertinLaranja = const Color(0xFFFF8F00);
+  final Color diPertinRoxo = const Color(0xFF6A1B9A);
+  final Color diPertinLaranja = const Color(0xFFFF8F00);
 
   Future<void> _fazerLogin() async {
     String email = _emailController.text.trim();
@@ -221,7 +221,7 @@ class _LoginAdminScreenState extends State<LoginAdminScreen> {
                 ElevatedButton(
                   onPressed: isSalvando ? null : salvarNovaSenha,
                   style: ElevatedButton.styleFrom(
-                    backgroundColor: dePertinRoxo,
+                    backgroundColor: diPertinRoxo,
                     foregroundColor: Colors.white,
                     padding: const EdgeInsets.symmetric(
                       horizontal: 20,
@@ -284,17 +284,17 @@ class _LoginAdminScreenState extends State<LoginAdminScreen> {
                   errorBuilder: (c, e, s) => Icon(
                     Icons.admin_panel_settings,
                     size: 80,
-                    color: dePertinRoxo,
+                    color: diPertinRoxo,
                   ),
                 ),
                 const SizedBox(height: 20),
 
                 Text(
-                  "Painel DePertin",
+                  "Painel DiPertin",
                   style: TextStyle(
                     fontSize: 28,
                     fontWeight: FontWeight.bold,
-                    color: dePertinRoxo,
+                    color: diPertinRoxo,
                   ),
                 ),
                 const SizedBox(height: 5),
@@ -350,7 +350,7 @@ class _LoginAdminScreenState extends State<LoginAdminScreen> {
                   child: ElevatedButton(
                     onPressed: _isLoading ? null : _fazerLogin,
                     style: ElevatedButton.styleFrom(
-                      backgroundColor: dePertinLaranja,
+                      backgroundColor: diPertinLaranja,
                       foregroundColor: Colors.white,
                       shape: RoundedRectangleBorder(
                         borderRadius: BorderRadius.circular(10),

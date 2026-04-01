@@ -4,7 +4,7 @@ import 'package:flutter/material.dart';
 import 'package:cloud_firestore/cloud_firestore.dart';
 import 'package:firebase_auth/firebase_auth.dart';
 
-const Color dePertinLaranja = Color(0xFFFF8F00);
+const Color diPertinLaranja = Color(0xFFFF8F00);
 
 class LojistaAvaliacoesScreen extends StatelessWidget {
   const LojistaAvaliacoesScreen({super.key});
@@ -22,12 +22,12 @@ class LojistaAvaliacoesScreen extends StatelessWidget {
           ),
           title: const Row(
             children: [
-              Icon(Icons.reply, color: dePertinLaranja),
+              Icon(Icons.reply, color: diPertinLaranja),
               SizedBox(width: 8),
               Text(
                 "Responder Cliente",
                 style: TextStyle(
-                  color: dePertinLaranja,
+                  color: diPertinLaranja,
                   fontWeight: FontWeight.bold,
                   fontSize: 18,
                 ),
@@ -81,7 +81,7 @@ class LojistaAvaliacoesScreen extends StatelessWidget {
                   );
                 }
               },
-              style: ElevatedButton.styleFrom(backgroundColor: dePertinLaranja),
+              style: ElevatedButton.styleFrom(backgroundColor: diPertinLaranja),
               child: const Text(
                 "ENVIAR RESPOSTA",
                 style: TextStyle(
@@ -107,7 +107,7 @@ class LojistaAvaliacoesScreen extends StatelessWidget {
           "Minhas Avaliações",
           style: TextStyle(color: Colors.white, fontWeight: FontWeight.bold),
         ),
-        backgroundColor: dePertinLaranja,
+        backgroundColor: diPertinLaranja,
         iconTheme: const IconThemeData(color: Colors.white),
       ),
       body: user == null
@@ -120,7 +120,7 @@ class LojistaAvaliacoesScreen extends StatelessWidget {
               builder: (context, snapshot) {
                 if (snapshot.connectionState == ConnectionState.waiting) {
                   return const Center(
-                    child: CircularProgressIndicator(color: dePertinLaranja),
+                    child: CircularProgressIndicator(color: diPertinLaranja),
                   );
                 }
 
@@ -237,13 +237,13 @@ class LojistaAvaliacoesScreen extends StatelessWidget {
                                       _responderAvaliacao(context, avaliacaoId),
                                   icon: const Icon(
                                     Icons.reply,
-                                    color: dePertinLaranja,
+                                    color: diPertinLaranja,
                                     size: 18,
                                   ),
                                   label: const Text(
                                     "RESPONDER",
                                     style: TextStyle(
-                                      color: dePertinLaranja,
+                                      color: diPertinLaranja,
                                       fontWeight: FontWeight.bold,
                                     ),
                                   ),
@@ -258,7 +258,7 @@ class LojistaAvaliacoesScreen extends StatelessWidget {
                                   borderRadius: BorderRadius.circular(10),
                                   border: const Border(
                                     left: BorderSide(
-                                      color: dePertinLaranja,
+                                      color: diPertinLaranja,
                                       width: 4,
                                     ),
                                   ),

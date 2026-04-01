@@ -13,8 +13,8 @@ class EntregadoresScreen extends StatefulWidget {
 }
 
 class _EntregadoresScreenState extends State<EntregadoresScreen> {
-  final Color dePertinRoxo = const Color(0xFF6A1B9A);
-  final Color dePertinLaranja = const Color(0xFFFF8F00);
+  final Color diPertinRoxo = const Color(0xFF6A1B9A);
+  final Color diPertinLaranja = const Color(0xFFFF8F00);
 
   // Variáveis para controlar as permissões do AdminCity
   String _tipoUsuarioLogado = 'superadmin';
@@ -294,7 +294,7 @@ class _EntregadoresScreenState extends State<EntregadoresScreen> {
         return AlertDialog(
           title: Text(
             "Documentos: $nomeEntregador",
-            style: TextStyle(color: dePertinRoxo, fontWeight: FontWeight.bold),
+            style: TextStyle(color: diPertinRoxo, fontWeight: FontWeight.bold),
           ),
           content: SizedBox(
             width: 600,
@@ -541,7 +541,7 @@ class _EntregadoresScreenState extends State<EntregadoresScreen> {
               title: Text(
                 "Definir Plano: $nomeEntregador",
                 style: TextStyle(
-                  color: dePertinRoxo,
+                  color: diPertinRoxo,
                   fontWeight: FontWeight.bold,
                 ),
               ),
@@ -698,7 +698,7 @@ class _EntregadoresScreenState extends State<EntregadoresScreen> {
                           }
                         },
                   style: ElevatedButton.styleFrom(
-                    backgroundColor: dePertinLaranja,
+                    backgroundColor: diPertinLaranja,
                     foregroundColor: Colors.white,
                   ),
                   child: isLoading
@@ -817,7 +817,7 @@ class _EntregadoresScreenState extends State<EntregadoresScreen> {
                         icon: const Icon(Icons.percent, size: 16),
                         label: const Text("Plano/Taxa"),
                         style: OutlinedButton.styleFrom(
-                          foregroundColor: dePertinRoxo,
+                          foregroundColor: diPertinRoxo,
                         ),
                       ),
                     if (statusFiltro == 'aprovado') const SizedBox(width: 10),
@@ -892,7 +892,7 @@ class _EntregadoresScreenState extends State<EntregadoresScreen> {
                           style: TextStyle(
                             fontSize: 28,
                             fontWeight: FontWeight.bold,
-                            color: dePertinRoxo,
+                            color: diPertinRoxo,
                           ),
                         ),
                         const Text(
@@ -901,9 +901,9 @@ class _EntregadoresScreenState extends State<EntregadoresScreen> {
                         ),
                         const SizedBox(height: 20),
                         TabBar(
-                          labelColor: dePertinRoxo,
+                          labelColor: diPertinRoxo,
                           unselectedLabelColor: Colors.grey,
-                          indicatorColor: dePertinLaranja,
+                          indicatorColor: diPertinLaranja,
                           tabs: const [
                             Tab(
                               icon: Icon(Icons.hourglass_empty),

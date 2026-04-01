@@ -17,8 +17,8 @@ import 'address_screen.dart';
 import 'product_details_screen.dart';
 import '../lojista/loja_catalogo_screen.dart';
 
-const Color dePertinRoxo = Color(0xFF6A1B9A);
-const Color dePertinLaranja = Color(0xFFFF8F00);
+const Color diPertinRoxo = Color(0xFF6A1B9A);
+const Color diPertinLaranja = Color(0xFFFF8F00);
 
 class VitrineScreen extends StatefulWidget {
   const VitrineScreen({super.key});
@@ -106,7 +106,7 @@ class _VitrineScreenState extends State<VitrineScreen> {
                 content: Text(
                   "📍 Localização atualizada para $cidadeDetectada",
                 ),
-                backgroundColor: dePertinLaranja,
+                backgroundColor: diPertinLaranja,
                 duration: const Duration(seconds: 4),
               ),
             );
@@ -167,21 +167,21 @@ class _VitrineScreenState extends State<VitrineScreen> {
   Widget build(BuildContext context) {
     if (_carregandoCidade) {
       return const Scaffold(
-        body: Center(child: CircularProgressIndicator(color: dePertinRoxo)),
+        body: Center(child: CircularProgressIndicator(color: diPertinRoxo)),
       );
     }
 
     return Scaffold(
       backgroundColor: Colors.grey[200],
       appBar: AppBar(
-        backgroundColor: dePertinRoxo,
+        backgroundColor: diPertinRoxo,
         elevation: 0,
         // APPBAR LIMPA E ELEGANTE (Sem barra de pesquisa fake)
         title: Column(
           crossAxisAlignment: CrossAxisAlignment.start,
           children: [
             const Text(
-              "DePertin",
+              "DiPertin",
               style: TextStyle(
                 color: Colors.white,
                 fontWeight: FontWeight.bold,
@@ -190,7 +190,7 @@ class _VitrineScreenState extends State<VitrineScreen> {
             ),
             Row(
               children: [
-                const Icon(Icons.location_on, size: 12, color: dePertinLaranja),
+                const Icon(Icons.location_on, size: 12, color: diPertinLaranja),
                 const SizedBox(width: 4),
                 Text(
                   cidadeUsuario,
@@ -230,7 +230,7 @@ class _VitrineScreenState extends State<VitrineScreen> {
                 child: Container(
                   padding: const EdgeInsets.all(2),
                   decoration: BoxDecoration(
-                    color: dePertinLaranja,
+                    color: diPertinLaranja,
                     borderRadius: BorderRadius.circular(10),
                   ),
                   constraints: const BoxConstraints(
@@ -319,7 +319,7 @@ class _VitrineScreenState extends State<VitrineScreen> {
                       if (snapshotLojas.connectionState ==
                           ConnectionState.waiting) {
                         return const Center(
-                          child: CircularProgressIndicator(color: dePertinRoxo),
+                          child: CircularProgressIndicator(color: diPertinRoxo),
                         );
                       }
                       if (!snapshotLojas.hasData ||
@@ -368,7 +368,7 @@ class _VitrineScreenState extends State<VitrineScreen> {
                                   ConnectionState.waiting) {
                                 return const Center(
                                   child: CircularProgressIndicator(
-                                    color: dePertinRoxo,
+                                    color: diPertinRoxo,
                                   ),
                                 );
                               }
@@ -605,7 +605,7 @@ class _VitrineScreenState extends State<VitrineScreen> {
                         Text(
                           "R\$ ${((produto["oferta"] ?? produto["preco"] ?? 0.0) as num).toDouble().toStringAsFixed(2)}",
                           style: const TextStyle(
-                            color: dePertinLaranja,
+                            color: diPertinLaranja,
                             fontWeight: FontWeight.bold,
                             fontSize: 16,
                           ),
@@ -613,12 +613,12 @@ class _VitrineScreenState extends State<VitrineScreen> {
                         Container(
                           padding: const EdgeInsets.all(4),
                           decoration: BoxDecoration(
-                            color: dePertinRoxo.withOpacity(0.1),
+                            color: diPertinRoxo.withOpacity(0.1),
                             borderRadius: BorderRadius.circular(4),
                           ),
                           child: const Icon(
                             Icons.add_shopping_cart,
-                            color: dePertinRoxo,
+                            color: diPertinRoxo,
                             size: 16,
                           ),
                         ),
@@ -730,7 +730,7 @@ class _AutoSlidingBannerState extends State<AutoSlidingBanner> {
               onTap: () async {
                 String numeroWhatsApp = "5566992244000"; // Substitua pelo seu
                 String mensagem =
-                    "Olá! Tenho interesse em anunciar minha loja/serviço no DePertin.";
+                    "Olá! Tenho interesse em anunciar minha loja/serviço no DiPertin.";
                 final Uri url = Uri.parse(
                   'https://wa.me/$numeroWhatsApp?text=${Uri.encodeComponent(mensagem)}',
                 );

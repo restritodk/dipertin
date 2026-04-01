@@ -14,8 +14,8 @@ class UtilidadesScreen extends StatefulWidget {
 }
 
 class _UtilidadesScreenState extends State<UtilidadesScreen> {
-  final Color dePertinRoxo = const Color(0xFF6A1B9A);
-  final Color dePertinLaranja = const Color(0xFFFF8F00);
+  final Color diPertinRoxo = const Color(0xFF6A1B9A);
+  final Color diPertinLaranja = const Color(0xFFFF8F00);
 
   // --- FUNÇÕES DE AÇÃO RÁPIDA ---
 
@@ -81,7 +81,7 @@ class _UtilidadesScreenState extends State<UtilidadesScreen> {
         builder: (context, setState) => AlertDialog(
           title: Text(
             "Configurar Evento",
-            style: TextStyle(color: dePertinRoxo, fontWeight: FontWeight.bold),
+            style: TextStyle(color: diPertinRoxo, fontWeight: FontWeight.bold),
           ),
           content: SingleChildScrollView(
             child: Column(
@@ -195,7 +195,7 @@ class _UtilidadesScreenState extends State<UtilidadesScreen> {
                 }
               },
               style: ElevatedButton.styleFrom(
-                backgroundColor: dePertinLaranja,
+                backgroundColor: diPertinLaranja,
                 foregroundColor: Colors.white,
               ),
               child: const Text("Salvar"),
@@ -454,7 +454,7 @@ class _UtilidadesScreenState extends State<UtilidadesScreen> {
               title: Text(
                 "Nova Publicação",
                 style: TextStyle(
-                  color: dePertinRoxo,
+                  color: diPertinRoxo,
                   fontWeight: FontWeight.bold,
                 ),
               ),
@@ -720,7 +720,7 @@ class _UtilidadesScreenState extends State<UtilidadesScreen> {
                 ElevatedButton(
                   onPressed: isLoading ? null : salvarPost,
                   style: ElevatedButton.styleFrom(
-                    backgroundColor: dePertinLaranja,
+                    backgroundColor: diPertinLaranja,
                     foregroundColor: Colors.white,
                   ),
                   child: isLoading
@@ -853,7 +853,7 @@ class _UtilidadesScreenState extends State<UtilidadesScreen> {
             FloatingActionButton.extended(
               heroTag: 'btn_utilidades', // Evita erro de animação duplicada
               onPressed: _mostrarFormularioNovoPost,
-              backgroundColor: dePertinLaranja,
+              backgroundColor: diPertinLaranja,
               icon: const Icon(Icons.add, color: Colors.white),
               label: const Text(
                 "Novo Anúncio",
@@ -890,14 +890,14 @@ class _UtilidadesScreenState extends State<UtilidadesScreen> {
                           style: TextStyle(
                             fontSize: 28,
                             fontWeight: FontWeight.bold,
-                            color: dePertinRoxo,
+                            color: diPertinRoxo,
                           ),
                         ),
                         const SizedBox(height: 20),
                         TabBar(
-                          labelColor: dePertinRoxo,
+                          labelColor: diPertinRoxo,
                           unselectedLabelColor: Colors.grey,
-                          indicatorColor: dePertinLaranja,
+                          indicatorColor: diPertinLaranja,
                           indicatorWeight: 4,
                           tabs: const [
                             Tab(icon: Icon(Icons.star), text: "Destaques"),
@@ -949,7 +949,7 @@ class _UtilidadesScreenState extends State<UtilidadesScreen> {
                               style: TextStyle(color: Colors.white),
                             ),
                             style: ElevatedButton.styleFrom(
-                              backgroundColor: dePertinLaranja,
+                              backgroundColor: diPertinLaranja,
                             ),
                           ),
                         ),
@@ -994,7 +994,7 @@ class _UtilidadesScreenState extends State<UtilidadesScreen> {
                               style: TextStyle(color: Colors.white),
                             ),
                             style: ElevatedButton.styleFrom(
-                              backgroundColor: dePertinLaranja,
+                              backgroundColor: diPertinLaranja,
                             ),
                           ),
                         ),

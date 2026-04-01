@@ -1,11 +1,11 @@
-# DePertin Admin - Painel Administrativo
+# DiPertin Admin - Painel Administrativo
 
 <p align="center">
-  <img src="assets/logo.png" alt="DePertin Admin Logo" width="180"/>
+  <img src="assets/logo.png" alt="DiPertin Admin Logo" width="180"/>
 </p>
 
 <p align="center">
-  <strong>Painel de gestão</strong> da plataforma DePertin — controle total do marketplace.
+  <strong>Painel de gestão</strong> da plataforma DiPertin — controle total do marketplace.
 </p>
 
 <p align="center">
@@ -19,7 +19,7 @@
 
 ## Sobre
 
-O **DePertin Admin** é o painel administrativo da plataforma DePertin. Desenvolvido em Flutter para web e desktop, permite à equipa de operações gerir todos os aspectos do marketplace — lojas, entregadores, finanças, banners, cidades e suporte ao cliente.
+O **DiPertin Admin** é o painel administrativo da plataforma DiPertin. Desenvolvido em Flutter para web e desktop, permite à equipa de operações gerir todos os aspectos do marketplace — lojas, entregadores, finanças, banners, cidades e suporte ao cliente.
 
 ## Funcionalidades
 
@@ -149,7 +149,7 @@ Os artefactos ficam em `build/web/` ou `build/windows/` respetivamente.
 
 ## Relação com o App Cliente
 
-Este painel gere os dados consumidos pelo [DePertin Cliente](../depertin_cliente/), partilhando o mesmo projeto Firebase (`depertin-f940f`) e as mesmas coleções Firestore. Alterações feitas aqui (aprovar lojas, configurar taxas, gerir banners) refletem-se em tempo real no app dos utilizadores.
+Este painel gere os dados consumidos pelo [DiPertin Cliente](../depertin_cliente/), partilhando o mesmo projeto Firebase (`depertin-f940f`) e as mesmas coleções Firestore. Alterações feitas aqui (aprovar lojas, configurar taxas, gerir banners) refletem-se em tempo real no app dos utilizadores.
 
 ## Licença
 

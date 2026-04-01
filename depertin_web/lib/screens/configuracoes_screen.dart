@@ -13,8 +13,8 @@ class ConfiguracoesScreen extends StatefulWidget {
 }
 
 class _ConfiguracoesScreenState extends State<ConfiguracoesScreen> {
-  final Color dePertinRoxo = const Color(0xFF6A1B9A);
-  final Color dePertinLaranja = const Color(0xFFFF8F00);
+  final Color diPertinRoxo = const Color(0xFF6A1B9A);
+  final Color diPertinLaranja = const Color(0xFFFF8F00);
 
   List<String> _cidadesSugeridas = ['Todas'];
 
@@ -104,7 +104,7 @@ class _ConfiguracoesScreenState extends State<ConfiguracoesScreen> {
               title: Text(
                 "Criar Plano/Taxa (Ganhos do App)",
                 style: TextStyle(
-                  color: dePertinRoxo,
+                  color: diPertinRoxo,
                   fontWeight: FontWeight.bold,
                 ),
               ),
@@ -265,7 +265,7 @@ class _ConfiguracoesScreenState extends State<ConfiguracoesScreen> {
                 ElevatedButton(
                   onPressed: isLoading ? null : salvarPlano,
                   style: ElevatedButton.styleFrom(
-                    backgroundColor: dePertinLaranja,
+                    backgroundColor: diPertinLaranja,
                     foregroundColor: Colors.white,
                   ),
                   child: const Text("Salvar Plano"),
@@ -337,7 +337,7 @@ class _ConfiguracoesScreenState extends State<ConfiguracoesScreen> {
               title: Text(
                 "Nova Regra de Frete",
                 style: TextStyle(
-                  color: dePertinRoxo,
+                  color: diPertinRoxo,
                   fontWeight: FontWeight.bold,
                 ),
               ),
@@ -440,7 +440,7 @@ class _ConfiguracoesScreenState extends State<ConfiguracoesScreen> {
                 ElevatedButton(
                   onPressed: isLoading ? null : salvarFrete,
                   style: ElevatedButton.styleFrom(
-                    backgroundColor: dePertinLaranja,
+                    backgroundColor: diPertinLaranja,
                     foregroundColor: Colors.white,
                   ),
                   child: const Text("Salvar Matemática"),
@@ -581,7 +581,7 @@ class _ConfiguracoesScreenState extends State<ConfiguracoesScreen> {
 
   // === NOVO: WIDGET DE INTEGRAÇÕES (GATEWAYS) ===
   Widget _buildGatewaysPagamento() {
-    // Definimos os gateways disponíveis no DePertin
+    // Definimos os gateways disponíveis no DiPertin
     List<Map<String, String>> gatewaysDisponiveis = [
       {
         'id': 'mercado_pago',
@@ -878,7 +878,7 @@ class _ConfiguracoesScreenState extends State<ConfiguracoesScreen> {
                                   style: TextStyle(
                                     fontSize: 28,
                                     fontWeight: FontWeight.bold,
-                                    color: dePertinRoxo,
+                                    color: diPertinRoxo,
                                   ),
                                 ),
                                 const Text(
@@ -918,7 +918,7 @@ class _ConfiguracoesScreenState extends State<ConfiguracoesScreen> {
                                     style: TextStyle(color: Colors.white),
                                   ),
                                   style: ElevatedButton.styleFrom(
-                                    backgroundColor: dePertinLaranja,
+                                    backgroundColor: diPertinLaranja,
                                   ),
                                 ),
                               ],
@@ -927,9 +927,9 @@ class _ConfiguracoesScreenState extends State<ConfiguracoesScreen> {
                         ),
                         const SizedBox(height: 20),
                         TabBar(
-                          labelColor: dePertinRoxo,
+                          labelColor: diPertinRoxo,
                           unselectedLabelColor: Colors.grey,
-                          indicatorColor: dePertinLaranja,
+                          indicatorColor: diPertinLaranja,
                           tabs: [
                             Tab(
                               icon: Icon(Icons.store),

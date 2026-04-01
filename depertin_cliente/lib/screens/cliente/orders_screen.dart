@@ -5,8 +5,8 @@ import 'package:flutter/material.dart';
 import 'package:cloud_firestore/cloud_firestore.dart';
 import 'package:firebase_auth/firebase_auth.dart';
 
-const Color dePertinRoxo = Color(0xFF6A1B9A);
-const Color dePertinLaranja = Color(0xFFFF8F00);
+const Color diPertinRoxo = Color(0xFF6A1B9A);
+const Color diPertinLaranja = Color(0xFFFF8F00);
 
 class OrdersScreen extends StatelessWidget {
   const OrdersScreen({super.key});
@@ -48,7 +48,7 @@ class OrdersScreen extends StatelessWidget {
                 style: TextStyle(
                   fontSize: 22,
                   fontWeight: FontWeight.bold,
-                  color: dePertinRoxo,
+                  color: diPertinRoxo,
                 ),
               ),
               const Divider(),
@@ -87,7 +87,7 @@ class OrdersScreen extends StatelessWidget {
                     style: const TextStyle(
                       fontWeight: FontWeight.bold,
                       fontSize: 18,
-                      color: dePertinLaranja,
+                      color: diPertinLaranja,
                     ),
                   ),
                 ],
@@ -170,7 +170,7 @@ class OrdersScreen extends StatelessWidget {
     return Scaffold(
       appBar: AppBar(
         title: const Text("Meus Pedidos"),
-        backgroundColor: dePertinRoxo,
+        backgroundColor: diPertinRoxo,
         foregroundColor: Colors.white,
       ),
       body: user == null
@@ -309,7 +309,7 @@ class OrdersScreen extends StatelessWidget {
                                           fontSize: 28,
                                           fontWeight: FontWeight.bold,
                                           letterSpacing: 8,
-                                          color: dePertinRoxo,
+                                          color: diPertinRoxo,
                                         ),
                                       ),
                                     ),
@@ -333,7 +333,7 @@ class OrdersScreen extends StatelessWidget {
                                 IconButton(
                                   icon: const Icon(
                                     Icons.chat_outlined,
-                                    color: dePertinRoxo,
+                                    color: diPertinRoxo,
                                   ),
                                   onPressed: () {
                                     Navigator.push(

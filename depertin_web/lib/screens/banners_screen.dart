@@ -14,8 +14,8 @@ class BannersScreen extends StatefulWidget {
 }
 
 class _BannersScreenState extends State<BannersScreen> {
-  final Color dePertinRoxo = const Color(0xFF6A1B9A);
-  final Color dePertinLaranja = const Color(0xFFFF8F00);
+  final Color diPertinRoxo = const Color(0xFF6A1B9A);
+  final Color diPertinLaranja = const Color(0xFFFF8F00);
 
   // === MODAL PARA CRIAR OU EDITAR BANNER ===
   void _mostrarModalBanner({
@@ -183,7 +183,7 @@ class _BannersScreenState extends State<BannersScreen> {
               title: Text(
                 isEditando ? "Editar Banner" : "Novo Banner Promocional",
                 style: TextStyle(
-                  color: dePertinRoxo,
+                  color: diPertinRoxo,
                   fontWeight: FontWeight.bold,
                 ),
               ),
@@ -414,7 +414,7 @@ class _BannersScreenState extends State<BannersScreen> {
           FloatingActionButton.extended(
             heroTag: 'btn_banners',
             onPressed: () => _mostrarModalBanner(),
-            backgroundColor: dePertinLaranja,
+            backgroundColor: diPertinLaranja,
             icon: const Icon(Icons.add_photo_alternate, color: Colors.white),
             label: const Text(
               "Novo Banner",
@@ -445,7 +445,7 @@ class _BannersScreenState extends State<BannersScreen> {
                         style: TextStyle(
                           fontSize: 28,
                           fontWeight: FontWeight.bold,
-                          color: dePertinRoxo,
+                          color: diPertinRoxo,
                         ),
                       ),
                       const Text(
@@ -536,7 +536,7 @@ class _BannersScreenState extends State<BannersScreen> {
                                             vertical: 4,
                                           ),
                                           decoration: BoxDecoration(
-                                            color: dePertinLaranja,
+                                            color: diPertinLaranja,
                                             borderRadius: BorderRadius.circular(
                                               5,
                                             ),

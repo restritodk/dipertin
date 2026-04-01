@@ -12,8 +12,8 @@ import 'package:firebase_auth/firebase_auth.dart';
 import 'chat_suporte_screen.dart';
 import '../auth/login_screen.dart';
 
-const Color dePertinRoxo = Color(0xFF6A1B9A);
-const Color dePertinLaranja = Color(0xFFFF8F00);
+const Color diPertinRoxo = Color(0xFF6A1B9A);
+const Color diPertinLaranja = Color(0xFFFF8F00);
 
 class SearchScreen extends StatefulWidget {
   const SearchScreen({super.key});
@@ -82,7 +82,7 @@ class _SearchScreenState extends State<SearchScreen> {
           ? "Olá $nomeProfissional! "
           : "Olá! ";
       String texto = Uri.encodeComponent(
-        "${saudacao}Vi seu destaque no app DePertin e gostaria de mais informações sobre o seu serviço.",
+        "${saudacao}Vi seu destaque no app DiPertin e gostaria de mais informações sobre o seu serviço.",
       );
 
       final Uri url = Uri.parse('https://wa.me/$zap?text=$texto');
@@ -123,7 +123,7 @@ class _SearchScreenState extends State<SearchScreen> {
                   },
                 ),
                 ListTile(
-                  leading: const Icon(Icons.phone, color: dePertinRoxo),
+                  leading: const Icon(Icons.phone, color: diPertinRoxo),
                   title: const Text("Fazer uma Ligação"),
                   onTap: () {
                     Navigator.pop(context);
@@ -144,7 +144,7 @@ class _SearchScreenState extends State<SearchScreen> {
       ScaffoldMessenger.of(context).showSnackBar(
         const SnackBar(
           content: Text('Faça login ou cadastre-se para anunciar!'),
-          backgroundColor: dePertinLaranja,
+          backgroundColor: diPertinLaranja,
         ),
       );
       Navigator.push(
@@ -181,13 +181,13 @@ class _SearchScreenState extends State<SearchScreen> {
             fontSize: 18,
           ),
         ),
-        backgroundColor: dePertinRoxo,
+        backgroundColor: diPertinRoxo,
         elevation: 0,
       ),
       body: Column(
         children: [
           Container(
-            color: dePertinRoxo,
+            color: diPertinRoxo,
             padding: const EdgeInsets.fromLTRB(15, 0, 15, 15),
             child: TextField(
               controller: _searchController,
@@ -196,7 +196,7 @@ class _SearchScreenState extends State<SearchScreen> {
                   setState(() => _buscaNome = val.toLowerCase()),
               decoration: InputDecoration(
                 hintText: "Buscar lanches, produtos ou lojas...",
-                prefixIcon: const Icon(Icons.search, color: dePertinRoxo),
+                prefixIcon: const Icon(Icons.search, color: diPertinRoxo),
                 suffixIcon: _isPesquisando
                     ? IconButton(
                         icon: const Icon(Icons.close, color: Colors.red),
@@ -226,7 +226,7 @@ class _SearchScreenState extends State<SearchScreen> {
               builder: (context, snapshot) {
                 if (!snapshot.hasData) {
                   return const Center(
-                    child: LinearProgressIndicator(color: dePertinLaranja),
+                    child: LinearProgressIndicator(color: diPertinLaranja),
                   );
                 }
                 var categorias = snapshot.data!.docs;
@@ -258,7 +258,7 @@ class _SearchScreenState extends State<SearchScreen> {
                             CircleAvatar(
                               radius: 28,
                               backgroundColor: estaSelecionada
-                                  ? dePertinLaranja
+                                  ? diPertinLaranja
                                   : Colors.transparent,
                               child: CircleAvatar(
                                 radius: 25,
@@ -283,7 +283,7 @@ class _SearchScreenState extends State<SearchScreen> {
                                     ? FontWeight.bold
                                     : FontWeight.w500,
                                 color: estaSelecionada
-                                    ? dePertinLaranja
+                                    ? diPertinLaranja
                                     : Colors.black87,
                               ),
                               textAlign: TextAlign.center,
@@ -405,7 +405,7 @@ class _SearchScreenState extends State<SearchScreen> {
                                   style: const TextStyle(
                                     fontWeight: FontWeight.bold,
                                     fontSize: 13,
-                                    color: dePertinRoxo,
+                                    color: diPertinRoxo,
                                   ),
                                   maxLines: 1,
                                   overflow: TextOverflow.ellipsis,
@@ -415,7 +415,7 @@ class _SearchScreenState extends State<SearchScreen> {
                                   ad['categoria'] ?? 'Geral',
                                   style: const TextStyle(
                                     fontSize: 11,
-                                    color: dePertinLaranja,
+                                    color: diPertinLaranja,
                                     fontWeight: FontWeight.bold,
                                   ),
                                   maxLines: 1,
@@ -590,7 +590,7 @@ class _SearchScreenState extends State<SearchScreen> {
                         color: Colors.white,
                         borderRadius: BorderRadius.circular(10),
                         border: Border.all(
-                          color: dePertinRoxo.withOpacity(0.3),
+                          color: diPertinRoxo.withOpacity(0.3),
                         ),
                       ),
                       padding: const EdgeInsets.symmetric(horizontal: 8),
@@ -598,7 +598,7 @@ class _SearchScreenState extends State<SearchScreen> {
                         children: [
                           const Icon(
                             Icons.phone_forwarded,
-                            color: dePertinRoxo,
+                            color: diPertinRoxo,
                             size: 24,
                           ),
                           const SizedBox(width: 8),
@@ -620,7 +620,7 @@ class _SearchScreenState extends State<SearchScreen> {
                                   tel['telefone'] ?? '',
                                   style: const TextStyle(
                                     fontSize: 12,
-                                    color: dePertinRoxo,
+                                    color: diPertinRoxo,
                                     fontWeight: FontWeight.bold,
                                   ),
                                 ),
@@ -677,7 +677,7 @@ class _SearchScreenState extends State<SearchScreen> {
             "Eventos e Festas",
             "O que vai rolar na cidade",
             Icons.event,
-            dePertinRoxo,
+            diPertinRoxo,
             () {
               Navigator.push(
                 context,
@@ -690,7 +690,7 @@ class _SearchScreenState extends State<SearchScreen> {
             "Achados e Perdidos",
             "Documentos, pets e objetos",
             Icons.search_off,
-            dePertinLaranja,
+            diPertinLaranja,
             () {
               Navigator.push(
                 context,
@@ -716,16 +716,16 @@ class _SearchScreenState extends State<SearchScreen> {
         decoration: BoxDecoration(
           color: Colors.white,
           borderRadius: BorderRadius.circular(15),
-          border: Border.all(color: dePertinLaranja.withOpacity(0.5)),
+          border: Border.all(color: diPertinLaranja.withOpacity(0.5)),
         ),
         child: Row(
           children: [
             CircleAvatar(
-              backgroundColor: dePertinLaranja.withOpacity(0.2),
+              backgroundColor: diPertinLaranja.withOpacity(0.2),
               radius: 25,
               child: const Icon(
                 Icons.campaign,
-                color: dePertinLaranja,
+                color: diPertinLaranja,
                 size: 25,
               ),
             ),
@@ -740,7 +740,7 @@ class _SearchScreenState extends State<SearchScreen> {
                     style: TextStyle(
                       fontWeight: FontWeight.bold,
                       fontSize: 13,
-                      color: dePertinLaranja,
+                      color: diPertinLaranja,
                     ),
                   ),
                   Text(
@@ -918,7 +918,7 @@ class _SearchScreenState extends State<SearchScreen> {
                           style: TextStyle(
                             fontWeight: FontWeight.bold,
                             fontSize: 16,
-                            color: dePertinRoxo,
+                            color: diPertinRoxo,
                           ),
                         ),
                       ),
@@ -963,7 +963,7 @@ class _SearchScreenState extends State<SearchScreen> {
                                     ),
                                   ],
                                   border: Border.all(
-                                    color: dePertinLaranja.withOpacity(0.3),
+                                    color: diPertinLaranja.withOpacity(0.3),
                                   ),
                                 ),
                                 child: Column(
@@ -1024,7 +1024,7 @@ class _SearchScreenState extends State<SearchScreen> {
                       style: TextStyle(
                         fontWeight: FontWeight.bold,
                         fontSize: 16,
-                        color: dePertinRoxo,
+                        color: diPertinRoxo,
                       ),
                     ),
                   ),
@@ -1186,7 +1186,7 @@ class _SearchScreenState extends State<SearchScreen> {
                                         Text(
                                           "R\$ ${(p['preco'] ?? 0.0).toStringAsFixed(2)}",
                                           style: const TextStyle(
-                                            color: dePertinLaranja,
+                                            color: diPertinLaranja,
                                             fontWeight: FontWeight.bold,
                                             fontSize: 14,
                                           ),

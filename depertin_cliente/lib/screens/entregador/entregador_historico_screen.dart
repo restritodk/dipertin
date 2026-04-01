@@ -5,8 +5,8 @@ import 'package:cloud_firestore/cloud_firestore.dart';
 import 'package:firebase_auth/firebase_auth.dart';
 import 'package:intl/intl.dart'; // Para formatar a data da corrida
 
-const Color dePertinRoxo = Color(0xFF6A1B9A);
-const Color dePertinLaranja = Color(0xFFFF8F00);
+const Color diPertinRoxo = Color(0xFF6A1B9A);
+const Color diPertinLaranja = Color(0xFFFF8F00);
 
 class EntregadorHistoricoScreen extends StatefulWidget {
   const EntregadorHistoricoScreen({super.key});
@@ -36,7 +36,7 @@ class _EntregadorHistoricoScreenState extends State<EntregadorHistoricoScreen> {
           "Histórico de Corridas",
           style: TextStyle(color: Colors.white),
         ),
-        backgroundColor: dePertinRoxo,
+        backgroundColor: diPertinRoxo,
         iconTheme: const IconThemeData(color: Colors.white),
       ),
       body: StreamBuilder<QuerySnapshot>(
@@ -49,7 +49,7 @@ class _EntregadorHistoricoScreenState extends State<EntregadorHistoricoScreen> {
         builder: (context, snapshot) {
           if (snapshot.connectionState == ConnectionState.waiting) {
             return const Center(
-              child: CircularProgressIndicator(color: dePertinLaranja),
+              child: CircularProgressIndicator(color: diPertinLaranja),
             );
           }
 
@@ -160,7 +160,7 @@ class _EntregadorHistoricoScreenState extends State<EntregadorHistoricoScreen> {
                         children: [
                           const Icon(
                             Icons.store,
-                            color: dePertinRoxo,
+                            color: diPertinRoxo,
                             size: 20,
                           ),
                           const SizedBox(width: 8),
@@ -201,7 +201,7 @@ class _EntregadorHistoricoScreenState extends State<EntregadorHistoricoScreen> {
                           style: const TextStyle(
                             fontSize: 18,
                             fontWeight: FontWeight.bold,
-                            color: dePertinLaranja,
+                            color: diPertinLaranja,
                           ),
                         ),
                       ),

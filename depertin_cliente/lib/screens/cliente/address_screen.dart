@@ -8,8 +8,8 @@ import 'package:geocoding/geocoding.dart';
 import 'package:firebase_auth/firebase_auth.dart';
 import 'package:cloud_firestore/cloud_firestore.dart';
 
-const Color dePertinRoxo = Color(0xFF6A1B9A);
-const Color dePertinLaranja = Color(0xFFFF8F00);
+const Color diPertinRoxo = Color(0xFF6A1B9A);
+const Color diPertinLaranja = Color(0xFFFF8F00);
 
 class AddressScreen extends StatefulWidget {
   const AddressScreen({super.key});
@@ -134,7 +134,7 @@ class _AddressScreenState extends State<AddressScreen> {
         ScaffoldMessenger.of(context).showSnackBar(
           const SnackBar(
             content: Text("Faça login para salvar um endereço padrão."),
-            backgroundColor: dePertinLaranja,
+            backgroundColor: diPertinLaranja,
           ),
         );
         return;
@@ -194,7 +194,7 @@ class _AddressScreenState extends State<AddressScreen> {
           "Endereço de Entrega",
           style: TextStyle(color: Colors.white, fontWeight: FontWeight.bold),
         ),
-        backgroundColor: dePertinRoxo,
+        backgroundColor: diPertinRoxo,
         elevation: 0,
         iconTheme: const IconThemeData(color: Colors.white),
       ),
@@ -218,14 +218,14 @@ class _AddressScreenState extends State<AddressScreen> {
               ),
               child: Column(
                 children: [
-                  const Icon(Icons.gps_fixed, size: 50, color: dePertinLaranja),
+                  const Icon(Icons.gps_fixed, size: 50, color: diPertinLaranja),
                   const SizedBox(height: 15),
                   const Text(
                     "Usar localização atual",
                     style: TextStyle(
                       fontSize: 18,
                       fontWeight: FontWeight.bold,
-                      color: dePertinRoxo,
+                      color: diPertinRoxo,
                     ),
                     textAlign: TextAlign.center,
                   ),
@@ -244,7 +244,7 @@ class _AddressScreenState extends State<AddressScreen> {
                       size: 18,
                     ),
                     style: ElevatedButton.styleFrom(
-                      backgroundColor: dePertinRoxo,
+                      backgroundColor: diPertinRoxo,
                       minimumSize: const Size(double.infinity, 50),
                       shape: RoundedRectangleBorder(
                         borderRadius: BorderRadius.circular(10),
@@ -345,7 +345,7 @@ class _AddressScreenState extends State<AddressScreen> {
                   "Salvar como endereço padrão de entregas",
                   style: TextStyle(
                     fontSize: 14,
-                    color: dePertinRoxo,
+                    color: diPertinRoxo,
                     fontWeight: FontWeight.w500,
                   ),
                 ),
@@ -354,7 +354,7 @@ class _AddressScreenState extends State<AddressScreen> {
                   style: TextStyle(fontSize: 12),
                 ),
                 value: _tornarPadrao,
-                activeThumbColor: dePertinLaranja,
+                activeThumbColor: diPertinLaranja,
                 onChanged: (bool value) {
                   setState(() {
                     _tornarPadrao = value;
@@ -371,7 +371,7 @@ class _AddressScreenState extends State<AddressScreen> {
                   ? null
                   : _confirmarEndereco,
               style: ElevatedButton.styleFrom(
-                backgroundColor: dePertinLaranja,
+                backgroundColor: diPertinLaranja,
                 minimumSize: const Size(double.infinity, 55),
                 shape: RoundedRectangleBorder(
                   borderRadius: BorderRadius.circular(10),
@@ -409,7 +409,7 @@ class _AddressScreenState extends State<AddressScreen> {
       decoration: InputDecoration(
         labelText: label,
         prefixIcon: icon != null
-            ? Icon(icon, color: dePertinRoxo, size: 20)
+            ? Icon(icon, color: diPertinRoxo, size: 20)
             : null,
         filled: true,
         fillColor: Colors.white,

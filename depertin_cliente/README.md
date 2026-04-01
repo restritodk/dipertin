@@ -1,7 +1,7 @@
-# DePertin - App Cliente
+# DiPertin - App Cliente
 
 <p align="center">
-  <img src="assets/logo.png" alt="DePertin Logo" width="180"/>
+  <img src="assets/logo.png" alt="DiPertin Logo" width="180"/>
 </p>
 
 <p align="center">
@@ -19,7 +19,7 @@
 
 ## Sobre
 
-O **DePertin** é uma aplicação mobile (Android/iOS) que conecta **clientes**, **lojistas** e **entregadores** numa única plataforma de comércio e delivery local. Cada perfil tem a sua experiência dedicada dentro do mesmo app.
+O **DiPertin** é uma aplicação mobile (Android/iOS) que conecta **clientes**, **lojistas** e **entregadores** numa única plataforma de comércio e delivery local. Cada perfil tem a sua experiência dedicada dentro do mesmo app.
 
 ## Funcionalidades
 

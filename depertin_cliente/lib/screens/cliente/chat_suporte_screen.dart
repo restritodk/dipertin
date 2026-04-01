@@ -4,8 +4,8 @@ import 'package:flutter/material.dart';
 import 'package:cloud_firestore/cloud_firestore.dart';
 import 'package:firebase_auth/firebase_auth.dart';
 
-const Color dePertinRoxo = Color(0xFF6A1B9A);
-const Color dePertinLaranja = Color(
+const Color diPertinRoxo = Color(0xFF6A1B9A);
+const Color diPertinLaranja = Color(
   0xFFFF8F00,
 ); // ADICIONADO A COR LARANJA AQUI
 
@@ -108,7 +108,7 @@ class _ChatSuporteScreenState extends State<ChatSuporteScreen> {
             ),
           ],
         ),
-        backgroundColor: dePertinRoxo,
+        backgroundColor: diPertinRoxo,
         iconTheme: const IconThemeData(color: Colors.white),
       ),
       body: user == null
@@ -173,7 +173,7 @@ class _ChatSuporteScreenState extends State<ChatSuporteScreen> {
                               ConnectionState.waiting) {
                             return const Center(
                               child: CircularProgressIndicator(
-                                color: dePertinRoxo,
+                                color: diPertinRoxo,
                               ),
                             );
                           }
@@ -243,8 +243,8 @@ class _ChatSuporteScreenState extends State<ChatSuporteScreen> {
                                   decoration: BoxDecoration(
                                     // MUDANÇA NAS CORES AQUI: Roxo se for 'souEu', Laranja se for o outro
                                     color: souEu
-                                        ? dePertinRoxo
-                                        : dePertinLaranja,
+                                        ? diPertinRoxo
+                                        : diPertinLaranja,
                                     borderRadius: BorderRadius.only(
                                       topLeft: const Radius.circular(15),
                                       topRight: const Radius.circular(15),
@@ -294,17 +294,17 @@ class _ChatSuporteScreenState extends State<ChatSuporteScreen> {
                                   onPressed: _reabrirChamado,
                                   icon: const Icon(
                                     Icons.add_circle_outline,
-                                    color: dePertinRoxo,
+                                    color: diPertinRoxo,
                                   ),
                                   label: const Text(
                                     "ABRIR NOVO ATENDIMENTO",
                                     style: TextStyle(
-                                      color: dePertinRoxo,
+                                      color: diPertinRoxo,
                                       fontWeight: FontWeight.bold,
                                     ),
                                   ),
                                   style: ElevatedButton.styleFrom(
-                                    backgroundColor: dePertinRoxo.withOpacity(
+                                    backgroundColor: diPertinRoxo.withOpacity(
                                       0.1,
                                     ),
                                     elevation: 0,
@@ -340,7 +340,7 @@ class _ChatSuporteScreenState extends State<ChatSuporteScreen> {
                                   const SizedBox(width: 10),
                                   Container(
                                     decoration: const BoxDecoration(
-                                      color: dePertinRoxo,
+                                      color: diPertinRoxo,
                                       shape: BoxShape.circle,
                                     ),
                                     child: IconButton(

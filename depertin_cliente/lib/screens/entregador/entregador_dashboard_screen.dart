@@ -8,8 +8,8 @@ import 'package:geolocator/geolocator.dart';
 import 'package:audioplayers/audioplayers.dart';
 import 'entregador_mapa_screen.dart';
 
-const Color dePertinRoxo = Color(0xFF6A1B9A);
-const Color dePertinLaranja = Color(0xFFFF8F00);
+const Color diPertinRoxo = Color(0xFF6A1B9A);
+const Color diPertinLaranja = Color(0xFFFF8F00);
 
 class EntregadorDashboardScreen extends StatefulWidget {
   const EntregadorDashboardScreen({super.key});
@@ -325,7 +325,7 @@ class _EntregadorDashboardScreenState extends State<EntregadorDashboardScreen> {
                           Icon(
                             Icons.radar,
                             size: 80,
-                            color: dePertinLaranja.withOpacity(0.5),
+                            color: diPertinLaranja.withOpacity(0.5),
                           ),
                           const SizedBox(height: 15),
                           const Text(
@@ -364,7 +364,7 @@ class _EntregadorDashboardScreenState extends State<EntregadorDashboardScreen> {
                           Icon(
                             Icons.radar,
                             size: 80,
-                            color: dePertinLaranja.withOpacity(0.5),
+                            color: diPertinLaranja.withOpacity(0.5),
                           ),
                           const SizedBox(height: 15),
                           const Text(

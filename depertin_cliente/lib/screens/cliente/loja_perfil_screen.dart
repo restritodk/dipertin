@@ -5,8 +5,8 @@ import 'package:cloud_firestore/cloud_firestore.dart';
 import 'package:url_launcher/url_launcher.dart'; // Para abrir o WhatsApp
 import 'product_details_screen.dart'; // Importante para clicar no produto e abrir os detalhes
 
-const Color dePertinRoxo = Color(0xFF6A1B9A);
-const Color dePertinLaranja = Color(0xFFFF8F00);
+const Color diPertinRoxo = Color(0xFF6A1B9A);
+const Color diPertinLaranja = Color(0xFFFF8F00);
 
 class LojaPerfilScreen extends StatefulWidget {
   final Map<String, dynamic> lojistaData;
@@ -69,7 +69,7 @@ class _LojaPerfilScreenState extends State<LojaPerfilScreen> {
           SliverAppBar(
             expandedHeight: 220,
             pinned: true,
-            backgroundColor: dePertinRoxo,
+            backgroundColor: diPertinRoxo,
             iconTheme: const IconThemeData(color: Colors.white),
             flexibleSpace: FlexibleSpaceBar(
               background: Stack(
@@ -78,7 +78,7 @@ class _LojaPerfilScreenState extends State<LojaPerfilScreen> {
                   urlCapa.isNotEmpty
                       ? Image.network(urlCapa, fit: BoxFit.cover)
                       : Container(
-                          color: dePertinRoxo.withOpacity(0.5),
+                          color: diPertinRoxo.withOpacity(0.5),
                           child: const Icon(
                             Icons.store,
                             size: 80,
@@ -113,7 +113,7 @@ class _LojaPerfilScreenState extends State<LojaPerfilScreen> {
                             ? const Icon(
                                 Icons.storefront,
                                 size: 40,
-                                color: dePertinRoxo,
+                                color: diPertinRoxo,
                               )
                             : null,
                       ),
@@ -202,11 +202,11 @@ class _LojaPerfilScreenState extends State<LojaPerfilScreen> {
                         content:
                             widget.lojistaData['telefone'] ??
                             'Sem telefone cadastrado.',
-                        contentColor: dePertinRoxo,
+                        contentColor: diPertinRoxo,
                         trailing: const Icon(
                           Icons.arrow_forward_ios,
                           size: 14,
-                          color: dePertinRoxo,
+                          color: diPertinRoxo,
                         ),
                       ),
                     ),
@@ -239,7 +239,7 @@ class _LojaPerfilScreenState extends State<LojaPerfilScreen> {
                             ConnectionState.waiting) {
                           return const Center(
                             child: CircularProgressIndicator(
-                              color: dePertinLaranja,
+                              color: diPertinLaranja,
                             ),
                           );
                         }
@@ -350,7 +350,7 @@ class _LojaPerfilScreenState extends State<LojaPerfilScreen> {
                                           Text(
                                             "R\$ ${(p['oferta'] ?? p['preco'] ?? 0.0).toStringAsFixed(2)}",
                                             style: const TextStyle(
-                                              color: dePertinLaranja,
+                                              color: diPertinLaranja,
                                               fontWeight: FontWeight.bold,
                                               fontSize: 14,
                                             ),
@@ -400,7 +400,7 @@ class _LojaPerfilScreenState extends State<LojaPerfilScreen> {
       child: Row(
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
-          Icon(icon, color: dePertinLaranja, size: 22),
+          Icon(icon, color: diPertinLaranja, size: 22),
           const SizedBox(width: 15),
           Expanded(
             child: Column(

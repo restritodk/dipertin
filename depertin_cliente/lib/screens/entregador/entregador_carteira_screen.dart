@@ -5,8 +5,8 @@ import 'package:cloud_firestore/cloud_firestore.dart';
 import 'package:firebase_auth/firebase_auth.dart';
 import 'package:intl/intl.dart';
 
-const Color dePertinRoxo = Color(0xFF6A1B9A);
-const Color dePertinLaranja = Color(0xFFFF8F00);
+const Color diPertinRoxo = Color(0xFF6A1B9A);
+const Color diPertinLaranja = Color(0xFFFF8F00);
 
 class EntregadorCarteiraScreen extends StatefulWidget {
   const EntregadorCarteiraScreen({super.key});
@@ -47,7 +47,7 @@ class _EntregadorCarteiraScreenState extends State<EntregadorCarteiraScreen> {
           ),
           title: const Text(
             "Solicitar Saque (PIX)",
-            style: TextStyle(color: dePertinRoxo),
+            style: TextStyle(color: diPertinRoxo),
           ),
           content: SingleChildScrollView(
             child: Column(
@@ -64,7 +64,7 @@ class _EntregadorCarteiraScreenState extends State<EntregadorCarteiraScreen> {
                   decoration: const InputDecoration(
                     labelText: "Nome do Titular da Conta",
                     border: OutlineInputBorder(),
-                    prefixIcon: Icon(Icons.person, color: dePertinRoxo),
+                    prefixIcon: Icon(Icons.person, color: diPertinRoxo),
                   ),
                 ),
                 const SizedBox(height: 10),
@@ -76,7 +76,7 @@ class _EntregadorCarteiraScreenState extends State<EntregadorCarteiraScreen> {
                     border: OutlineInputBorder(),
                     prefixIcon: Icon(
                       Icons.account_balance,
-                      color: dePertinRoxo,
+                      color: diPertinRoxo,
                     ),
                   ),
                 ),
@@ -86,7 +86,7 @@ class _EntregadorCarteiraScreenState extends State<EntregadorCarteiraScreen> {
                   decoration: const InputDecoration(
                     labelText: "Chave PIX",
                     border: OutlineInputBorder(),
-                    prefixIcon: Icon(Icons.pix, color: dePertinLaranja),
+                    prefixIcon: Icon(Icons.pix, color: diPertinLaranja),
                   ),
                 ),
                 const SizedBox(height: 10),
@@ -113,7 +113,7 @@ class _EntregadorCarteiraScreenState extends State<EntregadorCarteiraScreen> {
               ),
             ),
             ElevatedButton(
-              style: ElevatedButton.styleFrom(backgroundColor: dePertinLaranja),
+              style: ElevatedButton.styleFrom(backgroundColor: diPertinLaranja),
               onPressed: () => _confirmarSaque(saldoDisponivel),
               child: const Text(
                 "Confirmar",
@@ -216,7 +216,7 @@ class _EntregadorCarteiraScreenState extends State<EntregadorCarteiraScreen> {
           "Minha Carteira",
           style: TextStyle(color: Colors.white),
         ),
-        backgroundColor: dePertinRoxo,
+        backgroundColor: diPertinRoxo,
         iconTheme: const IconThemeData(color: Colors.white),
       ),
       body: Column(
@@ -249,7 +249,7 @@ class _EntregadorCarteiraScreenState extends State<EntregadorCarteiraScreen> {
                       padding: const EdgeInsets.all(25),
                       decoration: BoxDecoration(
                         gradient: const LinearGradient(
-                          colors: [dePertinRoxo, Color(0xFF8E24AA)],
+                          colors: [diPertinRoxo, Color(0xFF8E24AA)],
                         ),
                         borderRadius: BorderRadius.circular(20),
                         boxShadow: [
@@ -285,7 +285,7 @@ class _EntregadorCarteiraScreenState extends State<EntregadorCarteiraScreen> {
                     _solicitando
                         ? const Center(
                             child: CircularProgressIndicator(
-                              color: dePertinLaranja,
+                              color: diPertinLaranja,
                             ),
                           )
                         : ElevatedButton.icon(
@@ -302,7 +302,7 @@ class _EntregadorCarteiraScreenState extends State<EntregadorCarteiraScreen> {
                               ),
                             ),
                             style: ElevatedButton.styleFrom(
-                              backgroundColor: dePertinLaranja,
+                              backgroundColor: diPertinLaranja,
                               shape: RoundedRectangleBorder(
                                 borderRadius: BorderRadius.circular(15),
                               ),

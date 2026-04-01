@@ -8,8 +8,8 @@ import 'package:url_launcher/url_launcher.dart';
 // NOVO: Importando a tela de chat que já criamos!
 import '../cliente/chat_pedido_screen.dart';
 
-const Color dePertinRoxo = Color(0xFF6A1B9A);
-const Color dePertinLaranja = Color(0xFFFF8F00);
+const Color diPertinRoxo = Color(0xFF6A1B9A);
+const Color diPertinLaranja = Color(0xFFFF8F00);
 
 class EntregadorMapaScreen extends StatefulWidget {
   final String pedidoId;
@@ -59,7 +59,7 @@ class _EntregadorMapaScreenState extends State<EntregadorMapaScreen> {
           ),
           title: const Text(
             "Finalizar Entrega",
-            style: TextStyle(color: dePertinRoxo, fontWeight: FontWeight.bold),
+            style: TextStyle(color: diPertinRoxo, fontWeight: FontWeight.bold),
           ),
           content: Column(
             mainAxisSize: MainAxisSize.min,
@@ -224,7 +224,7 @@ class _EntregadorMapaScreenState extends State<EntregadorMapaScreen> {
           "Rota de Entrega",
           style: TextStyle(color: Colors.white, fontWeight: FontWeight.bold),
         ),
-        backgroundColor: dePertinRoxo,
+        backgroundColor: diPertinRoxo,
         iconTheme: const IconThemeData(color: Colors.white),
       ),
       body: SingleChildScrollView(
@@ -245,7 +245,7 @@ class _EntregadorMapaScreenState extends State<EntregadorMapaScreen> {
                   children: [
                     const Row(
                       children: [
-                        Icon(Icons.storefront, color: dePertinLaranja),
+                        Icon(Icons.storefront, color: diPertinLaranja),
                         SizedBox(width: 8),
                         Text(
                           "1. COLETA NA LOJA",
@@ -306,7 +306,7 @@ class _EntregadorMapaScreenState extends State<EntregadorMapaScreen> {
                   children: [
                     const Row(
                       children: [
-                        Icon(Icons.person_pin_circle, color: dePertinRoxo),
+                        Icon(Icons.person_pin_circle, color: diPertinRoxo),
                         SizedBox(width: 8),
                         Text(
                           "2. ENTREGA AO CLIENTE",
@@ -339,7 +339,7 @@ class _EntregadorMapaScreenState extends State<EntregadorMapaScreen> {
                           ),
                         ),
                         style: ElevatedButton.styleFrom(
-                          backgroundColor: dePertinRoxo,
+                          backgroundColor: diPertinRoxo,
                         ),
                       ),
                     ),
@@ -365,17 +365,17 @@ class _EntregadorMapaScreenState extends State<EntregadorMapaScreen> {
                         },
                         icon: const Icon(
                           Icons.chat_bubble_outline,
-                          color: dePertinRoxo,
+                          color: diPertinRoxo,
                         ),
                         label: const Text(
                           "FALAR NO CHAT DO PEDIDO",
                           style: TextStyle(
-                            color: dePertinRoxo,
+                            color: diPertinRoxo,
                             fontWeight: FontWeight.bold,
                           ),
                         ),
                         style: OutlinedButton.styleFrom(
-                          side: const BorderSide(color: dePertinRoxo, width: 2),
+                          side: const BorderSide(color: diPertinRoxo, width: 2),
                         ),
                       ),
                     ),

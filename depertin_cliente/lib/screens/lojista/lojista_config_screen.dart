@@ -6,8 +6,8 @@ import 'package:firebase_auth/firebase_auth.dart';
 import 'package:geolocator/geolocator.dart';
 import 'package:geocoding/geocoding.dart';
 
-const Color dePertinRoxo = Color(0xFF6A1B9A);
-const Color dePertinLaranja = Color(0xFFFF8F00);
+const Color diPertinRoxo = Color(0xFF6A1B9A);
+const Color diPertinLaranja = Color(0xFFFF8F00);
 
 class LojistaConfigScreen extends StatefulWidget {
   final Map<String, dynamic> dadosAtuaisDaLoja;
@@ -190,7 +190,7 @@ class _LojistaConfigScreenState extends State<LojistaConfigScreen> {
       builder: (context, child) {
         return Theme(
           data: ThemeData.light().copyWith(
-            colorScheme: const ColorScheme.light(primary: dePertinRoxo),
+            colorScheme: const ColorScheme.light(primary: diPertinRoxo),
           ),
           child: child!,
         );
@@ -216,7 +216,7 @@ class _LojistaConfigScreenState extends State<LojistaConfigScreen> {
         children: [
           Checkbox(
             value: ativo,
-            activeColor: dePertinLaranja,
+            activeColor: diPertinLaranja,
             onChanged: (val) =>
                 setState(() => _horarios[chaveDia]!['ativo'] = val),
           ),
@@ -299,7 +299,7 @@ class _LojistaConfigScreenState extends State<LojistaConfigScreen> {
             fontSize: 18,
           ),
         ),
-        backgroundColor: dePertinRoxo,
+        backgroundColor: diPertinRoxo,
         iconTheme: const IconThemeData(color: Colors.white),
       ),
       body: SingleChildScrollView(
@@ -312,7 +312,7 @@ class _LojistaConfigScreenState extends State<LojistaConfigScreen> {
               style: TextStyle(
                 fontSize: 18,
                 fontWeight: FontWeight.bold,
-                color: dePertinRoxo,
+                color: diPertinRoxo,
               ),
             ),
             const SizedBox(height: 15),
@@ -321,7 +321,7 @@ class _LojistaConfigScreenState extends State<LojistaConfigScreen> {
               controller: _nomeLojaController,
               decoration: const InputDecoration(
                 labelText: "Nome da Loja",
-                prefixIcon: Icon(Icons.storefront, color: dePertinLaranja),
+                prefixIcon: Icon(Icons.storefront, color: diPertinLaranja),
                 border: OutlineInputBorder(),
               ),
             ),
@@ -332,7 +332,7 @@ class _LojistaConfigScreenState extends State<LojistaConfigScreen> {
               keyboardType: TextInputType.phone,
               decoration: const InputDecoration(
                 labelText: "Telefone / WhatsApp",
-                prefixIcon: Icon(Icons.phone, color: dePertinLaranja),
+                prefixIcon: Icon(Icons.phone, color: diPertinLaranja),
                 border: OutlineInputBorder(),
               ),
             ),
@@ -355,18 +355,18 @@ class _LojistaConfigScreenState extends State<LojistaConfigScreen> {
                           width: 14,
                           height: 14,
                           child: CircularProgressIndicator(
-                            color: dePertinLaranja,
+                            color: diPertinLaranja,
                             strokeWidth: 2,
                           ),
                         )
                       : const Icon(
                           Icons.my_location,
                           size: 16,
-                          color: dePertinLaranja,
+                          color: diPertinLaranja,
                         ),
                   label: const Text(
                     "Usar GPS",
-                    style: TextStyle(color: dePertinLaranja, fontSize: 12),
+                    style: TextStyle(color: diPertinLaranja, fontSize: 12),
                   ),
                 ),
               ],
@@ -397,7 +397,7 @@ class _LojistaConfigScreenState extends State<LojistaConfigScreen> {
               style: TextStyle(
                 fontSize: 18,
                 fontWeight: FontWeight.bold,
-                color: dePertinRoxo,
+                color: diPertinRoxo,
               ),
             ),
             const SizedBox(height: 15),
@@ -463,7 +463,7 @@ class _LojistaConfigScreenState extends State<LojistaConfigScreen> {
             ElevatedButton(
               onPressed: _salvando ? null : _salvarConfiguracoes,
               style: ElevatedButton.styleFrom(
-                backgroundColor: dePertinLaranja,
+                backgroundColor: diPertinLaranja,
                 padding: const EdgeInsets.symmetric(vertical: 15),
                 shape: RoundedRectangleBorder(
                   borderRadius: BorderRadius.circular(10),

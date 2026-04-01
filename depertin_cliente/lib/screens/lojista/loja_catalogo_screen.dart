@@ -4,8 +4,8 @@ import 'package:depertin_cliente/screens/cliente/product_details_screen.dart';
 import 'package:flutter/material.dart';
 import 'package:cloud_firestore/cloud_firestore.dart';
 
-const Color dePertinRoxo = Color(0xFF6A1B9A);
-const Color dePertinLaranja = Color(0xFFFF8F00);
+const Color diPertinRoxo = Color(0xFF6A1B9A);
+const Color diPertinLaranja = Color(0xFFFF8F00);
 
 class LojaCatalogoScreen extends StatelessWidget {
   final String lojaId;
@@ -84,7 +84,7 @@ class LojaCatalogoScreen extends StatelessWidget {
                     Text(
                       "R\$ ${((produto["oferta"] ?? produto["preco"] ?? 0.0) as num).toDouble().toStringAsFixed(2)}",
                       style: const TextStyle(
-                        color: dePertinRoxo,
+                        color: diPertinRoxo,
                         fontWeight: FontWeight.bold,
                         fontSize: 14,
                       ),
@@ -111,7 +111,7 @@ class LojaCatalogoScreen extends StatelessWidget {
             fontWeight: FontWeight.bold,
           ),
         ),
-        backgroundColor: dePertinRoxo,
+        backgroundColor: diPertinRoxo,
         iconTheme: const IconThemeData(color: Colors.white),
       ),
       body: StreamBuilder<QuerySnapshot>(
@@ -124,7 +124,7 @@ class LojaCatalogoScreen extends StatelessWidget {
         builder: (context, snapshot) {
           if (snapshot.connectionState == ConnectionState.waiting) {
             return const Center(
-              child: CircularProgressIndicator(color: dePertinLaranja),
+              child: CircularProgressIndicator(color: diPertinLaranja),
             );
           }
           if (!snapshot.hasData || snapshot.data!.docs.isEmpty) {

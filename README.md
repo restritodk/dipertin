@@ -1,7 +1,7 @@
-# DePertin
+# DiPertin
 
 <p align="center">
-  <img src="depertin_cliente/assets/logo.png" alt="DePertin Logo" width="200"/>
+  <img src="depertin_cliente/assets/logo.png" alt="DiPertin Logo" width="200"/>
 </p>
 
 <p align="center">
@@ -17,9 +17,9 @@
 
 ---
 
-## O que é o DePertin?
+## O que é o DiPertin?
 
-O DePertin é uma plataforma completa de comércio e delivery local. Os **clientes** compram produtos de lojas da sua cidade, os **lojistas** gerem os seus catálogos e pedidos, e os **entregadores** fazem as entregas — tudo dentro de um ecossistema integrado.
+O DiPertin é uma plataforma completa de comércio e delivery local. Os **clientes** compram produtos de lojas da sua cidade, os **lojistas** gerem os seus catálogos e pedidos, e os **entregadores** fazem as entregas — tudo dentro de um ecossistema integrado.
 
 ## Estrutura do Repositório
 

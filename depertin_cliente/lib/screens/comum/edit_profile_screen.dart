@@ -10,8 +10,8 @@ import 'package:geocoding/geocoding.dart';
 import 'package:image_picker/image_picker.dart';
 import 'package:firebase_storage/firebase_storage.dart';
 
-const Color dePertinRoxo = Color(0xFF6A1B9A);
-const Color dePertinLaranja = Color(0xFFFF8F00);
+const Color diPertinRoxo = Color(0xFF6A1B9A);
+const Color diPertinLaranja = Color(0xFFFF8F00);
 
 class EditProfileScreen extends StatefulWidget {
   final String nomeAtual;
@@ -137,12 +137,12 @@ class _EditProfileScreenState extends State<EditProfileScreen> {
                   style: TextStyle(
                     fontSize: 18,
                     fontWeight: FontWeight.bold,
-                    color: dePertinRoxo,
+                    color: diPertinRoxo,
                   ),
                 ),
               ),
               ListTile(
-                leading: const Icon(Icons.photo_camera, color: dePertinLaranja),
+                leading: const Icon(Icons.photo_camera, color: diPertinLaranja),
                 title: const Text('Tirar Foto Agora'),
                 onTap: () {
                   Navigator.pop(context);
@@ -152,7 +152,7 @@ class _EditProfileScreenState extends State<EditProfileScreen> {
               ListTile(
                 leading: const Icon(
                   Icons.photo_library,
-                  color: dePertinLaranja,
+                  color: diPertinLaranja,
                 ),
                 title: const Text('Escolher da Galeria'),
                 onTap: () {
@@ -325,11 +325,11 @@ class _EditProfileScreenState extends State<EditProfileScreen> {
           "Editar Perfil",
           style: TextStyle(color: Colors.white, fontWeight: FontWeight.bold),
         ),
-        backgroundColor: dePertinRoxo,
+        backgroundColor: diPertinRoxo,
         iconTheme: const IconThemeData(color: Colors.white),
       ),
       body: _carregandoDados
-          ? const Center(child: CircularProgressIndicator(color: dePertinRoxo))
+          ? const Center(child: CircularProgressIndicator(color: diPertinRoxo))
           : SingleChildScrollView(
               padding: const EdgeInsets.all(20),
               child: Column(
@@ -348,7 +348,7 @@ class _EditProfileScreenState extends State<EditProfileScreen> {
                           ),
                           child: CircleAvatar(
                             radius: 50,
-                            backgroundColor: dePertinRoxo.withOpacity(0.1),
+                            backgroundColor: diPertinRoxo.withOpacity(0.1),
                             // Mostra a foto escolhida, ou a foto do banco, ou o ícone padrão
                             backgroundImage: _imagemSelecionada != null
                                 ? FileImage(_imagemSelecionada!)
@@ -362,7 +362,7 @@ class _EditProfileScreenState extends State<EditProfileScreen> {
                                 ? const Icon(
                                     Icons.person,
                                     size: 60,
-                                    color: dePertinRoxo,
+                                    color: diPertinRoxo,
                                   )
                                 : null,
                           ),
@@ -373,7 +373,7 @@ class _EditProfileScreenState extends State<EditProfileScreen> {
                           child: Container(
                             padding: const EdgeInsets.all(8),
                             decoration: const BoxDecoration(
-                              color: dePertinLaranja,
+                              color: diPertinLaranja,
                               shape: BoxShape.circle,
                             ),
                             child: const Icon(
@@ -393,7 +393,7 @@ class _EditProfileScreenState extends State<EditProfileScreen> {
                     style: TextStyle(
                       fontSize: 18,
                       fontWeight: FontWeight.bold,
-                      color: dePertinRoxo,
+                      color: diPertinRoxo,
                     ),
                   ),
                   const SizedBox(height: 15),
@@ -410,7 +410,7 @@ class _EditProfileScreenState extends State<EditProfileScreen> {
                     style: TextStyle(
                       fontSize: 18,
                       fontWeight: FontWeight.bold,
-                      color: dePertinRoxo,
+                      color: diPertinRoxo,
                     ),
                   ),
                   const SizedBox(height: 10),
@@ -426,17 +426,17 @@ class _EditProfileScreenState extends State<EditProfileScreen> {
                               width: 16,
                               height: 16,
                               child: CircularProgressIndicator(
-                                color: dePertinLaranja,
+                                color: diPertinLaranja,
                                 strokeWidth: 2,
                               ),
                             )
-                          : const Icon(Icons.gps_fixed, color: dePertinLaranja),
+                          : const Icon(Icons.gps_fixed, color: diPertinLaranja),
                       label: Text(
                         _buscandoLocalizacao
                             ? "Buscando pelo GPS..."
                             : "Preencher com GPS",
                         style: const TextStyle(
-                          color: dePertinLaranja,
+                          color: diPertinLaranja,
                           fontWeight: FontWeight.bold,
                         ),
                       ),
@@ -488,7 +488,7 @@ class _EditProfileScreenState extends State<EditProfileScreen> {
                   ElevatedButton(
                     onPressed: _salvando ? null : _salvarPerfil,
                     style: ElevatedButton.styleFrom(
-                      backgroundColor: dePertinLaranja,
+                      backgroundColor: diPertinLaranja,
                       padding: const EdgeInsets.symmetric(vertical: 15),
                       shape: RoundedRectangleBorder(
                         borderRadius: BorderRadius.circular(10),
@@ -534,7 +534,7 @@ class _EditProfileScreenState extends State<EditProfileScreen> {
       decoration: InputDecoration(
         labelText: label,
         prefixIcon: icon != null
-            ? Icon(icon, color: dePertinRoxo, size: 20)
+            ? Icon(icon, color: diPertinRoxo, size: 20)
             : null,
         filled: true,
         fillColor: Colors.white,

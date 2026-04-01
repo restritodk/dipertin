@@ -7,8 +7,8 @@ import 'package:firebase_auth/firebase_auth.dart';
 import 'package:firebase_storage/firebase_storage.dart';
 import 'package:file_picker/file_picker.dart';
 
-const Color dePertinRoxo = Color(0xFF6A1B9A);
-const Color dePertinLaranja = Color(0xFFFF8F00);
+const Color diPertinRoxo = Color(0xFF6A1B9A);
+const Color diPertinLaranja = Color(0xFFFF8F00);
 
 class LojistaFormScreen extends StatefulWidget {
   const LojistaFormScreen({super.key});
@@ -265,7 +265,7 @@ class _LojistaFormScreenState extends State<LojistaFormScreen> {
         children: [
           Icon(
             arquivo != null ? Icons.check_circle : Icons.upload_file,
-            color: arquivo != null ? Colors.green : dePertinRoxo,
+            color: arquivo != null ? Colors.green : diPertinRoxo,
           ),
           const SizedBox(width: 10),
           Expanded(
@@ -281,7 +281,7 @@ class _LojistaFormScreenState extends State<LojistaFormScreen> {
           ElevatedButton(
             onPressed: () => _escolherArquivo(tipoID),
             style: ElevatedButton.styleFrom(
-              backgroundColor: arquivo != null ? Colors.grey : dePertinLaranja,
+              backgroundColor: arquivo != null ? Colors.grey : diPertinLaranja,
               minimumSize: const Size(80, 36),
             ),
             child: Text(
@@ -303,12 +303,12 @@ class _LojistaFormScreenState extends State<LojistaFormScreen> {
           "Ser Lojista",
           style: TextStyle(color: Colors.white, fontWeight: FontWeight.bold),
         ),
-        backgroundColor: dePertinRoxo,
+        backgroundColor: diPertinRoxo,
         iconTheme: const IconThemeData(color: Colors.white),
       ),
       body: _carregandoInicial
           ? const Center(
-              child: CircularProgressIndicator(color: dePertinLaranja),
+              child: CircularProgressIndicator(color: diPertinLaranja),
             )
           : SingleChildScrollView(
               padding: const EdgeInsets.all(20.0),
@@ -367,15 +367,15 @@ class _LojistaFormScreenState extends State<LojistaFormScreen> {
                   const Icon(
                     Icons.storefront,
                     size: 60,
-                    color: dePertinLaranja,
+                    color: diPertinLaranja,
                   ),
                   const SizedBox(height: 10),
                   const Text(
-                    "Traga sua loja para o DePertin",
+                    "Traga sua loja para o DiPertin",
                     style: TextStyle(
                       fontSize: 22,
                       fontWeight: FontWeight.bold,
-                      color: dePertinRoxo,
+                      color: diPertinRoxo,
                     ),
                     textAlign: TextAlign.center,
                   ),
@@ -408,7 +408,7 @@ class _LojistaFormScreenState extends State<LojistaFormScreen> {
                           ),
                           value: 'CPF',
                           groupValue: _tipoPessoa,
-                          activeColor: dePertinLaranja,
+                          activeColor: diPertinLaranja,
                           onChanged: (value) {
                             setState(() {
                               _tipoPessoa = value!;
@@ -426,7 +426,7 @@ class _LojistaFormScreenState extends State<LojistaFormScreen> {
                           ),
                           value: 'CNPJ',
                           groupValue: _tipoPessoa,
-                          activeColor: dePertinLaranja,
+                          activeColor: diPertinLaranja,
                           onChanged: (value) {
                             setState(() {
                               _tipoPessoa = value!;
@@ -492,7 +492,7 @@ class _LojistaFormScreenState extends State<LojistaFormScreen> {
 
                   ElevatedButton(
                     style: ElevatedButton.styleFrom(
-                      backgroundColor: dePertinLaranja,
+                      backgroundColor: diPertinLaranja,
                       padding: const EdgeInsets.symmetric(vertical: 15),
                     ),
                     onPressed: _isLoading ? null : _enviarSolicitacao,

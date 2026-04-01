@@ -6,8 +6,8 @@ import 'package:cloud_firestore/cloud_firestore.dart';
 import 'package:firebase_auth/firebase_auth.dart';
 import 'package:audioplayers/audioplayers.dart';
 
-const Color dePertinRoxo = Color(0xFF6A1B9A);
-const Color dePertinLaranja = Color(0xFFFF8F00);
+const Color diPertinRoxo = Color(0xFF6A1B9A);
+const Color diPertinLaranja = Color(0xFFFF8F00);
 
 class LojistaPedidosScreen extends StatefulWidget {
   const LojistaPedidosScreen({super.key});
@@ -110,7 +110,7 @@ class _LojistaPedidosScreenState extends State<LojistaPedidosScreen> {
             ),
             title: const Text(
               "Confirmar Retirada?",
-              style: TextStyle(color: dePertinLaranja),
+              style: TextStyle(color: diPertinLaranja),
             ),
             content: Text(
               "O cliente decidiu vir buscar o pedido?\n\n"
@@ -127,7 +127,7 @@ class _LojistaPedidosScreenState extends State<LojistaPedidosScreen> {
               ),
               ElevatedButton(
                 style: ElevatedButton.styleFrom(
-                  backgroundColor: dePertinLaranja,
+                  backgroundColor: diPertinLaranja,
                 ),
                 onPressed: () => Navigator.pop(ctx, true),
                 child: const Text(
@@ -200,7 +200,7 @@ class _LojistaPedidosScreenState extends State<LojistaPedidosScreen> {
             "Gestão de Pedidos",
             style: TextStyle(color: Colors.white, fontWeight: FontWeight.bold),
           ),
-          backgroundColor: dePertinLaranja,
+          backgroundColor: diPertinLaranja,
           iconTheme: const IconThemeData(color: Colors.white),
           bottom: const TabBar(
             labelColor: Colors.white,
@@ -221,7 +221,7 @@ class _LojistaPedidosScreenState extends State<LojistaPedidosScreen> {
           builder: (context, snapshot) {
             if (snapshot.connectionState == ConnectionState.waiting) {
               return const Center(
-                child: CircularProgressIndicator(color: dePertinLaranja),
+                child: CircularProgressIndicator(color: diPertinLaranja),
               );
             }
 
@@ -345,7 +345,7 @@ class _LojistaPedidosScreenState extends State<LojistaPedidosScreen> {
                   children: [
                     Icon(
                       isRetirada ? Icons.storefront : Icons.two_wheeler,
-                      color: isRetirada ? dePertinLaranja : dePertinRoxo,
+                      color: isRetirada ? diPertinLaranja : diPertinRoxo,
                       size: 20,
                     ),
                     const SizedBox(width: 8),
@@ -356,7 +356,7 @@ class _LojistaPedidosScreenState extends State<LojistaPedidosScreen> {
                             : "ENTREGA: ${pedido['endereco_entrega']}",
                         style: TextStyle(
                           fontWeight: FontWeight.bold,
-                          color: isRetirada ? dePertinLaranja : dePertinRoxo,
+                          color: isRetirada ? diPertinLaranja : diPertinRoxo,
                           fontSize: 13,
                         ),
                       ),
@@ -497,7 +497,7 @@ class _LojistaPedidosScreenState extends State<LojistaPedidosScreen> {
                     width: double.infinity,
                     child: ElevatedButton(
                       style: ElevatedButton.styleFrom(
-                        backgroundColor: dePertinLaranja,
+                        backgroundColor: diPertinLaranja,
                       ),
                       onPressed: () => _atualizarStatusPedido(
                         id,
@@ -611,9 +611,9 @@ class _LojistaPedidosScreenState extends State<LojistaPedidosScreen> {
                           width: double.infinity,
                           child: OutlinedButton.icon(
                             style: OutlinedButton.styleFrom(
-                              foregroundColor: dePertinLaranja,
+                              foregroundColor: diPertinLaranja,
                               side: const BorderSide(
-                                color: dePertinLaranja,
+                                color: diPertinLaranja,
                                 width: 2,
                               ),
                             ),

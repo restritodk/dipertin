@@ -14,8 +14,8 @@ class LojasScreen extends StatefulWidget {
 }
 
 class _LojasScreenState extends State<LojasScreen> {
-  final Color dePertinRoxo = const Color(0xFF6A1B9A);
-  final Color dePertinLaranja = const Color(0xFFFF8F00);
+  final Color diPertinRoxo = const Color(0xFF6A1B9A);
+  final Color diPertinLaranja = const Color(0xFFFF8F00);
 
   // Variáveis para controlar as permissões do AdminCity
   String _tipoUsuarioLogado = 'superadmin';
@@ -294,7 +294,7 @@ class _LojasScreenState extends State<LojasScreen> {
         return AlertDialog(
           title: Text(
             "Documentos: $nomeLoja",
-            style: TextStyle(color: dePertinRoxo, fontWeight: FontWeight.bold),
+            style: TextStyle(color: diPertinRoxo, fontWeight: FontWeight.bold),
           ),
           content: SizedBox(
             width: 700,
@@ -517,7 +517,7 @@ class _LojasScreenState extends State<LojasScreen> {
               title: Text(
                 "Definir Plano: $nomeLoja",
                 style: TextStyle(
-                  color: dePertinRoxo,
+                  color: diPertinRoxo,
                   fontWeight: FontWeight.bold,
                 ),
               ),
@@ -626,7 +626,7 @@ class _LojasScreenState extends State<LojasScreen> {
                           }
                         },
                   style: ElevatedButton.styleFrom(
-                    backgroundColor: dePertinLaranja,
+                    backgroundColor: diPertinLaranja,
                     foregroundColor: Colors.white,
                   ),
                   child: isLoading
@@ -733,7 +733,7 @@ class _LojasScreenState extends State<LojasScreen> {
                         icon: const Icon(Icons.percent, size: 16),
                         label: const Text("Plano/Taxa"),
                         style: OutlinedButton.styleFrom(
-                          foregroundColor: dePertinRoxo,
+                          foregroundColor: diPertinRoxo,
                         ),
                       ),
                     const SizedBox(width: 10),
@@ -810,7 +810,7 @@ class _LojasScreenState extends State<LojasScreen> {
                           style: TextStyle(
                             fontSize: 28,
                             fontWeight: FontWeight.bold,
-                            color: dePertinRoxo,
+                            color: diPertinRoxo,
                           ),
                         ),
                         const Text(
@@ -819,9 +819,9 @@ class _LojasScreenState extends State<LojasScreen> {
                         ),
                         const SizedBox(height: 20),
                         TabBar(
-                          labelColor: dePertinRoxo,
+                          labelColor: diPertinRoxo,
                           unselectedLabelColor: Colors.grey,
-                          indicatorColor: dePertinLaranja,
+                          indicatorColor: diPertinLaranja,
                           tabs: const [
                             Tab(
                               icon: Icon(Icons.hourglass_empty),

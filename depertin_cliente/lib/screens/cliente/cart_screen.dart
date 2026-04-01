@@ -10,8 +10,8 @@ import 'dart:math';
 import '../../providers/cart_provider.dart';
 import '../../models/cart_item_model.dart';
 
-const Color dePertinRoxo = Color(0xFF6A1B9A);
-const Color dePertinLaranja = Color(0xFFFF8F00);
+const Color diPertinRoxo = Color(0xFF6A1B9A);
+const Color diPertinLaranja = Color(0xFFFF8F00);
 
 class CartScreen extends StatefulWidget {
   const CartScreen({super.key});
@@ -85,7 +85,7 @@ class _CartScreenState extends State<CartScreen> {
       ScaffoldMessenger.of(context).showSnackBar(
         const SnackBar(
           content: Text('Você precisa fazer login para finalizar o pedido!'),
-          backgroundColor: dePertinRoxo,
+          backgroundColor: diPertinRoxo,
         ),
       );
       Navigator.push(
@@ -255,7 +255,7 @@ class _CartScreenState extends State<CartScreen> {
               style: TextStyle(
                 fontSize: 22,
                 fontWeight: FontWeight.bold,
-                color: dePertinRoxo,
+                color: diPertinRoxo,
               ),
             ),
             const SizedBox(height: 10),
@@ -269,7 +269,7 @@ class _CartScreenState extends State<CartScreen> {
             const SizedBox(height: 20),
             ElevatedButton(
               style: ElevatedButton.styleFrom(
-                backgroundColor: dePertinLaranja,
+                backgroundColor: diPertinLaranja,
                 shape: RoundedRectangleBorder(
                   borderRadius: BorderRadius.circular(10),
                 ),
@@ -306,7 +306,7 @@ class _CartScreenState extends State<CartScreen> {
           "Meu Carrinho",
           style: TextStyle(color: Colors.white, fontWeight: FontWeight.bold),
         ),
-        backgroundColor: dePertinRoxo,
+        backgroundColor: diPertinRoxo,
         iconTheme: const IconThemeData(color: Colors.white),
       ),
       body: carrinhoVazio
@@ -327,7 +327,7 @@ class _CartScreenState extends State<CartScreen> {
                   const SizedBox(height: 20),
                   ElevatedButton(
                     style: ElevatedButton.styleFrom(
-                      backgroundColor: dePertinLaranja,
+                      backgroundColor: diPertinLaranja,
                     ),
                     onPressed: () => Navigator.pop(context),
                     child: const Text(
@@ -347,7 +347,7 @@ class _CartScreenState extends State<CartScreen> {
                     decoration: BoxDecoration(
                       color: Colors.white,
                       borderRadius: BorderRadius.circular(15),
-                      border: Border.all(color: dePertinRoxo.withOpacity(0.3)),
+                      border: Border.all(color: diPertinRoxo.withOpacity(0.3)),
                     ),
                     child: Row(
                       children: [
@@ -358,7 +358,7 @@ class _CartScreenState extends State<CartScreen> {
                               padding: const EdgeInsets.symmetric(vertical: 15),
                               decoration: BoxDecoration(
                                 color: !_retirarNaLoja
-                                    ? dePertinRoxo
+                                    ? diPertinRoxo
                                     : Colors.transparent,
                                 borderRadius: const BorderRadius.horizontal(
                                   left: Radius.circular(14),
@@ -394,7 +394,7 @@ class _CartScreenState extends State<CartScreen> {
                               padding: const EdgeInsets.symmetric(vertical: 15),
                               decoration: BoxDecoration(
                                 color: _retirarNaLoja
-                                    ? dePertinLaranja
+                                    ? diPertinLaranja
                                     : Colors.transparent,
                                 borderRadius: const BorderRadius.horizontal(
                                   right: Radius.circular(14),
@@ -494,7 +494,7 @@ class _CartScreenState extends State<CartScreen> {
                                     Text(
                                       "R\$ ${(item.preco * item.quantidade).toStringAsFixed(2)}",
                                       style: const TextStyle(
-                                        color: dePertinLaranja,
+                                        color: diPertinLaranja,
                                         fontWeight: FontWeight.bold,
                                       ),
                                     ),
@@ -520,7 +520,7 @@ class _CartScreenState extends State<CartScreen> {
                                         child: Icon(
                                           Icons.remove,
                                           size: 16,
-                                          color: dePertinRoxo,
+                                          color: diPertinRoxo,
                                         ),
                                       ),
                                     ),
@@ -542,7 +542,7 @@ class _CartScreenState extends State<CartScreen> {
                                         child: Icon(
                                           Icons.add,
                                           size: 16,
-                                          color: dePertinRoxo,
+                                          color: diPertinRoxo,
                                         ),
                                       ),
                                     ),
@@ -573,7 +573,7 @@ class _CartScreenState extends State<CartScreen> {
                         hintText: "Rua, Número, Bairro, Complemento",
                         prefixIcon: const Icon(
                           Icons.location_on,
-                          color: dePertinLaranja,
+                          color: diPertinLaranja,
                         ),
                         filled: true,
                         fillColor: Colors.white,
@@ -640,7 +640,7 @@ class _CartScreenState extends State<CartScreen> {
                         children: [
                           RadioListTile(
                             title: const Text("PIX (Pelo App)"),
-                            activeColor: dePertinRoxo,
+                            activeColor: diPertinRoxo,
                             value: 'PIX',
                             groupValue: _formaPagamento,
                             onChanged: (val) => setState(
@@ -649,7 +649,7 @@ class _CartScreenState extends State<CartScreen> {
                           ),
                           RadioListTile(
                             title: const Text("Cartão de Crédito"),
-                            activeColor: dePertinRoxo,
+                            activeColor: diPertinRoxo,
                             value: 'Cartão',
                             groupValue: _formaPagamento,
                             onChanged: (val) => setState(
@@ -658,7 +658,7 @@ class _CartScreenState extends State<CartScreen> {
                           ),
                           RadioListTile(
                             title: const Text("Dinheiro na Entrega"),
-                            activeColor: dePertinRoxo,
+                            activeColor: diPertinRoxo,
                             value: 'Dinheiro',
                             groupValue: _formaPagamento,
                             onChanged: (val) => setState(
@@ -674,9 +674,9 @@ class _CartScreenState extends State<CartScreen> {
                   Container(
                     padding: const EdgeInsets.all(20),
                     decoration: BoxDecoration(
-                      color: dePertinRoxo.withOpacity(0.05),
+                      color: diPertinRoxo.withOpacity(0.05),
                       borderRadius: BorderRadius.circular(15),
-                      border: Border.all(color: dePertinRoxo.withOpacity(0.2)),
+                      border: Border.all(color: diPertinRoxo.withOpacity(0.2)),
                     ),
                     child: Column(
                       children: [
@@ -744,7 +744,7 @@ class _CartScreenState extends State<CartScreen> {
                               style: TextStyle(
                                 fontSize: 20,
                                 fontWeight: FontWeight.bold,
-                                color: dePertinRoxo,
+                                color: diPertinRoxo,
                               ),
                             ),
                             Text(
@@ -752,7 +752,7 @@ class _CartScreenState extends State<CartScreen> {
                               style: const TextStyle(
                                 fontSize: 22,
                                 fontWeight: FontWeight.bold,
-                                color: dePertinLaranja,
+                                color: diPertinLaranja,
                               ),
                             ),
                           ],
@@ -787,7 +787,7 @@ class _CartScreenState extends State<CartScreen> {
                       ? null
                       : () => _avancarParaPagamento(cart),
                   style: ElevatedButton.styleFrom(
-                    backgroundColor: dePertinLaranja,
+                    backgroundColor: diPertinLaranja,
                     shape: RoundedRectangleBorder(
                       borderRadius: BorderRadius.circular(15),
                     ),

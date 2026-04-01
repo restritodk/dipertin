@@ -14,8 +14,8 @@ class AtendimentoSuporteScreen extends StatefulWidget {
 }
 
 class _AtendimentoSuporteScreenState extends State<AtendimentoSuporteScreen> {
-  final Color dePertinRoxo = const Color(0xFF6A1B9A);
-  final Color dePertinLaranja = const Color(0xFFFF8F00);
+  final Color diPertinRoxo = const Color(0xFF6A1B9A);
+  final Color diPertinLaranja = const Color(0xFFFF8F00);
 
   String? _chamadoSelecionadoId;
   String? _chamadoSelecionadoNome;
@@ -163,7 +163,7 @@ class _AtendimentoSuporteScreenState extends State<AtendimentoSuporteScreen> {
       builder: (context) => AlertDialog(
         title: Text(
           "Ficha do Usuário",
-          style: TextStyle(color: dePertinRoxo, fontWeight: FontWeight.bold),
+          style: TextStyle(color: diPertinRoxo, fontWeight: FontWeight.bold),
         ),
         content: carregando
             ? const SizedBox(
@@ -277,7 +277,7 @@ class _AtendimentoSuporteScreenState extends State<AtendimentoSuporteScreen> {
           ),
           ElevatedButton(
             style: ElevatedButton.styleFrom(
-              backgroundColor: dePertinRoxo,
+              backgroundColor: diPertinRoxo,
               foregroundColor: Colors.white,
               padding: const EdgeInsets.symmetric(horizontal: 20, vertical: 15),
             ),
@@ -322,7 +322,7 @@ class _AtendimentoSuporteScreenState extends State<AtendimentoSuporteScreen> {
               title: Text(
                 "Iniciar Nova Conversa",
                 style: TextStyle(
-                  color: dePertinRoxo,
+                  color: diPertinRoxo,
                   fontWeight: FontWeight.bold,
                 ),
               ),
@@ -421,12 +421,12 @@ class _AtendimentoSuporteScreenState extends State<AtendimentoSuporteScreen> {
                                 elevation: 1,
                                 child: ListTile(
                                   leading: CircleAvatar(
-                                    backgroundColor: dePertinRoxo.withOpacity(
+                                    backgroundColor: diPertinRoxo.withOpacity(
                                       0.2,
                                     ),
                                     child: Icon(
                                       Icons.person,
-                                      color: dePertinRoxo,
+                                      color: diPertinRoxo,
                                     ),
                                   ),
                                   title: Text(
@@ -511,7 +511,7 @@ class _AtendimentoSuporteScreenState extends State<AtendimentoSuporteScreen> {
                     horizontal: 20,
                     vertical: 15,
                   ),
-                  color: dePertinRoxo,
+                  color: diPertinRoxo,
                   width: double.infinity,
                   child: Row(
                     mainAxisAlignment: MainAxisAlignment.spaceBetween,
@@ -646,7 +646,7 @@ class _AtendimentoSuporteScreenState extends State<AtendimentoSuporteScreen> {
                         child: Row(
                           children: [
                             CircleAvatar(
-                              backgroundColor: dePertinRoxo,
+                              backgroundColor: diPertinRoxo,
                               child: Text(
                                 _chamadoSelecionadoNome![0].toUpperCase(),
                                 style: const TextStyle(color: Colors.white),
@@ -758,7 +758,7 @@ class _AtendimentoSuporteScreenState extends State<AtendimentoSuporteScreen> {
                                     ),
                                     decoration: BoxDecoration(
                                       color: souEuAdmin
-                                          ? dePertinRoxo
+                                          ? diPertinRoxo
                                           : Colors.white,
                                       borderRadius: BorderRadius.circular(15),
                                       boxShadow: const [
@@ -814,7 +814,7 @@ class _AtendimentoSuporteScreenState extends State<AtendimentoSuporteScreen> {
                             const SizedBox(width: 15),
                             CircleAvatar(
                               radius: 25,
-                              backgroundColor: dePertinLaranja,
+                              backgroundColor: diPertinLaranja,
                               child: IconButton(
                                 icon: const Icon(
                                   Icons.send,

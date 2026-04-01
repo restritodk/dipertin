@@ -4,8 +4,8 @@ import 'package:flutter/material.dart';
 import 'package:cloud_firestore/cloud_firestore.dart';
 import 'package:firebase_auth/firebase_auth.dart';
 
-const Color dePertinRoxo = Color(0xFF6A1B9A);
-const Color dePertinLaranja = Color(0xFFFF8F00);
+const Color diPertinRoxo = Color(0xFF6A1B9A);
+const Color diPertinLaranja = Color(0xFFFF8F00);
 
 class ChatPedidoScreen extends StatefulWidget {
   final String pedidoId;
@@ -62,7 +62,7 @@ class _ChatPedidoScreenState extends State<ChatPedidoScreen> {
             ),
           ],
         ),
-        backgroundColor: dePertinRoxo,
+        backgroundColor: diPertinRoxo,
         iconTheme: const IconThemeData(color: Colors.white),
       ),
       body: Column(
@@ -78,7 +78,7 @@ class _ChatPedidoScreenState extends State<ChatPedidoScreen> {
               builder: (context, snapshot) {
                 if (snapshot.connectionState == ConnectionState.waiting) {
                   return const Center(
-                    child: CircularProgressIndicator(color: dePertinRoxo),
+                    child: CircularProgressIndicator(color: diPertinRoxo),
                   );
                 }
 
@@ -127,7 +127,7 @@ class _ChatPedidoScreenState extends State<ChatPedidoScreen> {
                           vertical: 10,
                         ),
                         decoration: BoxDecoration(
-                          color: souEu ? dePertinRoxo : Colors.white,
+                          color: souEu ? diPertinRoxo : Colors.white,
                           borderRadius: BorderRadius.only(
                             topLeft: const Radius.circular(15),
                             topRight: const Radius.circular(15),
@@ -191,7 +191,7 @@ class _ChatPedidoScreenState extends State<ChatPedidoScreen> {
                         ),
                         focusedBorder: OutlineInputBorder(
                           borderRadius: BorderRadius.circular(25),
-                          borderSide: const BorderSide(color: dePertinRoxo),
+                          borderSide: const BorderSide(color: diPertinRoxo),
                         ),
                         filled: true,
                         fillColor: Colors.grey[50],
@@ -202,7 +202,7 @@ class _ChatPedidoScreenState extends State<ChatPedidoScreen> {
                   const SizedBox(width: 10),
                   CircleAvatar(
                     radius: 25,
-                    backgroundColor: dePertinLaranja,
+                    backgroundColor: diPertinLaranja,
                     child: IconButton(
                       icon: const Icon(Icons.send, color: Colors.white),
                       onPressed: _enviarMensagem,

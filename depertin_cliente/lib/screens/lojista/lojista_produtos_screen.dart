@@ -5,8 +5,8 @@ import 'package:firebase_auth/firebase_auth.dart';
 import 'package:firebase_storage/firebase_storage.dart';
 import 'package:image_picker/image_picker.dart';
 
-const Color dePertinRoxo = Color(0xFF6A1B9A);
-const Color dePertinLaranja = Color(0xFFFF8F00);
+const Color diPertinRoxo = Color(0xFF6A1B9A);
+const Color diPertinLaranja = Color(0xFFFF8F00);
 
 class LojistaProdutosScreen extends StatefulWidget {
   const LojistaProdutosScreen({super.key});
@@ -87,12 +87,12 @@ class _LojistaProdutosScreenState extends State<LojistaProdutosScreen> {
           "Meu Estoque",
           style: TextStyle(color: Colors.white, fontWeight: FontWeight.bold),
         ),
-        backgroundColor: dePertinLaranja,
+        backgroundColor: diPertinLaranja,
         iconTheme: const IconThemeData(color: Colors.white),
       ),
       floatingActionButton: FloatingActionButton.extended(
         onPressed: () => _abrirFormularioProduto(),
-        backgroundColor: dePertinLaranja,
+        backgroundColor: diPertinLaranja,
         icon: const Icon(Icons.add, color: Colors.white),
         label: const Text(
           "Novo Produto",
@@ -210,7 +210,7 @@ class _FormularioProdutoModalState extends State<FormularioProdutoModal> {
       builder: (context) => AlertDialog(
         title: const Text(
           "Sugerir Categoria",
-          style: TextStyle(color: dePertinLaranja),
+          style: TextStyle(color: diPertinLaranja),
         ),
         content: TextField(
           controller: sugController,
@@ -408,7 +408,7 @@ class _FormularioProdutoModalState extends State<FormularioProdutoModal> {
                     ),
                     value: 'pronta_entrega',
                     groupValue: _tipoVenda,
-                    activeColor: dePertinLaranja,
+                    activeColor: diPertinLaranja,
                     onChanged: (v) => setState(() => _tipoVenda = v.toString()),
                   ),
                 ),
@@ -420,7 +420,7 @@ class _FormularioProdutoModalState extends State<FormularioProdutoModal> {
                     ),
                     value: 'encomenda',
                     groupValue: _tipoVenda,
-                    activeColor: dePertinLaranja,
+                    activeColor: diPertinLaranja,
                     onChanged: (v) => setState(() => _tipoVenda = v.toString()),
                   ),
                 ),
@@ -479,7 +479,7 @@ class _FormularioProdutoModalState extends State<FormularioProdutoModal> {
                 child: const Text(
                   "Sugerir nova categoria",
                   style: TextStyle(
-                    color: dePertinRoxo,
+                    color: diPertinRoxo,
                     decoration: TextDecoration.underline,
                   ),
                 ),
@@ -489,7 +489,7 @@ class _FormularioProdutoModalState extends State<FormularioProdutoModal> {
             const SizedBox(height: 15),
             ElevatedButton(
               style: ElevatedButton.styleFrom(
-                backgroundColor: dePertinLaranja,
+                backgroundColor: diPertinLaranja,
                 padding: const EdgeInsets.all(15),
               ),
               onPressed: _salvando ? null : _salvar,

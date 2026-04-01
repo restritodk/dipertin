@@ -47,7 +47,7 @@ exports.notificarNovoPedido = functions.firestore
             // 3. Monta a Carta (Notificação) com o bilhete escondido (data)
             const mensagem = {
                 notification: {
-                    title: "🔔 Novo Pedido no DePertin!",
+                    title: "🔔 Novo Pedido no DiPertin!",
                     body: `Você tem um novo pedido de R$ ${valorTotal}.`,
                 },
                 android: {

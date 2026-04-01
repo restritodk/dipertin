@@ -11,8 +11,8 @@ class DashboardScreen extends StatefulWidget {
 }
 
 class _DashboardScreenState extends State<DashboardScreen> {
-  final Color dePertinRoxo = const Color(0xFF6A1B9A);
-  final Color dePertinLaranja = const Color(0xFFFF8F00);
+  final Color diPertinRoxo = const Color(0xFF6A1B9A);
+  final Color diPertinLaranja = const Color(0xFFFF8F00);
 
   // Variáveis Operacionais (Pendências)
   int _lojasPendentes = 0;
@@ -222,7 +222,7 @@ class _DashboardScreenState extends State<DashboardScreen> {
       builder: (context) => AlertDialog(
         title: Text(
           "Filtrar $titulo",
-          style: TextStyle(color: dePertinRoxo, fontWeight: FontWeight.bold),
+          style: TextStyle(color: diPertinRoxo, fontWeight: FontWeight.bold),
         ),
         content: SizedBox(
           width: 350,
@@ -279,7 +279,7 @@ class _DashboardScreenState extends State<DashboardScreen> {
         return AlertDialog(
           title: Text(
             "Ranking de ${tipo.toUpperCase()}S - $cidade",
-            style: TextStyle(color: dePertinRoxo, fontWeight: FontWeight.bold),
+            style: TextStyle(color: diPertinRoxo, fontWeight: FontWeight.bold),
           ),
           content: SizedBox(
             width: 800,
@@ -458,7 +458,7 @@ class _DashboardScreenState extends State<DashboardScreen> {
 
           Expanded(
             child: _isLoading
-                ? Center(child: CircularProgressIndicator(color: dePertinRoxo))
+                ? Center(child: CircularProgressIndicator(color: diPertinRoxo))
                 : SingleChildScrollView(
                     padding: const EdgeInsets.all(40),
                     child: Column(
@@ -469,11 +469,11 @@ class _DashboardScreenState extends State<DashboardScreen> {
                           style: TextStyle(
                             fontSize: 32,
                             fontWeight: FontWeight.bold,
-                            color: dePertinRoxo,
+                            color: diPertinRoxo,
                           ),
                         ),
                         const Text(
-                          "Bem-vindo ao centro de comando do DePertin.",
+                          "Bem-vindo ao centro de comando do DiPertin.",
                           style: TextStyle(fontSize: 16, color: Colors.grey),
                         ),
                         const SizedBox(height: 30),
@@ -574,7 +574,7 @@ class _DashboardScreenState extends State<DashboardScreen> {
                             _cardContadorRanking(
                               "Lojistas",
                               "lojista",
-                              dePertinLaranja,
+                              diPertinLaranja,
                             ),
                             const SizedBox(width: 15),
                             _cardContadorRanking(

@@ -8,8 +8,8 @@ import '../../models/cart_item_model.dart';
 import 'cart_screen.dart';
 import 'loja_perfil_screen.dart';
 
-const Color dePertinRoxo = Color(0xFF6A1B9A);
-const Color dePertinLaranja = Color(0xFFFF8F00);
+const Color diPertinRoxo = Color(0xFF6A1B9A);
+const Color diPertinLaranja = Color(0xFFFF8F00);
 
 class ProductDetailsScreen extends StatefulWidget {
   final Map<String, dynamic> produto;
@@ -138,7 +138,7 @@ class _ProductDetailsScreenState extends State<ProductDetailsScreen> {
           SliverAppBar(
             expandedHeight: 300,
             pinned: true,
-            backgroundColor: dePertinRoxo,
+            backgroundColor: diPertinRoxo,
             iconTheme: const IconThemeData(color: Colors.white),
             actions: [
               Stack(
@@ -159,7 +159,7 @@ class _ProductDetailsScreenState extends State<ProductDetailsScreen> {
                     child: Container(
                       padding: const EdgeInsets.all(2),
                       decoration: BoxDecoration(
-                        color: dePertinLaranja,
+                        color: diPertinLaranja,
                         borderRadius: BorderRadius.circular(10),
                       ),
                       constraints: const BoxConstraints(
@@ -228,7 +228,7 @@ class _ProductDetailsScreenState extends State<ProductDetailsScreen> {
                       style: const TextStyle(
                         fontSize: 24,
                         fontWeight: FontWeight.bold,
-                        color: dePertinLaranja,
+                        color: diPertinLaranja,
                       ),
                     ),
                     const SizedBox(height: 15),
@@ -257,7 +257,7 @@ class _ProductDetailsScreenState extends State<ProductDetailsScreen> {
                       style: TextStyle(
                         fontSize: 16,
                         fontWeight: FontWeight.bold,
-                        color: dePertinRoxo,
+                        color: diPertinRoxo,
                       ),
                     ),
                     const SizedBox(height: 10),
@@ -295,14 +295,14 @@ class _ProductDetailsScreenState extends State<ProductDetailsScreen> {
       return Container(
         padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 8),
         decoration: BoxDecoration(
-          color: dePertinLaranja.withOpacity(0.1),
+          color: diPertinLaranja.withOpacity(0.1),
           borderRadius: BorderRadius.circular(10),
-          border: Border.all(color: dePertinLaranja.withOpacity(0.5)),
+          border: Border.all(color: diPertinLaranja.withOpacity(0.5)),
         ),
         child: Row(
           mainAxisSize: MainAxisSize.min,
           children: [
-            const Icon(Icons.inventory_2, color: dePertinLaranja, size: 18),
+            const Icon(Icons.inventory_2, color: diPertinLaranja, size: 18),
             const SizedBox(width: 8),
             Column(
               crossAxisAlignment: CrossAxisAlignment.start,
@@ -310,7 +310,7 @@ class _ProductDetailsScreenState extends State<ProductDetailsScreen> {
                 const Text(
                   "📦 PRODUTO SOB ENCOMENDA",
                   style: TextStyle(
-                    color: dePertinLaranja,
+                    color: diPertinLaranja,
                     fontWeight: FontWeight.bold,
                     fontSize: 12,
                   ),
@@ -393,7 +393,7 @@ class _ProductDetailsScreenState extends State<ProductDetailsScreen> {
                 style: const TextStyle(
                   fontSize: 18,
                   fontWeight: FontWeight.bold,
-                  color: dePertinRoxo,
+                  color: diPertinRoxo,
                   decoration: TextDecoration.underline,
                 ),
               ),
@@ -481,7 +481,7 @@ class _ProductDetailsScreenState extends State<ProductDetailsScreen> {
         child: ElevatedButton(
           onPressed: aberta ? () => _adicionarAoCarrinho(cart) : null,
           style: ElevatedButton.styleFrom(
-            backgroundColor: aberta ? dePertinLaranja : Colors.red,
+            backgroundColor: aberta ? diPertinLaranja : Colors.red,
             disabledBackgroundColor: Colors.red[300],
             shape: RoundedRectangleBorder(
               borderRadius: BorderRadius.circular(15),

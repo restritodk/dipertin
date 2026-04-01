@@ -11,8 +11,8 @@ class AdminCityScreen extends StatefulWidget {
 }
 
 class _AdminCityScreenState extends State<AdminCityScreen> {
-  final Color dePertinRoxo = const Color(0xFF6A1B9A);
-  final Color dePertinLaranja = const Color(0xFFFF8F00);
+  final Color diPertinRoxo = const Color(0xFF6A1B9A);
+  final Color diPertinLaranja = const Color(0xFFFF8F00);
 
   List<String> _cidadesDisponiveis = [];
 
@@ -215,7 +215,7 @@ class _AdminCityScreenState extends State<AdminCityScreen> {
                     ? "Editar Cidades do Gerente"
                     : "Promover Usuário a AdminCity",
                 style: TextStyle(
-                  color: dePertinRoxo,
+                  color: diPertinRoxo,
                   fontWeight: FontWeight.bold,
                 ),
               ),
@@ -249,7 +249,7 @@ class _AdminCityScreenState extends State<AdminCityScreen> {
                             ElevatedButton(
                               onPressed: isBuscando ? null : buscarUsuario,
                               style: ElevatedButton.styleFrom(
-                                backgroundColor: dePertinLaranja,
+                                backgroundColor: diPertinLaranja,
                                 padding: const EdgeInsets.symmetric(
                                   vertical: 18,
                                 ),
@@ -381,7 +381,7 @@ class _AdminCityScreenState extends State<AdminCityScreen> {
                             ElevatedButton(
                               onPressed: adicionarCidade,
                               style: ElevatedButton.styleFrom(
-                                backgroundColor: dePertinLaranja,
+                                backgroundColor: diPertinLaranja,
                                 padding: const EdgeInsets.symmetric(
                                   vertical: 18,
                                 ),
@@ -406,7 +406,7 @@ class _AdminCityScreenState extends State<AdminCityScreen> {
                                   fontWeight: FontWeight.bold,
                                 ),
                               ),
-                              backgroundColor: dePertinRoxo,
+                              backgroundColor: diPertinRoxo,
                               deleteIcon: const Icon(
                                 Icons.cancel,
                                 color: Colors.white,
@@ -523,7 +523,7 @@ class _AdminCityScreenState extends State<AdminCityScreen> {
                             style: TextStyle(
                               fontSize: 28,
                               fontWeight: FontWeight.bold,
-                              color: dePertinRoxo,
+                              color: diPertinRoxo,
                             ),
                           ),
                           const Text(
@@ -543,7 +543,7 @@ class _AdminCityScreenState extends State<AdminCityScreen> {
                           ),
                         ),
                         style: ElevatedButton.styleFrom(
-                          backgroundColor: dePertinLaranja,
+                          backgroundColor: diPertinLaranja,
                           padding: const EdgeInsets.symmetric(
                             horizontal: 20,
                             vertical: 15,
@@ -608,11 +608,11 @@ class _AdminCityScreenState extends State<AdminCityScreen> {
                                       Row(
                                         children: [
                                           CircleAvatar(
-                                            backgroundColor: dePertinRoxo
+                                            backgroundColor: diPertinRoxo
                                                 .withOpacity(0.1),
                                             child: Icon(
                                               Icons.admin_panel_settings,
-                                              color: dePertinRoxo,
+                                              color: diPertinRoxo,
                                             ),
                                           ),
                                           const SizedBox(width: 10),
@@ -713,20 +713,20 @@ class _AdminCityScreenState extends State<AdminCityScreen> {
                                             vertical: 4,
                                           ),
                                           decoration: BoxDecoration(
-                                            color: dePertinLaranja.withOpacity(
+                                            color: diPertinLaranja.withOpacity(
                                               0.2,
                                             ),
                                             borderRadius: BorderRadius.circular(
                                               5,
                                             ),
                                             border: Border.all(
-                                              color: dePertinLaranja,
+                                              color: diPertinLaranja,
                                             ),
                                           ),
                                           child: Text(
                                             c.toString().toUpperCase(),
                                             style: TextStyle(
-                                              color: dePertinLaranja,
+                                              color: diPertinLaranja,
                                               fontWeight: FontWeight.bold,
                                               fontSize: 10,
                                             ),

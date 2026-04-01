@@ -12,8 +12,8 @@ import '../lojista/lojista_form_screen.dart';
 import '../cliente/orders_screen.dart';
 import '../lojista/lojista_dashboard_screen.dart';
 
-const Color dePertinRoxo = Color(0xFF6A1B9A);
-const Color dePertinLaranja = Color(0xFFFF8F00);
+const Color diPertinRoxo = Color(0xFF6A1B9A);
+const Color diPertinLaranja = Color(0xFFFF8F00);
 
 class ProfileScreen extends StatelessWidget {
   const ProfileScreen({super.key});
@@ -27,7 +27,7 @@ class ProfileScreen extends StatelessWidget {
           "Meu Perfil",
           style: TextStyle(color: Colors.white, fontWeight: FontWeight.bold),
         ),
-        backgroundColor: dePertinRoxo,
+        backgroundColor: diPertinRoxo,
         elevation: 0,
       ),
       body: StreamBuilder<User?>(
@@ -35,7 +35,7 @@ class ProfileScreen extends StatelessWidget {
         builder: (context, authSnapshot) {
           if (authSnapshot.connectionState == ConnectionState.waiting) {
             return const Center(
-              child: CircularProgressIndicator(color: dePertinRoxo),
+              child: CircularProgressIndicator(color: diPertinRoxo),
             );
           }
 
@@ -53,7 +53,7 @@ class ProfileScreen extends StatelessWidget {
             builder: (context, userSnapshot) {
               if (userSnapshot.connectionState == ConnectionState.waiting) {
                 return const Center(
-                  child: CircularProgressIndicator(color: dePertinRoxo),
+                  child: CircularProgressIndicator(color: diPertinRoxo),
                 );
               }
 
@@ -115,7 +115,7 @@ class ProfileScreen extends StatelessWidget {
                 );
               },
               style: ElevatedButton.styleFrom(
-                backgroundColor: dePertinLaranja,
+                backgroundColor: diPertinLaranja,
                 minimumSize: const Size(double.infinity, 55),
                 shape: RoundedRectangleBorder(
                   borderRadius: BorderRadius.circular(15),
@@ -170,12 +170,12 @@ class ProfileScreen extends StatelessWidget {
               ),
               child: CircleAvatar(
                 radius: 55,
-                backgroundColor: dePertinRoxo.withOpacity(0.1),
+                backgroundColor: diPertinRoxo.withOpacity(0.1),
                 backgroundImage: fotoPerfil.isNotEmpty
                     ? NetworkImage(fotoPerfil)
                     : null,
                 child: fotoPerfil.isEmpty
-                    ? const Icon(Icons.person, size: 60, color: dePertinRoxo)
+                    ? const Icon(Icons.person, size: 60, color: diPertinRoxo)
                     : null,
               ),
             ),
@@ -187,7 +187,7 @@ class ProfileScreen extends StatelessWidget {
               style: const TextStyle(
                 fontSize: 24,
                 fontWeight: FontWeight.bold,
-                color: dePertinRoxo,
+                color: diPertinRoxo,
               ),
             ),
           ),
@@ -200,7 +200,7 @@ class ProfileScreen extends StatelessWidget {
                   "Loja: $nomeLoja",
                   style: const TextStyle(
                     fontSize: 16,
-                    color: dePertinLaranja,
+                    color: diPertinLaranja,
                     fontWeight: FontWeight.w600,
                   ),
                 ),
@@ -227,16 +227,16 @@ class ProfileScreen extends StatelessWidget {
                   ),
                 );
               },
-              icon: const Icon(Icons.edit, color: dePertinRoxo, size: 16),
+              icon: const Icon(Icons.edit, color: diPertinRoxo, size: 16),
               label: const Text(
                 "Editar Perfil",
                 style: TextStyle(
-                  color: dePertinRoxo,
+                  color: diPertinRoxo,
                   fontWeight: FontWeight.bold,
                 ),
               ),
               style: OutlinedButton.styleFrom(
-                side: const BorderSide(color: dePertinRoxo),
+                side: const BorderSide(color: diPertinRoxo),
                 shape: RoundedRectangleBorder(
                   borderRadius: BorderRadius.circular(20),
                 ),
@@ -326,7 +326,7 @@ class ProfileScreen extends StatelessWidget {
             children: [
               _buildMenuItem(
                 icon: Icons.receipt_long,
-                color: dePertinRoxo,
+                color: diPertinRoxo,
                 title: 'Meus Pedidos',
                 subtitle: 'Acompanhe suas compras',
                 onTap: () => Navigator.push(
@@ -337,7 +337,7 @@ class ProfileScreen extends StatelessWidget {
               const Divider(height: 1),
               _buildMenuItem(
                 icon: Icons.support_agent,
-                color: dePertinLaranja,
+                color: diPertinLaranja,
                 title: 'Central de Ajuda',
                 subtitle: 'Fale com nossa equipe de suporte',
                 onTap: () => Navigator.push(
@@ -387,7 +387,7 @@ class ProfileScreen extends StatelessWidget {
           // BLOCO 3: PAINÉIS DE TRABALHO (AGORA INTELIGENTES)
           if (role == 'cliente') ...[
             const Text(
-              "Seja um Parceiro DePertin",
+              "Seja um Parceiro DiPertin",
               style: TextStyle(
                 fontSize: 14,
                 fontWeight: FontWeight.bold,
@@ -399,7 +399,7 @@ class ProfileScreen extends StatelessWidget {
               children: [
                 _buildMenuItem(
                   icon: Icons.storefront,
-                  color: dePertinLaranja,
+                  color: diPertinLaranja,
                   title: 'Quero vender (Lojista)',
                   subtitle: 'Cadastre sua loja e venda na sua cidade',
                   onTap: () => Navigator.push(
@@ -412,7 +412,7 @@ class ProfileScreen extends StatelessWidget {
                 const Divider(height: 1),
                 _buildMenuItem(
                   icon: Icons.motorcycle,
-                  color: dePertinLaranja,
+                  color: diPertinLaranja,
                   title: 'Quero entregar',
                   subtitle: 'Faça entregas num raio de 3km e ganhe dinheiro',
                   onTap: () => Navigator.push(
@@ -469,7 +469,7 @@ class ProfileScreen extends StatelessWidget {
               ),
               style: ElevatedButton.styleFrom(
                 backgroundColor: statusLoja == 'aprovada'
-                    ? dePertinLaranja
+                    ? diPertinLaranja
                     : (statusLoja == 'bloqueada'
                           ? Colors.red
                           : Colors.orange[400]),

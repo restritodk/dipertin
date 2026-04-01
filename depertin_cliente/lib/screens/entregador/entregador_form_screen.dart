@@ -7,8 +7,8 @@ import 'package:firebase_auth/firebase_auth.dart';
 import 'package:firebase_storage/firebase_storage.dart';
 import 'package:file_picker/file_picker.dart';
 
-const Color dePertinRoxo = Color(0xFF6A1B9A);
-const Color dePertinLaranja = Color(0xFFFF8F00);
+const Color diPertinRoxo = Color(0xFF6A1B9A);
+const Color diPertinLaranja = Color(0xFFFF8F00);
 
 class EntregadorFormScreen extends StatefulWidget {
   const EntregadorFormScreen({super.key});
@@ -192,7 +192,7 @@ class _EntregadorFormScreenState extends State<EntregadorFormScreen> {
         children: [
           Icon(
             arquivo != null ? Icons.check_circle : Icons.upload_file,
-            color: arquivo != null ? Colors.green : dePertinRoxo,
+            color: arquivo != null ? Colors.green : diPertinRoxo,
           ),
           const SizedBox(width: 10),
           Expanded(
@@ -207,7 +207,7 @@ class _EntregadorFormScreenState extends State<EntregadorFormScreen> {
           ElevatedButton(
             onPressed: () => _escolherArquivo(tipoID),
             style: ElevatedButton.styleFrom(
-              backgroundColor: arquivo != null ? Colors.grey : dePertinLaranja,
+              backgroundColor: arquivo != null ? Colors.grey : diPertinLaranja,
             ),
             child: Text(
               arquivo != null ? "Trocar" : "Anexar",
@@ -233,7 +233,7 @@ class _EntregadorFormScreenState extends State<EntregadorFormScreen> {
       ),
       body: _carregandoInicial
           ? const Center(
-              child: CircularProgressIndicator(color: dePertinLaranja),
+              child: CircularProgressIndicator(color: diPertinLaranja),
             )
           : SingleChildScrollView(
               padding: const EdgeInsets.all(20.0),
@@ -292,11 +292,11 @@ class _EntregadorFormScreenState extends State<EntregadorFormScreen> {
                   const Icon(
                     Icons.two_wheeler,
                     size: 60,
-                    color: dePertinLaranja,
+                    color: diPertinLaranja,
                   ),
                   const SizedBox(height: 10),
                   const Text(
-                    "Trabalhe com o DePertin",
+                    "Trabalhe com o DiPertin",
                     style: TextStyle(
                       fontSize: 22,
                       fontWeight: FontWeight.bold,
@@ -376,7 +376,7 @@ class _EntregadorFormScreenState extends State<EntregadorFormScreen> {
                   const SizedBox(height: 20),
                   ElevatedButton(
                     style: ElevatedButton.styleFrom(
-                      backgroundColor: dePertinLaranja,
+                      backgroundColor: diPertinLaranja,
                       padding: const EdgeInsets.symmetric(vertical: 15),
                     ),
                     onPressed: _isLoading ? null : _enviarSolicitacao,

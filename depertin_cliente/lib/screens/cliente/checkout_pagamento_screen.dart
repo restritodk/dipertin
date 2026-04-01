@@ -8,8 +8,8 @@ import 'package:firebase_auth/firebase_auth.dart';
 import 'package:http/http.dart' as http;
 import 'dart:convert';
 
-const Color dePertinRoxo = Color(0xFF6A1B9A);
-const Color dePertinLaranja = Color(0xFFFF8F00);
+const Color diPertinRoxo = Color(0xFF6A1B9A);
+const Color diPertinLaranja = Color(0xFFFF8F00);
 
 class CheckoutPagamentoScreen extends StatefulWidget {
   final double valorTotal;
@@ -126,7 +126,7 @@ class _CheckoutPagamentoScreenState extends State<CheckoutPagamentoScreen> {
         },
         body: jsonEncode({
           "transaction_amount": widget.valorTotal,
-          "description": "Pedido DePertin",
+          "description": "Pedido DiPertin",
           "payment_method_id": "pix",
           "payer": {"email": emailCliente},
         }),
@@ -174,7 +174,7 @@ class _CheckoutPagamentoScreenState extends State<CheckoutPagamentoScreen> {
           "Pagamento Seguro",
           style: TextStyle(color: Colors.white, fontWeight: FontWeight.bold),
         ),
-        backgroundColor: dePertinRoxo,
+        backgroundColor: diPertinRoxo,
         iconTheme: const IconThemeData(color: Colors.white),
       ),
       body: Column(
@@ -199,7 +199,7 @@ class _CheckoutPagamentoScreenState extends State<CheckoutPagamentoScreen> {
                   style: const TextStyle(
                     fontSize: 32,
                     fontWeight: FontWeight.bold,
-                    color: dePertinLaranja,
+                    color: diPertinLaranja,
                   ),
                 ),
               ],
@@ -260,12 +260,12 @@ class _CheckoutPagamentoScreenState extends State<CheckoutPagamentoScreen> {
                         padding: const EdgeInsets.symmetric(vertical: 15),
                         decoration: BoxDecoration(
                           color: _metodoAtual == 'Cartão'
-                              ? dePertinRoxo
+                              ? diPertinRoxo
                               : Colors.white,
                           borderRadius: BorderRadius.circular(10),
                           border: Border.all(
                             color: _metodoAtual == 'Cartão'
-                                ? dePertinRoxo
+                                ? diPertinRoxo
                                 : Colors.grey.shade300,
                           ),
                         ),
@@ -331,7 +331,7 @@ class _CheckoutPagamentoScreenState extends State<CheckoutPagamentoScreen> {
                   style: ElevatedButton.styleFrom(
                     backgroundColor: _metodoAtual == 'PIX'
                         ? Colors.green
-                        : dePertinLaranja,
+                        : diPertinLaranja,
                     shape: RoundedRectangleBorder(
                       borderRadius: BorderRadius.circular(15),
                     ),
@@ -502,7 +502,7 @@ class _CheckoutPagamentoScreenState extends State<CheckoutPagamentoScreen> {
               widget.onPagamentoAprovado();
             },
             style: ElevatedButton.styleFrom(
-              backgroundColor: dePertinRoxo,
+              backgroundColor: diPertinRoxo,
               shape: RoundedRectangleBorder(
                 borderRadius: BorderRadius.circular(15),
               ),
@@ -524,7 +524,7 @@ class _CheckoutPagamentoScreenState extends State<CheckoutPagamentoScreen> {
   // === VISUAL DA ABA CARTÃO (AGORA COM FORMATAÇÃO E BANDEIRA) ===
   Widget _buildAbaCartao() {
     // Retorna a imagem da bandeira baseada na detecção do pacote (Agora usando Strings!)
-    Widget iconeBandeira = const Icon(Icons.credit_card, color: dePertinRoxo);
+    Widget iconeBandeira = const Icon(Icons.credit_card, color: diPertinRoxo);
     if (_bandeiraCartao == 'Visa') {
       iconeBandeira = Image.network(
         'https://www.visa.com/api/image-proxy?path=%2Fcontent%2Fdam%2Fvisa%2Fheader%2FVectorBlue.png',
@@ -593,7 +593,7 @@ class _CheckoutPagamentoScreenState extends State<CheckoutPagamentoScreen> {
           textCapitalization: TextCapitalization.characters,
           decoration: InputDecoration(
             labelText: "Nome impresso no Cartão",
-            prefixIcon: const Icon(Icons.person_outline, color: dePertinRoxo),
+            prefixIcon: const Icon(Icons.person_outline, color: diPertinRoxo),
             filled: true,
             fillColor: Colors.white,
             border: OutlineInputBorder(

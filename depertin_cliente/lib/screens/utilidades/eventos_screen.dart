@@ -7,8 +7,8 @@ import 'package:firebase_auth/firebase_auth.dart';
 import 'package:depertin_cliente/screens/auth/login_screen.dart';
 import 'package:depertin_cliente/screens/cliente/chat_suporte_screen.dart';
 
-const Color dePertinRoxo = Color(0xFF6A1B9A);
-const Color dePertinLaranja = Color(0xFFFF8F00);
+const Color diPertinRoxo = Color(0xFF6A1B9A);
+const Color diPertinLaranja = Color(0xFFFF8F00);
 
 class EventosScreen extends StatefulWidget {
   const EventosScreen({super.key});
@@ -49,12 +49,12 @@ class _EventosScreenState extends State<EventosScreen> {
           "Eventos & Festas",
           style: TextStyle(color: Colors.white, fontWeight: FontWeight.bold),
         ),
-        backgroundColor: dePertinRoxo,
+        backgroundColor: diPertinRoxo,
         iconTheme: const IconThemeData(color: Colors.white),
       ),
       floatingActionButton: FloatingActionButton.extended(
         onPressed: _falarComAdmin,
-        backgroundColor: dePertinRoxo,
+        backgroundColor: diPertinRoxo,
         icon: const Icon(Icons.celebration, color: Colors.white),
         label: const Text(
           "Divulgar Meu Evento",
@@ -180,11 +180,11 @@ class _EventosScreenState extends State<EventosScreen> {
                               )
                             : Container(
                                 height: 180,
-                                color: dePertinRoxo.withOpacity(0.1),
+                                color: diPertinRoxo.withOpacity(0.1),
                                 child: const Icon(
                                   Icons.event,
                                   size: 60,
-                                  color: dePertinRoxo,
+                                  color: diPertinRoxo,
                                 ),
                               ),
                       ),
@@ -201,7 +201,7 @@ class _EventosScreenState extends State<EventosScreen> {
                             style: const TextStyle(
                               fontSize: 18,
                               fontWeight: FontWeight.bold,
-                              color: dePertinRoxo,
+                              color: diPertinRoxo,
                             ),
                           ),
                           const SizedBox(height: 8),
@@ -210,7 +210,7 @@ class _EventosScreenState extends State<EventosScreen> {
                               const Icon(
                                 Icons.calendar_today,
                                 size: 16,
-                                color: dePertinLaranja,
+                                color: diPertinLaranja,
                               ),
                               const SizedBox(width: 5),
                               Expanded(
@@ -297,7 +297,7 @@ class _EventosScreenState extends State<EventosScreen> {
                                   style: TextStyle(color: Colors.white),
                                 ),
                                 style: ElevatedButton.styleFrom(
-                                  backgroundColor: dePertinLaranja,
+                                  backgroundColor: diPertinLaranja,
                                   padding: const EdgeInsets.symmetric(
                                     vertical: 12,
                                   ),

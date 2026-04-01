@@ -16,16 +16,16 @@ import 'screens/banners_screen.dart';
 void main() async {
   WidgetsFlutterBinding.ensureInitialized();
   await Firebase.initializeApp(options: DefaultFirebaseOptions.currentPlatform);
-  runApp(const DePertinAdminApp());
+  runApp(const DiPertinAdminApp());
 }
 
-class DePertinAdminApp extends StatelessWidget {
-  const DePertinAdminApp({super.key});
+class DiPertinAdminApp extends StatelessWidget {
+  const DiPertinAdminApp({super.key});
 
   @override
   Widget build(BuildContext context) {
     return MaterialApp(
-      title: 'DePertin Admin',
+      title: 'DiPertin Admin',
       debugShowCheckedModeBanner: false,
       localizationsDelegates: const [
         GlobalMaterialLocalizations.delegate,

@@ -19,8 +19,8 @@ import 'screens/comum/profile_screen.dart';
 // ==========================================
 // VARIÁVEIS GLOBAIS E CORES
 // ==========================================
-const Color dePertinRoxo = Color(0xFF6A1B9A);
-const Color dePertinLaranja = Color(0xFFFF8F00);
+const Color diPertinRoxo = Color(0xFF6A1B9A);
+const Color diPertinLaranja = Color(0xFFFF8F00);
 final GlobalKey<NavigatorState> navigatorKey = GlobalKey<NavigatorState>();
 
 // Instância do Plugin de Notificação Local
@@ -52,25 +52,25 @@ void main() async {
   runApp(
     ChangeNotifierProvider(
       create: (context) => CartProvider(),
-      child: const DePertinApp(),
+      child: const DiPertinApp(),
     ),
   );
 }
 
-class DePertinApp extends StatelessWidget {
-  const DePertinApp({super.key});
+class DiPertinApp extends StatelessWidget {
+  const DiPertinApp({super.key});
 
   @override
   Widget build(BuildContext context) {
     return MaterialApp(
       navigatorKey: navigatorKey,
-      title: 'DePertin',
+      title: 'DiPertin',
       debugShowCheckedModeBanner: false,
       theme: ThemeData(
-        primaryColor: dePertinRoxo,
+        primaryColor: diPertinRoxo,
         colorScheme: ColorScheme.fromSeed(
-          seedColor: dePertinRoxo,
-          secondary: dePertinLaranja,
+          seedColor: diPertinRoxo,
+          secondary: diPertinLaranja,
         ),
         useMaterial3: true,
       ),
@@ -207,12 +207,12 @@ class _SplashScreenState extends State<SplashScreen> {
                 errorBuilder: (context, error, stackTrace) => const Icon(
                   Icons.storefront,
                   size: 100,
-                  color: dePertinLaranja,
+                  color: diPertinLaranja,
                 ),
               ),
             ),
             const SizedBox(height: 40),
-            const CircularProgressIndicator(color: dePertinLaranja),
+            const CircularProgressIndicator(color: diPertinLaranja),
           ],
         ),
       ),
@@ -240,7 +240,7 @@ class _MainNavigatorState extends State<MainNavigator> {
       bottomNavigationBar: BottomNavigationBar(
         currentIndex: _selectedIndex,
         onTap: (index) => setState(() => _selectedIndex = index),
-        selectedItemColor: dePertinLaranja,
+        selectedItemColor: diPertinLaranja,
         items: const [
           BottomNavigationBarItem(
             icon: Icon(Icons.search),

@@ -7,7 +7,7 @@ import 'package:firebase_auth/firebase_auth.dart';
 import 'package:firebase_storage/firebase_storage.dart';
 import 'package:image_picker/image_picker.dart';
 
-const Color dePertinLaranja = Color(0xFFFF8F00);
+const Color diPertinLaranja = Color(0xFFFF8F00);
 
 class LojistaNovosProdutosScreen extends StatefulWidget {
   const LojistaNovosProdutosScreen({super.key});
@@ -163,12 +163,12 @@ class _LojistaNovosProdutosScreenState
           "Novo Produto",
           style: TextStyle(color: Colors.white, fontWeight: FontWeight.bold),
         ),
-        backgroundColor: dePertinLaranja,
+        backgroundColor: diPertinLaranja,
         iconTheme: const IconThemeData(color: Colors.white),
       ),
       body: _isLoading
           ? const Center(
-              child: CircularProgressIndicator(color: dePertinLaranja),
+              child: CircularProgressIndicator(color: diPertinLaranja),
             )
           : SingleChildScrollView(
               padding: const EdgeInsets.all(16.0),
@@ -250,7 +250,7 @@ class _LojistaNovosProdutosScreenState
                         border: OutlineInputBorder(),
                         prefixIcon: Icon(
                           Icons.category,
-                          color: dePertinLaranja,
+                          color: diPertinLaranja,
                         ),
                       ),
                       initialValue: _categoriaSelecionada,
@@ -322,7 +322,7 @@ class _LojistaNovosProdutosScreenState
                         ),
                       ),
                       style: ElevatedButton.styleFrom(
-                        backgroundColor: dePertinLaranja,
+                        backgroundColor: diPertinLaranja,
                         padding: const EdgeInsets.symmetric(vertical: 15),
                       ),
                     ),
