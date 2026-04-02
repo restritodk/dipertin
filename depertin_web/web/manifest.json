@@ -1,11 +1,11 @@
 {
-    "name": "depertin_web",
-    "short_name": "depertin_web",
+    "name": "DiPertin",
+    "short_name": "DiPertin",
     "start_url": ".",
     "display": "standalone",
     "background_color": "#0175C2",
     "theme_color": "#0175C2",
-    "description": "A new Flutter project.",
+    "description": "Painel administrativo DiPertin.",
     "orientation": "portrait-primary",
     "prefer_related_applications": false,
     "icons": [

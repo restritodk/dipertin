@@ -6,11 +6,13 @@ import 'package:depertin_cliente/screens/utilidades/vagas_screen.dart';
 import 'package:flutter/material.dart';
 import 'package:cloud_firestore/cloud_firestore.dart';
 import 'package:url_launcher/url_launcher.dart';
+import 'package:provider/provider.dart';
 import 'product_details_screen.dart';
 import 'loja_perfil_screen.dart';
 import 'package:firebase_auth/firebase_auth.dart';
 import 'chat_suporte_screen.dart';
 import '../auth/login_screen.dart';
+import '../../services/location_service.dart';
 
 const Color diPertinRoxo = Color(0xFF6A1B9A);
 const Color diPertinLaranja = Color(0xFFFF8F00);
@@ -27,35 +29,8 @@ class _SearchScreenState extends State<SearchScreen> {
   String? _categoriaSelecionada;
   final TextEditingController _searchController = TextEditingController();
 
-  // === NOVA VARIÁVEL PARA GUARDAR A CIDADE DO USUÁRIO ===
-  String _cidadeUsuario = "";
-
   bool get _isPesquisando =>
       _buscaNome.isNotEmpty || _categoriaSelecionada != null;
-
-  @override
-  void initState() {
-    super.initState();
-    _carregarCidadeUsuario(); // Chama a função assim que a tela abre
-  }
-
-  // === FUNÇÃO PARA DESCOBRIR A CIDADE DO CLIENTE LOGADO ===
-  Future<void> _carregarCidadeUsuario() async {
-    User? user = FirebaseAuth.instance.currentUser;
-    if (user != null) {
-      DocumentSnapshot doc = await FirebaseFirestore.instance
-          .collection('users')
-          .doc(user.uid)
-          .get();
-      if (doc.exists) {
-        var dados = doc.data() as Map<String, dynamic>;
-        setState(() {
-          // Salva a cidade em minúsculo para a busca não falhar com letras maiúsculas
-          _cidadeUsuario = (dados['cidade'] ?? '').toString().toLowerCase();
-        });
-      }
-    }
-  }
 
   // ==========================================
   // FUNÇÃO MESTRA DE CONTATO (WhatsApp / Ligação)
@@ -170,6 +145,8 @@ class _SearchScreenState extends State<SearchScreen> {
 
   @override
   Widget build(BuildContext context) {
+    context.watch<LocationService>();
+
     return Scaffold(
       backgroundColor: Colors.grey[100],
       appBar: AppBar(
@@ -314,6 +291,7 @@ class _SearchScreenState extends State<SearchScreen> {
   // WIDGET: O GUIA DA CIDADE
   // ==========================================
   Widget _buildGuiaDaCidade() {
+    final cidadeNorm = context.read<LocationService>().cidadeNormalizada;
     return SingleChildScrollView(
       padding: const EdgeInsets.all(15),
       child: Column(
@@ -350,12 +328,11 @@ class _SearchScreenState extends State<SearchScreen> {
                   DateTime vencimento = (data['data_fim'] as Timestamp)
                       .toDate();
 
-                  // Filtra apenas da cidade do cliente (se ele tiver uma)
                   String cidadeAnuncio = (data['cidade'] ?? '')
                       .toString()
                       .toLowerCase();
-                  bool passaCidade =
-                      _cidadeUsuario.isEmpty || cidadeAnuncio == _cidadeUsuario;
+                  bool passaCidade = cidadeAnuncio.isEmpty ||
+                      cidadeAnuncio == cidadeNorm;
 
                   return agora.isAfter(inicio) &&
                       agora.isBefore(vencimento) &&
@@ -544,12 +521,11 @@ class _SearchScreenState extends State<SearchScreen> {
                 DateTime vencimento = (data['data_vencimento'] as Timestamp)
                     .toDate();
 
-                // Filtra apenas da cidade do cliente (se ele tiver uma)
                 String cidadeAnuncio = (data['cidade'] ?? '')
                     .toString()
                     .toLowerCase();
-                bool passaCidade =
-                    _cidadeUsuario.isEmpty || cidadeAnuncio == _cidadeUsuario;
+                bool passaCidade = cidadeAnuncio.isEmpty ||
+                    cidadeAnuncio == cidadeNorm;
 
                 return agora.isAfter(inicio) &&
                     agora.isBefore(vencimento) &&
@@ -869,6 +845,7 @@ class _SearchScreenState extends State<SearchScreen> {
   // WIDGET: RESULTADOS DA BUSCA (LOJAS + PRODUTOS)
   // ==========================================
   Widget _buildResultadosPesquisa() {
+    final cidadeNorm = context.read<LocationService>().cidadeNormalizada;
     return SingleChildScrollView(
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.start,
@@ -895,8 +872,8 @@ class _SearchScreenState extends State<SearchScreen> {
                       .toLowerCase();
 
                   bool passaNome = nomeLoja.contains(_buscaNome);
-                  bool passaCidade =
-                      _cidadeUsuario.isEmpty || cidadeLoja == _cidadeUsuario;
+                  bool passaCidade = cidadeLoja.isEmpty ||
+                      cidadeLoja == cidadeNorm;
 
                   return passaNome && passaCidade;
                 }).toList();
@@ -1076,8 +1053,7 @@ class _SearchScreenState extends State<SearchScreen> {
                             .toLowerCase();
                         bool passaCidadeProduto =
                             cidadeProduto.isEmpty ||
-                            _cidadeUsuario.isEmpty ||
-                            cidadeProduto == _cidadeUsuario;
+                            cidadeProduto == cidadeNorm;
 
                         return passaCategoria &&
                             passaNomeOuLoja &&

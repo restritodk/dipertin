@@ -28,14 +28,14 @@ DiPertin/
 ├── depertin_cliente/     # App mobile (Android/iOS) — cliente, lojista e entregador
 │   ├── lib/              # Código Flutter principal
 │   └── functions/        # Cloud Functions (Node.js 20)
-└── depertin_web/         # Painel administrativo (Web/Desktop)
+└── depertin_web/         # Painel administrativo (Web + Android + iOS)
     └── lib/              # Código Flutter do admin
 ```
 
 | Projeto | Descrição | Plataformas |
 |---------|-----------|-------------|
 | [**depertin_cliente**](./depertin_cliente/) | App principal para clientes, lojistas e entregadores | Android, iOS |
-| [**depertin_web**](./depertin_web/) | Painel administrativo para gestão da plataforma | Web, Windows, Linux, macOS |
+| [**depertin_web**](./depertin_web/) | Painel administrativo para gestão da plataforma | Web, Android, iOS |
 
 ## Visão Geral da Arquitetura
 

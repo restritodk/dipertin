@@ -4,6 +4,7 @@ import 'package:cloud_firestore/cloud_firestore.dart';
 import 'package:firebase_auth/firebase_auth.dart';
 import 'package:firebase_storage/firebase_storage.dart';
 import 'package:image_picker/image_picker.dart';
+import '../../services/location_service.dart';
 
 const Color diPertinRoxo = Color(0xFF6A1B9A);
 const Color diPertinLaranja = Color(0xFFFF8F00);
@@ -186,9 +187,14 @@ class _FormularioProdutoModalState extends State<FormularioProdutoModal> {
   bool _salvando = false;
   String _tipoVenda = 'pronta_entrega';
 
+  String _cidadeLoja = '';
+  String _ufLoja = '';
+  String _nomeLoja = '';
+
   @override
   void initState() {
     super.initState();
+    _carregarDadosLojista();
     if (widget.produtoExistente != null) {
       var p = widget.produtoExistente!.data() as Map<String, dynamic>;
       _nomeController.text = p['nome'] ?? '';
@@ -199,6 +205,23 @@ class _FormularioProdutoModalState extends State<FormularioProdutoModal> {
       _tipoVenda = p['tipo_venda'] ?? 'pronta_entrega';
       _estoqueController.text = (p['estoque_qtd'] ?? 1).toString();
       _prazoController.text = p['prazo_encomenda'] ?? '';
+    }
+  }
+
+  Future<void> _carregarDadosLojista() async {
+    try {
+      DocumentSnapshot doc = await FirebaseFirestore.instance
+          .collection('users')
+          .doc(widget.lojistaId)
+          .get();
+      if (doc.exists) {
+        var data = doc.data() as Map<String, dynamic>;
+        _cidadeLoja = (data['cidade'] ?? '').toString();
+        _ufLoja = (data['uf'] ?? data['estado'] ?? '').toString();
+        _nomeLoja = data['nome_loja'] ?? data['nome'] ?? 'Loja Parceira';
+      }
+    } catch (e) {
+      debugPrint("Erro ao carregar dados do lojista: $e");
     }
   }
 
@@ -284,16 +307,24 @@ class _FormularioProdutoModalState extends State<FormularioProdutoModal> {
 
       var dados = {
         'lojista_id': widget.lojistaId,
+        'loja_id': widget.lojistaId,
+        'loja_nome': _nomeLoja,
         'nome': _nomeController.text.trim(),
         'descricao': _descricaoController.text.trim(),
         'preco':
             double.tryParse(_precoController.text.replaceAll(',', '.')) ?? 0.0,
+        'categoria': _categoriaSelecionada,
         'categoria_nome': _categoriaSelecionada,
         'imagens': urlsFinais,
         'tipo_venda': _tipoVenda,
         'estoque_qtd': int.tryParse(_estoqueController.text) ?? 0,
         'prazo_encomenda': _prazoController.text.trim(),
         'ativo': true,
+        'cidade': _cidadeLoja,
+        'uf': _ufLoja,
+        'cidade_normalizada': LocationService.normalizar(_cidadeLoja),
+        'uf_normalizado': LocationService.extrairUf(_ufLoja) ??
+            LocationService.normalizar(_ufLoja),
       };
 
       if (widget.produtoExistente != null) {

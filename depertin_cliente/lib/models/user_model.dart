@@ -9,8 +9,8 @@ class EnderecoModel {
   String estado;
   String cep;
   String complemento;
-  double latitude; // Para guardar a posição exata do GPS
-  double longitude; // Para guardar a posição exata do GPS
+  double latitude; // Para salvar a posição exata do GPS
+  double longitude; // Para salvar a posição exata do GPS
 
   EnderecoModel({
     required this.rua,

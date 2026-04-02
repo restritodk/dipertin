@@ -145,6 +145,24 @@ firebase deploy --only functions
 | `eventos` | Eventos da cidade |
 | `suporte` | Tickets de suporte (subcoleção `mensagens`) |
 
+## Firebase (regras, Storage, índices)
+
+Não uses palavra-passe em scripts. Autenticação: **`firebase login`** (abre o browser).
+
+1. Instala a CLI: `npm install -g firebase-tools`
+2. Na pasta `depertin_cliente`: `firebase login`
+3. Publica regras e índices:
+
+```powershell
+.\firebase_deploy.ps1           # firestore + storage + functions
+.\firebase_deploy.ps1 rules     # só regras Firestore + Storage
+.\firebase_deploy.ps1 indexes   # só índices compostos
+```
+
+Ficheiros: `firestore.rules`, `firestore.indexes.json`, `storage.rules`, `firebase.json`.
+
+**Nota:** O Firestore e o Storage são criados na [Consola Firebase](https://console.firebase.google.com/) (modo nativo). As regras e índices são versionados neste repositório e aplicados com o deploy.
+
 ## Licença
 
 Projeto privado. Todos os direitos reservados.

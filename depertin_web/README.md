@@ -106,13 +106,13 @@ lib/
 | Backend | Firebase (Firestore, Auth, Storage) |
 | Localização | `flutter_localizations` (pt-BR) |
 | Design | Material 3 |
-| Plataformas | Web, Windows, Linux, macOS, Android, iOS |
+| Plataformas | Web, Android, iOS |
 
 ## Pré-requisitos
 
 - Flutter SDK ^3.11
 - Dart SDK ^3.11
-- Navegador moderno (para web) ou ambiente desktop
+- Navegador moderno (para web) ou dispositivo Android/iOS
 - Conta Firebase com projeto configurado
 
 ## Instalação
@@ -128,8 +128,8 @@ flutter pub get
 # Executar na web
 flutter run -d chrome
 
-# Executar no desktop (Windows)
-flutter run -d windows
+# Executar no telemóvel/emulador Android ou iOS
+flutter run
 ```
 
 ## Build para Produção
@@ -138,14 +138,15 @@ flutter run -d windows
 # Build web
 flutter build web
 
-# Build Windows
-flutter build windows
+# Build Android
+flutter build apk
+# ou: flutter build appbundle
 
-# Build Linux
-flutter build linux
+# Build iOS (macOS com Xcode)
+flutter build ios
 ```
 
-Os artefactos ficam em `build/web/` ou `build/windows/` respetivamente.
+Os artefactos ficam em `build/web/`, `build/app/outputs/...`, etc.
 
 ## Relação com o App Cliente
 

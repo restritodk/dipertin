@@ -6,6 +6,7 @@ import 'package:cloud_firestore/cloud_firestore.dart';
 import 'package:firebase_auth/firebase_auth.dart';
 import 'package:firebase_storage/firebase_storage.dart';
 import 'package:image_picker/image_picker.dart';
+import '../../services/location_service.dart';
 
 const Color diPertinLaranja = Color(0xFFFF8F00);
 
@@ -86,12 +87,13 @@ class _LojistaNovosProdutosScreenState
       final user = FirebaseAuth.instance.currentUser;
       if (user == null) throw Exception("Usuário não logado");
 
-      // Pega o nome da loja na ficha do usuário
       DocumentSnapshot userDoc = await FirebaseFirestore.instance
           .collection('users')
           .doc(user.uid)
           .get();
-      String nomeLoja = userDoc['nome_loja'] ?? 'Loja Parceira';
+      var userData = userDoc.data() as Map<String, dynamic>? ?? {};
+      String nomeLoja = userData['nome_loja'] ?? userData['nome'] ?? 'Loja Parceira';
+      String cidadeLoja = (userData['cidade'] ?? '').toString();
 
       // 1. Fazer Upload da Imagem para o Firebase Storage
       String nomeArquivo = '${DateTime.now().millisecondsSinceEpoch}.jpg';
@@ -108,18 +110,25 @@ class _LojistaNovosProdutosScreenState
           ? double.parse(_ofertaController.text.replaceAll(',', '.'))
           : null;
 
-      // 2. Salvar os dados no Firestore (Agora com a Categoria!)
+      String ufLoja = (userData['uf'] ?? userData['estado'] ?? '').toString();
+
       await FirebaseFirestore.instance.collection('produtos').add({
+        'lojista_id': user.uid,
         'loja_id': user.uid,
         'loja_nome': nomeLoja,
         'nome': _nomeController.text.trim(),
         'descricao': _descricaoController.text.trim(),
-        'categoria': _categoriaSelecionada, // NOVO CAMPO SALVO NO BANCO!
+        'categoria': _categoriaSelecionada,
+        'categoria_nome': _categoriaSelecionada,
         'preco': preco,
         'oferta': oferta,
-        'imagens': [
-          urlImagem,
-        ], // Salvamos como lista para suportar carrossel no futuro
+        'imagens': [urlImagem],
+        'ativo': true,
+        'cidade': cidadeLoja,
+        'uf': ufLoja,
+        'cidade_normalizada': LocationService.normalizar(cidadeLoja),
+        'uf_normalizado': LocationService.extrairUf(ufLoja) ??
+            LocationService.normalizar(ufLoja),
         'data_cadastro': FieldValue.serverTimestamp(),
       });
 

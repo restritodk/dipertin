@@ -7,6 +7,7 @@ import 'package:geocoding/geocoding.dart';
 // Pacotes para salvar no perfil do usuário
 import 'package:firebase_auth/firebase_auth.dart';
 import 'package:cloud_firestore/cloud_firestore.dart';
+import '../../services/location_service.dart';
 
 const Color diPertinRoxo = Color(0xFF6A1B9A);
 const Color diPertinLaranja = Color(0xFFFF8F00);
@@ -21,9 +22,9 @@ class AddressScreen extends StatefulWidget {
 class _AddressScreenState extends State<AddressScreen> {
   bool _buscandoGps = false;
   bool _salvandoNoPerfil = false;
-  bool _tornarPadrao = false; // Estado do Switch
+  bool _tornarPadrao = false;
+  String _ufCapturado = '';
 
-  // Controladores para os campos de texto
   final TextEditingController _ruaC = TextEditingController();
   final TextEditingController _numeroC = TextEditingController();
   final TextEditingController _bairroC = TextEditingController();
@@ -66,20 +67,21 @@ class _AddressScreenState extends State<AddressScreen> {
       if (placemarks.isNotEmpty) {
         Placemark place = placemarks[0];
 
-        // Lógica para capturar a cidade corretamente
         String cidadeDetectada =
-            place.subAdministrativeArea ??
             place.locality ??
+            place.subAdministrativeArea ??
             place.administrativeArea ??
             "";
+
+        String? ufDetectado =
+            LocationService.extrairUf(place.administrativeArea);
 
         setState(() {
           _ruaC.text = place.thoroughfare ?? place.street ?? "";
           _bairroC.text = place.subLocality ?? "";
           _cidadeC.text = cidadeDetectada;
-          _numeroC.text =
-              place.subThoroughfare ??
-              ""; // Tenta pegar o número, mas GPS costuma errar
+          _numeroC.text = place.subThoroughfare ?? "";
+          _ufCapturado = ufDetectado?.toUpperCase() ?? '';
         });
 
         if (mounted) {
@@ -156,14 +158,24 @@ class _AddressScreenState extends State<AddressScreen> {
       try {
         // Atualiza APENAS o endereço de entrega do cliente no documento dele na coleção users
         // Não toca em nada relacionado a Lojista.
+        final Map<String, dynamic> dadosAtualizar = {
+          'endereco_entrega_padrao': enderecoCompleto,
+          'cidade': cidadeFinal.toLowerCase(),
+        };
+
+        if (_ufCapturado.isNotEmpty) {
+          dadosAtualizar['uf'] = _ufCapturado;
+          dadosAtualizar['cidade_normalizada'] =
+              LocationService.normalizar(cidadeFinal);
+          dadosAtualizar['uf_normalizado'] =
+              LocationService.extrairUf(_ufCapturado) ??
+                  LocationService.normalizar(_ufCapturado);
+        }
+
         await FirebaseFirestore.instance
             .collection('users')
             .doc(user.uid)
-            .update({
-              'endereco_entrega_padrao': enderecoCompleto,
-              'cidade': cidadeFinal
-                  .toLowerCase(), // Atualiza a cidade principal do perfil tbm
-            });
+            .update(dadosAtualizar);
       } catch (e) {
         if (mounted) {
           ScaffoldMessenger.of(context).showSnackBar(

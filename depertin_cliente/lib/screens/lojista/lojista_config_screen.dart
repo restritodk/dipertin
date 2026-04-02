@@ -5,6 +5,7 @@ import 'package:cloud_firestore/cloud_firestore.dart';
 import 'package:firebase_auth/firebase_auth.dart';
 import 'package:geolocator/geolocator.dart';
 import 'package:geocoding/geocoding.dart';
+import '../../services/location_service.dart';
 
 const Color diPertinRoxo = Color(0xFF6A1B9A);
 const Color diPertinLaranja = Color(0xFFFF8F00);
@@ -26,6 +27,8 @@ class _LojistaConfigScreenState extends State<LojistaConfigScreen> {
   bool _salvando = false;
   bool _buscandoLocalizacao = false;
   bool _pausadoManualmente = false;
+  String _cidadeCapturada = '';
+  String _ufCapturado = '';
 
   final Map<String, String> _nomesDias = {
     'segunda': 'Segunda',
@@ -99,9 +102,13 @@ class _LojistaConfigScreenState extends State<LojistaConfigScreen> {
                 ? place.subAdministrativeArea!
                 : (place.administrativeArea ?? ""));
 
+      String? ufDetectado = LocationService.extrairUf(place.administrativeArea);
+
       setState(() {
         _enderecoLojaController.text =
             "${place.thoroughfare ?? place.street ?? ''}, ${place.subThoroughfare ?? 'S/N'}, ${place.subLocality ?? ''} - $cidadeDetectada";
+        _cidadeCapturada = cidadeDetectada;
+        _ufCapturado = ufDetectado?.toUpperCase() ?? '';
       });
 
       if (mounted) {
@@ -141,16 +148,29 @@ class _LojistaConfigScreenState extends State<LojistaConfigScreen> {
     try {
       final user = FirebaseAuth.instance.currentUser;
       if (user != null) {
+        final Map<String, dynamic> dadosAtualizar = {
+          'loja_nome': _nomeLojaController.text.trim(),
+          'endereco': _enderecoLojaController.text.trim(),
+          'telefone': _telefoneController.text.trim(),
+          'pausado_manualmente': _pausadoManualmente,
+          'horarios': _horarios,
+        };
+
+        if (_cidadeCapturada.isNotEmpty) {
+          dadosAtualizar['cidade'] =
+              LocationService.normalizar(_cidadeCapturada);
+          dadosAtualizar['uf'] = _ufCapturado;
+          dadosAtualizar['cidade_normalizada'] =
+              LocationService.normalizar(_cidadeCapturada);
+          dadosAtualizar['uf_normalizado'] =
+              LocationService.extrairUf(_ufCapturado) ??
+                  LocationService.normalizar(_ufCapturado);
+        }
+
         await FirebaseFirestore.instance
             .collection('users')
             .doc(user.uid)
-            .update({
-              'loja_nome': _nomeLojaController.text.trim(),
-              'endereco': _enderecoLojaController.text.trim(),
-              'telefone': _telefoneController.text.trim(),
-              'pausado_manualmente': _pausadoManualmente,
-              'horarios': _horarios,
-            });
+            .update(dadosAtualizar);
 
         if (mounted) {
           Navigator.pop(context);

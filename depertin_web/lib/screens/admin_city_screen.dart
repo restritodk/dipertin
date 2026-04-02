@@ -167,7 +167,8 @@ class _AdminCityScreenState extends State<AdminCityScreen> {
 
               try {
                 Map<String, dynamic> dadosUpdate = {
-                  'tipoUsuario': 'admin_city',
+                  'role': 'master_city',
+                  'tipoUsuario': 'master_city',
                   'cidades_gerenciadas': cidadesGerenciadas,
                   'data_atualizacao': FieldValue.serverTimestamp(),
                 };
@@ -479,6 +480,7 @@ class _AdminCityScreenState extends State<AdminCityScreen> {
                   .collection('users')
                   .doc(id)
                   .update({
+                    'role': 'cliente',
                     'tipoUsuario': 'cliente',
                     'cidades_gerenciadas':
                         FieldValue.delete(), // Limpa a lista de cidades
@@ -502,7 +504,7 @@ class _AdminCityScreenState extends State<AdminCityScreen> {
       backgroundColor: Colors.grey[100],
       body: Row(
         children: [
-          const SidebarMenu(rotaAtual: '/admin_city'),
+          const SidebarMenu(rotaAtual: '/admincity'),
 
           Expanded(
             child: Column(
@@ -558,7 +560,7 @@ class _AdminCityScreenState extends State<AdminCityScreen> {
                   child: StreamBuilder<QuerySnapshot>(
                     stream: FirebaseFirestore.instance
                         .collection('users')
-                        .where('tipoUsuario', isEqualTo: 'admin_city')
+                        .where('tipoUsuario', isEqualTo: 'master_city')
                         .snapshots(),
                     builder: (context, snapshot) {
                       if (snapshot.connectionState == ConnectionState.waiting) {

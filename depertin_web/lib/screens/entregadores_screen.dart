@@ -1,4 +1,5 @@
 import 'package:depertin_web/widgets/botao_suporte_flutuante.dart';
+import 'package:depertin_web/utils/admin_perfil.dart';
 import 'package:flutter/material.dart';
 import 'package:cloud_firestore/cloud_firestore.dart';
 import 'package:firebase_auth/firebase_auth.dart';
@@ -17,7 +18,7 @@ class _EntregadoresScreenState extends State<EntregadoresScreen> {
   final Color diPertinLaranja = const Color(0xFFFF8F00);
 
   // Variáveis para controlar as permissões do AdminCity
-  String _tipoUsuarioLogado = 'superadmin';
+  String _tipoUsuarioLogado = 'master';
   List<String> _cidadesDoGerente = [];
 
   @override
@@ -31,19 +32,16 @@ class _EntregadoresScreenState extends State<EntregadoresScreen> {
     User? user = FirebaseAuth.instance.currentUser;
     if (user != null) {
       try {
-        QuerySnapshot snap = await FirebaseFirestore.instance
+        final docSnap = await FirebaseFirestore.instance
             .collection('users')
-            .where('email', isEqualTo: user.email)
+            .doc(user.uid)
             .get();
 
-        if (snap.docs.isNotEmpty) {
-          var dados = snap.docs.first.data() as Map<String, dynamic>;
+        if (docSnap.exists) {
+          var dados = docSnap.data()!;
           if (mounted) {
             setState(() {
-              _tipoUsuarioLogado =
-                  (dados['tipoUsuario'] ?? dados['role'] ?? 'cliente')
-                      .toString()
-                      .toLowerCase();
+              _tipoUsuarioLogado = perfilAdministrativo(dados);
               _cidadesDoGerente = List<String>.from(
                 dados['cidades_gerenciadas'] ?? [],
               );
@@ -729,7 +727,7 @@ class _EntregadoresScreenState extends State<EntregadoresScreen> {
         .where('entregador_status', isEqualTo: statusFiltro);
 
     // === CADEADO DE SEGURANÇA: AdminCity só vê a cidade dele ===
-    if (_tipoUsuarioLogado == 'admin_city' && _cidadesDoGerente.isNotEmpty) {
+    if (_tipoUsuarioLogado == 'master_city' && _cidadesDoGerente.isNotEmpty) {
       queryBase = queryBase.where('cidade', whereIn: _cidadesDoGerente);
     }
 

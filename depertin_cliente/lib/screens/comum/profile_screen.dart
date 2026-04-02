@@ -1,6 +1,7 @@
 // Arquivo: lib/screens/comum/profile_screen.dart
 
 import 'package:depertin_cliente/screens/cliente/chat_suporte_screen.dart';
+import 'package:depertin_cliente/screens/comum/conta_exclusao_flow.dart';
 import 'package:depertin_cliente/screens/comum/edit_profile_screen.dart';
 import 'package:depertin_cliente/screens/entregador/entregador_home_screen.dart';
 import 'package:flutter/material.dart';
@@ -59,7 +60,7 @@ class ProfileScreen extends StatelessWidget {
 
               if (!userSnapshot.hasData || !userSnapshot.data!.exists) {
                 return const Center(
-                  child: Text("Ficha de utilizador não encontrada."),
+                  child: Text("Perfil de usuário não encontrado."),
                 );
               }
 
@@ -137,7 +138,7 @@ class ProfileScreen extends StatelessWidget {
   }
 
   // ==========================================
-  // TELA COM OS DADOS DO UTILIZADOR (TURBINADA)
+  // TELA COM OS DADOS DO USUÁRIO (TURBINADA)
   // ==========================================
   Widget _construirTelaComLogin(
     BuildContext context,
@@ -540,6 +541,11 @@ class ProfileScreen extends StatelessWidget {
 
           const SizedBox(height: 15),
 
+          // ZONA DE RISCO — EXCLUSÃO DE CONTA
+          _buildZonaRiscoExclusaoConta(context),
+
+          const SizedBox(height: 20),
+
           // BOTÃO DE SAIR
           TextButton.icon(
             onPressed: () => FirebaseAuth.instance.signOut(),
@@ -555,6 +561,95 @@ class ProfileScreen extends StatelessWidget {
           ),
           const SizedBox(height: 20),
         ],
+      ),
+    );
+  }
+
+  Widget _buildZonaRiscoExclusaoConta(BuildContext context) {
+    return Container(
+      decoration: BoxDecoration(
+        borderRadius: BorderRadius.circular(16),
+        border: Border.all(color: Colors.red.shade200, width: 1.5),
+        gradient: LinearGradient(
+          begin: Alignment.topLeft,
+          end: Alignment.bottomRight,
+          colors: [
+            Colors.red.shade50,
+            Colors.orange.shade50.withValues(alpha: 0.85),
+          ],
+        ),
+        boxShadow: [
+          BoxShadow(
+            color: Colors.red.shade100.withValues(alpha: 0.45),
+            blurRadius: 16,
+            offset: const Offset(0, 6),
+          ),
+        ],
+      ),
+      child: Padding(
+        padding: const EdgeInsets.all(18),
+        child: Column(
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            Row(
+              children: [
+                Icon(Icons.shield_moon_outlined, color: Colors.red.shade800, size: 22),
+                const SizedBox(width: 8),
+                Text(
+                  'ZONA DE RISCO',
+                  style: TextStyle(
+                    fontSize: 11,
+                    fontWeight: FontWeight.w800,
+                    letterSpacing: 1.2,
+                    color: Colors.red.shade900,
+                  ),
+                ),
+              ],
+            ),
+            const SizedBox(height: 10),
+            Text(
+              'Exclusão de conta',
+              style: TextStyle(
+                fontSize: 17,
+                fontWeight: FontWeight.w800,
+                color: Colors.red.shade900,
+              ),
+            ),
+            const SizedBox(height: 6),
+            Text(
+              'Operação sensível e com efeitos graves. O processo é agendado, com '
+              'retenção de 30 dias, e pode se tornar definitivo após esse prazo.',
+              style: TextStyle(
+                fontSize: 13,
+                height: 1.4,
+                color: Colors.grey.shade800,
+              ),
+            ),
+            const SizedBox(height: 16),
+            SizedBox(
+              width: double.infinity,
+              child: OutlinedButton.icon(
+                onPressed: () => abrirFluxoExclusaoConta(context),
+                icon: Icon(Icons.delete_forever_rounded, color: Colors.red.shade800),
+                label: Text(
+                  'Excluir conta',
+                  style: TextStyle(
+                    fontWeight: FontWeight.w700,
+                    color: Colors.red.shade900,
+                  ),
+                ),
+                style: OutlinedButton.styleFrom(
+                  padding: const EdgeInsets.symmetric(vertical: 14),
+                  side: BorderSide(color: Colors.red.shade700, width: 1.5),
+                  backgroundColor: Colors.white.withValues(alpha: 0.65),
+                  shape: RoundedRectangleBorder(
+                    borderRadius: BorderRadius.circular(12),
+                  ),
+                ),
+              ),
+            ),
+          ],
+        ),
       ),
     );
   }

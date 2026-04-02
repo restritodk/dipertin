@@ -1,5 +1,6 @@
 // lib/widgets/botao_suporte_flutuante.dart
 
+import 'package:depertin_web/utils/admin_perfil.dart';
 import 'package:flutter/material.dart';
 import 'package:cloud_firestore/cloud_firestore.dart';
 import 'package:firebase_auth/firebase_auth.dart';
@@ -24,20 +25,14 @@ class _BotaoSuporteFlutuanteState extends State<BotaoSuporteFlutuante> {
   Future<void> _buscarDadosAdmin() async {
     User? user = FirebaseAuth.instance.currentUser;
     if (user != null) {
-      var snap = await FirebaseFirestore.instance
+      final docSnap = await FirebaseFirestore.instance
           .collection('users')
-          .where('email', isEqualTo: user.email)
+          .doc(user.uid)
           .get();
-      if (snap.docs.isNotEmpty) {
-        var dados = snap.docs.first.data();
+      if (docSnap.exists) {
+        final dados = docSnap.data()!;
         setState(() {
-          _tipoUsuario =
-              (dados['role'] ??
-                      dados['tipo'] ??
-                      dados['tipoUsuario'] ??
-                      'cliente')
-                  .toString()
-                  .toLowerCase();
+          _tipoUsuario = perfilAdministrativo(dados);
           _minhaCidade = dados['cidade'] ?? '';
         });
       }
@@ -53,15 +48,15 @@ class _BotaoSuporteFlutuanteState extends State<BotaoSuporteFlutuante> {
         .collection('suporte')
         .where('status', isEqualTo: 'aguardando_admin');
 
-    // Se for AdminCity, só vê chamados da cidade dele
-    if (_tipoUsuario == 'admin_city') {
+    // MasterCity: só vê chamados da cidade dele
+    if (_tipoUsuario == 'master_city') {
       query = query
           .where('cidade', isEqualTo: _minhaCidade)
           .where('escalado_superadmin', isEqualTo: false);
     }
-    // Se for SuperAdmin, vê chamados escalados ou de cidades sem admin
-    else if (_tipoUsuario == 'superadmin') {
-      // (A lógica de filtro do SuperAdmin faremos dentro da tela depois, aqui contamos o total)
+    // Master: visão global (sem filtro por cidade)
+    else if (_tipoUsuario == 'master') {
+      // (Detalhe do filtro na tela de suporte)
     }
     // Lojista não tem botão flutuante de admin, ele usa o app dele
     else {

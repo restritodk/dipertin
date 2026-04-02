@@ -9,6 +9,7 @@ import 'package:geocoding/geocoding.dart';
 // === NOVOS PACOTES PARA A FOTO ===
 import 'package:image_picker/image_picker.dart';
 import 'package:firebase_storage/firebase_storage.dart';
+import '../../services/location_service.dart';
 
 const Color diPertinRoxo = Color(0xFF6A1B9A);
 const Color diPertinLaranja = Color(0xFFFF8F00);
@@ -42,6 +43,7 @@ class _EditProfileScreenState extends State<EditProfileScreen> {
   bool _salvando = false;
   bool _buscandoLocalizacao = false;
   bool _carregandoDados = true;
+  String _ufCapturado = '';
 
   // === VARIÁVEIS DA FOTO ===
   File? _imagemSelecionada;
@@ -204,11 +206,15 @@ class _EditProfileScreenState extends State<EditProfileScreen> {
                 ? place.subAdministrativeArea!
                 : (place.administrativeArea ?? ""));
 
+      String? ufDetectado =
+          LocationService.extrairUf(place.administrativeArea);
+
       setState(() {
         _ruaC.text = place.thoroughfare ?? place.street ?? "";
         _bairroC.text = place.subLocality ?? "";
         _cidadeC.text = cidadeDetectada;
         _numeroC.text = place.subThoroughfare ?? "";
+        _ufCapturado = ufDetectado?.toUpperCase() ?? '';
       });
 
       ScaffoldMessenger.of(context).showSnackBar(
@@ -273,15 +279,23 @@ class _EditProfileScreenState extends State<EditProfileScreen> {
           'complemento': _complementoC.text.trim(),
         };
 
-        // Montamos os dados garantindo que o 'role' exista para o Admin Web
         Map<String, dynamic> dadosParaSalvar = {
           'nome': _nomeController.text.trim(),
           'endereco_entrega_padrao': enderecoCompleto,
           'cidade': cidadeFinal,
           'foto_perfil': linkDaFoto,
-          'role': widget.role ?? 'cliente', // <--- GARANTIA PARA O PAINEL WEB
-          'perfil_completo': true, // <--- ÚTIL PARA FILTROS NO PAINEL
+          'role': widget.role ?? 'cliente',
+          'perfil_completo': true,
         };
+
+        if (_ufCapturado.isNotEmpty) {
+          dadosParaSalvar['uf'] = _ufCapturado;
+          dadosParaSalvar['cidade_normalizada'] =
+              LocationService.normalizar(cidadeFinal);
+          dadosParaSalvar['uf_normalizado'] =
+              LocationService.extrairUf(_ufCapturado) ??
+                  LocationService.normalizar(_ufCapturado);
+        }
 
         if (_urlFotoAtual.isEmpty && _imagemSelecionada == null) {
           dadosParaSalvar['foto_perfil'] = '';

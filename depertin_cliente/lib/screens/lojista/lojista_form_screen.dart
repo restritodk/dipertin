@@ -23,7 +23,7 @@ class _LojistaFormScreenState extends State<LojistaFormScreen> {
 
   String _tipoPessoa = 'CPF'; // CPF (Autônomo) ou CNPJ (Empresa)
 
-  // Variáveis para guardar cada arquivo
+  // Variáveis para salvar cada arquivo
   File? _arqDocPessoal;
   File? _arqCNPJ;
   File? _arqEndereco;

@@ -4,7 +4,9 @@ import 'package:flutter/material.dart';
 import 'package:firebase_auth/firebase_auth.dart';
 import 'package:cloud_firestore/cloud_firestore.dart';
 import 'package:flutter_multi_formatter/flutter_multi_formatter.dart';
-import 'package:google_sign_in/google_sign_in.dart';
+import 'package:provider/provider.dart';
+import '../../auth/google_auth_helper.dart';
+import '../../services/location_service.dart';
 
 class RegisterScreen extends StatefulWidget {
   const RegisterScreen({super.key});
@@ -77,17 +79,26 @@ class _RegisterScreenState extends State<RegisterScreen> {
             password: _senhaController.text.trim(),
           );
 
+      final loc = context.read<LocationService>();
+      final cidadeReg = _cidadeController.text.trim();
       await FirebaseFirestore.instance
           .collection('users')
           .doc(userCredential.user!.uid)
           .set({
             'nome': _nomeController.text.trim(),
             'cpf': _cpfController.text.trim(),
-            'telefone': _telefoneController.text.trim(), // Salva o telefone
+            'telefone': _telefoneController.text.trim(),
             'email': _emailController.text.trim(),
-            'cidade': _cidadeController.text.trim(),
+            'cidade': cidadeReg,
+            'uf': loc.ufDetectado ?? '',
+            'cidade_normalizada': cidadeReg.isNotEmpty
+                ? LocationService.normalizar(cidadeReg)
+                : loc.cidadeNormalizada,
+            'uf_normalizado': loc.ufNormalizado,
             'tipoUsuario': 'cliente',
+            'role': 'cliente',
             'ativo': true,
+            'status_conta': 'ativa',
             'dataCadastro': FieldValue.serverTimestamp(),
             'totalConcluido': 0,
           });
@@ -123,54 +134,79 @@ class _RegisterScreenState extends State<RegisterScreen> {
   Future<void> _entrarComGoogle() async {
     setState(() => _isLoading = true);
     try {
-      // 1. O pacote atualizou! Agora usamos a instância e inicializamos
-      final googleSignIn = GoogleSignIn.instance;
-      await googleSignIn.initialize();
+      final UserCredential userCred = await signInWithGoogleForFirebase();
+      final User? user = userCred.user;
+      if (user == null) {
+        if (mounted) {
+          ScaffoldMessenger.of(context).showSnackBar(
+            const SnackBar(
+              content: Text('Login Google sem usuário.'),
+              backgroundColor: Colors.red,
+            ),
+          );
+        }
+        return;
+      }
 
-      // 2. signIn() mudou para authenticate()
-      final GoogleSignInAccount googleUser = await googleSignIn.authenticate();
-
-      final GoogleSignInAuthentication googleAuth = googleUser.authentication;
-
-      // 3. O Firebase agora precisa apenas do idToken para confirmar a identidade!
-      final AuthCredential credential = GoogleAuthProvider.credential(
-        idToken: googleAuth.idToken,
-      );
-
-      UserCredential userCred = await FirebaseAuth.instance
-          .signInWithCredential(credential);
-      User? user = userCred.user;
-
-      if (user != null) {
-        var doc = await FirebaseFirestore.instance
-            .collection('users')
-            .doc(user.uid)
-            .get();
-        if (!doc.exists) {
+      final doc = await FirebaseFirestore.instance
+          .collection('users')
+          .doc(user.uid)
+          .get();
+      if (!doc.exists) {
+        try {
           await FirebaseFirestore.instance
               .collection('users')
               .doc(user.uid)
               .set({
-                'nome': user.displayName ?? 'Usuário Google',
-                'email': user.email ?? '',
-                'cpf': '',
-                'telefone': '',
-                'cidade': '',
-                'tipoUsuario': 'cliente',
-                'ativo': true,
-                'dataCadastro': FieldValue.serverTimestamp(),
-                'totalConcluido': 0,
-              });
+            'nome': user.displayName ?? 'Usuário Google',
+            'email': user.email ?? '',
+            'cpf': '',
+            'telefone': '',
+            'cidade': '',
+            'role': 'cliente',
+            'tipoUsuario': 'cliente',
+            'ativo': true,
+            'dataCadastro': FieldValue.serverTimestamp(),
+            'totalConcluido': 0,
+          });
+        } catch (e) {
+          debugPrint('Firestore novo usuário Google: $e');
+          if (mounted) {
+            ScaffoldMessenger.of(context).showSnackBar(
+              SnackBar(
+                content: Text('Conta Google OK, perfil não guardado: $e'),
+                backgroundColor: Colors.orange,
+              ),
+            );
+          }
         }
-        if (mounted) {
-          Navigator.pop(context); // Volta para a tela inicial logado!
-          ScaffoldMessenger.of(context).showSnackBar(
-            const SnackBar(
-              content: Text('Bem-vindo(a)!'),
-              backgroundColor: Colors.green,
-            ),
-          );
-        }
+      }
+      if (mounted) {
+        Navigator.pop(context);
+        ScaffoldMessenger.of(context).showSnackBar(
+          const SnackBar(
+            content: Text('Bem-vindo(a)!'),
+            backgroundColor: Colors.green,
+          ),
+        );
+      }
+    } on StateError catch (e) {
+      if (mounted && !e.message.contains('cancelado')) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(
+            content: Text('$e'),
+            backgroundColor: Colors.red,
+          ),
+        );
+      }
+    } on FirebaseAuthException catch (e) {
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(
+            content: Text('Firebase: ${e.code} — ${e.message ?? ""}'),
+            backgroundColor: Colors.red,
+          ),
+        );
       }
     } catch (e) {
       if (mounted) {

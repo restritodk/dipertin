@@ -36,3 +36,7 @@ criar_repo_e_push.ps1
 *.log
 **/firebase-debug.log
 .DS_Store
+
+# Chaves de serviço Firebase (nunca commitar)
+**/serviceAccount*.json
+**/*-firebase-adminsdk-*.json

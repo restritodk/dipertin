@@ -1,5 +1,5 @@
 name: depertin_cliente
-description: "A new Flutter project."
+description: "DiPertin — app cliente, lojista e entregador."
 # The following line prevents the package from being accidentally published to
 # pub.dev using `flutter pub publish`. This is preferred for private packages.
 publish_to: 'none' # Remove this line if you wish to publish to pub.dev
@@ -52,7 +52,8 @@ dependencies:
   flutter_local_notifications: ^21.0.0
   firebase_storage: ^13.2.0
   flutter_multi_formatter: ^2.13.10
-  google_sign_in: ^7.2.0
+  google_sign_in: ^6.3.0
+  connectivity_plus: ^6.1.4
 
 dev_dependencies:
   flutter_test:

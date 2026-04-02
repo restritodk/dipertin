@@ -1,9 +1,12 @@
-// Ficheiro: lib/screens/auth/login_screen.dart
+// Arquivo: lib/screens/auth/login_screen.dart
 import 'package:flutter/material.dart';
 import 'package:firebase_auth/firebase_auth.dart';
 import 'package:cloud_firestore/cloud_firestore.dart';
 import 'package:firebase_messaging/firebase_messaging.dart';
-import 'package:google_sign_in/google_sign_in.dart';
+import 'package:provider/provider.dart';
+import '../../auth/google_auth_helper.dart';
+import '../../services/conta_exclusao_service.dart';
+import '../../services/location_service.dart';
 import 'register_screen.dart';
 
 class LoginScreen extends StatefulWidget {
@@ -57,14 +60,16 @@ class _LoginScreenState extends State<LoginScreen> {
             password: _senhaController.text.trim(),
           );
       if (userCredential.user != null) {
-        await _atualizarTokenAposLogin(userCredential.user!.uid);
+        final uid = userCredential.user!.uid;
+        await ContaExclusaoService.cancelarExclusaoPendenteSeNecessario(uid);
+        await _atualizarTokenAposLogin(uid);
       }
 
       if (mounted) {
         Navigator.pop(context);
         ScaffoldMessenger.of(context).showSnackBar(
           const SnackBar(
-            content: Text('Login efetuado!'),
+            content: Text('Login realizado com sucesso!'),
             backgroundColor: Colors.green,
           ),
         );
@@ -72,7 +77,7 @@ class _LoginScreenState extends State<LoginScreen> {
     } on FirebaseAuthException catch (e) {
       String mensagem = 'Erro no login.';
       if (e.code == 'user-not-found') {
-        mensagem = 'Utilizador não encontrado.';
+        mensagem = 'Usuário não encontrado.';
       } else if (e.code == 'wrong-password') {
         mensagem = 'Senha incorreta.';
       }
@@ -90,52 +95,89 @@ class _LoginScreenState extends State<LoginScreen> {
   Future<void> _entrarComGoogle() async {
     setState(() => _isLoading = true);
     try {
-      final googleSignIn = GoogleSignIn.instance;
-      await googleSignIn.initialize();
+      final UserCredential userCred = await signInWithGoogleForFirebase();
+      final User? user = userCred.user;
 
-      final GoogleSignInAccount googleUser = await googleSignIn.authenticate();
+      if (user == null) {
+        if (mounted) {
+          ScaffoldMessenger.of(context).showSnackBar(
+            const SnackBar(
+              content: Text('Login Google sem usuário.'),
+              backgroundColor: Colors.red,
+            ),
+          );
+        }
+        return;
+      }
 
-      final GoogleSignInAuthentication googleAuth = googleUser.authentication;
-
-      final AuthCredential credential = GoogleAuthProvider.credential(
-        idToken: googleAuth.idToken,
-      );
-
-      UserCredential userCred = await FirebaseAuth.instance
-          .signInWithCredential(credential);
-      User? user = userCred.user;
-
-      if (user != null) {
-        var doc = await FirebaseFirestore.instance
-            .collection('users')
-            .doc(user.uid)
-            .get();
-        if (!doc.exists) {
+      final doc = await FirebaseFirestore.instance
+          .collection('users')
+          .doc(user.uid)
+          .get();
+      if (!doc.exists) {
+        try {
+          final loc = context.read<LocationService>();
           await FirebaseFirestore.instance
               .collection('users')
               .doc(user.uid)
               .set({
-                'nome': user.displayName ?? 'Usuário Google',
-                'email': user.email ?? '',
-                'cpf': '',
-                'telefone': '',
-                'cidade': '',
-                'tipoUsuario': 'cliente',
-                'ativo': true,
-                'dataCadastro': FieldValue.serverTimestamp(),
-                'totalConcluido': 0,
-              });
+            'nome': user.displayName ?? 'Usuário Google',
+            'email': user.email ?? '',
+            'cpf': '',
+            'telefone': '',
+            'cidade': loc.cidadeDetectada ?? '',
+            'uf': loc.ufDetectado ?? '',
+            'cidade_normalizada': loc.cidadeNormalizada,
+            'uf_normalizado': loc.ufNormalizado,
+            'role': 'cliente',
+            'tipoUsuario': 'cliente',
+            'ativo': true,
+            'status_conta': 'ativa',
+            'dataCadastro': FieldValue.serverTimestamp(),
+            'totalConcluido': 0,
+          });
+        } catch (e) {
+          debugPrint('Firestore novo usuário Google: $e');
+          if (mounted) {
+            ScaffoldMessenger.of(context).showSnackBar(
+              SnackBar(
+                content: Text(
+                  'Conta Google OK, mas falhou ao salvar o perfil: $e',
+                ),
+                backgroundColor: Colors.orange,
+              ),
+            );
+          }
         }
-        await _atualizarTokenAposLogin(user.uid);
-        if (mounted) {
-          Navigator.pop(context);
-          ScaffoldMessenger.of(context).showSnackBar(
-            const SnackBar(
-              content: Text('Bem-vindo(a)!'),
-              backgroundColor: Colors.green,
-            ),
-          );
-        }
+      }
+      await ContaExclusaoService.cancelarExclusaoPendenteSeNecessario(user.uid);
+      await _atualizarTokenAposLogin(user.uid);
+      if (mounted) {
+        Navigator.pop(context);
+        ScaffoldMessenger.of(context).showSnackBar(
+          const SnackBar(
+            content: Text('Bem-vindo(a)!'),
+            backgroundColor: Colors.green,
+          ),
+        );
+      }
+    } on StateError catch (e) {
+      if (mounted && !e.message.contains('cancelado')) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(
+            content: Text('$e'),
+            backgroundColor: Colors.red,
+          ),
+        );
+      }
+    } on FirebaseAuthException catch (e) {
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(
+            content: Text('Firebase: ${e.code} — ${e.message ?? ""}'),
+            backgroundColor: Colors.red,
+          ),
+        );
       }
     } catch (e) {
       if (mounted) {
@@ -258,6 +300,58 @@ class _LoginScreenState extends State<LoginScreen> {
                   'Não tem conta? Registe-se aqui.',
                   style: TextStyle(color: Color(0xFF6A1B9A)),
                 ),
+              ),
+
+              const SizedBox(height: 20),
+              StreamBuilder<DocumentSnapshot>(
+                stream: FirebaseFirestore.instance
+                    .collection('configuracoes')
+                    .doc('status_app')
+                    .snapshots(),
+                builder: (context, snapshot) {
+                  bool estavel = true;
+                  if (snapshot.hasData && snapshot.data!.exists) {
+                    var dados = snapshot.data!.data() as Map<String, dynamic>?;
+                    estavel = dados?['estavel'] ?? true;
+                  }
+
+                  return Column(
+                    children: [
+                      Row(
+                        mainAxisAlignment: MainAxisAlignment.center,
+                        children: [
+                          SizedBox(
+                            width: 10,
+                            height: 10,
+                            child: CircularProgressIndicator(
+                              strokeWidth: 2,
+                              color: estavel ? Colors.green : Colors.amber[700],
+                            ),
+                          ),
+                          const SizedBox(width: 8),
+                          Text(
+                            estavel
+                                ? "Aplicativo Operando Normalmente."
+                                : "Aplicativo instável no momento",
+                            style: TextStyle(
+                              color: estavel ? Colors.green : Colors.amber[700],
+                              fontSize: 12,
+                              fontWeight: FontWeight.w500,
+                            ),
+                          ),
+                        ],
+                      ),
+                      const SizedBox(height: 8),
+                      Text(
+                        "DiPertin v1.0.0",
+                        style: TextStyle(
+                          color: Colors.grey[400],
+                          fontSize: 11,
+                        ),
+                      ),
+                    ],
+                  );
+                },
               ),
             ],
           ),

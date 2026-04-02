@@ -1,3 +1,4 @@
+import 'package:flutter/foundation.dart';
 import 'package:flutter/material.dart';
 import 'package:firebase_auth/firebase_auth.dart';
 import 'package:cloud_firestore/cloud_firestore.dart';
@@ -15,6 +16,16 @@ class _LoginAdminScreenState extends State<LoginAdminScreen> {
 
   bool _isLoading = false;
   bool _ocultarSenha = true;
+
+  @override
+  void initState() {
+    super.initState();
+    // Apenas em debug: credenciais de teste (não entram em build release).
+    if (kDebugMode) {
+      _emailController.text = 'master@teste.com';
+      _senhaController.text = 'master';
+    }
+  }
 
   final Color diPertinRoxo = const Color(0xFF6A1B9A);
   final Color diPertinLaranja = const Color(0xFFFF8F00);
@@ -37,21 +48,23 @@ class _LoginAdminScreenState extends State<LoginAdminScreen> {
         password: senha,
       );
 
-      // 2. BUSCA OS DADOS DESSE USUÁRIO NO FIRESTORE
-      QuerySnapshot snapshot = await FirebaseFirestore.instance
+      // 2. Perfil na MESMA chave que as regras Firestore: users/{auth.uid}
+      final uid = FirebaseAuth.instance.currentUser!.uid;
+      final docSnap = await FirebaseFirestore.instance
           .collection('users')
-          .where('email', isEqualTo: email)
+          .doc(uid)
           .get();
 
-      if (snapshot.docs.isEmpty) {
-        _mostrarErro("Usuário não encontrado no banco de dados.");
+      if (!docSnap.exists) {
+        _mostrarErro(
+          "Sem documento em users/$uid no Firestore. Crie o perfil com o mesmo UID do Authentication.",
+        );
         await FirebaseAuth.instance.signOut();
         setState(() => _isLoading = false);
         return;
       }
 
-      var doc = snapshot.docs.first;
-      var dadosUsuario = doc.data() as Map<String, dynamic>;
+      var dadosUsuario = docSnap.data()!;
 
       // Suportando os dois nomes que você usou no banco
       String tipoUsuario =
@@ -65,8 +78,8 @@ class _LoginAdminScreenState extends State<LoginAdminScreen> {
 
       // 3. O GUARDA-COSTAS: VERIFICA QUEM PODE ENTRAR
       // Agora o Lojista também é VIP e pode entrar!
-      if (tipoUsuario != 'superadmin' &&
-          tipoUsuario != 'admin_city' &&
+      if (tipoUsuario != 'master' &&
+          tipoUsuario != 'master_city' &&
           tipoUsuario != 'lojista') {
         _mostrarErro(
           "Acesso Negado. Seu perfil não tem permissão para acessar o painel web.",
@@ -79,7 +92,7 @@ class _LoginAdminScreenState extends State<LoginAdminScreen> {
       // 4. VERIFICA SE É O PRIMEIRO ACESSO (Obriga a trocar a senha)
       if (primeiroAcesso) {
         setState(() => _isLoading = false);
-        _mostrarModalTrocaSenha(doc.id, dadosUsuario['nome'] ?? 'Parceiro');
+        _mostrarModalTrocaSenha(uid, dadosUsuario['nome'] ?? 'Parceiro');
         return;
       }
 
@@ -247,6 +260,50 @@ class _LoginAdminScreenState extends State<LoginAdminScreen> {
     );
   }
 
+  Future<void> _enviarRecuperacaoSenha() async {
+    String email = _emailController.text.trim();
+    if (email.isEmpty) {
+      _mostrarErro('Digite o e-mail no campo acima para receber o link de recuperação.');
+      return;
+    }
+
+    setState(() => _isLoading = true);
+    try {
+      await FirebaseAuth.instance.sendPasswordResetEmail(email: email);
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(
+            content: Text(
+              'Se existir conta com $email, enviámos um e-mail para redefinir a senha.',
+            ),
+            backgroundColor: Colors.green.shade700,
+          ),
+        );
+      }
+    } on FirebaseAuthException catch (e) {
+      if (e.code == 'invalid-email') {
+        _mostrarErro('E-mail inválido.');
+      } else if (e.code == 'user-not-found') {
+        if (mounted) {
+          ScaffoldMessenger.of(context).showSnackBar(
+            SnackBar(
+              content: Text(
+                'Não encontrámos conta com este e-mail. Verifique o endereço.',
+              ),
+              backgroundColor: Colors.orange.shade800,
+            ),
+          );
+        }
+      } else {
+        _mostrarErro('Não foi possível enviar o e-mail: ${e.message ?? e.code}');
+      }
+    } catch (e) {
+      _mostrarErro('Erro ao enviar recuperação de senha.');
+    } finally {
+      if (mounted) setState(() => _isLoading = false);
+    }
+  }
+
   void _mostrarErro(String mensagem) {
     if (mounted) {
       ScaffoldMessenger.of(context).showSnackBar(
@@ -378,9 +435,7 @@ class _LoginAdminScreenState extends State<LoginAdminScreen> {
 
                 const SizedBox(height: 20),
                 TextButton(
-                  onPressed: () => _mostrarErro(
-                    "Contate o Suporte para recuperar sua senha.",
-                  ),
+                  onPressed: _isLoading ? null : _enviarRecuperacaoSenha,
                   child: const Text(
                     "Esqueceu a senha?",
                     style: TextStyle(color: Colors.grey),

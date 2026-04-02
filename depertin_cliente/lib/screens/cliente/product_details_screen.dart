@@ -30,7 +30,7 @@ class _ProductDetailsScreenState extends State<ProductDetailsScreen> {
   }
 
   Future<void> _carregarDadosLojista() async {
-    String? lojistaId = widget.produto['lojista_id'];
+    String? lojistaId = widget.produto['lojista_id'] ?? widget.produto['loja_id'];
     if (lojistaId != null) {
       try {
         DocumentSnapshot doc = await FirebaseFirestore.instance
@@ -62,7 +62,7 @@ class _ProductDetailsScreenState extends State<ProductDetailsScreen> {
               widget.produto['imagens'].isNotEmpty)
           ? widget.produto['imagens'][0]
           : widget.produto['imagem'] ?? '',
-      lojaId: widget.produto['lojista_id'] ?? '',
+      lojaId: widget.produto['lojista_id'] ?? widget.produto['loja_id'] ?? '',
       lojaNome: widget.produto['loja_nome_vitrine'] ?? 'Loja Parceira',
     );
 
@@ -374,13 +374,14 @@ class _ProductDetailsScreenState extends State<ProductDetailsScreen> {
         const SizedBox(height: 5),
         GestureDetector(
           onTap: () {
-            if (_dadosLojista != null && widget.produto['lojista_id'] != null) {
+            String? lid = widget.produto['lojista_id'] ?? widget.produto['loja_id'];
+            if (_dadosLojista != null && lid != null) {
               Navigator.push(
                 context,
                 MaterialPageRoute(
                   builder: (context) => LojaPerfilScreen(
                     lojistaData: _dadosLojista!,
-                    lojistaId: widget.produto['lojista_id']!,
+                    lojistaId: lid,
                   ),
                 ),
               );

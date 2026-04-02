@@ -153,3 +153,79 @@ exports.notificarEntregadoresPedidoPronto = functions.firestore
             return null;
         }
     });
+
+// ==========================================
+// EXCLUSÃO DE CONTA — soft delete com retenção de 30 dias (servidor)
+// ==========================================
+exports.solicitarExclusaoConta = functions.https.onCall(async (data, context) => {
+    if (!context.auth) {
+        throw new functions.https.HttpsError(
+            "failed-precondition",
+            "É necessário estar autenticado."
+        );
+    }
+    const uid = context.auth.uid;
+    const ref = admin.firestore().collection("users").doc(uid);
+    const snap = await ref.get();
+    if (!snap.exists) {
+        throw new functions.https.HttpsError("not-found", "Perfil não encontrado.");
+    }
+    const existente = snap.data();
+    if (existente.status_conta === "exclusao_pendente") {
+        return { ok: true, jaPendente: true };
+    }
+    const now = admin.firestore.Timestamp.now();
+    const trintaDiasMs = 30 * 24 * 60 * 60 * 1000;
+    const prevista = admin.firestore.Timestamp.fromMillis(now.toMillis() + trintaDiasMs);
+    await ref.update({
+        status_conta: "exclusao_pendente",
+        exclusao_solicitada: true,
+        exclusao_solicitada_em: now,
+        exclusao_definitiva_prevista_em: prevista,
+        exclusao_cancelada_por_reativacao: false,
+    });
+    return { ok: true };
+});
+
+/**
+ * Diariamente: contas ainda em exclusao_pendente cuja data prevista já passou
+ * passam a elegivel_exclusao_definitiva (remoção física Auth/Firestore pode ser feita depois pelo admin ou outro job).
+ */
+exports.marcarContasElegiveisExclusaoDefinitiva = functions.pubsub
+    .schedule("every day 03:00")
+    .timeZone("America/Sao_Paulo")
+    .onRun(async () => {
+        const db = admin.firestore();
+        const snap = await db.collection("users")
+            .where("status_conta", "==", "exclusao_pendente")
+            .get();
+        if (snap.empty) {
+            console.log("[exclusao] Nenhuma conta em exclusao_pendente.");
+            return null;
+        }
+        const agora = Date.now();
+        let batch = db.batch();
+        let ops = 0;
+        let atualizados = 0;
+        for (const doc of snap.docs) {
+            const prev = doc.data().exclusao_definitiva_prevista_em;
+            if (!prev || !prev.toMillis) continue;
+            if (prev.toMillis() > agora) continue;
+            batch.update(doc.ref, {
+                status_conta: "elegivel_exclusao_definitiva",
+                exclusao_elegivel_definitiva_em: admin.firestore.FieldValue.serverTimestamp(),
+            });
+            ops++;
+            atualizados++;
+            if (ops >= 400) {
+                await batch.commit();
+                batch = db.batch();
+                ops = 0;
+            }
+        }
+        if (ops > 0) {
+            await batch.commit();
+        }
+        console.log(`[exclusao] Verificados: ${snap.size}. Marcados elegivel_exclusao_definitiva: ${atualizados}.`);
+        return null;
+    });

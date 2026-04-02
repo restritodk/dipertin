@@ -1,4 +1,5 @@
 import 'package:depertin_web/widgets/botao_suporte_flutuante.dart';
+import 'package:depertin_web/utils/admin_perfil.dart';
 import 'package:flutter/material.dart';
 import 'package:cloud_firestore/cloud_firestore.dart';
 import 'package:firebase_auth/firebase_auth.dart';
@@ -18,7 +19,7 @@ class _LojasScreenState extends State<LojasScreen> {
   final Color diPertinLaranja = const Color(0xFFFF8F00);
 
   // Variáveis para controlar as permissões do AdminCity
-  String _tipoUsuarioLogado = 'superadmin';
+  String _tipoUsuarioLogado = 'master';
   List<String> _cidadesDoGerente = [];
 
   @override
@@ -32,19 +33,16 @@ class _LojasScreenState extends State<LojasScreen> {
     User? user = FirebaseAuth.instance.currentUser;
     if (user != null) {
       try {
-        QuerySnapshot snap = await FirebaseFirestore.instance
+        final docSnap = await FirebaseFirestore.instance
             .collection('users')
-            .where('email', isEqualTo: user.email)
+            .doc(user.uid)
             .get();
 
-        if (snap.docs.isNotEmpty) {
-          var dados = snap.docs.first.data() as Map<String, dynamic>;
+        if (docSnap.exists) {
+          var dados = docSnap.data()!;
           if (mounted) {
             setState(() {
-              _tipoUsuarioLogado =
-                  (dados['tipoUsuario'] ?? dados['role'] ?? 'cliente')
-                      .toString()
-                      .toLowerCase();
+              _tipoUsuarioLogado = perfilAdministrativo(dados);
               _cidadesDoGerente = List<String>.from(
                 dados['cidades_gerenciadas'] ?? [],
               );
@@ -68,21 +66,38 @@ class _LojasScreenState extends State<LojasScreen> {
     // Se tiver motivo, salva no banco. Se for aprovada, apaga o motivo antigo.
     if (motivo != null && motivo.isNotEmpty) {
       dadosUpdate['motivo_recusa'] = motivo;
-    } else if (novoStatus == 'aprovada') {
+    } else if (novoStatus == 'Aprovada') {
       dadosUpdate['motivo_recusa'] = FieldValue.delete();
     }
 
-    await FirebaseFirestore.instance
-        .collection('users')
-        .doc(id)
-        .update(dadosUpdate);
+    try {
+      await FirebaseFirestore.instance
+          .collection('users')
+          .doc(id)
+          .update(dadosUpdate);
 
-    if (mounted) {
-      ScaffoldMessenger.of(context).showSnackBar(
-        SnackBar(
-          content: Text('Status alterado para $novoStatus!'),
-          backgroundColor: Colors.green,
-        ),
+      if (!mounted) return;
+      mostrarSnackPainel(
+        context,
+        mensagem: 'Status alterado para $novoStatus!',
+      );
+    } on FirebaseException catch (e) {
+      debugPrint('Firestore ao alterar loja: ${e.code} ${e.message}');
+      if (!mounted) return;
+      mostrarSnackPainel(
+        context,
+        erro: true,
+        mensagem: e.code == 'permission-denied'
+            ? 'Sem permissão. No Firestore defina role ou tipoUsuario como master ou master_city e faça deploy das regras.'
+            : 'Erro ao salvar: ${e.message ?? e.code}',
+      );
+    } catch (e) {
+      debugPrint('Erro ao alterar status da loja: $e');
+      if (!mounted) return;
+      mostrarSnackPainel(
+        context,
+        erro: true,
+        mensagem: 'Erro ao salvar: $e',
       );
     }
   }
@@ -655,7 +670,7 @@ class _LojasScreenState extends State<LojasScreen> {
         .where('status_loja', isEqualTo: statusFiltro);
 
     // === CADEADO DE SEGURANÇA: AdminCity só vê a cidade dele ===
-    if (_tipoUsuarioLogado == 'admin_city' && _cidadesDoGerente.isNotEmpty) {
+    if (_tipoUsuarioLogado == 'master_city' && _cidadesDoGerente.isNotEmpty) {
       queryBase = queryBase.where('cidade', whereIn: _cidadesDoGerente);
     }
 

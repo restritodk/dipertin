@@ -1,3 +1,4 @@
+import 'package:depertin_web/utils/admin_perfil.dart';
 import 'package:flutter/material.dart';
 import 'package:firebase_auth/firebase_auth.dart';
 import 'package:cloud_firestore/cloud_firestore.dart';
@@ -26,20 +27,16 @@ class _SidebarMenuState extends State<SidebarMenu> {
     User? user = FirebaseAuth.instance.currentUser;
     if (user != null) {
       try {
-        // Vai no banco ver se ele é superadmin, admin_city ou lojista
-        QuerySnapshot snap = await FirebaseFirestore.instance
+        final docSnap = await FirebaseFirestore.instance
             .collection('users')
-            .where('email', isEqualTo: user.email)
+            .doc(user.uid)
             .get();
 
-        if (snap.docs.isNotEmpty) {
-          var dados = snap.docs.first.data() as Map<String, dynamic>;
+        if (docSnap.exists) {
+          var dados = docSnap.data()!;
           if (mounted) {
             setState(() {
-              _tipoUsuario =
-                  (dados['tipoUsuario'] ?? dados['role'] ?? 'cliente')
-                      .toString()
-                      .toLowerCase();
+              _tipoUsuario = perfilAdministrativo(dados);
             });
           }
         }
@@ -125,9 +122,8 @@ class _SidebarMenuState extends State<SidebarMenu> {
                 // === MENU PARA TODOS (ADMINS E LOJISTAS) ===
                 _menuItem(context, Icons.dashboard, "Dashboard", '/dashboard'),
 
-                // === SE FOR SUPERADMIN OU ADMIN_CITY VÊ TUDO ===
-                if (_tipoUsuario == 'superadmin' ||
-                    _tipoUsuario == 'admin_city') ...[
+                // === STAFF: master, master_city ===
+                if (perfilPodeGestaoLojasEntregadoresBanners(_tipoUsuario)) ...[
                   _menuItem(context, Icons.store, "Lojas", '/lojas'),
                   _menuItem(
                     context,
@@ -165,8 +161,8 @@ class _SidebarMenuState extends State<SidebarMenu> {
                   ),
                 ],
 
-                // === TELAS EXCLUSIVAS DO CHEFE (SUPERADMIN) ===
-                if (_tipoUsuario == 'superadmin') ...[
+                // === CHEFE: master ===
+                if (perfilPodeMenuChefe(_tipoUsuario)) ...[
                   const Divider(color: Colors.white24),
                   _menuItem(
                     context,

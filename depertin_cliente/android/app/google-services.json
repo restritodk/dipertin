@@ -14,6 +14,14 @@
       },
       "oauth_client": [
         {
+          "client_id": "939151024179-gfuobnldt3socvql2kd2vs2ktbcg1v9o.apps.googleusercontent.com",
+          "client_type": 1,
+          "android_info": {
+            "package_name": "com.example.depertin_cliente",
+            "certificate_hash": "0ff71428bbe59c119ea9b0a4596797fd866d7133"
+          }
+        },
+        {
           "client_id": "939151024179-sqi572b7mtr07ckt41roggtqmbhevred.apps.googleusercontent.com",
           "client_type": 1,
           "android_info": {

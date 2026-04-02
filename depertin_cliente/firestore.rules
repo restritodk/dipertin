@@ -1,0 +1,237 @@
+rules_version = '2';
+
+// DiPertin — regras Firestore
+// Deploy: .\firebase_deploy.ps1  ou  firebase deploy --only firestore:rules
+//
+// Perfis: master, master_city, lojista, cliente, entregador
+
+service cloud.firestore {
+  match /databases/{database}/documents {
+
+    function signedIn() {
+      return request.auth != null;
+    }
+
+    function userPath() {
+      return /databases/$(database)/documents/users/$(request.auth.uid);
+    }
+
+    function userExists() {
+      return signedIn() && exists(userPath());
+    }
+
+    function userData() {
+      return get(userPath()).data;
+    }
+
+    function role() {
+      return userExists()
+        ? userData().get('role', userData().get('tipoUsuario', ''))
+        : '';
+    }
+
+    function isMaster() {
+      return userExists() && role() == 'master';
+    }
+
+    function isMasterCity() {
+      return userExists() && role() == 'master_city';
+    }
+
+    function isStaff() {
+      return isMaster() || isMasterCity();
+    }
+
+    function isEntregador() {
+      return userExists() && role() == 'entregador';
+    }
+
+    match /users/{userId} {
+      allow read: if true;
+      allow create: if signedIn() && request.auth.uid == userId;
+      allow update: if signedIn() && (request.auth.uid == userId || isStaff());
+      allow delete: if isMaster();
+    }
+
+    match /pedidos/{pedidoId} {
+      function p() {
+        return resource.data;
+      }
+
+      function entregadorAtribuido() {
+        return 'entregador_id' in p() && p().entregador_id == request.auth.uid;
+      }
+
+      function podeLerPedido() {
+        return signedIn() && (
+          p().cliente_id == request.auth.uid ||
+          p().loja_id == request.auth.uid ||
+          entregadorAtribuido() ||
+          (isEntregador() && p().status in ['a_caminho', 'em_rota']) ||
+          isStaff()
+        );
+      }
+
+      allow read: if podeLerPedido();
+
+      allow create: if signedIn()
+        && request.resource.data.cliente_id == request.auth.uid;
+
+      allow update: if signedIn() && (
+        isStaff() ||
+        p().loja_id == request.auth.uid ||
+        p().cliente_id == request.auth.uid ||
+        entregadorAtribuido() ||
+        (isEntregador() && p().status in ['a_caminho', 'em_rota'])
+      );
+
+      allow delete: if isMaster();
+
+      match /mensagens/{msgId} {
+        function pedidoPai() {
+          return get(/databases/$(database)/documents/pedidos/$(pedidoId)).data;
+        }
+
+        allow read: if signedIn() && (
+          pedidoPai().cliente_id == request.auth.uid ||
+          pedidoPai().loja_id == request.auth.uid ||
+          isStaff()
+        );
+        allow create: if signedIn() && (
+          pedidoPai().cliente_id == request.auth.uid ||
+          pedidoPai().loja_id == request.auth.uid ||
+          isStaff()
+        );
+        allow update, delete: if isStaff();
+      }
+    }
+
+    match /produtos/{id} {
+      allow read: if true;
+      allow create: if signedIn() && (
+        request.resource.data.lojista_id == request.auth.uid ||
+        request.resource.data.loja_id == request.auth.uid
+      );
+      allow update, delete: if signedIn() && (
+        ('lojista_id' in resource.data && resource.data.lojista_id == request.auth.uid) ||
+        ('loja_id' in resource.data && resource.data.loja_id == request.auth.uid) ||
+        isStaff()
+      );
+    }
+
+    match /categorias/{id} {
+      allow read: if true;
+      allow write: if isStaff();
+    }
+
+    match /sugestoes_categorias/{id} {
+      allow read: if signedIn();
+      allow write: if isStaff();
+    }
+
+    match /banners/{id} {
+      allow read: if true;
+      allow write: if isStaff();
+    }
+
+    match /avaliacoes/{id} {
+      allow read: if true;
+      allow create: if signedIn();
+      allow update, delete: if isStaff()
+        || ('cliente_id' in resource.data && resource.data.cliente_id == request.auth.uid);
+    }
+
+    match /gateways_pagamento/{id} {
+      allow read: if signedIn();
+      allow write: if isStaff();
+    }
+
+    match /planos_taxas/{id} {
+      allow read: if signedIn();
+      allow write: if isStaff();
+    }
+
+    match /tabela_fretes/{id} {
+      allow read: if signedIn();
+      allow write: if isStaff();
+    }
+
+    match /receitas_app/{id} {
+      allow read, write: if isStaff();
+    }
+
+    match /saques_solicitacoes/{id} {
+      allow read: if signedIn() && (
+        isStaff() ||
+        ('user_id' in resource.data && resource.data.user_id == request.auth.uid)
+      );
+      allow create: if signedIn();
+      allow update, delete: if isStaff();
+    }
+
+    match /vagas/{id} {
+      allow read: if true;
+      allow create: if signedIn();
+      allow update, delete: if isStaff()
+        || ('criador_id' in resource.data && resource.data.criador_id == request.auth.uid);
+    }
+
+    match /achados/{id} {
+      allow read: if true;
+      allow create: if signedIn();
+      allow update, delete: if isStaff()
+        || ('criador_id' in resource.data && resource.data.criador_id == request.auth.uid);
+    }
+
+    match /eventos/{id} {
+      allow read: if true;
+      allow create: if signedIn();
+      allow update, delete: if isStaff()
+        || ('criador_id' in resource.data && resource.data.criador_id == request.auth.uid);
+    }
+
+    match /telefones_premium/{id} {
+      allow read: if true;
+      allow write: if isStaff();
+    }
+
+    match /servicos_destaque/{id} {
+      allow read: if true;
+      allow write: if isStaff();
+    }
+
+    match /suporte/{ticketId} {
+      allow read: if signedIn() && (
+        isStaff() ||
+        ('user_id' in resource.data && resource.data.user_id == request.auth.uid)
+      );
+      allow create: if signedIn();
+      allow update: if signedIn() && (
+        isStaff() ||
+        ('user_id' in resource.data && resource.data.user_id == request.auth.uid)
+      );
+
+      match /mensagens/{msgId} {
+        function ticket() {
+          return get(/databases/$(database)/documents/suporte/$(ticketId)).data;
+        }
+
+        allow read: if signedIn() && (
+          isStaff() ||
+          ('user_id' in ticket() && ticket().user_id == request.auth.uid)
+        );
+        allow create: if signedIn();
+        allow update, delete: if isStaff();
+      }
+    }
+
+    match /configuracoes/{id} {
+      allow read: if true;
+      allow write: if isStaff();
+    }
+
+    match /{document=**} {
+      allow read, write: if isStaff();
+    }
+  }
+}

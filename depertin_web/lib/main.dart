@@ -25,7 +25,7 @@ class DiPertinAdminApp extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     return MaterialApp(
-      title: 'DiPertin Admin',
+      title: 'DiPertin',
       debugShowCheckedModeBanner: false,
       localizationsDelegates: const [
         GlobalMaterialLocalizations.delegate,
@@ -52,9 +52,6 @@ class DiPertinAdminApp extends StatelessWidget {
         '/configuracoes': (context) => const ConfiguracoesScreen(),
         '/entregadores': (context) => const EntregadoresScreen(),
         '/banners': (context) => const BannersScreen(),
-        '/atendimento_suporte': (context) =>
-            const Center(child: Text("Tela de Suporte em Construção")),
-        // ignore: equal_keys_in_map
         '/atendimento_suporte': (context) => const AtendimentoSuporteScreen(),
       },
     );

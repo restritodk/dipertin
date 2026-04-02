@@ -1,5 +1,6 @@
 // Arquivo: lib/screens/atendimento_suporte_screen.dart
 
+import 'package:depertin_web/utils/admin_perfil.dart';
 import 'package:flutter/material.dart';
 import 'package:cloud_firestore/cloud_firestore.dart';
 import 'package:firebase_auth/firebase_auth.dart';
@@ -21,7 +22,7 @@ class _AtendimentoSuporteScreenState extends State<AtendimentoSuporteScreen> {
   String? _chamadoSelecionadoNome;
   final TextEditingController _mensagemController = TextEditingController();
 
-  String _tipoUsuarioLogado = 'superadmin';
+  String _tipoUsuarioLogado = 'master';
   String _cidadeLogado = '';
 
   @override
@@ -33,20 +34,14 @@ class _AtendimentoSuporteScreenState extends State<AtendimentoSuporteScreen> {
   Future<void> _buscarDadosDoAdmin() async {
     User? user = FirebaseAuth.instance.currentUser;
     if (user != null) {
-      var snap = await FirebaseFirestore.instance
+      final docSnap = await FirebaseFirestore.instance
           .collection('users')
-          .where('email', isEqualTo: user.email)
+          .doc(user.uid)
           .get();
-      if (snap.docs.isNotEmpty) {
-        var dados = snap.docs.first.data();
+      if (docSnap.exists) {
+        final dados = docSnap.data()!;
         setState(() {
-          _tipoUsuarioLogado =
-              (dados['role'] ??
-                      dados['tipo'] ??
-                      dados['tipoUsuario'] ??
-                      'cliente')
-                  .toString()
-                  .toLowerCase();
+          _tipoUsuarioLogado = perfilAdministrativo(dados);
           _cidadeLogado = (dados['cidade'] ?? '').toString().toLowerCase();
         });
       }
@@ -387,12 +382,11 @@ class _AtendimentoSuporteScreenState extends State<AtendimentoSuporteScreen> {
                             if (!bateuBusca) return false;
 
                             // 2. A REGRA DE OURO DA HIERARQUIA:
-                            if (_tipoUsuarioLogado == 'superadmin') {
-                              return true; // SuperAdmin pode buscar qualquer pessoa no mundo
-                            } else if (_tipoUsuarioLogado == 'admin_city') {
-                              // AdminCity só pode buscar pessoas da SUA cidade OU buscar o SuperAdmin para pedir socorro
+                            if (_tipoUsuarioLogado == 'master') {
+                              return true;
+                            } else if (_tipoUsuarioLogado == 'master_city') {
                               return cidadeDoUsuario == _cidadeLogado ||
-                                  role == 'superadmin';
+                                  role == 'master';
                             }
 
                             return false; // Por segurança, se não for admin, não acha nada.

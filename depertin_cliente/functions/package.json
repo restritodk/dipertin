@@ -6,7 +6,11 @@
     "shell": "firebase functions:shell",
     "start": "npm run shell",
     "deploy": "firebase deploy --only functions",
-    "logs": "firebase functions:log"
+    "logs": "firebase functions:log",
+    "seed:toledo": "node scripts/seed_produto_toledo_pr.js",
+    "seed:superadmin": "node scripts/seed_superadmin_painel.js",
+    "seed:master": "node scripts/seed_master_painel.js",
+    "reset:usuarios-superadmin": "node scripts/reset_usuarios_somente_superadmin.js"
   },
   "engines": {
     "node": "20"
