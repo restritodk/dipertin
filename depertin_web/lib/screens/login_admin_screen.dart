@@ -2,6 +2,9 @@ import 'package:flutter/foundation.dart';
 import 'package:flutter/material.dart';
 import 'package:firebase_auth/firebase_auth.dart';
 import 'package:cloud_firestore/cloud_firestore.dart';
+import 'package:google_fonts/google_fonts.dart';
+
+import '../theme/painel_admin_theme.dart';
 
 class LoginAdminScreen extends StatefulWidget {
   const LoginAdminScreen({super.key});
@@ -17,38 +20,81 @@ class _LoginAdminScreenState extends State<LoginAdminScreen> {
   bool _isLoading = false;
   bool _ocultarSenha = true;
 
+  static const Color _ink = Color(0xFF1E1B4B);
+
   @override
   void initState() {
     super.initState();
-    // Apenas em debug: credenciais de teste (não entram em build release).
     if (kDebugMode) {
       _emailController.text = 'master@teste.com';
       _senhaController.text = 'master';
     }
   }
 
-  final Color diPertinRoxo = const Color(0xFF6A1B9A);
-  final Color diPertinLaranja = const Color(0xFFFF8F00);
+  @override
+  void dispose() {
+    _emailController.dispose();
+    _senhaController.dispose();
+    super.dispose();
+  }
+
+  InputDecoration _fieldDecoration({
+    required String label,
+    Widget? prefix,
+    Widget? suffix,
+  }) {
+    return InputDecoration(
+      labelText: label,
+      labelStyle: GoogleFonts.plusJakartaSans(
+        color: PainelAdminTheme.textoSecundario,
+        fontSize: 14,
+      ),
+      floatingLabelStyle: GoogleFonts.plusJakartaSans(
+        color: PainelAdminTheme.roxo,
+        fontWeight: FontWeight.w600,
+        fontSize: 14,
+      ),
+      prefixIcon: prefix,
+      suffixIcon: suffix,
+      filled: true,
+      fillColor: const Color(0xFFF8F7FC),
+      contentPadding: const EdgeInsets.symmetric(horizontal: 16, vertical: 18),
+      border: OutlineInputBorder(
+        borderRadius: BorderRadius.circular(14),
+        borderSide: const BorderSide(color: Color(0xFFE8E4F0)),
+      ),
+      enabledBorder: OutlineInputBorder(
+        borderRadius: BorderRadius.circular(14),
+        borderSide: const BorderSide(color: Color(0xFFE8E4F0)),
+      ),
+      focusedBorder: OutlineInputBorder(
+        borderRadius: BorderRadius.circular(14),
+        borderSide: const BorderSide(color: PainelAdminTheme.roxo, width: 2),
+      ),
+      errorBorder: OutlineInputBorder(
+        borderRadius: BorderRadius.circular(14),
+        borderSide: const BorderSide(color: Color(0xFFEF4444)),
+      ),
+    );
+  }
 
   Future<void> _fazerLogin() async {
     String email = _emailController.text.trim();
     String senha = _senhaController.text.trim();
 
     if (email.isEmpty || senha.isEmpty) {
-      _mostrarErro("Por favor, preencha o e-mail e a senha!");
+      _mostrarErro('Por favor, preencha o e-mail e a senha.');
       return;
     }
 
     setState(() => _isLoading = true);
 
     try {
-      // 1. FAZ O LOGIN OFICIAL NO FIREBASE AUTH
       await FirebaseAuth.instance.signInWithEmailAndPassword(
         email: email,
         password: senha,
       );
 
-      // 2. Perfil na MESMA chave que as regras Firestore: users/{auth.uid}
       final uid = FirebaseAuth.instance.currentUser!.uid;
       final docSnap = await FirebaseFirestore.instance
           .collection('users')
@@ -57,7 +103,7 @@ class _LoginAdminScreenState extends State<LoginAdminScreen> {
 
       if (!docSnap.exists) {
         _mostrarErro(
-          "Sem documento em users/$uid no Firestore. Crie o perfil com o mesmo UID do Authentication.",
+          'Sem documento em users/$uid no Firestore. Crie o perfil com o mesmo UID do Authentication.',
         );
         await FirebaseAuth.instance.signOut();
         setState(() => _isLoading = false);
@@ -66,7 +112,6 @@ class _LoginAdminScreenState extends State<LoginAdminScreen> {
 
       var dadosUsuario = docSnap.data()!;
 
-      // Suportando os dois nomes que você usou no banco
       String tipoUsuario =
           (dadosUsuario['role'] ??
                   dadosUsuario['tipo'] ??
@@ -76,27 +121,23 @@ class _LoginAdminScreenState extends State<LoginAdminScreen> {
               .toLowerCase();
       bool primeiroAcesso = dadosUsuario['primeiro_acesso'] ?? false;
 
-      // 3. O GUARDA-COSTAS: VERIFICA QUEM PODE ENTRAR
-      // Agora o Lojista também é VIP e pode entrar!
       if (tipoUsuario != 'master' &&
           tipoUsuario != 'master_city' &&
           tipoUsuario != 'lojista') {
         _mostrarErro(
-          "Acesso Negado. Seu perfil não tem permissão para acessar o painel web.",
+          'Acesso negado. Seu perfil não tem permissão para o painel web.',
         );
         await FirebaseAuth.instance.signOut();
         setState(() => _isLoading = false);
         return;
       }
 
-      // 4. VERIFICA SE É O PRIMEIRO ACESSO (Obriga a trocar a senha)
       if (primeiroAcesso) {
         setState(() => _isLoading = false);
         _mostrarModalTrocaSenha(uid, dadosUsuario['nome'] ?? 'Parceiro');
         return;
       }
 
-      // 5. TUDO CERTO! BEM-VINDO AO PAINEL!
       if (mounted) {
         Navigator.pushReplacementNamed(context, '/painel');
       }
@@ -110,12 +151,11 @@ class _LoginAdminScreenState extends State<LoginAdminScreen> {
       _mostrarErro(mensagem);
       setState(() => _isLoading = false);
     } catch (e) {
-      _mostrarErro("Erro interno no servidor.");
+      _mostrarErro('Erro interno no servidor.');
       setState(() => _isLoading = false);
     }
   }
 
-  // === MODAL COM 2 CAMPOS PARA TROCA DE SENHA ===
   void _mostrarModalTrocaSenha(String userId, String nomeUsuario) {
     TextEditingController novaSenhaC = TextEditingController();
     TextEditingController confirmarSenhaC = TextEditingController();
@@ -123,25 +163,39 @@ class _LoginAdminScreenState extends State<LoginAdminScreen> {
 
     showDialog(
       context: context,
-      barrierDismissible: false, // Bloqueia o clique fora do modal
-      builder: (context) {
+      barrierDismissible: false,
+      builder: (dialogContext) {
         return StatefulBuilder(
           builder: (context, setStateModal) {
             Future<void> salvarNovaSenha() async {
               if (novaSenhaC.text.length < 6) {
                 ScaffoldMessenger.of(context).showSnackBar(
-                  const SnackBar(
-                    content: Text("A senha deve ter pelo menos 6 caracteres."),
-                    backgroundColor: Colors.red,
+                  SnackBar(
+                    content: Text(
+                      'A senha deve ter pelo menos 6 caracteres.',
+                      style: GoogleFonts.plusJakartaSans(),
+                    ),
+                    backgroundColor: const Color(0xFFDC2626),
+                    behavior: SnackBarBehavior.floating,
+                    shape: RoundedRectangleBorder(
+                      borderRadius: BorderRadius.circular(12),
+                    ),
                   ),
                 );
                 return;
               }
               if (novaSenhaC.text != confirmarSenhaC.text) {
                 ScaffoldMessenger.of(context).showSnackBar(
-                  const SnackBar(
-                    content: Text("As senhas digitadas não são iguais!"),
-                    backgroundColor: Colors.red,
+                  SnackBar(
+                    content: Text(
+                      'As senhas digitadas não são iguais.',
+                      style: GoogleFonts.plusJakartaSans(),
+                    ),
+                    backgroundColor: const Color(0xFFDC2626),
+                    behavior: SnackBarBehavior.floating,
+                    shape: RoundedRectangleBorder(
+                      borderRadius: BorderRadius.circular(12),
+                    ),
                   ),
                 );
                 return;
@@ -150,35 +204,36 @@ class _LoginAdminScreenState extends State<LoginAdminScreen> {
               setStateModal(() => isSalvando = true);
 
               try {
-                // 1. Muda a senha REAL no sistema de autenticação do Google
                 await FirebaseAuth.instance.currentUser!.updatePassword(
                   novaSenhaC.text.trim(),
                 );
 
-                // 2. Tira a trava de "primeiro_acesso" no banco de dados
                 await FirebaseFirestore.instance
                     .collection('users')
                     .doc(userId)
                     .update({
-                      'senha': novaSenhaC.text
-                          .trim(), // Atualiza a senha no documento também, por garantia
+                      'senha': novaSenhaC.text.trim(),
                       'primeiro_acesso': false,
                       'data_atualizacao': FieldValue.serverTimestamp(),
                     });
 
                 if (context.mounted) {
-                  Navigator.pop(context); // Fecha o modal
-                  Navigator.pushReplacementNamed(
-                    context,
-                    '/painel',
-                  ); // Libera o acesso ao painel
+                  Navigator.pop(context);
+                  Navigator.pushReplacementNamed(context, '/painel');
                 }
               } catch (e) {
                 if (context.mounted) {
                   ScaffoldMessenger.of(context).showSnackBar(
                     SnackBar(
-                      content: Text("Erro ao atualizar senha: $e"),
-                      backgroundColor: Colors.red,
+                      content: Text(
+                        'Erro ao atualizar senha: $e',
+                        style: GoogleFonts.plusJakartaSans(),
+                      ),
+                      backgroundColor: const Color(0xFFDC2626),
+                      behavior: SnackBarBehavior.floating,
+                      shape: RoundedRectangleBorder(
+                        borderRadius: BorderRadius.circular(12),
+                      ),
                     ),
                   );
                 }
@@ -187,72 +242,107 @@ class _LoginAdminScreenState extends State<LoginAdminScreen> {
               }
             }
 
-            return AlertDialog(
-              title: const Text(
-                "Bem-vindo(a)! 🎉",
-                style: TextStyle(
-                  color: Colors.green,
-                  fontWeight: FontWeight.bold,
-                ),
+            return Dialog(
+              shape: RoundedRectangleBorder(
+                borderRadius: BorderRadius.circular(24),
               ),
-              content: SizedBox(
-                width: 400,
-                child: Column(
-                  mainAxisSize: MainAxisSize.min,
-                  children: [
-                    Text(
-                      "Olá, $nomeUsuario. Este é o seu primeiro acesso ao painel. Por motivos de segurança, defina a sua nova senha pessoal.",
-                    ),
-                    const SizedBox(height: 20),
-
-                    // CAMPO 1
-                    TextField(
-                      controller: novaSenhaC,
-                      obscureText: true,
-                      decoration: const InputDecoration(
-                        labelText: "Digite a Nova Senha",
-                        border: OutlineInputBorder(),
-                        prefixIcon: Icon(Icons.lock),
+              child: ConstrainedBox(
+                constraints: const BoxConstraints(maxWidth: 440),
+                child: Padding(
+                  padding: const EdgeInsets.all(28),
+                  child: Column(
+                    mainAxisSize: MainAxisSize.min,
+                    crossAxisAlignment: CrossAxisAlignment.stretch,
+                    children: [
+                      Container(
+                        padding: const EdgeInsets.all(12),
+                        decoration: BoxDecoration(
+                          color: const Color(0xFFECFDF5),
+                          borderRadius: BorderRadius.circular(14),
+                        ),
+                        child: Icon(
+                          Icons.verified_user_rounded,
+                          color: const Color(0xFF059669),
+                          size: 36,
+                        ),
                       ),
-                    ),
-                    const SizedBox(height: 15),
-
-                    // CAMPO 2 (Confirmação)
-                    TextField(
-                      controller: confirmarSenhaC,
-                      obscureText: true,
-                      decoration: const InputDecoration(
-                        labelText: "Confirme a Nova Senha",
-                        border: OutlineInputBorder(),
-                        prefixIcon: Icon(Icons.lock_outline),
+                      const SizedBox(height: 20),
+                      Text(
+                        'Primeiro acesso',
+                        style: GoogleFonts.plusJakartaSans(
+                          fontSize: 22,
+                          fontWeight: FontWeight.w800,
+                          color: _ink,
+                          letterSpacing: -0.3,
+                        ),
                       ),
-                    ),
-                  ],
-                ),
-              ),
-              actions: [
-                ElevatedButton(
-                  onPressed: isSalvando ? null : salvarNovaSenha,
-                  style: ElevatedButton.styleFrom(
-                    backgroundColor: diPertinRoxo,
-                    foregroundColor: Colors.white,
-                    padding: const EdgeInsets.symmetric(
-                      horizontal: 20,
-                      vertical: 15,
-                    ),
-                  ),
-                  child: isSalvando
-                      ? const SizedBox(
-                          width: 16,
-                          height: 16,
-                          child: CircularProgressIndicator(
-                            color: Colors.white,
-                            strokeWidth: 2,
+                      const SizedBox(height: 8),
+                      Text(
+                        'Olá, $nomeUsuario. Por segurança, defina uma nova senha para continuar.',
+                        style: GoogleFonts.plusJakartaSans(
+                          fontSize: 14,
+                          height: 1.5,
+                          color: PainelAdminTheme.textoSecundario,
+                        ),
+                      ),
+                      const SizedBox(height: 24),
+                      TextField(
+                        controller: novaSenhaC,
+                        obscureText: true,
+                        decoration: _fieldDecoration(
+                          label: 'Nova senha',
+                          prefix: const Icon(
+                            Icons.lock_rounded,
+                            color: PainelAdminTheme.roxo,
+                            size: 22,
                           ),
-                        )
-                      : const Text("Salvar e Entrar"),
+                        ),
+                      ),
+                      const SizedBox(height: 16),
+                      TextField(
+                        controller: confirmarSenhaC,
+                        obscureText: true,
+                        decoration: _fieldDecoration(
+                          label: 'Confirmar senha',
+                          prefix: const Icon(
+                            Icons.lock_outline_rounded,
+                            color: PainelAdminTheme.roxo,
+                            size: 22,
+                          ),
+                        ),
+                      ),
+                      const SizedBox(height: 28),
+                      FilledButton(
+                        onPressed: isSalvando ? null : salvarNovaSenha,
+                        style: FilledButton.styleFrom(
+                          backgroundColor: PainelAdminTheme.roxo,
+                          foregroundColor: Colors.white,
+                          padding: const EdgeInsets.symmetric(vertical: 16),
+                          shape: RoundedRectangleBorder(
+                            borderRadius: BorderRadius.circular(14),
+                          ),
+                        ),
+                        child: isSalvando
+                            ? const SizedBox(
+                                width: 22,
+                                height: 22,
+                                child: CircularProgressIndicator(
+                                  color: Colors.white,
+                                  strokeWidth: 2,
+                                ),
+                              )
+                            : Text(
+                                'Salvar e entrar',
+                                style: GoogleFonts.plusJakartaSans(
+                                  fontWeight: FontWeight.w700,
+                                  fontSize: 15,
+                                ),
+                              ),
+                      ),
+                    ],
+                  ),
                 ),
-              ],
+              ),
             );
           },
         );
@@ -263,7 +353,9 @@ class _LoginAdminScreenState extends State<LoginAdminScreen> {
   Future<void> _enviarRecuperacaoSenha() async {
     String email = _emailController.text.trim();
     if (email.isEmpty) {
-      _mostrarErro('Digite o e-mail no campo acima para receber o link de recuperação.');
+      _mostrarErro(
+        'Digite o e-mail no campo acima para receber o link de recuperação.',
+      );
       return;
     }
 
@@ -274,9 +366,14 @@ class _LoginAdminScreenState extends State<LoginAdminScreen> {
         ScaffoldMessenger.of(context).showSnackBar(
           SnackBar(
             content: Text(
-              'Se existir conta com $email, enviamos um e-mail para redefinir a senha.',
+              'Se existir conta com $email, enviámos um e-mail para redefinir a senha.',
+              style: GoogleFonts.plusJakartaSans(),
             ),
-            backgroundColor: Colors.green.shade700,
+            backgroundColor: const Color(0xFF059669),
+            behavior: SnackBarBehavior.floating,
+            shape: RoundedRectangleBorder(
+              borderRadius: BorderRadius.circular(12),
+            ),
           ),
         );
       }
@@ -289,8 +386,13 @@ class _LoginAdminScreenState extends State<LoginAdminScreen> {
             SnackBar(
               content: Text(
                 'Não encontrámos conta com este e-mail. Verifique o endereço.',
+                style: GoogleFonts.plusJakartaSans(),
               ),
-              backgroundColor: Colors.orange.shade800,
+              backgroundColor: const Color(0xFFC2410C),
+              behavior: SnackBarBehavior.floating,
+              shape: RoundedRectangleBorder(
+                borderRadius: BorderRadius.circular(12),
+              ),
             ),
           );
         }
@@ -307,144 +409,299 @@ class _LoginAdminScreenState extends State<LoginAdminScreen> {
   void _mostrarErro(String mensagem) {
     if (mounted) {
       ScaffoldMessenger.of(context).showSnackBar(
-        SnackBar(content: Text(mensagem), backgroundColor: Colors.red),
+        SnackBar(
+          content: Text(mensagem, style: GoogleFonts.plusJakartaSans()),
+          backgroundColor: const Color(0xFFDC2626),
+          behavior: SnackBarBehavior.floating,
+          shape: RoundedRectangleBorder(
+            borderRadius: BorderRadius.circular(12),
+          ),
+        ),
       );
     }
+  }
+
+  Widget _painelMarca({required bool wide}) {
+    return Container(
+      width: wide ? null : double.infinity,
+      padding: EdgeInsets.symmetric(
+        horizontal: wide ? 56 : 32,
+        vertical: wide ? 48 : 36,
+      ),
+      decoration: const BoxDecoration(
+        gradient: LinearGradient(
+          begin: Alignment.topLeft,
+          end: Alignment.bottomRight,
+          colors: [
+            PainelAdminTheme.roxoEscuro,
+            PainelAdminTheme.roxo,
+            PainelAdminTheme.roxoSidebarFim,
+          ],
+        ),
+      ),
+      child: Column(
+        crossAxisAlignment:
+            wide ? CrossAxisAlignment.start : CrossAxisAlignment.center,
+        mainAxisAlignment: MainAxisAlignment.center,
+        children: [
+          Container(
+            padding: const EdgeInsets.all(14),
+            decoration: BoxDecoration(
+              color: Colors.white.withOpacity(0.12),
+              borderRadius: BorderRadius.circular(20),
+              border: Border.all(color: Colors.white.withOpacity(0.2)),
+            ),
+            child: Image.asset(
+              'assets/logo.png',
+              height: wide ? 72 : 64,
+              errorBuilder: (c, e, s) => const Icon(
+                Icons.admin_panel_settings_rounded,
+                size: 56,
+                color: Colors.white,
+              ),
+            ),
+          ),
+          SizedBox(height: wide ? 28 : 20),
+          Text(
+            'DiPertin',
+            style: GoogleFonts.plusJakartaSans(
+              fontSize: wide ? 36 : 28,
+              fontWeight: FontWeight.w800,
+              color: Colors.white,
+              letterSpacing: -0.8,
+            ),
+          ),
+          const SizedBox(height: 8),
+          Text(
+            'Painel administrativo',
+            style: GoogleFonts.plusJakartaSans(
+              fontSize: 15,
+              fontWeight: FontWeight.w500,
+              color: Colors.white.withOpacity(0.88),
+              letterSpacing: 0.3,
+            ),
+          ),
+          SizedBox(height: wide ? 24 : 16),
+          Text(
+            'Gestão de lojas, entregadores, vitrine e operações — com segurança e clareza.',
+            style: GoogleFonts.plusJakartaSans(
+              fontSize: 14,
+              height: 1.55,
+              color: Colors.white.withOpacity(0.75),
+            ),
+          ),
+        ],
+      ),
+    );
+  }
+
+  Widget _cartaoLogin() {
+    return Container(
+      constraints: const BoxConstraints(maxWidth: 440),
+      margin: const EdgeInsets.symmetric(horizontal: 24, vertical: 32),
+      padding: const EdgeInsets.symmetric(horizontal: 36, vertical: 40),
+      decoration: BoxDecoration(
+        color: Colors.white,
+        borderRadius: BorderRadius.circular(24),
+        border: Border.all(color: const Color(0xFFE8E4F0)),
+        boxShadow: [
+          BoxShadow(
+            color: PainelAdminTheme.roxo.withOpacity(0.08),
+            blurRadius: 40,
+            offset: const Offset(0, 18),
+            spreadRadius: -8,
+          ),
+          BoxShadow(
+            color: Colors.black.withOpacity(0.06),
+            blurRadius: 24,
+            offset: const Offset(0, 8),
+          ),
+        ],
+      ),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.stretch,
+        mainAxisSize: MainAxisSize.min,
+        children: [
+          Text(
+            'ENTRAR',
+            style: GoogleFonts.plusJakartaSans(
+              fontSize: 11,
+              fontWeight: FontWeight.w700,
+              letterSpacing: 2,
+              color: PainelAdminTheme.textoSecundario,
+            ),
+          ),
+          const SizedBox(height: 8),
+          Text(
+            'Acesso ao painel',
+            style: GoogleFonts.plusJakartaSans(
+              fontSize: 26,
+              fontWeight: FontWeight.w800,
+              color: _ink,
+              letterSpacing: -0.5,
+            ),
+          ),
+          const SizedBox(height: 8),
+          Text(
+            'Use o e-mail e a senha da sua conta autorizada.',
+            style: GoogleFonts.plusJakartaSans(
+              fontSize: 14,
+              height: 1.45,
+              color: PainelAdminTheme.textoSecundario,
+            ),
+          ),
+          const SizedBox(height: 32),
+          TextField(
+            controller: _emailController,
+            textInputAction: TextInputAction.next,
+            keyboardType: TextInputType.emailAddress,
+            style: GoogleFonts.plusJakartaSans(fontSize: 15),
+            decoration: _fieldDecoration(
+              label: 'E-mail',
+              prefix: const Icon(
+                Icons.mail_outline_rounded,
+                color: PainelAdminTheme.roxo,
+                size: 22,
+              ),
+            ),
+            onSubmitted: (_) => _fazerLogin(),
+          ),
+          const SizedBox(height: 18),
+          TextField(
+            controller: _senhaController,
+            obscureText: _ocultarSenha,
+            textInputAction: TextInputAction.done,
+            style: GoogleFonts.plusJakartaSans(fontSize: 15),
+            decoration: _fieldDecoration(
+              label: 'Senha',
+              prefix: const Icon(
+                Icons.lock_outline_rounded,
+                color: PainelAdminTheme.roxo,
+                size: 22,
+              ),
+              suffix: IconButton(
+                tooltip: _ocultarSenha ? 'Mostrar senha' : 'Ocultar senha',
+                icon: Icon(
+                  _ocultarSenha
+                      ? Icons.visibility_off_outlined
+                      : Icons.visibility_outlined,
+                  color: PainelAdminTheme.textoSecundario,
+                ),
+                onPressed: () => setState(() => _ocultarSenha = !_ocultarSenha),
+              ),
+            ),
+            onSubmitted: (_) {
+              if (!_isLoading) _fazerLogin();
+            },
+          ),
+          const SizedBox(height: 12),
+          Align(
+            alignment: Alignment.centerRight,
+            child: TextButton(
+              onPressed: _isLoading ? null : _enviarRecuperacaoSenha,
+              style: TextButton.styleFrom(
+                foregroundColor: PainelAdminTheme.roxo,
+                padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
+              ),
+              child: Text(
+                'Esqueceu a senha?',
+                style: GoogleFonts.plusJakartaSans(
+                  fontWeight: FontWeight.w600,
+                  fontSize: 13,
+                ),
+              ),
+            ),
+          ),
+          const SizedBox(height: 20),
+          FilledButton(
+            onPressed: _isLoading ? null : _fazerLogin,
+            style: FilledButton.styleFrom(
+              backgroundColor: PainelAdminTheme.laranja,
+              foregroundColor: Colors.white,
+              disabledBackgroundColor: PainelAdminTheme.laranja.withOpacity(0.5),
+              padding: const EdgeInsets.symmetric(vertical: 16),
+              shape: RoundedRectangleBorder(
+                borderRadius: BorderRadius.circular(14),
+              ),
+              elevation: 0,
+            ),
+            child: _isLoading
+                ? const SizedBox(
+                    width: 24,
+                    height: 24,
+                    child: CircularProgressIndicator(
+                      color: Colors.white,
+                      strokeWidth: 2.5,
+                    ),
+                  )
+                : Text(
+                    'Entrar no painel',
+                    style: GoogleFonts.plusJakartaSans(
+                      fontSize: 16,
+                      fontWeight: FontWeight.w700,
+                    ),
+                  ),
+          ),
+          const SizedBox(height: 24),
+          Center(
+            child: Text(
+              'Apenas perfis master, master_city e lojista.',
+              textAlign: TextAlign.center,
+              style: GoogleFonts.plusJakartaSans(
+                fontSize: 12,
+                color: PainelAdminTheme.textoSecundario,
+              ),
+            ),
+          ),
+        ],
+      ),
+    );
   }
 
   @override
   Widget build(BuildContext context) {
     return Scaffold(
-      backgroundColor: Colors.grey[200],
-      body: Center(
-        child: SingleChildScrollView(
-          child: Container(
-            width: 450,
-            padding: const EdgeInsets.all(40),
-            decoration: BoxDecoration(
-              color: Colors.white,
-              borderRadius: BorderRadius.circular(20),
-              boxShadow: const [
-                BoxShadow(
-                  color: Colors.black12,
-                  blurRadius: 15,
-                  offset: Offset(0, 5),
-                ),
-              ],
-            ),
-            child: Column(
-              mainAxisSize: MainAxisSize.min,
+      body: LayoutBuilder(
+        builder: (context, constraints) {
+          final wide = constraints.maxWidth >= 960;
+
+          if (wide) {
+            return Row(
+              crossAxisAlignment: CrossAxisAlignment.stretch,
               children: [
-                Image.asset(
-                  'assets/logo.png',
-                  height: 100,
-                  errorBuilder: (c, e, s) => Icon(
-                    Icons.admin_panel_settings,
-                    size: 80,
-                    color: diPertinRoxo,
-                  ),
+                Expanded(
+                  flex: 46,
+                  child: _painelMarca(wide: true),
                 ),
-                const SizedBox(height: 20),
-
-                Text(
-                  "Painel DiPertin",
-                  style: TextStyle(
-                    fontSize: 28,
-                    fontWeight: FontWeight.bold,
-                    color: diPertinRoxo,
-                  ),
-                ),
-                const SizedBox(height: 5),
-                const Text(
-                  "Acesso restrito para Lojistas e Administração.",
-                  textAlign: TextAlign.center,
-                  style: TextStyle(color: Colors.grey),
-                ),
-                const SizedBox(height: 40),
-
-                // CAMPO DE E-MAIL
-                TextField(
-                  controller: _emailController,
-                  textInputAction: TextInputAction.next,
-                  decoration: InputDecoration(
-                    labelText: "E-mail de Acesso",
-                    prefixIcon: const Icon(Icons.email_outlined),
-                    border: OutlineInputBorder(
-                      borderRadius: BorderRadius.circular(10),
+                Expanded(
+                  flex: 54,
+                  child: Container(
+                    color: PainelAdminTheme.fundoCanvas,
+                    alignment: Alignment.center,
+                    child: SingleChildScrollView(
+                      child: _cartaoLogin(),
                     ),
-                  ),
-                  onSubmitted: (_) => _fazerLogin(),
-                ),
-                const SizedBox(height: 20),
-
-                // CAMPO DE SENHA
-                TextField(
-                  controller: _senhaController,
-                  obscureText: _ocultarSenha,
-                  textInputAction: TextInputAction.done,
-                  decoration: InputDecoration(
-                    labelText: "Senha",
-                    prefixIcon: const Icon(Icons.lock_outline),
-                    suffixIcon: IconButton(
-                      icon: Icon(
-                        _ocultarSenha ? Icons.visibility_off : Icons.visibility,
-                      ),
-                      onPressed: () =>
-                          setState(() => _ocultarSenha = !_ocultarSenha),
-                    ),
-                    border: OutlineInputBorder(
-                      borderRadius: BorderRadius.circular(10),
-                    ),
-                  ),
-                  onSubmitted: (_) => {if (!_isLoading) _fazerLogin()},
-                ),
-                const SizedBox(height: 30),
-
-                // BOTÃO DE ENTRAR
-                SizedBox(
-                  width: double.infinity,
-                  height: 55,
-                  child: ElevatedButton(
-                    onPressed: _isLoading ? null : _fazerLogin,
-                    style: ElevatedButton.styleFrom(
-                      backgroundColor: diPertinLaranja,
-                      foregroundColor: Colors.white,
-                      shape: RoundedRectangleBorder(
-                        borderRadius: BorderRadius.circular(10),
-                      ),
-                    ),
-                    child: _isLoading
-                        ? const SizedBox(
-                            width: 24,
-                            height: 24,
-                            child: CircularProgressIndicator(
-                              color: Colors.white,
-                              strokeWidth: 3,
-                            ),
-                          )
-                        : const Text(
-                            "ENTRAR NO SISTEMA",
-                            style: TextStyle(
-                              fontSize: 16,
-                              fontWeight: FontWeight.bold,
-                              letterSpacing: 1,
-                            ),
-                          ),
-                  ),
-                ),
-
-                const SizedBox(height: 20),
-                TextButton(
-                  onPressed: _isLoading ? null : _enviarRecuperacaoSenha,
-                  child: const Text(
-                    "Esqueceu a senha?",
-                    style: TextStyle(color: Colors.grey),
                   ),
                 ),
               ],
-            ),
-          ),
-        ),
+            );
+          }
+
+          return CustomScrollView(
+            slivers: [
+              SliverToBoxAdapter(child: _painelMarca(wide: false)),
+              SliverFillRemaining(
+                hasScrollBody: false,
+                child: Container(
+                  color: PainelAdminTheme.fundoCanvas,
+                  alignment: Alignment.topCenter,
+                  padding: const EdgeInsets.only(bottom: 32),
+                  child: _cartaoLogin(),
+                ),
+              ),
+            ],
+          );
+        },
       ),
     );
   }
