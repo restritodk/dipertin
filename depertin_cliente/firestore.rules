@@ -646,6 +646,12 @@ service cloud.firestore {
       allow write: if isStaff();
     }
 
+    // Comunicados publicados pelo painel (avisos, promoções — visíveis no app).
+    match /comunicados/{id} {
+      allow read: if true;
+      allow write: if isStaff();
+    }
+
     // Campanhas push enfileiradas pelo painel → trigger em Functions (Admin SDK ignora regras).
     match /notificacoes_campanhas/{id} {
       allow read, write: if isStaff();
