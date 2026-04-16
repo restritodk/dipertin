@@ -1,0 +1,45 @@
+{
+  "@context": "https://schema.org",
+  "@graph": [
+    {
+      "@type": "BreadcrumbList",
+      "itemListElement": [
+        { "@type": "ListItem", "position": 1, "name": "Início", "item": "https://www.dipertin.com.br/" },
+        { "@type": "ListItem", "position": 2, "name": "Produto demonstração", "item": "https://www.dipertin.com.br/produto.html" }
+      ]
+    },
+    {
+      "@type": "Product",
+      "@id": "https://www.dipertin.com.br/produto.html#product",
+      "name": "Produto demonstração DiPertin",
+      "description": "Item de exemplo para pré-visualização em redes sociais e dados estruturados. Substitua por produtos reais do seu catálogo.",
+      "image": ["https://www.dipertin.com.br/assets/logo.png"],
+      "sku": "DEMO-PRD-001",
+      "brand": { "@type": "Brand", "name": "DiPertin" },
+      "offers": {
+        "@type": "Offer",
+        "url": "https://www.dipertin.com.br/produto.html",
+        "priceCurrency": "BRL",
+        "price": "29.90",
+        "availability": "https://schema.org/InStock",
+        "seller": { "@type": "Organization", "name": "DiPertin" }
+      },
+      "aggregateRating": {
+        "@type": "AggregateRating",
+        "ratingValue": "4.7",
+        "reviewCount": "24",
+        "bestRating": "5",
+        "worstRating": "1"
+      },
+      "review": [
+        {
+          "@type": "Review",
+          "author": { "@type": "Person", "name": "Cliente verificado" },
+          "reviewRating": { "@type": "Rating", "ratingValue": "5", "bestRating": "5" },
+          "reviewBody": "Entrega rápida e app fácil de usar.",
+          "datePublished": "2025-11-01"
+        }
+      ]
+    }
+  ]
+}

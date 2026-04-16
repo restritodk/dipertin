@@ -1,0 +1,8 @@
+Contact: mailto:site@dipertin.com.br
+Preferred-Languages: pt-BR, pt, en
+Canonical: https://www.dipertin.com.br/.well-known/security.txt
+Expires: 2027-12-31T23:59:59.000Z
+
+# DiPertin — divulgação responsável
+# Este site é estático (HTML/CSS/JS). Não armazena sessões no servidor.
+# Para reportar vulnerabilidades: use o e-mail acima com assunto [Segurança].

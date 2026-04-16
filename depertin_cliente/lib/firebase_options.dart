@@ -17,10 +17,7 @@ import 'package:flutter/foundation.dart'
 class DefaultFirebaseOptions {
   static FirebaseOptions get currentPlatform {
     if (kIsWeb) {
-      throw UnsupportedError(
-        'DefaultFirebaseOptions have not been configured for web - '
-        'you can reconfigure this by running the FlutterFire CLI again.',
-      );
+      return web;
     }
     switch (defaultTargetPlatform) {
       case TargetPlatform.android:
@@ -51,6 +48,16 @@ class DefaultFirebaseOptions {
         );
     }
   }
+
+  /// Mesmo projeto `depertin-f940f` que o painel web (`depertin_web`).
+  static const FirebaseOptions web = FirebaseOptions(
+    apiKey: 'AIzaSyBVK7SbAzU9QR1SG4uMoas-hGgJSa4Q8zw',
+    appId: '1:939151024179:web:34d7b12fcb80c46fd3c346',
+    messagingSenderId: '939151024179',
+    projectId: 'depertin-f940f',
+    authDomain: 'depertin-f940f.firebaseapp.com',
+    storageBucket: 'depertin-f940f.firebasestorage.app',
+  );
 
   static const FirebaseOptions android = FirebaseOptions(
     apiKey: 'AIzaSyCoi6_SF_oisaTPq4EJ7KUTRxlje1Sxg58',

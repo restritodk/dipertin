@@ -1,9 +1,11 @@
 // Arquivo: lib/screens/entregador/entregador_mapa_screen.dart
 
-import 'package:firebase_auth/firebase_auth.dart';
 import 'package:flutter/material.dart';
 import 'package:cloud_firestore/cloud_firestore.dart';
+import 'package:firebase_auth/firebase_auth.dart';
 import 'package:url_launcher/url_launcher.dart';
+
+import 'package:depertin_cliente/constants/pedido_status.dart';
 
 // NOVO: Importando a tela de chat que já criamos!
 import '../cliente/chat_pedido_screen.dart';
@@ -123,6 +125,40 @@ class _EntregadorMapaScreenState extends State<EntregadorMapaScreen> {
     );
   }
 
+  Future<void> _marcarSaiuParaEntrega() async {
+    try {
+      await FirebaseFirestore.instance
+          .collection('pedidos')
+          .doc(widget.pedidoId)
+          .update({'status': PedidoStatus.saiuEntrega});
+      final uid = FirebaseAuth.instance.currentUser?.uid;
+      if (uid != null && uid.isNotEmpty) {
+        await FirebaseFirestore.instance.collection('users').doc(uid).set({
+          'entregador_operacao_status': 'INDO_PARA_CLIENTE',
+          'entregador_corridas_pendentes': 0,
+          'entregador_estado_operacao_atualizado_em':
+              FieldValue.serverTimestamp(),
+          'entregador_estado_operacao_origem': 'marcarSaiuParaEntrega',
+          'entregador_estado_operacao_pedido_id': widget.pedidoId,
+        }, SetOptions(merge: true));
+      }
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          const SnackBar(
+            content: Text('Status: a caminho do cliente.'),
+            backgroundColor: Colors.green,
+          ),
+        );
+      }
+    } catch (e) {
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(content: Text('Erro: $e'), backgroundColor: Colors.red),
+        );
+      }
+    }
+  }
+
   Future<void> _validarEFinalizar(BuildContext dialogContext) async {
     setState(() => _validando = true);
     String tokenDigitado = _tokenController.text.trim();
@@ -149,10 +185,6 @@ class _EntregadorMapaScreenState extends State<EntregadorMapaScreen> {
     // Comparamos em letras maiúsculas para não dar erro se o cliente ou motoboy usar minúsculas
     if (tokenDigitado.toUpperCase() == tokenReal.toUpperCase()) {
       try {
-        String uid = FirebaseAuth.instance.currentUser!.uid;
-        double valorFrete = (widget.pedido['taxa_entrega'] ?? 0.0).toDouble();
-
-        // 1. Atualiza o pedido
         await FirebaseFirestore.instance
             .collection('pedidos')
             .doc(widget.pedidoId)
@@ -160,39 +192,32 @@ class _EntregadorMapaScreenState extends State<EntregadorMapaScreen> {
               'status': 'entregue',
               'data_entregue': FieldValue.serverTimestamp(),
             });
-
-        // 2. Saldo do Entregador (Você já tem isso)
-        if (valorFrete > 0) {
-          await FirebaseFirestore.instance.collection('users').doc(uid).update({
-            'saldo': FieldValue.increment(valorFrete),
-          });
-        }
-
-        // 3. NOVO: Saldo do Lojista (O valor dos produtos)
-        double valorProdutos = (widget.pedido['total_produtos'] ?? 0.0)
-            .toDouble();
-        String lojistaId = widget.pedido['loja_id'] ?? '';
-
-        if (valorProdutos > 0 && lojistaId.isNotEmpty) {
-          await FirebaseFirestore.instance
-              .collection('users')
-              .doc(lojistaId)
-              .update({'saldo': FieldValue.increment(valorProdutos)});
+        final uid = FirebaseAuth.instance.currentUser?.uid;
+        if (uid != null && uid.isNotEmpty) {
+          await FirebaseFirestore.instance.collection('users').doc(uid).set({
+            'entregador_operacao_status': 'DISPONIVEL',
+            'entregador_corridas_pendentes': 0,
+            'entregador_estado_operacao_atualizado_em':
+                FieldValue.serverTimestamp(),
+            'entregador_estado_operacao_origem': 'finalizarEntrega',
+            'entregador_estado_operacao_pedido_id': widget.pedidoId,
+          }, SetOptions(merge: true));
         }
 
         if (mounted) {
-          Navigator.pop(dialogContext); // Fecha o dialog
-          Navigator.pop(context); // Volta pro Radar
+          Navigator.pop(dialogContext);
+          Navigator.pop(context);
           ScaffoldMessenger.of(context).showSnackBar(
             const SnackBar(
               content: Text(
-                'Entrega Finalizada! O dinheiro já está na sua carteira. 💰',
+                'Entrega finalizada! O saldo será creditado automaticamente.',
               ),
               backgroundColor: Colors.green,
             ),
           );
         }
       } catch (e) {
+        debugPrint('[ENTREGA] Erro ao finalizar: $e');
         ScaffoldMessenger.of(dialogContext).showSnackBar(
           SnackBar(content: Text('Erro: $e'), backgroundColor: Colors.red),
         );
@@ -210,219 +235,277 @@ class _EntregadorMapaScreenState extends State<EntregadorMapaScreen> {
 
   @override
   Widget build(BuildContext context) {
-    String lojaNome = widget.pedido['loja_nome'] ?? 'Loja';
-    String lojaEndereco =
-        widget.pedido['loja_endereco'] ?? 'Endereço não informado';
-    String clienteEndereco =
-        widget.pedido['endereco_entrega'] ?? 'Endereço não informado';
-    double taxa = (widget.pedido['taxa_entrega'] ?? 0.0).toDouble();
+    return StreamBuilder<DocumentSnapshot<Map<String, dynamic>>>(
+      stream: FirebaseFirestore.instance
+          .collection('pedidos')
+          .doc(widget.pedidoId)
+          .snapshots(),
+      builder: (context, snap) {
+        final pedido = snap.hasData && snap.data!.exists
+            ? snap.data!.data() ?? widget.pedido
+            : widget.pedido;
 
-    return Scaffold(
-      backgroundColor: Colors.grey[100],
-      appBar: AppBar(
-        title: const Text(
-          "Rota de Entrega",
-          style: TextStyle(color: Colors.white, fontWeight: FontWeight.bold),
-        ),
-        backgroundColor: diPertinRoxo,
-        iconTheme: const IconThemeData(color: Colors.white),
-      ),
-      body: SingleChildScrollView(
-        padding: const EdgeInsets.all(20),
-        child: Column(
-          crossAxisAlignment: CrossAxisAlignment.stretch,
-          children: [
-            // CARD DA LOJA (COLETA)
-            Card(
-              elevation: 4,
-              shape: RoundedRectangleBorder(
-                borderRadius: BorderRadius.circular(15),
-              ),
-              child: Padding(
-                padding: const EdgeInsets.all(15),
-                child: Column(
-                  crossAxisAlignment: CrossAxisAlignment.start,
-                  children: [
-                    const Row(
-                      children: [
-                        Icon(Icons.storefront, color: diPertinLaranja),
-                        SizedBox(width: 8),
-                        Text(
-                          "1. COLETA NA LOJA",
-                          style: TextStyle(
-                            fontWeight: FontWeight.bold,
-                            color: Colors.grey,
-                          ),
-                        ),
-                      ],
-                    ),
-                    const Divider(),
-                    Text(
-                      lojaNome,
-                      style: const TextStyle(
-                        fontSize: 18,
-                        fontWeight: FontWeight.bold,
-                      ),
-                    ),
-                    const SizedBox(height: 5),
-                    Text(
-                      lojaEndereco,
-                      style: const TextStyle(color: Colors.black87),
-                    ),
-                    const SizedBox(height: 15),
-                    SizedBox(
-                      width: double.infinity,
-                      child: ElevatedButton.icon(
-                        onPressed: () => _abrirGPS(lojaEndereco),
-                        icon: const Icon(Icons.navigation, color: Colors.white),
-                        label: const Text(
-                          "NAVEGAR PARA A LOJA",
-                          style: TextStyle(
-                            color: Colors.white,
-                            fontWeight: FontWeight.bold,
-                          ),
-                        ),
-                        style: ElevatedButton.styleFrom(
-                          backgroundColor: Colors.blue,
-                        ),
-                      ),
-                    ),
-                  ],
-                ),
+        String lojaNome = pedido['loja_nome'] ?? 'Loja';
+        String lojaEndereco =
+            pedido['loja_endereco'] ?? 'Endereço não informado';
+        String clienteEndereco =
+            pedido['endereco_entrega'] ?? 'Endereço não informado';
+        double taxa = (pedido['taxa_entrega'] ?? 0.0).toDouble();
+        final statusAtual = pedido['status']?.toString() ?? '';
+        final podeFinalizar =
+            statusAtual == PedidoStatus.saiuEntrega ||
+            statusAtual == PedidoStatus.emRota;
+        final mostrarSaiuLoja = statusAtual == PedidoStatus.entregadorIndoLoja;
+
+        return Scaffold(
+          backgroundColor: Colors.grey[100],
+          appBar: AppBar(
+            title: const Text(
+              "Rota de Entrega",
+              style: TextStyle(
+                color: Colors.white,
+                fontWeight: FontWeight.bold,
               ),
             ),
-            const SizedBox(height: 20),
-
-            // CARD DO CLIENTE (ENTREGA)
-            Card(
-              elevation: 4,
-              shape: RoundedRectangleBorder(
-                borderRadius: BorderRadius.circular(15),
-              ),
-              child: Padding(
-                padding: const EdgeInsets.all(15),
-                child: Column(
-                  crossAxisAlignment: CrossAxisAlignment.start,
-                  children: [
-                    const Row(
-                      children: [
-                        Icon(Icons.person_pin_circle, color: diPertinRoxo),
-                        SizedBox(width: 8),
-                        Text(
-                          "2. ENTREGA AO CLIENTE",
-                          style: TextStyle(
-                            fontWeight: FontWeight.bold,
-                            color: Colors.grey,
-                          ),
-                        ),
-                      ],
-                    ),
-                    const Divider(),
-                    Text(
-                      clienteEndereco,
-                      style: const TextStyle(
-                        fontSize: 16,
-                        color: Colors.black87,
-                      ),
-                    ),
-                    const SizedBox(height: 15),
-                    SizedBox(
-                      width: double.infinity,
-                      child: ElevatedButton.icon(
-                        onPressed: () => _abrirGPS(clienteEndereco),
-                        icon: const Icon(Icons.navigation, color: Colors.white),
-                        label: const Text(
-                          "NAVEGAR PARA O CLIENTE",
-                          style: TextStyle(
-                            color: Colors.white,
-                            fontWeight: FontWeight.bold,
-                          ),
-                        ),
-                        style: ElevatedButton.styleFrom(
-                          backgroundColor: diPertinRoxo,
-                        ),
-                      ),
-                    ),
-                    const SizedBox(height: 10),
-
-                    // ==========================================
-                    // NOVO: BOTÃO DE CHAT (O ELO PERDIDO!)
-                    // ==========================================
-                    SizedBox(
-                      width: double.infinity,
-                      child: OutlinedButton.icon(
-                        onPressed: () {
-                          Navigator.push(
-                            context,
-                            MaterialPageRoute(
-                              builder: (context) => ChatPedidoScreen(
-                                pedidoId: widget.pedidoId,
-                                lojaId: widget.pedido['loja_id'] ?? '',
-                                lojaNome: "Chat do Pedido",
-                              ),
-                            ),
-                          );
-                        },
-                        icon: const Icon(
-                          Icons.chat_bubble_outline,
-                          color: diPertinRoxo,
-                        ),
-                        label: const Text(
-                          "FALAR NO CHAT DO PEDIDO",
-                          style: TextStyle(
-                            color: diPertinRoxo,
-                            fontWeight: FontWeight.bold,
-                          ),
-                        ),
-                        style: OutlinedButton.styleFrom(
-                          side: const BorderSide(color: diPertinRoxo, width: 2),
-                        ),
-                      ),
-                    ),
-                    // ==========================================
-                  ],
-                ),
-              ),
-            ),
-            const SizedBox(height: 30),
-
-            // VALOR A RECEBER
-            Center(
-              child: Text(
-                "Seu ganho: R\$ ${taxa.toStringAsFixed(2)}",
-                style: const TextStyle(
-                  fontSize: 20,
-                  fontWeight: FontWeight.bold,
-                  color: Colors.green,
-                ),
-              ),
-            ),
-            const SizedBox(height: 20),
-
-            // BOTÃO FINALIZAR
-            SizedBox(
-              height: 55,
-              child: ElevatedButton(
-                onPressed: _mostrarDialogoToken,
-                style: ElevatedButton.styleFrom(
-                  backgroundColor: Colors.green,
+            backgroundColor: diPertinRoxo,
+            iconTheme: const IconThemeData(color: Colors.white),
+          ),
+          body: SingleChildScrollView(
+            padding: const EdgeInsets.all(20),
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.stretch,
+              children: [
+                // CARD DA LOJA (COLETA)
+                Card(
+                  elevation: 4,
                   shape: RoundedRectangleBorder(
                     borderRadius: BorderRadius.circular(15),
                   ),
-                ),
-                child: const Text(
-                  "CHEGUEI! FINALIZAR ENTREGA",
-                  style: TextStyle(
-                    fontSize: 16,
-                    fontWeight: FontWeight.bold,
-                    color: Colors.white,
+                  child: Padding(
+                    padding: const EdgeInsets.all(15),
+                    child: Column(
+                      crossAxisAlignment: CrossAxisAlignment.start,
+                      children: [
+                        const Row(
+                          children: [
+                            Icon(Icons.storefront, color: diPertinLaranja),
+                            SizedBox(width: 8),
+                            Text(
+                              "1. COLETA NA LOJA",
+                              style: TextStyle(
+                                fontWeight: FontWeight.bold,
+                                color: Colors.grey,
+                              ),
+                            ),
+                          ],
+                        ),
+                        const Divider(),
+                        Text(
+                          lojaNome,
+                          style: const TextStyle(
+                            fontSize: 18,
+                            fontWeight: FontWeight.bold,
+                          ),
+                        ),
+                        const SizedBox(height: 5),
+                        Text(
+                          lojaEndereco,
+                          style: const TextStyle(color: Colors.black87),
+                        ),
+                        const SizedBox(height: 15),
+                        SizedBox(
+                          width: double.infinity,
+                          child: ElevatedButton.icon(
+                            onPressed: () => _abrirGPS(lojaEndereco),
+                            icon: const Icon(
+                              Icons.navigation,
+                              color: Colors.white,
+                            ),
+                            label: const Text(
+                              "NAVEGAR PARA A LOJA",
+                              style: TextStyle(
+                                color: Colors.white,
+                                fontWeight: FontWeight.bold,
+                              ),
+                            ),
+                            style: ElevatedButton.styleFrom(
+                              backgroundColor: Colors.blue,
+                            ),
+                          ),
+                        ),
+                      ],
+                    ),
                   ),
                 ),
-              ),
+                const SizedBox(height: 20),
+
+                // CARD DO CLIENTE (ENTREGA)
+                Card(
+                  elevation: 4,
+                  shape: RoundedRectangleBorder(
+                    borderRadius: BorderRadius.circular(15),
+                  ),
+                  child: Padding(
+                    padding: const EdgeInsets.all(15),
+                    child: Column(
+                      crossAxisAlignment: CrossAxisAlignment.start,
+                      children: [
+                        const Row(
+                          children: [
+                            Icon(Icons.person_pin_circle, color: diPertinRoxo),
+                            SizedBox(width: 8),
+                            Text(
+                              "2. ENTREGA AO CLIENTE",
+                              style: TextStyle(
+                                fontWeight: FontWeight.bold,
+                                color: Colors.grey,
+                              ),
+                            ),
+                          ],
+                        ),
+                        const Divider(),
+                        Text(
+                          clienteEndereco,
+                          style: const TextStyle(
+                            fontSize: 16,
+                            color: Colors.black87,
+                          ),
+                        ),
+                        const SizedBox(height: 15),
+                        SizedBox(
+                          width: double.infinity,
+                          child: ElevatedButton.icon(
+                            onPressed: () => _abrirGPS(clienteEndereco),
+                            icon: const Icon(
+                              Icons.navigation,
+                              color: Colors.white,
+                            ),
+                            label: const Text(
+                              "NAVEGAR PARA O CLIENTE",
+                              style: TextStyle(
+                                color: Colors.white,
+                                fontWeight: FontWeight.bold,
+                              ),
+                            ),
+                            style: ElevatedButton.styleFrom(
+                              backgroundColor: diPertinRoxo,
+                            ),
+                          ),
+                        ),
+                        const SizedBox(height: 10),
+
+                        // ==========================================
+                        // NOVO: BOTÃO DE CHAT (O ELO PERDIDO!)
+                        // ==========================================
+                        SizedBox(
+                          width: double.infinity,
+                          child: OutlinedButton.icon(
+                            onPressed: () {
+                              Navigator.push(
+                                context,
+                                MaterialPageRoute(
+                                  builder: (context) => ChatPedidoScreen(
+                                    pedidoId: widget.pedidoId,
+                                    lojaId: widget.pedido['loja_id'] ?? '',
+                                    lojaNome: "Chat do Pedido",
+                                  ),
+                                ),
+                              );
+                            },
+                            icon: const Icon(
+                              Icons.chat_bubble_outline,
+                              color: diPertinRoxo,
+                            ),
+                            label: const Text(
+                              "FALAR NO CHAT DO PEDIDO",
+                              style: TextStyle(
+                                color: diPertinRoxo,
+                                fontWeight: FontWeight.bold,
+                              ),
+                            ),
+                            style: OutlinedButton.styleFrom(
+                              side: const BorderSide(
+                                color: diPertinRoxo,
+                                width: 2,
+                              ),
+                            ),
+                          ),
+                        ),
+                        // ==========================================
+                      ],
+                    ),
+                  ),
+                ),
+                const SizedBox(height: 30),
+
+                // VALOR A RECEBER
+                Center(
+                  child: Text(
+                    "Seu ganho: R\$ ${taxa.toStringAsFixed(2)}",
+                    style: const TextStyle(
+                      fontSize: 20,
+                      fontWeight: FontWeight.bold,
+                      color: Colors.green,
+                    ),
+                  ),
+                ),
+                const SizedBox(height: 20),
+
+                if (mostrarSaiuLoja) ...[
+                  SizedBox(
+                    height: 52,
+                    child: ElevatedButton(
+                      onPressed: _marcarSaiuParaEntrega,
+                      style: ElevatedButton.styleFrom(
+                        backgroundColor: diPertinLaranja,
+                        shape: RoundedRectangleBorder(
+                          borderRadius: BorderRadius.circular(15),
+                        ),
+                      ),
+                      child: const Text(
+                        'SAÍ DA LOJA — INDIR AO CLIENTE',
+                        textAlign: TextAlign.center,
+                        style: TextStyle(
+                          fontSize: 15,
+                          fontWeight: FontWeight.bold,
+                          color: Colors.white,
+                        ),
+                      ),
+                    ),
+                  ),
+                  const SizedBox(height: 12),
+                ],
+
+                // BOTÃO FINALIZAR
+                SizedBox(
+                  height: 55,
+                  child: ElevatedButton(
+                    onPressed: podeFinalizar ? _mostrarDialogoToken : null,
+                    style: ElevatedButton.styleFrom(
+                      backgroundColor: Colors.green,
+                      disabledBackgroundColor: Colors.grey.shade400,
+                      shape: RoundedRectangleBorder(
+                        borderRadius: BorderRadius.circular(15),
+                      ),
+                    ),
+                    child: Text(
+                      podeFinalizar
+                          ? 'CHEGUEI! FINALIZAR ENTREGA'
+                          : 'Retire o pedido na loja e toque em "Saí da loja" antes.',
+                      textAlign: TextAlign.center,
+                      style: const TextStyle(
+                        fontSize: 15,
+                        fontWeight: FontWeight.bold,
+                        color: Colors.white,
+                      ),
+                    ),
+                  ),
+                ),
+              ],
             ),
-          ],
-        ),
-      ),
+          ),
+        );
+      },
     );
   }
 }

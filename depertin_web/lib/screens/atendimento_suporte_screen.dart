@@ -10,6 +10,37 @@ const _kInProgress = 'in_progress';
 const _kClosed = 'closed';
 const _kHistoricoStatuses = ['closed', 'finished', 'cancelled'];
 
+String statusLegivelSuporte(String st) {
+  switch (st.trim().toLowerCase()) {
+    case 'closed':
+      return 'Encerrado';
+    case 'finished':
+      return 'Finalizado';
+    case 'cancelled':
+      return 'Cancelado';
+    case 'waiting':
+      return 'Na fila';
+    case 'in_progress':
+      return 'Em atendimento';
+    default:
+      return st.isEmpty ? '—' : st;
+  }
+}
+
+String iniciaisNomeSuporte(String nome) {
+  final partes = nome
+      .trim()
+      .split(RegExp(r'\s+'))
+      .where((s) => s.isNotEmpty)
+      .toList();
+  if (partes.isEmpty) return '?';
+  if (partes.length == 1) {
+    return partes[0].substring(0, 1).toUpperCase();
+  }
+  return (partes[0].substring(0, 1) + partes[partes.length - 1].substring(0, 1))
+      .toUpperCase();
+}
+
 class AtendimentoSuporteScreen extends StatefulWidget {
   const AtendimentoSuporteScreen({super.key});
 
@@ -418,7 +449,7 @@ class _AtendimentoSuporteScreenState extends State<AtendimentoSuporteScreen> {
     final uid = FirebaseAuth.instance.currentUser?.uid;
 
     return Scaffold(
-      backgroundColor: Colors.grey[100],
+      backgroundColor: const Color(0xFFF5F5F7),
       body: Row(
         crossAxisAlignment: CrossAxisAlignment.stretch,
         children: [
@@ -452,17 +483,60 @@ class _AtendimentoSuporteScreenState extends State<AtendimentoSuporteScreen> {
 
   Widget _painelChat(String? uidMeu) {
     if (_selecionadoId == null) {
-      return Center(
-        child: Column(
-          mainAxisAlignment: MainAxisAlignment.center,
-          children: [
-            Icon(Icons.forum, size: 100, color: Colors.grey[300]),
-            const SizedBox(height: 20),
-            Text(
-              'Selecione um chamado na fila, em andamento ou no histórico.',
-              style: TextStyle(color: Colors.grey[600], fontSize: 16),
+      return Container(
+        color: const Color(0xFFF5F5F7),
+        child: Center(
+          child: ConstrainedBox(
+            constraints: const BoxConstraints(maxWidth: 420),
+            child: Padding(
+              padding: const EdgeInsets.all(32),
+              child: Column(
+                mainAxisAlignment: MainAxisAlignment.center,
+                children: [
+                  Container(
+                    padding: const EdgeInsets.all(28),
+                    decoration: BoxDecoration(
+                      color: Colors.white,
+                      shape: BoxShape.circle,
+                      boxShadow: [
+                        BoxShadow(
+                          color: diPertinRoxo.withValues(alpha: 0.08),
+                          blurRadius: 24,
+                          offset: const Offset(0, 8),
+                        ),
+                      ],
+                    ),
+                    child: Icon(
+                      Icons.chat_bubble_outline_rounded,
+                      size: 56,
+                      color: diPertinRoxo.withValues(alpha: 0.45),
+                    ),
+                  ),
+                  const SizedBox(height: 28),
+                  Text(
+                    'Nenhum chamado selecionado',
+                    textAlign: TextAlign.center,
+                    style: TextStyle(
+                      fontSize: 20,
+                      fontWeight: FontWeight.w700,
+                      color: Colors.grey.shade900,
+                      letterSpacing: -0.3,
+                    ),
+                  ),
+                  const SizedBox(height: 10),
+                  Text(
+                    'Escolha um ticket na fila de espera, em atendimento ou no histórico para ver a conversa e responder ao cliente.',
+                    textAlign: TextAlign.center,
+                    style: TextStyle(
+                      fontSize: 14,
+                      height: 1.45,
+                      color: Colors.grey[600],
+                    ),
+                  ),
+                ],
+              ),
             ),
-          ],
+          ),
         ),
       );
     }
@@ -801,48 +875,307 @@ class _ColunaFilaSuporteState extends State<ColunaFilaSuporte> {
     });
   }
 
-  @override
-  Widget build(BuildContext context) {
+  static const Color _azulAndamento = Color(0xFF1565C0);
+  static const Color _verdeHistorico = Color(0xFF00897B);
+
+  OutlineInputBorder _inputOutline() {
+    return OutlineInputBorder(
+      borderRadius: BorderRadius.circular(10),
+      borderSide: BorderSide(color: Colors.grey.shade300),
+    );
+  }
+
+  Widget _cabecalhoPrincipal() {
+    final rx = widget.diPertinRoxo;
+    final topo = Color.lerp(rx, Colors.black, 0.14)!;
     return Container(
-      color: Colors.white,
-      child: Column(
-        crossAxisAlignment: CrossAxisAlignment.stretch,
+      padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 14),
+      decoration: BoxDecoration(
+        gradient: LinearGradient(
+          colors: [topo, rx],
+          begin: Alignment.topLeft,
+          end: Alignment.bottomRight,
+        ),
+        boxShadow: [
+          BoxShadow(
+            color: rx.withValues(alpha: 0.28),
+            blurRadius: 10,
+            offset: const Offset(0, 3),
+          ),
+        ],
+      ),
+      child: Row(
         children: [
-          Container(
-            padding: const EdgeInsets.all(14),
-            color: widget.diPertinRoxo,
-            child: const Text(
+          Icon(
+            Icons.headset_mic_rounded,
+            color: Colors.white.withValues(alpha: 0.92),
+            size: 24,
+          ),
+          const SizedBox(width: 12),
+          const Expanded(
+            child: Text(
               'Central de atendimento',
               style: TextStyle(
                 color: Colors.white,
-                fontSize: 17,
-                fontWeight: FontWeight.bold,
+                fontSize: 18,
+                fontWeight: FontWeight.w700,
+                letterSpacing: -0.2,
               ),
             ),
           ),
+        ],
+      ),
+    );
+  }
+
+  Widget _cabecalhoSecao(String titulo, Color accent, IconData icon) {
+    return Padding(
+      padding: const EdgeInsets.fromLTRB(12, 14, 12, 8),
+      child: Container(
+        padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 10),
+        decoration: BoxDecoration(
+          color: const Color(0xFFF3F2F7),
+          borderRadius: BorderRadius.circular(10),
+          border: Border(
+            left: BorderSide(color: accent, width: 4),
+          ),
+        ),
+        child: Row(
+          children: [
+            Icon(icon, size: 20, color: accent),
+            const SizedBox(width: 10),
+            Expanded(
+              child: Text(
+                titulo,
+                style: const TextStyle(
+                  fontWeight: FontWeight.w600,
+                  fontSize: 13,
+                  color: Color(0xFF2D2848),
+                  letterSpacing: -0.1,
+                ),
+              ),
+            ),
+          ],
+        ),
+      ),
+    );
+  }
+
+  Widget _emptyEstado(String mensagem, {IconData icon = Icons.inbox_outlined}) {
+    return Container(
+      constraints: const BoxConstraints(minHeight: 76),
+      margin: const EdgeInsets.symmetric(horizontal: 12),
+      padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 14),
+      decoration: BoxDecoration(
+        color: const Color(0xFFFAFAFC),
+        borderRadius: BorderRadius.circular(10),
+        border: Border.all(color: Colors.grey.shade200),
+      ),
+      child: Row(
+        children: [
+          Icon(icon, size: 26, color: Colors.grey.shade400),
+          const SizedBox(width: 12),
+          Expanded(
+            child: Text(
+              mensagem,
+              style: TextStyle(
+                color: Colors.grey.shade600,
+                fontSize: 13,
+                height: 1.35,
+              ),
+            ),
+          ),
+        ],
+      ),
+    );
+  }
+
+  Widget _cardFiltros() {
+    final rx = widget.diPertinRoxo;
+    return Padding(
+      padding: const EdgeInsets.fromLTRB(12, 0, 12, 8),
+      child: Container(
+        padding: const EdgeInsets.all(14),
+        decoration: BoxDecoration(
+          color: Colors.white,
+          borderRadius: BorderRadius.circular(12),
+          border: Border.all(color: Colors.grey.shade200),
+          boxShadow: [
+            BoxShadow(
+              color: Colors.black.withValues(alpha: 0.04),
+              blurRadius: 12,
+              offset: const Offset(0, 2),
+            ),
+          ],
+        ),
+        child: Column(
+          crossAxisAlignment: CrossAxisAlignment.stretch,
+          children: [
+            Row(
+              children: [
+                Icon(Icons.tune_rounded, size: 20, color: rx),
+                const SizedBox(width: 8),
+                Text(
+                  'Filtros do histórico',
+                  style: TextStyle(
+                    fontWeight: FontWeight.w700,
+                    fontSize: 14,
+                    color: rx,
+                    letterSpacing: -0.2,
+                  ),
+                ),
+                const Spacer(),
+                OutlinedButton(
+                  onPressed: () => setState(() {
+                    _dataDe = null;
+                    _dataAte = null;
+                    _filtroNome.clear();
+                    _filtroProtocolo.clear();
+                  }),
+                  style: OutlinedButton.styleFrom(
+                    foregroundColor: rx,
+                    side: BorderSide(color: rx.withValues(alpha: 0.45)),
+                    padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 8),
+                    visualDensity: VisualDensity.compact,
+                  ),
+                  child: const Text('Limpar'),
+                ),
+              ],
+            ),
+            const SizedBox(height: 12),
+            TextField(
+              controller: _filtroNome,
+              onChanged: (_) => setState(() {}),
+              decoration: InputDecoration(
+                labelText: 'Nome do cliente',
+                isDense: true,
+                filled: true,
+                fillColor: const Color(0xFFF8F8FA),
+                border: _inputOutline(),
+                enabledBorder: _inputOutline(),
+                focusedBorder: _inputOutline().copyWith(
+                  borderSide: BorderSide(color: rx, width: 1.2),
+                ),
+                prefixIcon: Icon(Icons.person_search_rounded, size: 20, color: Colors.grey.shade600),
+              ),
+            ),
+            const SizedBox(height: 8),
+            TextField(
+              controller: _filtroProtocolo,
+              onChanged: (_) => setState(() {}),
+              keyboardType: TextInputType.number,
+              decoration: InputDecoration(
+                labelText: 'Protocolo (número)',
+                isDense: true,
+                filled: true,
+                fillColor: const Color(0xFFF8F8FA),
+                border: _inputOutline(),
+                enabledBorder: _inputOutline(),
+                focusedBorder: _inputOutline().copyWith(
+                  borderSide: BorderSide(color: rx, width: 1.2),
+                ),
+                prefixIcon: Icon(Icons.tag_rounded, size: 20, color: Colors.grey.shade600),
+              ),
+            ),
+            const SizedBox(height: 8),
+            Row(
+              children: [
+                Expanded(
+                  child: OutlinedButton(
+                    onPressed: () => _pickData(inicio: true),
+                    style: OutlinedButton.styleFrom(
+                      padding: const EdgeInsets.symmetric(vertical: 10),
+                      shape: RoundedRectangleBorder(
+                        borderRadius: BorderRadius.circular(10),
+                      ),
+                      side: BorderSide(color: Colors.grey.shade300),
+                    ),
+                    child: Text(
+                      'De: ${_fmtDataCurta(_dataDe)}',
+                      style: TextStyle(fontSize: 12, color: Colors.grey.shade800),
+                    ),
+                  ),
+                ),
+                const SizedBox(width: 8),
+                Expanded(
+                  child: OutlinedButton(
+                    onPressed: () => _pickData(inicio: false),
+                    style: OutlinedButton.styleFrom(
+                      padding: const EdgeInsets.symmetric(vertical: 10),
+                      shape: RoundedRectangleBorder(
+                        borderRadius: BorderRadius.circular(10),
+                      ),
+                      side: BorderSide(color: Colors.grey.shade300),
+                    ),
+                    child: Text(
+                      'Até: ${_fmtDataCurta(_dataAte)}',
+                      style: TextStyle(fontSize: 12, color: Colors.grey.shade800),
+                    ),
+                  ),
+                ),
+              ],
+            ),
+          ],
+        ),
+      ),
+    );
+  }
+
+  Widget _loaderSecao() {
+    return Padding(
+      padding: const EdgeInsets.symmetric(vertical: 20),
+      child: Center(
+        child: SizedBox(
+          width: 28,
+          height: 28,
+          child: CircularProgressIndicator(
+            strokeWidth: 2.5,
+            color: widget.diPertinRoxo,
+          ),
+        ),
+      ),
+    );
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    return Container(
+      decoration: BoxDecoration(
+        color: Colors.white,
+        boxShadow: [
+          BoxShadow(
+            color: Colors.black.withValues(alpha: 0.07),
+            blurRadius: 16,
+            offset: const Offset(4, 0),
+          ),
+        ],
+      ),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.stretch,
+        children: [
+          _cabecalhoPrincipal(),
           Expanded(
             child: SingleChildScrollView(
+              padding: const EdgeInsets.only(bottom: 16),
               child: Column(
                 crossAxisAlignment: CrossAxisAlignment.stretch,
                 children: [
-                  _secaoTitulo('Fila de espera', widget.diPertinLaranja),
+                  _cabecalhoSecao(
+                    'Fila de espera',
+                    widget.diPertinLaranja,
+                    Icons.schedule_rounded,
+                  ),
                   StreamBuilder<QuerySnapshot<Map<String, dynamic>>>(
                     stream: widget.queryFila.snapshots(),
                     builder: (context, snap) {
                       if (snap.connectionState == ConnectionState.waiting) {
-                        return const Padding(
-                          padding: EdgeInsets.all(24),
-                          child: Center(child: CircularProgressIndicator()),
-                        );
+                        return _loaderSecao();
                       }
                       final docs = snap.data?.docs ?? [];
                       if (docs.isEmpty) {
-                        return const Padding(
-                          padding: EdgeInsets.all(12),
-                          child: Text(
-                            'Nenhum cliente aguardando.',
-                            style: TextStyle(color: Colors.grey),
-                          ),
+                        return _emptyEstado(
+                          'Nenhum cliente aguardando no momento.',
+                          icon: Icons.hourglass_empty_rounded,
                         );
                       }
                       return Column(
@@ -860,31 +1193,28 @@ class _ColunaFilaSuporteState extends State<ColunaFilaSuporte> {
                             preview: (m['first_message_preview'] ?? '')
                                 .toString(),
                             selecionado: sel,
-                            corLeading: Colors.redAccent,
                             onTap: () => widget.onSelect(doc),
                           );
                         }).toList(),
                       );
                     },
                   ),
-                  _secaoTitulo('Em atendimento', Colors.blue),
+                  _cabecalhoSecao(
+                    'Em atendimento',
+                    _azulAndamento,
+                    Icons.support_agent_rounded,
+                  ),
                   StreamBuilder<QuerySnapshot<Map<String, dynamic>>>(
                     stream: widget.queryAndamento.snapshots(),
                     builder: (context, snap) {
                       if (snap.connectionState == ConnectionState.waiting) {
-                        return const Padding(
-                          padding: EdgeInsets.all(24),
-                          child: Center(child: CircularProgressIndicator()),
-                        );
+                        return _loaderSecao();
                       }
                       final docs = snap.data?.docs ?? [];
                       if (docs.isEmpty) {
-                        return const Padding(
-                          padding: EdgeInsets.all(12),
-                          child: Text(
-                            'Nenhum atendimento em curso.',
-                            style: TextStyle(color: Colors.grey),
-                          ),
+                        return _emptyEstado(
+                          'Nenhum atendimento em curso.',
+                          icon: Icons.assignment_ind_outlined,
                         );
                       }
                       return Column(
@@ -901,97 +1231,36 @@ class _ColunaFilaSuporteState extends State<ColunaFilaSuporte> {
                             preview: (m['first_message_preview'] ?? '')
                                 .toString(),
                             selecionado: sel,
-                            corLeading: Colors.blue,
                             onTap: () => widget.onSelect(doc),
                           );
                         }).toList(),
                       );
                     },
                   ),
-                  _secaoTitulo('Histórico de atendimentos', Colors.teal),
-                  Padding(
-                    padding: const EdgeInsets.fromLTRB(8, 6, 8, 4),
-                    child: Column(
-                      children: [
-                        TextField(
-                          controller: _filtroNome,
-                          onChanged: (_) => setState(() {}),
-                          decoration: const InputDecoration(
-                            labelText: 'Nome do cliente',
-                            isDense: true,
-                            border: OutlineInputBorder(),
-                            prefixIcon: Icon(Icons.person_search, size: 20),
-                          ),
-                        ),
-                        const SizedBox(height: 6),
-                        TextField(
-                          controller: _filtroProtocolo,
-                          onChanged: (_) => setState(() {}),
-                          keyboardType: TextInputType.number,
-                          decoration: const InputDecoration(
-                            labelText: 'Protocolo (número)',
-                            isDense: true,
-                            border: OutlineInputBorder(),
-                            prefixIcon: Icon(Icons.tag, size: 20),
-                          ),
-                        ),
-                        const SizedBox(height: 6),
-                        Row(
-                          children: [
-                            Expanded(
-                              child: OutlinedButton(
-                                onPressed: () => _pickData(inicio: true),
-                                child: Text('De: ${_fmtDataCurta(_dataDe)}'),
-                              ),
-                            ),
-                            const SizedBox(width: 6),
-                            Expanded(
-                              child: OutlinedButton(
-                                onPressed: () => _pickData(inicio: false),
-                                child: Text('Até: ${_fmtDataCurta(_dataAte)}'),
-                              ),
-                            ),
-                          ],
-                        ),
-                        TextButton(
-                          onPressed: () => setState(() {
-                            _dataDe = null;
-                            _dataAte = null;
-                            _filtroNome.clear();
-                            _filtroProtocolo.clear();
-                          }),
-                          child: const Text('Limpar filtros'),
-                        ),
-                      ],
-                    ),
+                  _cabecalhoSecao(
+                    'Histórico de atendimentos',
+                    _verdeHistorico,
+                    Icons.history_rounded,
                   ),
+                  _cardFiltros(),
                   StreamBuilder<QuerySnapshot<Map<String, dynamic>>>(
                     stream: widget.queryHistorico.snapshots(),
                     builder: (context, snap) {
                       if (snap.connectionState == ConnectionState.waiting) {
-                        return const Padding(
-                          padding: EdgeInsets.all(24),
-                          child: Center(child: CircularProgressIndicator()),
-                        );
+                        return _loaderSecao();
                       }
                       final raw = snap.data?.docs ?? [];
                       final docs = _aplicarFiltrosHistorico(raw);
                       if (raw.isEmpty) {
-                        return const Padding(
-                          padding: EdgeInsets.all(12),
-                          child: Text(
-                            'Nenhum registro no histórico.',
-                            style: TextStyle(color: Colors.grey),
-                          ),
+                        return _emptyEstado(
+                          'Nenhum registro no histórico ainda.',
+                          icon: Icons.folder_open_outlined,
                         );
                       }
                       if (docs.isEmpty) {
-                        return const Padding(
-                          padding: EdgeInsets.all(12),
-                          child: Text(
-                            'Nenhum resultado com os filtros atuais.',
-                            style: TextStyle(color: Colors.grey),
-                          ),
+                        return _emptyEstado(
+                          'Nenhum resultado com os filtros atuais.',
+                          icon: Icons.search_off_rounded,
                         );
                       }
                       return Column(
@@ -1005,11 +1274,10 @@ class _ColunaFilaSuporteState extends State<ColunaFilaSuporte> {
                                 .toString()
                                 .padLeft(8, '0'),
                             subtitulo:
-                                '${widget.fmtHora(m['created_at'])} · $st',
+                                '${widget.fmtHora(m['created_at'])} · ${statusLegivelSuporte(st)}',
                             preview: (m['first_message_preview'] ?? '')
                                 .toString(),
                             selecionado: sel,
-                            corLeading: Colors.teal,
                             onTap: () => widget.onSelect(doc),
                           );
                         }).toList(),
@@ -1025,76 +1293,106 @@ class _ColunaFilaSuporteState extends State<ColunaFilaSuporte> {
     );
   }
 
-  Widget _secaoTitulo(String t, Color c) {
-    return Container(
-      width: double.infinity,
-      padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 8),
-      color: c.withValues(alpha: 0.12),
-      child: Text(
-        t,
-        style: TextStyle(
-          fontWeight: FontWeight.bold,
-          color: c,
-          fontSize: 13,
-        ),
-      ),
-    );
-  }
-
   Widget _tile({
     required String nome,
     required String protocolo,
     required String subtitulo,
     required String preview,
     required bool selecionado,
-    required Color corLeading,
     required VoidCallback onTap,
   }) {
-    return Material(
-      color: selecionado ? Colors.purple.shade50 : Colors.white,
-      child: InkWell(
-        onTap: onTap,
-        child: Padding(
-          padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 8),
-          child: Row(
-            crossAxisAlignment: CrossAxisAlignment.start,
-            children: [
-              CircleAvatar(
-                radius: 18,
-                backgroundColor: corLeading.withValues(alpha: 0.25),
-                child: Icon(Icons.person, color: corLeading, size: 20),
+    final rx = widget.diPertinRoxo;
+    final iniciais = iniciaisNomeSuporte(nome);
+    return Padding(
+      padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 4),
+      child: Material(
+        color: Colors.transparent,
+        child: InkWell(
+          onTap: onTap,
+          borderRadius: BorderRadius.circular(12),
+          splashColor: rx.withValues(alpha: 0.08),
+          hoverColor: rx.withValues(alpha: 0.04),
+          child: AnimatedContainer(
+            duration: const Duration(milliseconds: 160),
+            curve: Curves.easeOut,
+            padding: const EdgeInsets.all(12),
+            decoration: BoxDecoration(
+              color: selecionado
+                  ? rx.withValues(alpha: 0.09)
+                  : const Color(0xFFFAFAFC),
+              borderRadius: BorderRadius.circular(12),
+              border: Border.all(
+                color: selecionado
+                    ? rx.withValues(alpha: 0.5)
+                    : const Color(0xFFE8E6EF),
+                width: selecionado ? 1.5 : 1,
               ),
-              const SizedBox(width: 10),
-              Expanded(
-                child: Column(
-                  crossAxisAlignment: CrossAxisAlignment.start,
-                  children: [
-                    Text(
-                      nome,
-                      style: const TextStyle(
-                        fontWeight: FontWeight.bold,
-                        fontSize: 14,
-                      ),
+            ),
+            child: Row(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                CircleAvatar(
+                  radius: 20,
+                  backgroundColor: rx.withValues(alpha: 0.14),
+                  child: Text(
+                    iniciais,
+                    style: TextStyle(
+                      fontSize: 12,
+                      fontWeight: FontWeight.w800,
+                      color: rx,
+                      letterSpacing: 0.2,
                     ),
-                    Text(
-                      'Protocolo $protocolo',
-                      style: const TextStyle(fontSize: 11, color: Colors.black54),
-                    ),
-                    Text(
-                      subtitulo,
-                      style: const TextStyle(fontSize: 11, color: Colors.black45),
-                    ),
-                    if (preview.isNotEmpty)
-                      Text(
-                        preview,
-                        maxLines: 2,
-                        overflow: TextOverflow.ellipsis,
-                        style: const TextStyle(fontSize: 12),
-                      ),
-                  ],
+                  ),
                 ),
-              ),
-            ],
+                const SizedBox(width: 12),
+                Expanded(
+                  child: Column(
+                    crossAxisAlignment: CrossAxisAlignment.start,
+                    children: [
+                      Text(
+                        nome,
+                        style: const TextStyle(
+                          fontWeight: FontWeight.w700,
+                          fontSize: 14,
+                          letterSpacing: -0.1,
+                          color: Color(0xFF1E1B2E),
+                        ),
+                      ),
+                      const SizedBox(height: 2),
+                      Text(
+                        'Protocolo $protocolo',
+                        style: TextStyle(
+                          fontSize: 11,
+                          color: Colors.grey.shade700,
+                          fontWeight: FontWeight.w500,
+                        ),
+                      ),
+                      Text(
+                        subtitulo,
+                        style: TextStyle(
+                          fontSize: 11,
+                          color: Colors.grey.shade600,
+                          height: 1.25,
+                        ),
+                      ),
+                      if (preview.isNotEmpty) ...[
+                        const SizedBox(height: 4),
+                        Text(
+                          preview,
+                          maxLines: 2,
+                          overflow: TextOverflow.ellipsis,
+                          style: TextStyle(
+                            fontSize: 12,
+                            height: 1.3,
+                            color: Colors.grey.shade800,
+                          ),
+                        ),
+                      ],
+                    ],
+                  ),
+                ),
+              ],
+            ),
           ),
         ),
       ),

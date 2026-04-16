@@ -6,9 +6,9 @@
  */
 
 const crypto = require("crypto");
-const nodemailer = require("nodemailer");
 const admin = require("firebase-admin");
 const { onCall, HttpsError } = require("firebase-functions/v2/https");
+const smtp = require("./smtp_transport");
 
 const COL_TOKENS = "password_reset_tokens";
 const COL_SESSIONS = "password_recovery_sessions";
@@ -30,10 +30,7 @@ const fnOpcoes = {
   enforceAppCheck: false,
 };
 
-function limparEnv(s) {
-  if (s == null) return "";
-  return String(s).trim().replace(/\r/g, "").replace(/\n/g, "");
-}
+const limparEnv = smtp.limparEnv;
 
 /** Firestore Timestamp / objeto serializado — evita crash em .toMillis() indefinido. */
 function timestampMillis(ts) {
@@ -57,28 +54,12 @@ function getOtpPepper() {
   return p;
 }
 
-function getSmtpPass() {
-  const p = limparEnv(process.env.SMTP_RECUPERACAO_PASS);
-  if (!p) {
-    throw new HttpsError(
-      "failed-precondition",
-      "Configuração do servidor incompleta (SMTP_RECUPERACAO_PASS)."
-    );
+function assertSmtpPadraoConfigurado() {
+  try {
+    smtp.criarTransport("padrao");
+  } catch (e) {
+    throw new HttpsError("failed-precondition", "Configuração SMTP do servidor incompleta.");
   }
-  return p;
-}
-
-function smtpConfigFromEnv() {
-  return {
-    host: limparEnv(process.env.SMTP_HOST) || "smtp.titan.email",
-    port: parseInt(limparEnv(process.env.SMTP_PORT) || "465", 10),
-    user:
-      limparEnv(process.env.SMTP_USER) ||
-      "naoresponder@microhardcenter.com.br",
-    from:
-      limparEnv(process.env.SMTP_FROM) ||
-      "DiPertin <naoresponder@microhardcenter.com.br>",
-  };
 }
 
 function hashEmailKey(emailNorm) {
@@ -105,25 +86,6 @@ function timingSafeEqualHex(a, b) {
 
 function gerarOtp4() {
   return crypto.randomInt(0, 10000).toString().padStart(4, "0");
-}
-
-function criarTransport(cfg, pass) {
-  const port = cfg.port || 465;
-  if (port === 587) {
-    return nodemailer.createTransport({
-      host: cfg.host,
-      port: 587,
-      secure: false,
-      requireTLS: true,
-      auth: { user: cfg.user, pass },
-    });
-  }
-  return nodemailer.createTransport({
-    host: cfg.host,
-    port,
-    secure: port === 465,
-    auth: { user: cfg.user, pass },
-  });
 }
 
 function sleep(ms) {
@@ -223,8 +185,6 @@ function validarSenhaRecuperacao(pw) {
 
 /** E-mail de confirmação após troca de senha (Admin SDK / fluxo recuperação). */
 async function enviarEmailConfirmacaoSenhaAlterada(emailNorm) {
-  const cfg = smtpConfigFromEnv();
-  const pass = getSmtpPass();
   const agora = new Date();
   const fmt = agora.toLocaleString("pt-BR", {
     timeZone: "America/Sao_Paulo",
@@ -232,14 +192,15 @@ async function enviarEmailConfirmacaoSenhaAlterada(emailNorm) {
     timeStyle: "medium",
   });
   try {
-    const transport = criarTransport(cfg, pass);
-    await transport.sendMail({
-      from: cfg.from,
+    const transport = smtp.criarTransport("padrao");
+    const info = await transport.sendMail({
+      from: smtp.from("padrao"),
       to: emailNorm,
       subject: "Senha alterada com sucesso",
       text: `DiPertin\n\nSua senha foi alterada em ${fmt}.\n\nSe não foi você, entre em contato com o suporte pelo aplicativo.`,
       html: templateHtmlSenhaAlterada(fmt),
     });
+    console.log(`[recuperacao] Confirmação senha enviada para ${emailNorm} messageId=${info.messageId}`);
   } catch (err) {
     console.error("[recuperacao] SMTP confirmação", err);
   }
@@ -325,8 +286,7 @@ exports.recuperacaoSenhaSolicitar = onCall(fnOpcoes, async (request) => {
 
   if (userRecord) {
     const pepper = getOtpPepper();
-    const cfg = smtpConfigFromEnv();
-    const pass = getSmtpPass();
+    assertSmtpPadraoConfigurado();
 
     await invalidarTokensAtivos(db, userRecord.uid);
     const otp = gerarOtp4();
@@ -347,14 +307,15 @@ exports.recuperacaoSenhaSolicitar = onCall(fnOpcoes, async (request) => {
     });
 
     try {
-      const transport = criarTransport(cfg, pass);
-      await transport.sendMail({
-        from: cfg.from,
+      const transport = smtp.criarTransport("padrao");
+      const info = await transport.sendMail({
+        from: smtp.from("padrao"),
         to: emailNorm,
         subject: "Recuperação de senha",
         text: templateTextoOtp(otp, 10),
         html: templateHtmlOtp(otp, 10),
       });
+      console.log(`[recuperacao] OTP enviado para ${emailNorm} messageId=${info.messageId}`);
     } catch (err) {
       console.error("[recuperacao] SMTP envio OTP", err);
       try {

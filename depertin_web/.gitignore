@@ -43,3 +43,6 @@ app.*.map.json
 /android/app/debug
 /android/app/profile
 /android/app/release
+
+# OAuth — nunca versionar client_secret no web
+/web/client_secret*.json

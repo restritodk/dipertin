@@ -7,6 +7,8 @@ import 'package:firebase_auth/firebase_auth.dart';
 import 'package:firebase_storage/firebase_storage.dart';
 import 'package:file_picker/file_picker.dart';
 
+import '../../services/permissoes_app_service.dart';
+
 const Color diPertinRoxo = Color(0xFF6A1B9A);
 const Color diPertinLaranja = Color(0xFFFF8F00);
 
@@ -68,6 +70,13 @@ class _EntregadorFormScreenState extends State<EntregadorFormScreen> {
   }
 
   Future<void> _escolherArquivo(int tipoDocumento) async {
+    final ResultadoPermissao pr =
+        await PermissoesAppService.garantirLeituraArquivosAnexos();
+    if (!mounted) return;
+    if (pr != ResultadoPermissao.concedida) {
+      PermissoesFeedback.arquivosAnexos(context, pr);
+      return;
+    }
     FilePickerResult? result = await FilePicker.platform.pickFiles(
       type: FileType.custom,
       allowedExtensions: ['jpg', 'jpeg', 'png', 'pdf'],

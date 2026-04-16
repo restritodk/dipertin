@@ -89,4 +89,17 @@ abstract final class PainelAdminTheme {
           offset: const Offset(0, 4),
         ),
       ];
+
+  /// Cartão padrão do dashboard (fundo branco, borda leve, sombra única).
+  static BoxDecoration dashboardCard({Color borderColor = const Color(0xFFE2E8F0)}) {
+    return BoxDecoration(
+      color: Colors.white,
+      borderRadius: BorderRadius.circular(16),
+      border: Border.all(color: borderColor),
+      boxShadow: sombraCardSuave(),
+    );
+  }
+
+  static const Color dashboardBorder = Color(0xFFE2E8F0);
+  static const Color dashboardInk = Color(0xFF1E1B4B);
 }

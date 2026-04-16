@@ -1,4 +1,5 @@
 import 'package:depertin_web/widgets/botao_suporte_flutuante.dart';
+import 'package:depertin_web/widgets/campo_cidade_brasil_field.dart';
 import 'package:flutter/material.dart';
 import 'package:cloud_firestore/cloud_firestore.dart';
 import 'package:firebase_storage/firebase_storage.dart';
@@ -251,6 +252,591 @@ class _UtilidadesScreenState extends State<UtilidadesScreen> {
     );
   }
 
+  void _editarVaga(String id, Map<String, dynamic> dados) {
+    final cargoC = TextEditingController(text: dados['cargo'] ?? '');
+    final empresaC = TextEditingController(text: dados['empresa'] ?? '');
+    final cidadeC = TextEditingController(text: dados['cidade'] ?? '');
+    final descC = TextEditingController(text: dados['descricao'] ?? '');
+    final contatoC = TextEditingController(text: dados['contato'] ?? '');
+    final emailC = TextEditingController(text: dados['email'] ?? '');
+
+    showDialog(
+      context: context,
+      builder: (context) => AlertDialog(
+        title: Text(
+          "Editar Vaga",
+          style: TextStyle(color: diPertinRoxo, fontWeight: FontWeight.bold),
+        ),
+        content: SizedBox(
+          width: 500,
+          child: SingleChildScrollView(
+            child: Column(
+              mainAxisSize: MainAxisSize.min,
+              children: [
+                TextField(
+                  controller: cargoC,
+                  decoration: const InputDecoration(
+                    labelText: "Cargo da Vaga",
+                    border: OutlineInputBorder(),
+                  ),
+                ),
+                const SizedBox(height: 12),
+                TextField(
+                  controller: empresaC,
+                  decoration: const InputDecoration(
+                    labelText: "Nome da Empresa",
+                    border: OutlineInputBorder(),
+                  ),
+                ),
+                const SizedBox(height: 12),
+                CampoCidadeBrasilField(
+                  controller: cidadeC,
+                  decoration: const InputDecoration(
+                    labelText: "Cidade",
+                    hintText: "Digite para buscar o município",
+                    border: OutlineInputBorder(),
+                  ),
+                ),
+                const SizedBox(height: 12),
+                TextField(
+                  controller: descC,
+                  maxLines: 3,
+                  decoration: const InputDecoration(
+                    labelText: "Descrição Completa",
+                    border: OutlineInputBorder(),
+                  ),
+                ),
+                const SizedBox(height: 12),
+                TextField(
+                  controller: contatoC,
+                  decoration: const InputDecoration(
+                    labelText: "Telefone / Contato",
+                    border: OutlineInputBorder(),
+                  ),
+                ),
+                const SizedBox(height: 12),
+                TextField(
+                  controller: emailC,
+                  keyboardType: TextInputType.emailAddress,
+                  decoration: const InputDecoration(
+                    labelText: "E-mail",
+                    hintText: "exemplo@email.com",
+                    prefixIcon: Icon(Icons.email_outlined),
+                    border: OutlineInputBorder(),
+                  ),
+                ),
+              ],
+            ),
+          ),
+        ),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.pop(context),
+            child: const Text("Cancelar"),
+          ),
+          ElevatedButton(
+            onPressed: () async {
+              final atualizacao = <String, dynamic>{
+                'cargo': cargoC.text.trim(),
+                'empresa': empresaC.text.trim(),
+                'cidade': cidadeC.text.trim(),
+                'descricao': descC.text.trim(),
+                'contato': contatoC.text.trim(),
+              };
+              if (emailC.text.trim().isNotEmpty) {
+                atualizacao['email'] = emailC.text.trim();
+              }
+              await FirebaseFirestore.instance
+                  .collection('vagas')
+                  .doc(id)
+                  .update(atualizacao);
+              if (context.mounted) {
+                Navigator.pop(context);
+                ScaffoldMessenger.of(context).showSnackBar(
+                  const SnackBar(
+                    content: Text('Vaga atualizada com sucesso!'),
+                    backgroundColor: Colors.green,
+                  ),
+                );
+              }
+            },
+            style: ElevatedButton.styleFrom(
+              backgroundColor: diPertinLaranja,
+              foregroundColor: Colors.white,
+            ),
+            child: const Text("Salvar"),
+          ),
+        ],
+      ),
+    );
+  }
+
+  void _editarDestaque(String id, Map<String, dynamic> dados) {
+    final tituloC = TextEditingController(text: dados['titulo'] ?? '');
+    final categoriaC = TextEditingController(text: dados['categoria'] ?? '');
+    final cidadeC = TextEditingController(text: dados['cidade'] ?? '');
+    final telefoneC = TextEditingController(text: dados['telefone'] ?? '');
+    final emailC = TextEditingController(text: dados['email'] ?? '');
+
+    showDialog(
+      context: context,
+      builder: (context) => AlertDialog(
+        title: Text(
+          "Editar Destaque",
+          style: TextStyle(color: diPertinRoxo, fontWeight: FontWeight.bold),
+        ),
+        content: SizedBox(
+          width: 500,
+          child: SingleChildScrollView(
+            child: Column(
+              mainAxisSize: MainAxisSize.min,
+              children: [
+                TextField(
+                  controller: tituloC,
+                  decoration: const InputDecoration(
+                    labelText: "Título",
+                    border: OutlineInputBorder(),
+                  ),
+                ),
+                const SizedBox(height: 12),
+                TextField(
+                  controller: categoriaC,
+                  decoration: const InputDecoration(
+                    labelText: "Categoria Profissional",
+                    border: OutlineInputBorder(),
+                  ),
+                ),
+                const SizedBox(height: 12),
+                CampoCidadeBrasilField(
+                  controller: cidadeC,
+                  decoration: const InputDecoration(
+                    labelText: "Cidade",
+                    hintText: "Digite para buscar o município",
+                    border: OutlineInputBorder(),
+                  ),
+                ),
+                const SizedBox(height: 12),
+                TextField(
+                  controller: telefoneC,
+                  decoration: const InputDecoration(
+                    labelText: "Telefone / Contato",
+                    border: OutlineInputBorder(),
+                  ),
+                ),
+                const SizedBox(height: 12),
+                TextField(
+                  controller: emailC,
+                  keyboardType: TextInputType.emailAddress,
+                  decoration: const InputDecoration(
+                    labelText: "E-mail",
+                    prefixIcon: Icon(Icons.email_outlined),
+                    border: OutlineInputBorder(),
+                  ),
+                ),
+              ],
+            ),
+          ),
+        ),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.pop(context),
+            child: const Text("Cancelar"),
+          ),
+          ElevatedButton(
+            onPressed: () async {
+              final upd = <String, dynamic>{
+                'titulo': tituloC.text.trim(),
+                'categoria': categoriaC.text.trim(),
+                'cidade': cidadeC.text.trim(),
+                'telefone': telefoneC.text.trim(),
+              };
+              if (emailC.text.trim().isNotEmpty) {
+                upd['email'] = emailC.text.trim();
+              }
+              await FirebaseFirestore.instance
+                  .collection('servicos_destaque')
+                  .doc(id)
+                  .update(upd);
+              if (context.mounted) {
+                Navigator.pop(context);
+                ScaffoldMessenger.of(context).showSnackBar(
+                  const SnackBar(
+                    content: Text('Destaque atualizado com sucesso!'),
+                    backgroundColor: Colors.green,
+                  ),
+                );
+              }
+            },
+            style: ElevatedButton.styleFrom(
+              backgroundColor: diPertinLaranja,
+              foregroundColor: Colors.white,
+            ),
+            child: const Text("Salvar"),
+          ),
+        ],
+      ),
+    );
+  }
+
+  void _editarPremium(String id, Map<String, dynamic> dados) {
+    final tituloC = TextEditingController(text: dados['titulo'] ?? '');
+    final telefoneC = TextEditingController(text: dados['telefone'] ?? '');
+    final cidadeC = TextEditingController(text: dados['cidade'] ?? '');
+    final emailC = TextEditingController(text: dados['email'] ?? '');
+
+    showDialog(
+      context: context,
+      builder: (context) => AlertDialog(
+        title: Text(
+          "Editar Premium",
+          style: TextStyle(color: diPertinRoxo, fontWeight: FontWeight.bold),
+        ),
+        content: SizedBox(
+          width: 500,
+          child: SingleChildScrollView(
+            child: Column(
+              mainAxisSize: MainAxisSize.min,
+              children: [
+                TextField(
+                  controller: tituloC,
+                  decoration: const InputDecoration(
+                    labelText: "Título",
+                    border: OutlineInputBorder(),
+                  ),
+                ),
+                const SizedBox(height: 12),
+                TextField(
+                  controller: telefoneC,
+                  decoration: const InputDecoration(
+                    labelText: "Telefone / WhatsApp",
+                    border: OutlineInputBorder(),
+                  ),
+                ),
+                const SizedBox(height: 12),
+                CampoCidadeBrasilField(
+                  controller: cidadeC,
+                  decoration: const InputDecoration(
+                    labelText: "Cidade",
+                    hintText: "Digite para buscar o município",
+                    border: OutlineInputBorder(),
+                  ),
+                ),
+                const SizedBox(height: 12),
+                TextField(
+                  controller: emailC,
+                  keyboardType: TextInputType.emailAddress,
+                  decoration: const InputDecoration(
+                    labelText: "E-mail",
+                    prefixIcon: Icon(Icons.email_outlined),
+                    border: OutlineInputBorder(),
+                  ),
+                ),
+              ],
+            ),
+          ),
+        ),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.pop(context),
+            child: const Text("Cancelar"),
+          ),
+          ElevatedButton(
+            onPressed: () async {
+              final upd = <String, dynamic>{
+                'titulo': tituloC.text.trim(),
+                'telefone': telefoneC.text.trim(),
+                'cidade': cidadeC.text.trim(),
+              };
+              if (emailC.text.trim().isNotEmpty) {
+                upd['email'] = emailC.text.trim();
+              }
+              await FirebaseFirestore.instance
+                  .collection('telefones_premium')
+                  .doc(id)
+                  .update(upd);
+              if (context.mounted) {
+                Navigator.pop(context);
+                ScaffoldMessenger.of(context).showSnackBar(
+                  const SnackBar(
+                    content: Text('Premium atualizado com sucesso!'),
+                    backgroundColor: Colors.green,
+                  ),
+                );
+              }
+            },
+            style: ElevatedButton.styleFrom(
+              backgroundColor: diPertinLaranja,
+              foregroundColor: Colors.white,
+            ),
+            child: const Text("Salvar"),
+          ),
+        ],
+      ),
+    );
+  }
+
+  void _editarEvento(String id, Map<String, dynamic> dados) {
+    final tituloC = TextEditingController(text: dados['titulo'] ?? '');
+    final localC = TextEditingController(text: dados['local'] ?? '');
+    final dataEventoC = TextEditingController(text: dados['data_evento'] ?? '');
+    final descC = TextEditingController(text: dados['descricao'] ?? '');
+    final linkC = TextEditingController(text: dados['link_ingresso'] ?? '');
+    final emailC = TextEditingController(text: dados['email'] ?? '');
+
+    showDialog(
+      context: context,
+      builder: (context) => AlertDialog(
+        title: Text(
+          "Editar Evento",
+          style: TextStyle(color: diPertinRoxo, fontWeight: FontWeight.bold),
+        ),
+        content: SizedBox(
+          width: 500,
+          child: SingleChildScrollView(
+            child: Column(
+              mainAxisSize: MainAxisSize.min,
+              children: [
+                TextField(
+                  controller: tituloC,
+                  decoration: const InputDecoration(
+                    labelText: "Título do Evento",
+                    border: OutlineInputBorder(),
+                  ),
+                ),
+                const SizedBox(height: 12),
+                TextField(
+                  controller: localC,
+                  decoration: const InputDecoration(
+                    labelText: "Local",
+                    border: OutlineInputBorder(),
+                  ),
+                ),
+                const SizedBox(height: 12),
+                TextField(
+                  controller: dataEventoC,
+                  decoration: const InputDecoration(
+                    labelText: "Data do Evento (Ex: 25/Dez às 20h)",
+                    border: OutlineInputBorder(),
+                  ),
+                ),
+                const SizedBox(height: 12),
+                TextField(
+                  controller: descC,
+                  maxLines: 3,
+                  decoration: const InputDecoration(
+                    labelText: "Descrição Completa",
+                    border: OutlineInputBorder(),
+                  ),
+                ),
+                const SizedBox(height: 12),
+                TextField(
+                  controller: linkC,
+                  decoration: const InputDecoration(
+                    labelText: "Link do Ingresso (Opcional)",
+                    border: OutlineInputBorder(),
+                  ),
+                ),
+                const SizedBox(height: 12),
+                TextField(
+                  controller: emailC,
+                  keyboardType: TextInputType.emailAddress,
+                  decoration: const InputDecoration(
+                    labelText: "E-mail",
+                    prefixIcon: Icon(Icons.email_outlined),
+                    border: OutlineInputBorder(),
+                  ),
+                ),
+              ],
+            ),
+          ),
+        ),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.pop(context),
+            child: const Text("Cancelar"),
+          ),
+          ElevatedButton(
+            onPressed: () async {
+              final upd = <String, dynamic>{
+                'titulo': tituloC.text.trim(),
+                'local': localC.text.trim(),
+                'data_evento': dataEventoC.text.trim(),
+                'descricao': descC.text.trim(),
+                'link_ingresso': linkC.text.trim(),
+              };
+              if (emailC.text.trim().isNotEmpty) {
+                upd['email'] = emailC.text.trim();
+              }
+              await FirebaseFirestore.instance
+                  .collection('eventos')
+                  .doc(id)
+                  .update(upd);
+              if (context.mounted) {
+                Navigator.pop(context);
+                ScaffoldMessenger.of(context).showSnackBar(
+                  const SnackBar(
+                    content: Text('Evento atualizado com sucesso!'),
+                    backgroundColor: Colors.green,
+                  ),
+                );
+              }
+            },
+            style: ElevatedButton.styleFrom(
+              backgroundColor: diPertinLaranja,
+              foregroundColor: Colors.white,
+            ),
+            child: const Text("Salvar"),
+          ),
+        ],
+      ),
+    );
+  }
+
+  void _editarAchado(String id, Map<String, dynamic> dados) {
+    final tituloC = TextEditingController(text: dados['titulo'] ?? '');
+    final localC = TextEditingController(text: dados['local'] ?? '');
+    final cidadeC = TextEditingController(text: dados['cidade'] ?? '');
+    final descC = TextEditingController(text: dados['descricao'] ?? '');
+    final contatoC = TextEditingController(text: dados['contato'] ?? '');
+    final emailC = TextEditingController(text: dados['email'] ?? '');
+    bool isPerdido = (dados['tipo'] ?? 'perdido') == 'perdido';
+
+    showDialog(
+      context: context,
+      builder: (context) => StatefulBuilder(
+        builder: (context, setDialogState) => AlertDialog(
+          title: Text(
+            "Editar Achado",
+            style: TextStyle(color: diPertinRoxo, fontWeight: FontWeight.bold),
+          ),
+          content: SizedBox(
+            width: 500,
+            child: SingleChildScrollView(
+              child: Column(
+                mainAxisSize: MainAxisSize.min,
+                children: [
+                  TextField(
+                    controller: tituloC,
+                    decoration: const InputDecoration(
+                      labelText: "Título",
+                      border: OutlineInputBorder(),
+                    ),
+                  ),
+                  const SizedBox(height: 12),
+                  Row(
+                    children: [
+                      Expanded(
+                        child: RadioListTile(
+                          title: const Text("Perdido"),
+                          value: true,
+                          groupValue: isPerdido,
+                          onChanged: (v) =>
+                              setDialogState(() => isPerdido = v as bool),
+                        ),
+                      ),
+                      Expanded(
+                        child: RadioListTile(
+                          title: const Text("Achado"),
+                          value: false,
+                          groupValue: isPerdido,
+                          onChanged: (v) =>
+                              setDialogState(() => isPerdido = v as bool),
+                        ),
+                      ),
+                    ],
+                  ),
+                  const SizedBox(height: 12),
+                  TextField(
+                    controller: localC,
+                    decoration: const InputDecoration(
+                      labelText: "Local",
+                      border: OutlineInputBorder(),
+                    ),
+                  ),
+                  const SizedBox(height: 12),
+                  CampoCidadeBrasilField(
+                    controller: cidadeC,
+                    decoration: const InputDecoration(
+                      labelText: "Cidade",
+                      hintText: "Digite para buscar o município",
+                      border: OutlineInputBorder(),
+                    ),
+                  ),
+                  const SizedBox(height: 12),
+                  TextField(
+                    controller: descC,
+                    maxLines: 3,
+                    decoration: const InputDecoration(
+                      labelText: "Descrição",
+                      border: OutlineInputBorder(),
+                    ),
+                  ),
+                  const SizedBox(height: 12),
+                  TextField(
+                    controller: contatoC,
+                    decoration: const InputDecoration(
+                      labelText: "Telefone / Contato",
+                      border: OutlineInputBorder(),
+                    ),
+                  ),
+                  const SizedBox(height: 12),
+                  TextField(
+                    controller: emailC,
+                    keyboardType: TextInputType.emailAddress,
+                    decoration: const InputDecoration(
+                      labelText: "E-mail",
+                      prefixIcon: Icon(Icons.email_outlined),
+                      border: OutlineInputBorder(),
+                    ),
+                  ),
+                ],
+              ),
+            ),
+          ),
+          actions: [
+            TextButton(
+              onPressed: () => Navigator.pop(context),
+              child: const Text("Cancelar"),
+            ),
+            ElevatedButton(
+              onPressed: () async {
+                final upd = <String, dynamic>{
+                  'titulo': tituloC.text.trim(),
+                  'tipo': isPerdido ? 'perdido' : 'encontrado',
+                  'local': localC.text.trim(),
+                  'cidade': cidadeC.text.trim(),
+                  'descricao': descC.text.trim(),
+                  'contato': contatoC.text.trim(),
+                };
+                if (emailC.text.trim().isNotEmpty) {
+                  upd['email'] = emailC.text.trim();
+                }
+                await FirebaseFirestore.instance
+                    .collection('achados')
+                    .doc(id)
+                    .update(upd);
+                if (context.mounted) {
+                  Navigator.pop(context);
+                  ScaffoldMessenger.of(context).showSnackBar(
+                    const SnackBar(
+                      content: Text('Achado atualizado com sucesso!'),
+                      backgroundColor: Colors.green,
+                    ),
+                  );
+                }
+              },
+              style: ElevatedButton.styleFrom(
+                backgroundColor: diPertinLaranja,
+                foregroundColor: Colors.white,
+              ),
+              child: const Text("Salvar"),
+            ),
+          ],
+        ),
+      ),
+    );
+  }
+
   String _formatarData(Timestamp? ts) {
     if (ts == null) return 'N/A';
     DateTime d = ts.toDate();
@@ -268,6 +854,7 @@ class _UtilidadesScreenState extends State<UtilidadesScreen> {
     TextEditingController cidadeC = TextEditingController();
     TextEditingController descC = TextEditingController();
     TextEditingController contatoC = TextEditingController();
+    TextEditingController emailC = TextEditingController();
     TextEditingController dataLinkC = TextEditingController();
     TextEditingController donoC = TextEditingController();
     TextEditingController valorC = TextEditingController();
@@ -351,6 +938,10 @@ class _UtilidadesScreenState extends State<UtilidadesScreen> {
                 // ==========================================
 
                 // 3. Molda os dados de acordo com a categoria (Igual estava antes)
+                if (emailC.text.trim().isNotEmpty) {
+                  dados['email'] = emailC.text.trim();
+                }
+
                 if (tipoSelecionado == 'Vagas') {
                   dados.addAll({
                     'cargo': tituloC.text,
@@ -554,10 +1145,11 @@ class _UtilidadesScreenState extends State<UtilidadesScreen> {
                         'Premium',
                         'Destaques',
                       ].contains(tipoSelecionado)) ...[
-                        TextField(
+                        CampoCidadeBrasilField(
                           controller: cidadeC,
                           decoration: const InputDecoration(
                             labelText: "Cidade",
+                            hintText: "Digite para buscar o município",
                             border: OutlineInputBorder(),
                           ),
                         ),
@@ -610,6 +1202,18 @@ class _UtilidadesScreenState extends State<UtilidadesScreen> {
                         ),
                         const SizedBox(height: 10),
                       ],
+
+                      TextField(
+                        controller: emailC,
+                        keyboardType: TextInputType.emailAddress,
+                        decoration: const InputDecoration(
+                          labelText: "E-mail",
+                          hintText: "exemplo@email.com",
+                          prefixIcon: Icon(Icons.email_outlined),
+                          border: OutlineInputBorder(),
+                        ),
+                      ),
+                      const SizedBox(height: 10),
 
                       // === NOVOS CAMPOS DE COBRANÇA E TEMPO ===
                       if ([
@@ -916,35 +1520,56 @@ class _UtilidadesScreenState extends State<UtilidadesScreen> {
                           campoTitulo: 'titulo',
                           campoSubtitulo: 'cidade',
                           campoDataVencimento: 'data_fim',
+                          botoesExtras: (id, dados) => IconButton(
+                            icon: Icon(Icons.edit, color: diPertinRoxo, size: 20),
+                            tooltip: 'Editar destaque',
+                            onPressed: () => _editarDestaque(id, dados),
+                          ),
                         ),
                         _buildListaGenerica(
                           colecao: 'telefones_premium',
                           campoTitulo: 'titulo',
                           campoSubtitulo: 'telefone',
                           campoDataVencimento: 'data_vencimento',
+                          botoesExtras: (id, dados) => IconButton(
+                            icon: Icon(Icons.edit, color: diPertinRoxo, size: 20),
+                            tooltip: 'Editar premium',
+                            onPressed: () => _editarPremium(id, dados),
+                          ),
                         ),
                         _buildListaGenerica(
                           colecao: 'vagas',
                           campoTitulo: 'cargo',
                           campoSubtitulo: 'empresa',
                           campoDataVencimento: 'data_vencimento',
-                          botoesExtras: (id, dados) => ElevatedButton.icon(
-                            onPressed: () => _renovarVaga(
-                              id,
-                              dados['data_vencimento'] as Timestamp?,
-                            ),
-                            icon: const Icon(
-                              Icons.add_circle,
-                              color: Colors.white,
-                              size: 16,
-                            ),
-                            label: const Text(
-                              "+7 Dias",
-                              style: TextStyle(color: Colors.white),
-                            ),
-                            style: ElevatedButton.styleFrom(
-                              backgroundColor: diPertinLaranja,
-                            ),
+                          botoesExtras: (id, dados) => Row(
+                            mainAxisSize: MainAxisSize.min,
+                            children: [
+                              IconButton(
+                                icon: Icon(Icons.edit, color: diPertinRoxo, size: 20),
+                                tooltip: 'Editar vaga',
+                                onPressed: () => _editarVaga(id, dados),
+                              ),
+                              const SizedBox(width: 4),
+                              ElevatedButton.icon(
+                                onPressed: () => _renovarVaga(
+                                  id,
+                                  dados['data_vencimento'] as Timestamp?,
+                                ),
+                                icon: const Icon(
+                                  Icons.add_circle,
+                                  color: Colors.white,
+                                  size: 16,
+                                ),
+                                label: const Text(
+                                  "+7 Dias",
+                                  style: TextStyle(color: Colors.white),
+                                ),
+                                style: ElevatedButton.styleFrom(
+                                  backgroundColor: diPertinLaranja,
+                                ),
+                              ),
+                            ],
                           ),
                         ),
                         _buildListaGenerica(
@@ -952,20 +1577,31 @@ class _UtilidadesScreenState extends State<UtilidadesScreen> {
                           campoTitulo: 'titulo',
                           campoSubtitulo: 'nome_dono',
                           campoDataVencimento: 'data_fim',
-                          botoesExtras: (id, dados) => ElevatedButton.icon(
-                            onPressed: () => _configurarEvento(id, dados),
-                            icon: const Icon(
-                              Icons.settings,
-                              color: Colors.white,
-                              size: 16,
-                            ),
-                            label: const Text(
-                              "Configurar",
-                              style: TextStyle(color: Colors.white),
-                            ),
-                            style: ElevatedButton.styleFrom(
-                              backgroundColor: Colors.blue,
-                            ),
+                          botoesExtras: (id, dados) => Row(
+                            mainAxisSize: MainAxisSize.min,
+                            children: [
+                              IconButton(
+                                icon: Icon(Icons.edit, color: diPertinRoxo, size: 20),
+                                tooltip: 'Editar evento',
+                                onPressed: () => _editarEvento(id, dados),
+                              ),
+                              const SizedBox(width: 4),
+                              ElevatedButton.icon(
+                                onPressed: () => _configurarEvento(id, dados),
+                                icon: const Icon(
+                                  Icons.settings,
+                                  color: Colors.white,
+                                  size: 16,
+                                ),
+                                label: const Text(
+                                  "Configurar",
+                                  style: TextStyle(color: Colors.white),
+                                ),
+                                style: ElevatedButton.styleFrom(
+                                  backgroundColor: Colors.blue,
+                                ),
+                              ),
+                            ],
                           ),
                         ),
                         _buildListaGenerica(
@@ -973,23 +1609,34 @@ class _UtilidadesScreenState extends State<UtilidadesScreen> {
                           campoTitulo: 'titulo',
                           campoSubtitulo: 'tipo',
                           campoDataVencimento: 'data_vencimento',
-                          botoesExtras: (id, dados) => ElevatedButton.icon(
-                            onPressed: () => _renovarAchados(
-                              id,
-                              dados['data_vencimento'] as Timestamp?,
-                            ),
-                            icon: const Icon(
-                              Icons.add_circle,
-                              color: Colors.white,
-                              size: 16,
-                            ),
-                            label: const Text(
-                              "+3 Dias",
-                              style: TextStyle(color: Colors.white),
-                            ),
-                            style: ElevatedButton.styleFrom(
-                              backgroundColor: diPertinLaranja,
-                            ),
+                          botoesExtras: (id, dados) => Row(
+                            mainAxisSize: MainAxisSize.min,
+                            children: [
+                              IconButton(
+                                icon: Icon(Icons.edit, color: diPertinRoxo, size: 20),
+                                tooltip: 'Editar achado',
+                                onPressed: () => _editarAchado(id, dados),
+                              ),
+                              const SizedBox(width: 4),
+                              ElevatedButton.icon(
+                                onPressed: () => _renovarAchados(
+                                  id,
+                                  dados['data_vencimento'] as Timestamp?,
+                                ),
+                                icon: const Icon(
+                                  Icons.add_circle,
+                                  color: Colors.white,
+                                  size: 16,
+                                ),
+                                label: const Text(
+                                  "+3 Dias",
+                                  style: TextStyle(color: Colors.white),
+                                ),
+                                style: ElevatedButton.styleFrom(
+                                  backgroundColor: diPertinLaranja,
+                                ),
+                              ),
+                            ],
                           ),
                         ),
                       ],

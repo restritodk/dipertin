@@ -1,0 +1,4 @@
+# O deploy (deploy_sistema_ftp.ps1) gera .htaccess com:
+# - Sem mod_rewrite (rotas em #/login).
+# - Se mod_headers existir no Apache: no-cache em index.html, main.dart.js, service worker, etc.
+# Se der ERRO 500 em /sistema/, remova o bloco <IfModule mod_headers.c> do .htaccess no servidor.

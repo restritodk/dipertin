@@ -68,5 +68,15 @@
 		</array>
 		<key>UIStatusBarHidden</key>
 		<false/>
+		<key>NSCameraUsageDescription</key>
+		<string>O DiPertin usa a câmera para fotos de perfil e de produtos.</string>
+		<key>NSPhotoLibraryUsageDescription</key>
+		<string>O DiPertin acessa suas fotos para perfil, produtos e documentos.</string>
+		<key>NSLocationWhenInUseUsageDescription</key>
+		<string>O DiPertin usa sua localização para entregas e para mostrar lojas na sua região.</string>
+		<key>UIBackgroundModes</key>
+		<array>
+			<string>remote-notification</string>
+		</array>
 	</dict>
 </plist>

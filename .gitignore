@@ -42,3 +42,7 @@ criar_repo_e_push.ps1
 # Chaves de serviço Firebase (nunca commitar)
 **/serviceAccount*.json
 **/*-firebase-adminsdk-*.json
+
+# OAuth / segredos do Google (nunca no frontend; apenas client_id pode ir no código)
+**/client_secret*.json
+**/web/client_secret*.json

@@ -24,6 +24,23 @@ service cloud.firestore {
       return get(userPath()).data;
     }
 
+    // Campos legados: `role`, `tipo`, `tipoUsuario` — o painel pode preencher só um deles.
+    function fieldStr(d, key) {
+      return d.get(key, '');
+    }
+
+    function isMasterValue(v) {
+      return v == 'master' || v == 'superadmin' || v == 'super_admin';
+    }
+
+    function isMasterCityValue(v) {
+      return v == 'master_city';
+    }
+
+    function isEntregadorValue(v) {
+      return v == 'entregador';
+    }
+
     function role() {
       return userExists()
         ? userData().get('role', userData().get('tipoUsuario', ''))
@@ -31,11 +48,19 @@ service cloud.firestore {
     }
 
     function isMaster() {
-      return userExists() && role() == 'master';
+      return userExists() && (
+        isMasterValue(fieldStr(userData(), 'role')) ||
+        isMasterValue(fieldStr(userData(), 'tipo')) ||
+        isMasterValue(fieldStr(userData(), 'tipoUsuario'))
+      );
     }
 
     function isMasterCity() {
-      return userExists() && role() == 'master_city';
+      return userExists() && (
+        isMasterCityValue(fieldStr(userData(), 'role')) ||
+        isMasterCityValue(fieldStr(userData(), 'tipo')) ||
+        isMasterCityValue(fieldStr(userData(), 'tipoUsuario'))
+      );
     }
 
     function isStaff() {
@@ -43,14 +68,137 @@ service cloud.firestore {
     }
 
     function isEntregador() {
-      return userExists() && role() == 'entregador';
+      return userExists() && (
+        isEntregadorValue(fieldStr(userData(), 'role')) ||
+        isEntregadorValue(fieldStr(userData(), 'tipo')) ||
+        isEntregadorValue(fieldStr(userData(), 'tipoUsuario'))
+      );
+    }
+
+    function motivoRecusaIndicaOperacional(d) {
+      let m = d.get('motivo_recusa', '');
+      return m != ''
+        && m.matches('(?i).*(pagamento|inadimpl|financeir|suspens|falta|cobran|mensalidade|plano|regulariz|debito).*');
+    }
+
+    function lojistaRecusaSoCadastro(d) {
+      return d.get('recusa_cadastro', false) == true
+        || (
+          (d.get('status_loja', '') == 'bloqueada' || d.get('status_loja', '') == 'bloqueado')
+          && !d.keys().hasAny(['block_active'])
+          && d.get('motivo_recusa', '') != ''
+          && !motivoRecusaIndicaOperacional(d)
+        );
+    }
+
+    function lojistaDocumentoBloqueado(d) {
+      return d.get('role', d.get('tipoUsuario', '')) == 'lojista'
+        && !lojistaRecusaSoCadastro(d)
+        && (
+          d.get('status_loja', '') == 'bloqueado'
+          || (
+            d.get('status_loja', '') == 'bloqueio_temporario'
+            && !(
+              d.get('block_end_at', null) != null
+              && request.time > d.block_end_at
+            )
+          )
+          || (
+            d.get('block_active', false)
+            && !(
+              d.get('block_type', '') == 'BLOCK_TEMPORARY'
+              && d.get('block_end_at', null) != null
+              && request.time > d.block_end_at
+            )
+          )
+          || (
+            (d.get('status_loja', '') == 'bloqueada' || d.get('status_loja', '') == 'bloqueado')
+            && d.keys().hasAny(['block_active'])
+            && d.get('block_active', false)
+          )
+          || (
+            (d.get('status_loja', '') == 'bloqueada' || d.get('status_loja', '') == 'bloqueado')
+            && !d.keys().hasAny(['block_active'])
+            && !lojistaRecusaSoCadastro(d)
+          )
+        );
+    }
+
+    // Loja “efetiva”: dono = auth.uid; colaborador do painel = users.lojista_owner_uid
+    function idLojaUsuarioLogado() {
+      return userExists()
+        ? userData().get('lojista_owner_uid', request.auth.uid)
+        : request.auth.uid;
+    }
+
+    function dadosDonoLojaParaBloqueio() {
+      return userExists()
+        && userData().get('lojista_owner_uid', '') != ''
+        && exists(/databases/$(database)/documents/users/$(userData().lojista_owner_uid))
+        ? get(/databases/$(database)/documents/users/$(userData().lojista_owner_uid)).data
+        : userData();
+    }
+
+    function lojistaLojaPodeOperar() {
+      return !userExists()
+        || role() != 'lojista'
+        || !lojistaDocumentoBloqueado(dadosDonoLojaParaBloqueio());
+    }
+
+    function isLojistaRoleDoc(d) {
+      return fieldStr(d, 'role') == 'lojista'
+        || fieldStr(d, 'tipoUsuario') == 'lojista'
+        || fieldStr(d, 'tipo') == 'lojista';
+    }
+
+    function colaboradorPainelNivel3EditaDono(userId) {
+      return userExists()
+        && isLojistaRoleDoc(userData())
+        && userData().get('lojista_owner_uid', '') == userId
+        && userData().get('painel_colaborador_nivel', 0) >= 3;
+    }
+
+    function colaboradorNaoAlteraPrivilegiosNaDono() {
+      return !request.resource.data.diff(resource.data).affectedKeys().hasAny([
+        'role', 'tipoUsuario', 'tipo', 'saldo', 'lojista_owner_uid',
+        'painel_colaborador_nivel', 'acesso_app_mobile'
+      ]);
     }
 
     match /users/{userId} {
-      allow read: if true;
+      allow read: if signedIn() || (
+        fieldStr(resource.data, 'role') == 'lojista'
+        || fieldStr(resource.data, 'tipoUsuario') == 'lojista'
+        || fieldStr(resource.data, 'tipo') == 'lojista'
+      );
       allow create: if signedIn() && request.auth.uid == userId;
-      allow update: if signedIn() && (request.auth.uid == userId || isStaff());
+      allow update: if signedIn() && (
+        request.auth.uid == userId
+        || isStaff()
+        || (
+          colaboradorPainelNivel3EditaDono(userId)
+          && colaboradorNaoAlteraPrivilegiosNaDono()
+        )
+      );
       allow delete: if isMaster();
+
+      match /bloqueios_auditoria/{eventId} {
+        allow read, write: if isStaff();
+      }
+    }
+
+    // Lista de endereços do cliente (Configurações → Meus endereços).
+    // Caminho explícito: evita falha de permissão em queries na subcoleção.
+    match /users/{userId}/enderecos/{enderecoId} {
+      allow read, write: if signedIn() && request.auth.uid == userId;
+    }
+
+    // Chaves PIX salvas pelo próprio usuário (carteira — reutilizar em transferências).
+    match /users/{userId}/chaves_pix/{chaveId} {
+      allow read, write: if signedIn() && (
+        request.auth.uid == userId
+        || colaboradorPainelNivel3EditaDono(userId)
+      );
     }
 
     match /pedidos/{pedidoId} {
@@ -58,16 +206,36 @@ service cloud.firestore {
         return resource.data;
       }
 
+      // Dono da loja no pedido: `loja_id` (padrão) ou legado `lojista_id`.
+      function lojistaDonoDoPedido() {
+        return p().loja_id == idLojaUsuarioLogado()
+          || (
+            'lojista_id' in p()
+            && p().lojista_id == idLojaUsuarioLogado()
+          );
+      }
+
       function entregadorAtribuido() {
         return 'entregador_id' in p() && p().entregador_id == request.auth.uid;
+      }
+
+      function statusEntregadorPodeVerRadar() {
+        return p().status in [
+          'a_caminho',
+          'em_rota',
+          'aguardando_entregador',
+          'entregador_indo_loja',
+          'saiu_entrega'
+        ];
       }
 
       function podeLerPedido() {
         return signedIn() && (
           p().cliente_id == request.auth.uid ||
-          p().loja_id == request.auth.uid ||
+          p().loja_id == idLojaUsuarioLogado() ||
+          ('lojista_id' in p() && p().lojista_id == idLojaUsuarioLogado()) ||
           entregadorAtribuido() ||
-          (isEntregador() && p().status in ['a_caminho', 'em_rota']) ||
+          (isEntregador() && statusEntregadorPodeVerRadar()) ||
           isStaff()
         );
       }
@@ -77,12 +245,95 @@ service cloud.firestore {
       allow create: if signedIn()
         && request.resource.data.cliente_id == request.auth.uid;
 
+      function entregadorConvocadoParaEstePedido() {
+        return p().despacho_oferta_uid == request.auth.uid
+          || (
+            (!('despacho_oferta_uid' in p()) || p().despacho_oferta_uid == null)
+            && request.auth.uid in p().get('busca_entregadores_notificados', [])
+          );
+      }
+
+      function entregadorAceitandoCorrida() {
+        return isEntregador()
+          && (!('entregador_id' in p()) || p().entregador_id == null)
+          && p().status in ['aguardando_entregador', 'a_caminho']
+          && request.resource.data.entregador_id == request.auth.uid
+          && request.resource.data.status == 'entregador_indo_loja'
+          && request.resource.data.cliente_id == p().cliente_id
+          && request.resource.data.loja_id == p().loja_id
+          && entregadorConvocadoParaEstePedido();
+      }
+
+      // Cliente cancela na tela Meus pedidos enquanto o PIX ainda não foi pago.
+      function clienteCancelaPedidoPixPendente() {
+        return p().cliente_id == request.auth.uid
+          && p().status == 'aguardando_pagamento'
+          && request.resource.data.status == 'cancelado'
+          && request.resource.data.cancelado_motivo == 'cliente_cancelou_pix'
+          && request.resource.data.cliente_id == p().cliente_id
+          && request.resource.data.loja_id == p().loja_id
+          && request.resource.data.diff(resource.data).affectedKeys()
+            .hasOnly(['status', 'cancelado_motivo', 'cancelado_em']);
+      }
+
+      function detalheCancelamentoClienteOk() {
+        let cod = request.resource.data.cancelado_cliente_codigo;
+        return cod in ['desistencia', 'demora_loja', 'outro']
+          && (
+            cod != 'outro'
+            || (
+              request.resource.data.cancelado_cliente_detalhe is string
+              && request.resource.data.cancelado_cliente_detalhe.size() >= 1
+              && request.resource.data.cancelado_cliente_detalhe.size() <= 500
+            )
+          )
+          && (
+            cod == 'outro'
+            || !('cancelado_cliente_detalhe' in request.resource.data)
+            || (
+              request.resource.data.cancelado_cliente_detalhe is string
+              && request.resource.data.cancelado_cliente_detalhe.size() <= 500
+            )
+          );
+      }
+
+      // Cliente cancela pedido já confirmado (pós-PIX), com motivo — Meus pedidos.
+      function clienteCancelaPedidoEmAndamento() {
+        return p().cliente_id == request.auth.uid
+          && p().status in [
+            'pendente',
+            'aceito',
+            'em_preparo',
+            'pronto',
+            'aguardando_entregador',
+            'entregador_indo_loja',
+            'saiu_entrega',
+            'a_caminho',
+            'em_rota',
+          ]
+          && request.resource.data.status == 'cancelado'
+          && request.resource.data.cancelado_motivo == 'cliente_solicitou'
+          && detalheCancelamentoClienteOk()
+          && request.resource.data.cliente_id == p().cliente_id
+          && request.resource.data.loja_id == p().loja_id
+          && (!('lojista_id' in p()) || request.resource.data.lojista_id == p().lojista_id)
+          && request.resource.data.diff(resource.data).affectedKeys()
+            .hasOnly([
+              'status',
+              'cancelado_motivo',
+              'cancelado_em',
+              'cancelado_cliente_codigo',
+              'cancelado_cliente_detalhe',
+            ]);
+      }
+
       allow update: if signedIn() && (
         isStaff() ||
-        p().loja_id == request.auth.uid ||
-        p().cliente_id == request.auth.uid ||
-        entregadorAtribuido() ||
-        (isEntregador() && p().status in ['a_caminho', 'em_rota'])
+        (lojistaDonoDoPedido() && lojistaLojaPodeOperar()) ||
+        clienteCancelaPedidoPixPendente() ||
+        clienteCancelaPedidoEmAndamento() ||
+        entregadorAceitandoCorrida() ||
+        (isEntregador() && entregadorAtribuido() && request.auth.uid == p().entregador_id)
       );
 
       allow delete: if isMaster();
@@ -94,14 +345,29 @@ service cloud.firestore {
 
         allow read: if signedIn() && (
           pedidoPai().cliente_id == request.auth.uid ||
-          pedidoPai().loja_id == request.auth.uid ||
+          pedidoPai().loja_id == idLojaUsuarioLogado() ||
+          (
+            'lojista_id' in pedidoPai()
+            && pedidoPai().lojista_id == idLojaUsuarioLogado()
+          ) ||
           isStaff()
         );
         allow create: if signedIn() && (
           pedidoPai().cliente_id == request.auth.uid ||
-          pedidoPai().loja_id == request.auth.uid ||
+          (
+            (
+              pedidoPai().loja_id == idLojaUsuarioLogado()
+              || (
+                'lojista_id' in pedidoPai()
+                && pedidoPai().lojista_id == idLojaUsuarioLogado()
+              )
+            )
+            && lojistaLojaPodeOperar()
+          ) ||
           isStaff()
-        );
+        )
+        && pedidoPai().status != 'entregue'
+        && pedidoPai().status != 'cancelado';
         allow update, delete: if isStaff();
       }
     }
@@ -109,14 +375,14 @@ service cloud.firestore {
     match /produtos/{id} {
       allow read: if true;
       allow create: if signedIn() && (
-        request.resource.data.lojista_id == request.auth.uid ||
-        request.resource.data.loja_id == request.auth.uid
-      );
+        request.resource.data.lojista_id == idLojaUsuarioLogado() ||
+        request.resource.data.loja_id == idLojaUsuarioLogado()
+      ) && (role() != 'lojista' || lojistaLojaPodeOperar());
       allow update, delete: if signedIn() && (
-        ('lojista_id' in resource.data && resource.data.lojista_id == request.auth.uid) ||
-        ('loja_id' in resource.data && resource.data.loja_id == request.auth.uid) ||
+        ('lojista_id' in resource.data && resource.data.lojista_id == idLojaUsuarioLogado()) ||
+        ('loja_id' in resource.data && resource.data.loja_id == idLojaUsuarioLogado()) ||
         isStaff()
-      );
+      ) && (isStaff() || role() != 'lojista' || lojistaLojaPodeOperar());
     }
 
     match /categorias/{id} {
@@ -134,15 +400,44 @@ service cloud.firestore {
       allow write: if isStaff();
     }
 
-    match /avaliacoes/{id} {
+    match /avaliacoes/{pedidoId} {
+      function avaliacaoLojaPodeResponder() {
+        return signedIn()
+          && resource.data.loja_id == idLojaUsuarioLogado()
+          && lojistaLojaPodeOperar()
+          && request.resource.data.loja_id == resource.data.loja_id
+          && request.resource.data.cliente_id == resource.data.cliente_id
+          && request.resource.data.nota == resource.data.nota
+          && (
+            !('pedido_id' in resource.data)
+            || request.resource.data.pedido_id == resource.data.pedido_id
+          )
+          && request.resource.data.diff(resource.data).affectedKeys()
+            .hasOnly(['resposta_loja']);
+      }
+
+      function criacaoAvaliacaoPedidoEntregue() {
+        return signedIn()
+          && request.resource.data.cliente_id == request.auth.uid
+          && request.resource.data.pedido_id == pedidoId
+          && request.resource.data.nota >= 1
+          && request.resource.data.nota <= 5
+          && exists(/databases/$(database)/documents/pedidos/$(pedidoId))
+          && get(/databases/$(database)/documents/pedidos/$(pedidoId)).data.cliente_id == request.auth.uid
+          && get(/databases/$(database)/documents/pedidos/$(pedidoId)).data.status == 'entregue'
+          && get(/databases/$(database)/documents/pedidos/$(pedidoId)).data.loja_id == request.resource.data.loja_id
+          && !exists(/databases/$(database)/documents/avaliacoes/$(pedidoId));
+      }
+
       allow read: if true;
-      allow create: if signedIn();
-      allow update, delete: if isStaff()
+      allow create: if criacaoAvaliacaoPedidoEntregue() || isStaff();
+      allow update: if isStaff() || avaliacaoLojaPodeResponder();
+      allow delete: if isStaff()
         || ('cliente_id' in resource.data && resource.data.cliente_id == request.auth.uid);
     }
 
     match /gateways_pagamento/{id} {
-      allow read: if signedIn();
+      allow read: if isStaff();
       allow write: if isStaff();
     }
 
@@ -160,12 +455,27 @@ service cloud.firestore {
       allow read, write: if isStaff();
     }
 
+    match /despesas_app/{id} {
+      allow read, write: if isStaff();
+    }
+
     match /saques_solicitacoes/{id} {
       allow read: if signedIn() && (
         isStaff() ||
-        ('user_id' in resource.data && resource.data.user_id == request.auth.uid)
+        ('user_id' in resource.data && resource.data.user_id == idLojaUsuarioLogado())
       );
-      allow create: if signedIn();
+      // Criação apenas via Cloud Function (Admin SDK). Evita saque + débito forjados no cliente.
+      allow create: if false;
+      allow update, delete: if isStaff();
+    }
+
+    match /candidaturas/{id} {
+      allow read: if signedIn() && (
+        isStaff()
+        || resource.data.uid == request.auth.uid
+      );
+      allow create: if userExists()
+        && request.resource.data.uid == request.auth.uid;
       allow update, delete: if isStaff();
     }
 
@@ -334,6 +644,25 @@ service cloud.firestore {
     match /configuracoes/{id} {
       allow read: if true;
       allow write: if isStaff();
+    }
+
+    // Campanhas push enfileiradas pelo painel → trigger em Functions (Admin SDK ignora regras).
+    match /notificacoes_campanhas/{id} {
+      allow read, write: if isStaff();
+    }
+
+    // Cupons criados no painel administrativo.
+    match /cupons/{id} {
+      allow read, write: if isStaff();
+    }
+
+    // Estornos de pedido (master debita na carteira da loja). Lojista lê só os seus.
+    match /estornos/{id} {
+      allow read: if signedIn() && (
+        isStaff() ||
+        ('loja_id' in resource.data && resource.data.loja_id == idLojaUsuarioLogado())
+      );
+      allow create, update, delete: if isStaff();
     }
 
     // Recuperação de senha — apenas Cloud Functions (Admin SDK)

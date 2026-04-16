@@ -1,0 +1,4 @@
+node_modules/
+*.min.js
+css/*.min.css
+.env.deploy

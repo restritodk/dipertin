@@ -1,0 +1,33 @@
+{
+  "@context": "https://schema.org",
+  "@graph": [
+    {
+      "@type": "BreadcrumbList",
+      "itemListElement": [
+        { "@type": "ListItem", "position": 1, "name": "Início", "item": "https://www.dipertin.com.br/" },
+        { "@type": "ListItem", "position": 2, "name": "Loja demonstração", "item": "https://www.dipertin.com.br/loja.html" }
+      ]
+    },
+    {
+      "@type": "Store",
+      "@id": "https://www.dipertin.com.br/loja.html#loja",
+      "name": "Loja demonstração DiPertin",
+      "description": "Estabelecimento de exemplo no ecossistema DiPertin. Substitua por nome, horário e morada reais.",
+      "image": "https://www.dipertin.com.br/assets/logo.png",
+      "url": "https://www.dipertin.com.br/loja.html",
+      "priceRange": "$$",
+      "address": {
+        "@type": "PostalAddress",
+        "addressCountry": "BR",
+        "addressLocality": "Sua cidade"
+      },
+      "aggregateRating": {
+        "@type": "AggregateRating",
+        "ratingValue": "4.6",
+        "reviewCount": "18",
+        "bestRating": "5",
+        "worstRating": "1"
+      }
+    }
+  ]
+}

@@ -70,7 +70,7 @@ Future<void> abrirFluxoExclusaoConta(BuildContext context) async {
     );
     if (!context.mounted) return;
 
-    await ContaExclusaoService.encerrarSessaoERedirecionarParaVitrine(context);
+    await ContaExclusaoService.encerrarSessaoERedirecionarParaEntrar(context);
   } catch (e) {
     if (context.mounted) {
       Navigator.of(context, rootNavigator: true).pop();

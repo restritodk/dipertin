@@ -1,8 +1,10 @@
 import 'dart:async';
+import 'dart:convert';
 
 import 'package:flutter/foundation.dart';
 import 'package:geolocator/geolocator.dart';
 import 'package:geocoding/geocoding.dart';
+import 'package:http/http.dart' as http;
 import 'package:shared_preferences/shared_preferences.dart';
 
 enum LocationStatus {
@@ -175,6 +177,46 @@ class LocationService extends ChangeNotifier {
     return _estadoParaUf[n];
   }
 
+  /// Painel pode gravar [campoCidade] como `"Município — UF"` (IBGE). O app só
+  /// compara o nome do município com [cidadeNormalizada]; se houver UF no texto,
+  /// ela também deve bater com [ufNormalizado].
+  static String nomeCidadeParaFiltroAnuncio(String? campoCidade) {
+    if (campoCidade == null || campoCidade.trim().isEmpty) return '';
+    final t = campoCidade.trim();
+    final partes = t.split(RegExp(r'\s*[—–\-]\s*'));
+    final nome = partes.isNotEmpty ? partes.first.trim() : t;
+    return normalizar(nome);
+  }
+
+  /// Sigla (minúsculas) após `—` / `-`, ou null se o campo for só o nome.
+  static String? ufAnuncioOpcional(String? campoCidade) {
+    if (campoCidade == null || campoCidade.trim().isEmpty) return null;
+    final t = campoCidade.trim();
+    final partes = t.split(RegExp(r'\s*[—–\-]\s*'));
+    if (partes.length < 2) return null;
+    final ult = partes.last.trim();
+    if (ult.length == 2) return ult.toLowerCase();
+    return extrairUf(ult)?.toLowerCase();
+  }
+
+  static bool cidadeCampoCorrespondeUsuario({
+    required String? campoCidade,
+    required String cidadeNormUsuario,
+    required String ufNormUsuario,
+  }) {
+    final raw = (campoCidade ?? '').toString().trim();
+    if (raw.isEmpty) return false;
+    final nome = nomeCidadeParaFiltroAnuncio(raw);
+    if (nome.isEmpty || nome != cidadeNormUsuario) return false;
+    final ufAd = ufAnuncioOpcional(raw);
+    if (ufAd != null &&
+        ufAd.isNotEmpty &&
+        ufNormUsuario.isNotEmpty) {
+      return ufAd == ufNormUsuario;
+    }
+    return true;
+  }
+
   LocationService() {
     _inicializar();
   }
@@ -186,26 +228,40 @@ class LocationService extends ChangeNotifier {
     _cidadeNormalizada = prefs.getString(_chaveCidadeNorm) ?? '';
     _ufNormalizado = prefs.getString(_chaveUfNorm) ?? '';
 
+    // Web: geocoding nativo (plugin) não cobre browser; sessão pode reutilizar cidade salva.
+    if (kIsWeb &&
+        _cidadeNormalizada.isNotEmpty &&
+        _ufNormalizado.isNotEmpty) {
+      _deteccaoSessaoConfirmada = true;
+    }
+
     await verificarTudo();
     _initialized = true;
     notifyListeners();
 
-    _serviceSubscription =
-        Geolocator.getServiceStatusStream().listen((serviceStatus) {
-      if (serviceStatus == ServiceStatus.disabled) {
-        _atualizarStatus(LocationStatus.servicoDesativado);
-        _positionSubscription?.cancel();
-      } else {
-        verificarTudo().then((_) {
-          if (_status == LocationStatus.pronto) {
-            detectarCidade();
-          }
-        });
-      }
-    });
+    if (!kIsWeb) {
+      _serviceSubscription =
+          Geolocator.getServiceStatusStream().listen((serviceStatus) {
+        if (serviceStatus == ServiceStatus.disabled) {
+          _atualizarStatus(LocationStatus.servicoDesativado);
+          _positionSubscription?.cancel();
+        } else {
+          verificarTudo().then((_) {
+            if (_status == LocationStatus.pronto) {
+              detectarCidade();
+            }
+          });
+        }
+      });
+    }
   }
 
   void _iniciarMonitoramento() {
+    if (kIsWeb) {
+      // getPositionStream / atualização contínua não é necessária na web e evita
+      // incompatibilidades do plugin no browser.
+      return;
+    }
     _positionSubscription?.cancel();
     _positionSubscription = Geolocator.getPositionStream(
       locationSettings: const LocationSettings(
@@ -236,10 +292,13 @@ class LocationService extends ChangeNotifier {
   }
 
   Future<void> verificarTudo() async {
-    final serviceEnabled = await Geolocator.isLocationServiceEnabled();
-    if (!serviceEnabled) {
-      _atualizarStatus(LocationStatus.servicoDesativado);
-      return;
+    // No navegador não existe "serviço de localização" do SO como no Android.
+    if (!kIsWeb) {
+      final serviceEnabled = await Geolocator.isLocationServiceEnabled();
+      if (!serviceEnabled) {
+        _atualizarStatus(LocationStatus.servicoDesativado);
+        return;
+      }
     }
 
     var permission = await Geolocator.checkPermission();
@@ -295,7 +354,7 @@ class LocationService extends ChangeNotifier {
   }
 
   /// Prioridade: município administrativo (locality) → sub-região (subAdministrativeArea) → subLocality → name.
-  String? _melhorNomeCidade(Placemark p) {
+  static String? melhorNomeCidadePlacemark(Placemark p) {
     final estadoNorm =
         p.administrativeArea != null ? normalizar(p.administrativeArea!) : '';
 
@@ -316,23 +375,104 @@ class LocationService extends ChangeNotifier {
         testar(p.name);
   }
 
-  String? _ufDoPlacemark(Placemark p) {
+  static String? ufDoPlacemark(Placemark p) {
     String? u = extrairUf(p.administrativeArea);
     u ??= extrairUf(p.subAdministrativeArea);
     return u;
   }
 
   /// Resolve cidade + UF a partir da lista retornada pelo geocoding (vários resultados = mais robustez).
-  ({String cidade, String uf})? _resolverRegiaoAdministrativa(List<Placemark> lista) {
+  static ({String cidade, String uf})? resolverCidadeUfDePlacemarks(
+    List<Placemark> lista,
+  ) {
     for (final lugar in lista) {
-      final uf = _ufDoPlacemark(lugar);
+      final uf = ufDoPlacemark(lugar);
       if (uf == null) continue;
-      final cidade = _melhorNomeCidade(lugar);
+      final cidade = melhorNomeCidadePlacemark(lugar);
       if (cidade != null && cidade.isNotEmpty) {
         return (cidade: cidade, uf: uf.toUpperCase());
       }
     }
     return null;
+  }
+
+  /// Rua, número e bairro a partir de um [Placemark] (reverso). Número vira `S/N` se o provedor não informar.
+  static Map<String, String> linhasEnderecoDoPlacemark(Placemark p) {
+    String rua = (p.thoroughfare ?? p.street ?? '').trim();
+    final name = p.name?.trim() ?? '';
+    if (rua.isEmpty && name.isNotEmpty) {
+      final idx = name.indexOf(',');
+      if (idx > 0) {
+        rua = name.substring(0, idx).trim();
+      } else if (!_textoGenericoOuVazio(name) && !_pareceRuaOuNumero(name)) {
+        rua = name;
+      }
+    }
+    String numero = (p.subThoroughfare ?? '').trim();
+    if (numero.isEmpty && name.contains(',')) {
+      final partes = name.split(',');
+      final seg = partes.length >= 2 ? partes[1].trim() : '';
+      final m = RegExp(r'^(\d+[a-zA-Z\-]?)').firstMatch(seg);
+      if (m != null) numero = m.group(1)!;
+    }
+    if (numero.isEmpty) numero = 'S/N';
+    String bairro = (p.subLocality ?? '').trim();
+    return {'rua': rua, 'numero': numero, 'bairro': bairro};
+  }
+
+  ({String cidade, String uf})? _resolverRegiaoAdministrativa(List<Placemark> lista) {
+    return resolverCidadeUfDePlacemarks(lista);
+  }
+
+  /// Flutter Web: o pacote [geocoding] não implementa reverse geocode no browser.
+  /// Usa Nominatim (OSM), conforme uso recomendado (User-Agent identificável).
+  Future<({String cidade, String uf})?> _reverseGeocodeNominatim(
+    double lat,
+    double lng,
+  ) async {
+    try {
+      final uri = Uri.parse(
+        'https://nominatim.openstreetmap.org/reverse?lat=$lat&lon=$lng'
+        '&format=json&addressdetails=1&accept-language=pt-BR',
+      );
+      final res = await http
+          .get(
+            uri,
+            headers: {
+              'User-Agent': 'DiPertinCliente/1.0 (https://depertin.app)',
+              'Accept-Language': 'pt-BR,pt;q=0.9',
+            },
+          )
+          .timeout(const Duration(seconds: 14));
+      if (res.statusCode != 200) return null;
+      final data = jsonDecode(utf8.decode(res.bodyBytes)) as Map<String, dynamic>;
+      final addr = data['address'] as Map<String, dynamic>?;
+      if (addr == null) return null;
+      final cc = addr['country_code']?.toString().toLowerCase();
+      if (cc != 'br') return null;
+
+      String? cidade = addr['city']?.toString() ??
+          addr['town']?.toString() ??
+          addr['municipality']?.toString() ??
+          addr['village']?.toString();
+      if (cidade != null && _textoGenericoOuVazio(cidade)) cidade = null;
+      if (cidade == null || cidade.trim().isEmpty) return null;
+
+      String? ufStr = extrairUf(addr['state']?.toString());
+      if (ufStr == null) {
+        final iso = addr['ISO3166-2-lvl4']?.toString() ?? '';
+        final m = RegExp(r'^BR-([A-Za-z]{2})$').firstMatch(iso);
+        if (m != null) {
+          ufStr = m.group(1)!.toLowerCase();
+        }
+      }
+      if (ufStr == null || ufStr.length != 2) return null;
+
+      return (cidade: cidade.trim(), uf: ufStr.toUpperCase());
+    } catch (e) {
+      debugPrint('[LocationService] Nominatim (web): $e');
+      return null;
+    }
   }
 
   Future<String?> detectarCidade() async {
@@ -343,7 +483,11 @@ class LocationService extends ChangeNotifier {
     notifyListeners();
 
     try {
-      Position? position = await Geolocator.getLastKnownPosition();
+      // Na web getLastKnownPosition não existe (só getCurrentPosition).
+      Position? position;
+      if (!kIsWeb) {
+        position = await Geolocator.getLastKnownPosition();
+      }
 
       final posicaoAtual = await Geolocator.getCurrentPosition(
         locationSettings: const LocationSettings(
@@ -365,40 +509,50 @@ class LocationService extends ChangeNotifier {
       _ultimaLat = position.latitude;
       _ultimaLng = position.longitude;
 
-      List<Placemark> placemarks = await placemarkFromCoordinates(
-        position.latitude,
-        position.longitude,
-      );
+      ({String cidade, String uf})? resolvido;
 
-      if (placemarks.isEmpty) {
-        placemarks = await placemarkFromCoordinates(
-          posicaoAtual.latitude,
-          posicaoAtual.longitude,
+      if (kIsWeb) {
+        resolvido = await _reverseGeocodeNominatim(
+          position.latitude,
+          position.longitude,
         );
-      }
+      } else {
+        List<Placemark> placemarks = await placemarkFromCoordinates(
+          position.latitude,
+          position.longitude,
+        );
 
-      if (placemarks.isNotEmpty) {
-        final resolvido = _resolverRegiaoAdministrativa(placemarks);
-        if (resolvido != null) {
-          final cidadeAnterior = _cidadeNormalizada;
-          final ufAnterior = _ufNormalizado;
-
-          await _salvarLocalizacao(resolvido.cidade, resolvido.uf);
-          _deteccaoSessaoConfirmada = true;
-
-          if (cidadeAnterior != _cidadeNormalizada ||
-              ufAnterior != _ufNormalizado) {
-            debugPrint(
-              '[LocationService] Região atualizada: $_cidadeNormalizada / $_ufNormalizado',
-            );
-          }
-
-          _iniciarMonitoramento();
-        } else {
-          debugPrint(
-            '[LocationService] Geocoding não retornou cidade/UF utilizáveis.',
+        if (placemarks.isEmpty) {
+          placemarks = await placemarkFromCoordinates(
+            posicaoAtual.latitude,
+            posicaoAtual.longitude,
           );
         }
+
+        if (placemarks.isNotEmpty) {
+          resolvido = _resolverRegiaoAdministrativa(placemarks);
+        }
+      }
+
+      if (resolvido != null) {
+        final cidadeAnterior = _cidadeNormalizada;
+        final ufAnterior = _ufNormalizado;
+
+        await _salvarLocalizacao(resolvido.cidade, resolvido.uf);
+        _deteccaoSessaoConfirmada = true;
+
+        if (cidadeAnterior != _cidadeNormalizada ||
+            ufAnterior != _ufNormalizado) {
+          debugPrint(
+            '[LocationService] Região atualizada: $_cidadeNormalizada / $_ufNormalizado',
+          );
+        }
+
+        _iniciarMonitoramento();
+      } else if (!kIsWeb) {
+        debugPrint(
+          '[LocationService] Geocoding não retornou cidade/UF utilizáveis.',
+        );
       }
     } catch (e) {
       debugPrint('[LocationService] Erro ao detectar cidade: $e');

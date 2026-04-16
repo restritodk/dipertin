@@ -1,32 +1,39 @@
 // Arquivo: lib/screens/lojista/lojista_config_screen.dart
 
-import 'package:flutter/material.dart';
 import 'package:cloud_firestore/cloud_firestore.dart';
 import 'package:firebase_auth/firebase_auth.dart';
-import 'package:geolocator/geolocator.dart';
+import 'package:flutter/foundation.dart';
+import 'package:flutter/material.dart';
 import 'package:geocoding/geocoding.dart';
+import 'package:geolocator/geolocator.dart';
+
 import '../../services/location_service.dart';
+import '../../services/permissoes_app_service.dart';
+import '../../utils/loja_pausa.dart';
+import '../../widgets/loja_pausa_motivo_dialog.dart';
 
 const Color diPertinRoxo = Color(0xFF6A1B9A);
 const Color diPertinLaranja = Color(0xFFFF8F00);
 
 class LojistaConfigScreen extends StatefulWidget {
-  final Map<String, dynamic> dadosAtuaisDaLoja;
-
   const LojistaConfigScreen({super.key, required this.dadosAtuaisDaLoja});
+
+  final Map<String, dynamic> dadosAtuaisDaLoja;
 
   @override
   State<LojistaConfigScreen> createState() => _LojistaConfigScreenState();
 }
 
 class _LojistaConfigScreenState extends State<LojistaConfigScreen> {
-  late TextEditingController _nomeLojaController;
-  late TextEditingController _enderecoLojaController;
-  late TextEditingController _telefoneController;
+  late final TextEditingController _nomeLojaController;
+  late final TextEditingController _enderecoLojaController;
+  late final TextEditingController _telefoneController;
 
   bool _salvando = false;
   bool _buscandoLocalizacao = false;
   bool _pausadoManualmente = false;
+  String? _pausaMotivo;
+  Timestamp? _pausaVoltaAt;
   String _cidadeCapturada = '';
   String _ufCapturado = '';
 
@@ -50,63 +57,154 @@ class _LojistaConfigScreenState extends State<LojistaConfigScreen> {
     'domingo': {'ativo': false, 'abre': '08:00', 'fecha': '12:00'},
   };
 
+  InputDecoration _decoration(String label, {String? hint, IconData? icon}) {
+    return InputDecoration(
+      labelText: label,
+      hintText: hint,
+      prefixIcon: icon != null ? Icon(icon, color: diPertinLaranja) : null,
+      filled: true,
+      fillColor: Colors.white,
+      border: OutlineInputBorder(borderRadius: BorderRadius.circular(12)),
+      enabledBorder: OutlineInputBorder(
+        borderRadius: BorderRadius.circular(12),
+        borderSide: BorderSide(color: Colors.grey.shade300),
+      ),
+      focusedBorder: OutlineInputBorder(
+        borderRadius: BorderRadius.circular(12),
+        borderSide: const BorderSide(color: diPertinLaranja, width: 2),
+      ),
+    );
+  }
+
   @override
   void initState() {
     super.initState();
+    final d = widget.dadosAtuaisDaLoja;
     _nomeLojaController = TextEditingController(
-      text:
-          widget.dadosAtuaisDaLoja['loja_nome'] ??
-          widget.dadosAtuaisDaLoja['nome'] ??
-          '',
+      text: d['loja_nome'] ?? d['nome'] ?? '',
     );
-    _enderecoLojaController = TextEditingController(
-      text: widget.dadosAtuaisDaLoja['endereco'] ?? '',
-    );
-    _telefoneController = TextEditingController(
-      text: widget.dadosAtuaisDaLoja['telefone'] ?? '',
-    );
+    _enderecoLojaController = TextEditingController(text: d['endereco'] ?? '');
+    _telefoneController = TextEditingController(text: d['telefone'] ?? '');
 
-    _pausadoManualmente =
-        widget.dadosAtuaisDaLoja['pausado_manualmente'] ?? false;
+    _pausadoManualmente = LojaPausa.lojaEfetivamentePausada(d);
+    _pausaMotivo = _pausadoManualmente
+        ? d['pausa_motivo']?.toString()
+        : null;
+    _pausaVoltaAt = _pausadoManualmente && d['pausa_volta_at'] is Timestamp
+        ? d['pausa_volta_at'] as Timestamp
+        : null;
 
-    if (widget.dadosAtuaisDaLoja['horarios'] != null) {
-      Map<String, dynamic> hBanco = widget.dadosAtuaisDaLoja['horarios'];
+    if (d['pausado_manualmente'] == true) {
+      final patch = LojaPausa.patchSePausaAlmocoExpirada(d);
+      if (patch.isNotEmpty) {
+        WidgetsBinding.instance.addPostFrameCallback((_) async {
+          final User? u = FirebaseAuth.instance.currentUser;
+          if (u == null || !mounted) return;
+          try {
+            await FirebaseFirestore.instance
+                .collection('users')
+                .doc(u.uid)
+                .update(patch);
+          } catch (_) {}
+          if (mounted) {
+            setState(() {
+              _pausadoManualmente = false;
+              _pausaMotivo = null;
+              _pausaVoltaAt = null;
+            });
+          }
+        });
+      }
+    }
+
+    final cidadeDoc = d['cidade']?.toString() ?? '';
+    final ufDoc = d['uf']?.toString() ?? '';
+    if (cidadeDoc.isNotEmpty) {
+      _cidadeCapturada = cidadeDoc;
+    }
+    if (ufDoc.isNotEmpty) {
+      _ufCapturado = ufDoc;
+    }
+
+    if (d['horarios'] != null) {
+      final Map<String, dynamic> hBanco = d['horarios'] as Map<String, dynamic>;
       hBanco.forEach((key, value) {
         if (_horarios.containsKey(key)) {
-          _horarios[key] = Map<String, dynamic>.from(value);
+          _horarios[key] = Map<String, dynamic>.from(value as Map);
         }
       });
     }
   }
 
-  // === NOVA FUNÇÃO: BUSCAR GPS PARA A LOJA ===
+  @override
+  void dispose() {
+    _nomeLojaController.dispose();
+    _enderecoLojaController.dispose();
+    _telefoneController.dispose();
+    super.dispose();
+  }
+
+  int _minutosDoDia(String hhmm) {
+    final partes = hhmm.split(':');
+    if (partes.length < 2) return 0;
+    final h = int.tryParse(partes[0]) ?? 0;
+    final m = int.tryParse(partes[1]) ?? 0;
+    return h * 60 + m;
+  }
+
+  /// Mesmo dia: abertura deve ser antes do fechamento (não cobre turno após meia-noite).
+  bool _horariosConsistentes() {
+    for (final entry in _horarios.entries) {
+      final c = entry.value;
+      if (c['ativo'] != true) continue;
+      final abre = c['abre']?.toString() ?? '00:00';
+      final fecha = c['fecha']?.toString() ?? '00:00';
+      if (_minutosDoDia(abre) >= _minutosDoDia(fecha)) {
+        return false;
+      }
+    }
+    return true;
+  }
+
   Future<void> _obterLocalizacaoDaLoja() async {
     setState(() => _buscandoLocalizacao = true);
     try {
-      LocationPermission permission = await Geolocator.checkPermission();
-      if (permission == LocationPermission.denied) {
-        permission = await Geolocator.requestPermission();
+      final ResultadoLocalizacao loc =
+          await PermissoesAppService.garantirLocalizacao();
+      if (!mounted) return;
+      if (loc != ResultadoLocalizacao.ok) {
+        await PermissoesFeedback.localizacao(context, loc);
+        return;
       }
-      Position position = await Geolocator.getCurrentPosition(
-        desiredAccuracy: LocationAccuracy.high,
+
+      final Position position = await Geolocator.getCurrentPosition(
+        locationSettings: const LocationSettings(
+          accuracy: LocationAccuracy.high,
+        ),
       );
-      List<Placemark> placemarks = await placemarkFromCoordinates(
+      final List<Placemark> placemarks = await placemarkFromCoordinates(
         position.latitude,
         position.longitude,
       );
 
-      Placemark place = placemarks[0];
-      String cidadeDetectada = place.locality?.isNotEmpty == true
+      if (placemarks.isEmpty) {
+        throw Exception('Endereço não encontrado');
+      }
+
+      final Placemark place = placemarks[0];
+      final String cidadeDetectada = place.locality?.isNotEmpty == true
           ? place.locality!
           : (place.subAdministrativeArea?.isNotEmpty == true
                 ? place.subAdministrativeArea!
-                : (place.administrativeArea ?? ""));
+                : (place.administrativeArea ?? ''));
 
-      String? ufDetectado = LocationService.extrairUf(place.administrativeArea);
+      final String? ufDetectado = LocationService.extrairUf(
+        place.administrativeArea,
+      );
 
       setState(() {
         _enderecoLojaController.text =
-            "${place.thoroughfare ?? place.street ?? ''}, ${place.subThoroughfare ?? 'S/N'}, ${place.subLocality ?? ''} - $cidadeDetectada";
+            '${place.thoroughfare ?? place.street ?? ''}, ${place.subThoroughfare ?? 'S/N'}, ${place.subLocality ?? ''} - $cidadeDetectada';
         _cidadeCapturada = cidadeDetectada;
         _ufCapturado = ufDetectado?.toUpperCase() ?? '';
       });
@@ -114,16 +212,23 @@ class _LojistaConfigScreenState extends State<LojistaConfigScreen> {
       if (mounted) {
         ScaffoldMessenger.of(context).showSnackBar(
           const SnackBar(
-            content: Text('📍 Localização da Loja capturada!'),
+            content: Text(
+              'Endereço preenchido pelo GPS. Confira antes de salvar.',
+            ),
             backgroundColor: Colors.green,
           ),
         );
       }
     } catch (e) {
+      if (kDebugMode) {
+        debugPrint('GPS/config endereço: $e');
+      }
       if (mounted) {
         ScaffoldMessenger.of(context).showSnackBar(
           const SnackBar(
-            content: Text('Erro no GPS. Digite manualmente.'),
+            content: Text(
+              'Não foi possível usar o GPS. Digite o endereço manualmente.',
+            ),
             backgroundColor: Colors.red,
           ),
         );
@@ -133,78 +238,138 @@ class _LojistaConfigScreenState extends State<LojistaConfigScreen> {
     }
   }
 
+  String _subtituloSwitchPausa() {
+    if (!_pausadoManualmente) {
+      return 'Chuva, falta de luz, falta de estoque — a vitrine para de '
+          'aceitar pedidos até você desligar.';
+    }
+    final buf = StringBuffer(PausaMotivoLoja.labelPt(_pausaMotivo));
+    if (_pausaMotivo == PausaMotivoLoja.almoco && _pausaVoltaAt != null) {
+      final dt = _pausaVoltaAt!.toDate();
+      final hh = dt.hour.toString().padLeft(2, '0');
+      final mm = dt.minute.toString().padLeft(2, '0');
+      buf.write(' — volta às $hh:$mm');
+    }
+    return buf.toString();
+  }
+
+  Future<void> _aoMudarPausa(bool valor) async {
+    if (!valor) {
+      setState(() {
+        _pausadoManualmente = false;
+        _pausaMotivo = null;
+        _pausaVoltaAt = null;
+      });
+      return;
+    }
+    final escolha = await showLojaPausaMotivoDialog(
+      context,
+      accent: diPertinRoxo,
+    );
+    if (escolha == null || !mounted) return;
+    setState(() {
+      _pausadoManualmente = true;
+      _pausaMotivo = escolha.motivo;
+      _pausaVoltaAt = escolha.pausaVoltaAt;
+    });
+  }
+
   Future<void> _salvarConfiguracoes() async {
     if (_enderecoLojaController.text.trim().isEmpty) {
       ScaffoldMessenger.of(context).showSnackBar(
         const SnackBar(
-          content: Text('A loja precisa ter um endereço de retirada válido.'),
+          content: Text('Informe o endereço de retirada da loja.'),
           backgroundColor: Colors.red,
         ),
       );
       return;
     }
 
-    setState(() => _salvando = true);
-    try {
-      final user = FirebaseAuth.instance.currentUser;
-      if (user != null) {
-        final Map<String, dynamic> dadosAtualizar = {
-          'loja_nome': _nomeLojaController.text.trim(),
-          'endereco': _enderecoLojaController.text.trim(),
-          'telefone': _telefoneController.text.trim(),
-          'pausado_manualmente': _pausadoManualmente,
-          'horarios': _horarios,
-        };
-
-        if (_cidadeCapturada.isNotEmpty) {
-          dadosAtualizar['cidade'] =
-              LocationService.normalizar(_cidadeCapturada);
-          dadosAtualizar['uf'] = _ufCapturado;
-          dadosAtualizar['cidade_normalizada'] =
-              LocationService.normalizar(_cidadeCapturada);
-          dadosAtualizar['uf_normalizado'] =
-              LocationService.extrairUf(_ufCapturado) ??
-                  LocationService.normalizar(_ufCapturado);
-        }
-
-        await FirebaseFirestore.instance
-            .collection('users')
-            .doc(user.uid)
-            .update(dadosAtualizar);
-
-        if (mounted) {
-          Navigator.pop(context);
-          ScaffoldMessenger.of(context).showSnackBar(
-            const SnackBar(
-              content: Text('Configurações operacionais salvas!'),
-              backgroundColor: Colors.green,
-            ),
-          );
-        }
-      }
-    } catch (e) {
-      if (mounted) {
-        ScaffoldMessenger.of(context).showSnackBar(
-          const SnackBar(
-            content: Text('Erro ao salvar configurações.'),
-            backgroundColor: Colors.red,
+    if (!_horariosConsistentes()) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(
+          content: Text(
+            'Em algum dia ativo, o horário de abertura precisa ser antes do fechamento.',
           ),
-        );
+          backgroundColor: Colors.orange,
+        ),
+      );
+      return;
+    }
+
+    setState(() => _salvando = true);
+    final ScaffoldMessengerState messenger = ScaffoldMessenger.of(context);
+    try {
+      final User? user = FirebaseAuth.instance.currentUser;
+      if (user == null) return;
+
+      final Map<String, dynamic> dadosAtualizar = {
+        'loja_nome': _nomeLojaController.text.trim(),
+        'endereco': _enderecoLojaController.text.trim(),
+        'telefone': _telefoneController.text.trim(),
+        'horarios': _horarios,
+      };
+
+      if (!_pausadoManualmente) {
+        dadosAtualizar['pausado_manualmente'] = false;
+        dadosAtualizar['pausa_motivo'] = FieldValue.delete();
+        dadosAtualizar['pausa_volta_at'] = FieldValue.delete();
+      } else {
+        dadosAtualizar['pausado_manualmente'] = true;
+        dadosAtualizar['pausa_motivo'] = _pausaMotivo;
+        if (_pausaMotivo == PausaMotivoLoja.almoco && _pausaVoltaAt != null) {
+          dadosAtualizar['pausa_volta_at'] = _pausaVoltaAt;
+        } else {
+          dadosAtualizar['pausa_volta_at'] = FieldValue.delete();
+        }
       }
+
+      if (_cidadeCapturada.isNotEmpty) {
+        dadosAtualizar['cidade'] = LocationService.normalizar(_cidadeCapturada);
+        dadosAtualizar['uf'] = _ufCapturado;
+        dadosAtualizar['cidade_normalizada'] = LocationService.normalizar(
+          _cidadeCapturada,
+        );
+        dadosAtualizar['uf_normalizado'] =
+            LocationService.extrairUf(_ufCapturado) ??
+            LocationService.normalizar(_ufCapturado);
+      }
+
+      await FirebaseFirestore.instance
+          .collection('users')
+          .doc(user.uid)
+          .update(dadosAtualizar);
+
+      messenger.showSnackBar(
+        const SnackBar(
+          content: Text('Configurações salvas com sucesso.'),
+          backgroundColor: Colors.green,
+        ),
+      );
+      if (mounted) Navigator.pop(context);
+    } catch (e) {
+      if (kDebugMode) {
+        debugPrint('Erro ao salvar config lojista: $e');
+      }
+      messenger.showSnackBar(
+        SnackBar(
+          content: Text('Erro ao salvar: $e'),
+          backgroundColor: Colors.red,
+        ),
+      );
     } finally {
       if (mounted) setState(() => _salvando = false);
     }
   }
 
-  // Abre o Relógio
   Future<void> _selecionarHora(String chaveDia, bool isAbre) async {
-    var config = _horarios[chaveDia]!;
-    String horaAtualStr = isAbre ? config['abre'] : config['fecha'];
+    final Map<String, dynamic> config = _horarios[chaveDia]!;
+    final String horaAtualStr = isAbre ? config['abre'] : config['fecha'];
 
-    int h = int.parse(horaAtualStr.split(':')[0]);
-    int m = int.parse(horaAtualStr.split(':')[1]);
+    final int h = int.parse(horaAtualStr.split(':')[0]);
+    final int m = int.parse(horaAtualStr.split(':')[1]);
 
-    TimeOfDay? picked = await showTimePicker(
+    final TimeOfDay? picked = await showTimePicker(
       context: context,
       initialTime: TimeOfDay(hour: h, minute: m),
       builder: (context, child) {
@@ -219,34 +384,39 @@ class _LojistaConfigScreenState extends State<LojistaConfigScreen> {
 
     if (picked != null) {
       setState(() {
-        String hh = picked.hour.toString().padLeft(2, '0');
-        String mm = picked.minute.toString().padLeft(2, '0');
-        _horarios[chaveDia]![isAbre ? 'abre' : 'fecha'] = "$hh:$mm";
+        final String hh = picked.hour.toString().padLeft(2, '0');
+        final String mm = picked.minute.toString().padLeft(2, '0');
+        _horarios[chaveDia]![isAbre ? 'abre' : 'fecha'] = '$hh:$mm';
       });
     }
   }
 
   Widget _buildLinhaHorario(String chaveDia) {
-    var config = _horarios[chaveDia]!;
-    bool ativo = config['ativo'];
+    final Map<String, dynamic> config = _horarios[chaveDia]!;
+    final bool ativo = config['ativo'] == true;
 
     return Padding(
-      padding: const EdgeInsets.symmetric(vertical: 6.0),
+      padding: const EdgeInsets.symmetric(vertical: 6),
       child: Row(
         children: [
           Checkbox(
             value: ativo,
-            activeColor: diPertinLaranja,
-            onChanged: (val) =>
-                setState(() => _horarios[chaveDia]!['ativo'] = val),
+            fillColor: WidgetStateProperty.resolveWith((states) {
+              if (states.contains(WidgetState.selected)) {
+                return diPertinLaranja;
+              }
+              return null;
+            }),
+            onChanged: (bool? val) =>
+                setState(() => _horarios[chaveDia]!['ativo'] = val ?? false),
           ),
           SizedBox(
-            width: 80,
+            width: 76,
             child: Text(
               _nomesDias[chaveDia]!,
               style: TextStyle(
-                fontWeight: ativo ? FontWeight.bold : FontWeight.normal,
-                color: ativo ? Colors.black : Colors.grey,
+                fontWeight: ativo ? FontWeight.w700 : FontWeight.w500,
+                color: ativo ? const Color(0xFF1A1A2E) : Colors.grey,
               ),
             ),
           ),
@@ -254,37 +424,39 @@ class _LojistaConfigScreenState extends State<LojistaConfigScreen> {
             Expanded(
               child: InkWell(
                 onTap: () => _selecionarHora(chaveDia, true),
+                borderRadius: BorderRadius.circular(8),
                 child: Container(
                   padding: const EdgeInsets.all(10),
                   decoration: BoxDecoration(
-                    border: Border.all(color: Colors.grey[300]!),
-                    borderRadius: BorderRadius.circular(5),
+                    border: Border.all(color: Colors.grey.shade300),
+                    borderRadius: BorderRadius.circular(8),
                   ),
                   child: Text(
-                    config['abre'],
+                    config['abre'].toString(),
                     textAlign: TextAlign.center,
-                    style: const TextStyle(fontWeight: FontWeight.bold),
+                    style: const TextStyle(fontWeight: FontWeight.w700),
                   ),
                 ),
               ),
             ),
             const Padding(
-              padding: EdgeInsets.symmetric(horizontal: 10),
-              child: Text("às"),
+              padding: EdgeInsets.symmetric(horizontal: 8),
+              child: Text('às'),
             ),
             Expanded(
               child: InkWell(
                 onTap: () => _selecionarHora(chaveDia, false),
+                borderRadius: BorderRadius.circular(8),
                 child: Container(
                   padding: const EdgeInsets.all(10),
                   decoration: BoxDecoration(
-                    border: Border.all(color: Colors.grey[300]!),
-                    borderRadius: BorderRadius.circular(5),
+                    border: Border.all(color: Colors.grey.shade300),
+                    borderRadius: BorderRadius.circular(8),
                   ),
                   child: Text(
-                    config['fecha'],
+                    config['fecha'].toString(),
                     textAlign: TextAlign.center,
-                    style: const TextStyle(fontWeight: FontWeight.bold),
+                    style: const TextStyle(fontWeight: FontWeight.w700),
                   ),
                 ),
               ),
@@ -292,11 +464,11 @@ class _LojistaConfigScreenState extends State<LojistaConfigScreen> {
           ] else
             const Expanded(
               child: Text(
-                "FECHADO",
+                'Fechado',
                 textAlign: TextAlign.center,
                 style: TextStyle(
                   color: Colors.red,
-                  fontWeight: FontWeight.bold,
+                  fontWeight: FontWeight.w700,
                   fontSize: 13,
                 ),
               ),
@@ -306,205 +478,266 @@ class _LojistaConfigScreenState extends State<LojistaConfigScreen> {
     );
   }
 
+  Widget _secaoTitulo(String titulo, IconData icone) {
+    return Row(
+      children: [
+        Icon(icone, size: 22, color: diPertinRoxo),
+        const SizedBox(width: 8),
+        Text(
+          titulo,
+          style: const TextStyle(
+            fontSize: 17,
+            fontWeight: FontWeight.w800,
+            color: diPertinRoxo,
+            letterSpacing: -0.3,
+          ),
+        ),
+      ],
+    );
+  }
+
+  Widget _card({required Widget child}) {
+    return Container(
+      width: double.infinity,
+      padding: const EdgeInsets.all(16),
+      decoration: BoxDecoration(
+        color: Colors.white,
+        borderRadius: BorderRadius.circular(16),
+        border: Border.all(color: const Color(0xFFE8E6ED)),
+        boxShadow: [
+          BoxShadow(
+            color: Colors.black.withValues(alpha: 0.04),
+            blurRadius: 10,
+            offset: const Offset(0, 3),
+          ),
+        ],
+      ),
+      child: child,
+    );
+  }
+
   @override
   Widget build(BuildContext context) {
+    final bool temCidadeUf =
+        _cidadeCapturada.isNotEmpty || _ufCapturado.isNotEmpty;
+
     return Scaffold(
-      backgroundColor: Colors.white,
+      backgroundColor: const Color(0xFFF5F4F8),
       appBar: AppBar(
         title: const Text(
-          "Configuração Operacional",
+          'Configuração operacional',
           style: TextStyle(
             color: Colors.white,
             fontWeight: FontWeight.bold,
-            fontSize: 18,
+            letterSpacing: -0.2,
           ),
         ),
         backgroundColor: diPertinRoxo,
+        elevation: 0,
         iconTheme: const IconThemeData(color: Colors.white),
+        surfaceTintColor: Colors.transparent,
       ),
       body: SingleChildScrollView(
-        padding: const EdgeInsets.all(20),
+        padding: const EdgeInsets.fromLTRB(16, 16, 16, 32),
         child: Column(
           crossAxisAlignment: CrossAxisAlignment.stretch,
           children: [
-            const Text(
-              "Dados Comerciais",
-              style: TextStyle(
-                fontSize: 18,
-                fontWeight: FontWeight.bold,
-                color: diPertinRoxo,
-              ),
-            ),
-            const SizedBox(height: 15),
-
-            TextField(
-              controller: _nomeLojaController,
-              decoration: const InputDecoration(
-                labelText: "Nome da Loja",
-                prefixIcon: Icon(Icons.storefront, color: diPertinLaranja),
-                border: OutlineInputBorder(),
-              ),
-            ),
-            const SizedBox(height: 15),
-
-            TextField(
-              controller: _telefoneController,
-              keyboardType: TextInputType.phone,
-              decoration: const InputDecoration(
-                labelText: "Telefone / WhatsApp",
-                prefixIcon: Icon(Icons.phone, color: diPertinLaranja),
-                border: OutlineInputBorder(),
-              ),
-            ),
-            const SizedBox(height: 15),
-
-            // === ENDEREÇO COM BOTÃO GPS ===
-            Row(
-              mainAxisAlignment: MainAxisAlignment.spaceBetween,
-              children: [
-                const Text(
-                  "Endereço Físico (Retirada)",
-                  style: TextStyle(fontWeight: FontWeight.bold),
-                ),
-                TextButton.icon(
-                  onPressed: _buscandoLocalizacao
-                      ? null
-                      : _obterLocalizacaoDaLoja,
-                  icon: _buscandoLocalizacao
-                      ? const SizedBox(
-                          width: 14,
-                          height: 14,
-                          child: CircularProgressIndicator(
-                            color: diPertinLaranja,
-                            strokeWidth: 2,
-                          ),
-                        )
-                      : const Icon(
-                          Icons.my_location,
-                          size: 16,
-                          color: diPertinLaranja,
+            _secaoTitulo('Dados comerciais', Icons.storefront_outlined),
+            const SizedBox(height: 12),
+            _card(
+              child: Column(
+                crossAxisAlignment: CrossAxisAlignment.stretch,
+                children: [
+                  TextField(
+                    controller: _nomeLojaController,
+                    textCapitalization: TextCapitalization.words,
+                    decoration: _decoration(
+                      'Nome da loja',
+                      icon: Icons.badge_outlined,
+                    ),
+                  ),
+                  const SizedBox(height: 14),
+                  TextField(
+                    controller: _telefoneController,
+                    keyboardType: TextInputType.phone,
+                    decoration: _decoration(
+                      'Telefone / WhatsApp',
+                      hint: 'DDD + número',
+                      icon: Icons.phone_outlined,
+                    ),
+                  ),
+                  const SizedBox(height: 16),
+                  Row(
+                    children: [
+                      const Expanded(
+                        child: Text(
+                          'Endereço de retirada',
+                          style: TextStyle(fontWeight: FontWeight.w700),
                         ),
-                  label: const Text(
-                    "Usar GPS",
-                    style: TextStyle(color: diPertinLaranja, fontSize: 12),
+                      ),
+                      TextButton.icon(
+                        onPressed: _buscandoLocalizacao
+                            ? null
+                            : _obterLocalizacaoDaLoja,
+                        icon: _buscandoLocalizacao
+                            ? const SizedBox(
+                                width: 16,
+                                height: 16,
+                                child: CircularProgressIndicator(
+                                  strokeWidth: 2,
+                                  color: diPertinLaranja,
+                                ),
+                              )
+                            : const Icon(Icons.my_location, size: 18),
+                        label: const Text('Usar GPS'),
+                        style: TextButton.styleFrom(
+                          foregroundColor: diPertinLaranja,
+                        ),
+                      ),
+                    ],
                   ),
-                ),
-              ],
-            ),
-            TextField(
-              controller: _enderecoLojaController,
-              decoration: const InputDecoration(
-                hintText: "Rua, Número, Bairro, Cidade",
-                prefixIcon: Icon(Icons.location_on, color: Colors.red),
-                border: OutlineInputBorder(),
-              ),
-              maxLines: 2,
-            ),
-            const Padding(
-              padding: EdgeInsets.only(top: 8.0, left: 5),
-              child: Text(
-                "* Este é o endereço que o Waze do entregador vai usar para buscar a mercadoria.",
-                style: TextStyle(fontSize: 11, color: Colors.grey),
+                  const SizedBox(height: 6),
+                  TextField(
+                    controller: _enderecoLojaController,
+                    maxLines: 2,
+                    textCapitalization: TextCapitalization.sentences,
+                    decoration:
+                        _decoration(
+                          'Endereço completo',
+                          hint: 'Rua, número, bairro, cidade',
+                          icon: Icons.location_on_outlined,
+                        ).copyWith(
+                          prefixIcon: const Icon(
+                            Icons.location_on,
+                            color: Colors.red,
+                          ),
+                        ),
+                  ),
+                  if (temCidadeUf) ...[
+                    const SizedBox(height: 10),
+                    Container(
+                      width: double.infinity,
+                      padding: const EdgeInsets.all(12),
+                      decoration: BoxDecoration(
+                        color: diPertinRoxo.withValues(alpha: 0.06),
+                        borderRadius: BorderRadius.circular(10),
+                      ),
+                      child: Row(
+                        children: [
+                          Icon(
+                            Icons.info_outline,
+                            size: 18,
+                            color: diPertinRoxo,
+                          ),
+                          const SizedBox(width: 8),
+                          Expanded(
+                            child: Text(
+                              'Cidade/UF usados na vitrine: '
+                              '${_cidadeCapturada.isEmpty ? '—' : _cidadeCapturada}'
+                              '${_ufCapturado.isEmpty ? '' : ' / $_ufCapturado'}',
+                              style: TextStyle(
+                                fontSize: 12,
+                                color: Colors.grey.shade800,
+                                height: 1.35,
+                              ),
+                            ),
+                          ),
+                        ],
+                      ),
+                    ),
+                  ],
+                  const SizedBox(height: 8),
+                  Text(
+                    'Este endereço é usado pelo entregador para buscar na loja.',
+                    style: TextStyle(fontSize: 11, color: Colors.grey.shade600),
+                  ),
+                ],
               ),
             ),
 
-            const SizedBox(height: 30),
-            const Divider(),
-            const SizedBox(height: 10),
-
-            const Text(
-              "Controle de Operação",
+            const SizedBox(height: 20),
+            _secaoTitulo('Operação na vitrine', Icons.toggle_on_outlined),
+            const SizedBox(height: 8),
+            Text(
+              'A pausa fecha as vendas na hora. Os horários abaixo informam ao cliente quando você costuma atender.',
               style: TextStyle(
-                fontSize: 18,
-                fontWeight: FontWeight.bold,
-                color: diPertinRoxo,
+                fontSize: 12,
+                color: Colors.grey.shade700,
+                height: 1.35,
               ),
             ),
-            const SizedBox(height: 15),
-
-            Container(
-              decoration: BoxDecoration(
-                color: _pausadoManualmente ? Colors.red[50] : Colors.grey[50],
-                borderRadius: BorderRadius.circular(10),
-                border: Border.all(
-                  color: _pausadoManualmente ? Colors.red : Colors.grey[300]!,
-                ),
-              ),
+            const SizedBox(height: 12),
+            _card(
               child: SwitchListTile(
+                contentPadding: EdgeInsets.zero,
                 title: Text(
-                  "Pausar Loja Agora",
+                  'Pausar loja agora',
                   style: TextStyle(
-                    color: _pausadoManualmente ? Colors.red : Colors.black,
-                    fontWeight: FontWeight.bold,
+                    color: _pausadoManualmente
+                        ? Colors.red.shade800
+                        : const Color(0xFF1A1A2E),
+                    fontWeight: FontWeight.w800,
                   ),
                 ),
-                subtitle: const Text(
-                  "Fecha a loja na vitrine imediatamente (chuva, falta de luz, etc).",
-                  style: TextStyle(fontSize: 11),
+                subtitle: Text(
+                  _subtituloSwitchPausa(),
+                  style: const TextStyle(fontSize: 12),
                 ),
                 value: _pausadoManualmente,
                 activeThumbColor: Colors.red,
-                onChanged: (val) => setState(() => _pausadoManualmente = val),
+                activeTrackColor: Colors.red.withValues(alpha: 0.45),
+                onChanged: (valor) async => _aoMudarPausa(valor),
               ),
             ),
-            const SizedBox(height: 25),
 
-            const Text(
-              "Grade de Horários:",
-              style: TextStyle(
-                fontWeight: FontWeight.bold,
-                color: Colors.black87,
-              ),
-            ),
-            const SizedBox(height: 10),
-
-            Container(
-              padding: const EdgeInsets.all(10),
-              decoration: BoxDecoration(
-                color: Colors.grey[50],
-                borderRadius: BorderRadius.circular(10),
-                border: Border.all(color: Colors.grey[200]!),
-              ),
+            const SizedBox(height: 20),
+            _secaoTitulo('Horários por dia', Icons.schedule),
+            const SizedBox(height: 12),
+            _card(
               child: Column(
+                crossAxisAlignment: CrossAxisAlignment.stretch,
                 children: [
-                  'domingo',
-                  'segunda',
-                  'terca',
-                  'quarta',
-                  'quinta',
-                  'sexta',
-                  'sabado',
-                ].map((dia) => _buildLinhaHorario(dia)).toList(),
+                  ...[
+                    'domingo',
+                    'segunda',
+                    'terca',
+                    'quarta',
+                    'quinta',
+                    'sexta',
+                    'sabado',
+                  ].map((dia) => _buildLinhaHorario(dia)),
+                ],
               ),
             ),
 
-            const SizedBox(height: 30),
-
-            ElevatedButton(
+            const SizedBox(height: 24),
+            FilledButton(
               onPressed: _salvando ? null : _salvarConfiguracoes,
-              style: ElevatedButton.styleFrom(
+              style: FilledButton.styleFrom(
                 backgroundColor: diPertinLaranja,
-                padding: const EdgeInsets.symmetric(vertical: 15),
+                foregroundColor: Colors.white,
+                padding: const EdgeInsets.symmetric(vertical: 16),
                 shape: RoundedRectangleBorder(
-                  borderRadius: BorderRadius.circular(10),
+                  borderRadius: BorderRadius.circular(14),
                 ),
               ),
               child: _salvando
                   ? const SizedBox(
-                      width: 20,
-                      height: 20,
-                      child: CircularProgressIndicator(color: Colors.white),
+                      width: 22,
+                      height: 22,
+                      child: CircularProgressIndicator(
+                        strokeWidth: 2.5,
+                        color: Colors.white,
+                      ),
                     )
                   : const Text(
-                      "SALVAR CONFIGURAÇÕES",
+                      'Salvar configurações',
                       style: TextStyle(
-                        color: Colors.white,
-                        fontWeight: FontWeight.bold,
+                        fontWeight: FontWeight.w800,
                         fontSize: 16,
                       ),
                     ),
             ),
-            const SizedBox(height: 20),
           ],
         ),
       ),

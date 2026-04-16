@@ -9,6 +9,7 @@ import 'package:shared_preferences/shared_preferences.dart';
 
 import '../auth/google_auth_helper.dart';
 import '../providers/cart_provider.dart';
+import '../screens/auth/login_screen.dart';
 
 /// Estados de conta relacionados à exclusão (Firestore `status_conta`).
 abstract class StatusConta {
@@ -144,8 +145,8 @@ class ContaExclusaoService {
     });
   }
 
-  /// Encerra sessão, limpa dados locais relevantes e envia para a Vitrine (`/home`).
-  static Future<void> encerrarSessaoERedirecionarParaVitrine(
+  /// Encerra sessão, limpa dados locais relevantes e envia para a tela Entrar.
+  static Future<void> encerrarSessaoERedirecionarParaEntrar(
     BuildContext context,
   ) async {
     try {
@@ -164,8 +165,8 @@ class ContaExclusaoService {
     await FirebaseAuth.instance.signOut();
 
     if (!context.mounted) return;
-    Navigator.of(context, rootNavigator: true).pushNamedAndRemoveUntil(
-      '/home',
+    Navigator.of(context, rootNavigator: true).pushAndRemoveUntil(
+      MaterialPageRoute<void>(builder: (_) => const LoginScreen()),
       (route) => false,
     );
   }

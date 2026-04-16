@@ -51,9 +51,10 @@ class PainelContentSkeleton extends StatelessWidget {
               const SizedBox(height: 32),
               _bar(height: 18, width: 200, radius: 6),
               const SizedBox(height: 16),
-              Expanded(
+              SizedBox(
+                height: 220,
+                width: double.infinity,
                 child: Container(
-                  width: double.infinity,
                   decoration: BoxDecoration(
                     color: Colors.white,
                     borderRadius: BorderRadius.circular(16),

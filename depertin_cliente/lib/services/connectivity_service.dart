@@ -1,8 +1,9 @@
 import 'dart:async';
-import 'dart:io';
 
 import 'package:connectivity_plus/connectivity_plus.dart';
 import 'package:flutter/foundation.dart';
+
+import 'connectivity_dns.dart';
 
 class ConnectivityService extends ChangeNotifier {
   bool _isOnline = true;
@@ -18,7 +19,9 @@ class ConnectivityService extends ChangeNotifier {
 
   Future<void> _inicializar() async {
     final results = await Connectivity().checkConnectivity();
-    final hasNetwork = results.any((r) => r != ConnectivityResult.none);
+    // No Flutter Web o connectivity_plus costuma ser pouco confiável (ex.: none).
+    final hasNetwork = kIsWeb ||
+        results.any((r) => r != ConnectivityResult.none);
 
     _isOnline = hasNetwork ? await _verificarAcessoReal() : false;
     _initialized = true;
@@ -29,7 +32,8 @@ class ConnectivityService extends ChangeNotifier {
   }
 
   Future<void> _onMudancaConectividade(List<ConnectivityResult> results) async {
-    final hasNetwork = results.any((r) => r != ConnectivityResult.none);
+    final hasNetwork = kIsWeb ||
+        results.any((r) => r != ConnectivityResult.none);
 
     if (!hasNetwork) {
       if (_isOnline) {
@@ -46,15 +50,7 @@ class ConnectivityService extends ChangeNotifier {
     }
   }
 
-  Future<bool> _verificarAcessoReal() async {
-    try {
-      final result = await InternetAddress.lookup('google.com')
-          .timeout(const Duration(seconds: 5));
-      return result.isNotEmpty && result[0].rawAddress.isNotEmpty;
-    } catch (_) {
-      return false;
-    }
-  }
+  Future<bool> _verificarAcessoReal() => verificarDnsAcessoReal();
 
   Future<void> verificarConexao() async {
     final online = await _verificarAcessoReal();

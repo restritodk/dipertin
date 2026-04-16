@@ -32,6 +32,130 @@ class _SearchScreenState extends State<SearchScreen> {
   bool get _isPesquisando =>
       _buscaNome.isNotEmpty || _categoriaSelecionada != null;
 
+  static const Map<String, IconData> _categoriaIcones = {
+    'banho': Icons.bathtub_rounded,
+    'banheiro': Icons.bathtub_rounded,
+    'cama': Icons.bed_rounded,
+    'quarto': Icons.bed_rounded,
+    'decoração': Icons.palette_rounded,
+    'decoracao': Icons.palette_rounded,
+    'mesa': Icons.table_restaurant_rounded,
+    'mesa posta': Icons.table_restaurant_rounded,
+    'cozinha': Icons.kitchen_rounded,
+    'sala': Icons.weekend_rounded,
+    'jardim': Icons.yard_rounded,
+    'área externa': Icons.deck_rounded,
+    'area externa': Icons.deck_rounded,
+    'iluminação': Icons.light_rounded,
+    'iluminacao': Icons.light_rounded,
+    'tapetes': Icons.grid_on_rounded,
+    'organização': Icons.inventory_2_rounded,
+    'organizacao': Icons.inventory_2_rounded,
+    'infantil': Icons.child_friendly_rounded,
+    'bebê': Icons.child_friendly_rounded,
+    'bebe': Icons.child_friendly_rounded,
+    'pets': Icons.pets_rounded,
+    'pet': Icons.pets_rounded,
+    'escritório': Icons.desk_rounded,
+    'escritorio': Icons.desk_rounded,
+    'lavanderia': Icons.local_laundry_service_rounded,
+    'cortinas': Icons.curtains_rounded,
+    'tecidos': Icons.texture_rounded,
+    'alimentos': Icons.restaurant_rounded,
+    'alimentação': Icons.restaurant_rounded,
+    'alimentacao': Icons.restaurant_rounded,
+    'comida': Icons.restaurant_rounded,
+    'bebidas': Icons.local_cafe_rounded,
+    'doces': Icons.cake_rounded,
+    'padaria': Icons.bakery_dining_rounded,
+    'limpeza': Icons.cleaning_services_rounded,
+    'farmácia': Icons.local_pharmacy_rounded,
+    'farmacia': Icons.local_pharmacy_rounded,
+    'saúde': Icons.health_and_safety_rounded,
+    'saude': Icons.health_and_safety_rounded,
+    'beleza': Icons.spa_rounded,
+    'moda': Icons.checkroom_rounded,
+    'roupas': Icons.checkroom_rounded,
+    'vestuário': Icons.checkroom_rounded,
+    'vestuario': Icons.checkroom_rounded,
+    'calçados': Icons.ice_skating_rounded,
+    'calcados': Icons.ice_skating_rounded,
+    'acessórios': Icons.watch_rounded,
+    'acessorios': Icons.watch_rounded,
+    'jóias': Icons.diamond_rounded,
+    'joias': Icons.diamond_rounded,
+    'eletrônicos': Icons.devices_rounded,
+    'eletronicos': Icons.devices_rounded,
+    'tecnologia': Icons.devices_rounded,
+    'celulares': Icons.smartphone_rounded,
+    'informática': Icons.computer_rounded,
+    'informatica': Icons.computer_rounded,
+    'ferramentas': Icons.build_rounded,
+    'construção': Icons.construction_rounded,
+    'construcao': Icons.construction_rounded,
+    'material de construção': Icons.construction_rounded,
+    'automotivo': Icons.directions_car_rounded,
+    'veículos': Icons.directions_car_rounded,
+    'veiculos': Icons.directions_car_rounded,
+    'esportes': Icons.sports_soccer_rounded,
+    'fitness': Icons.fitness_center_rounded,
+    'academia': Icons.fitness_center_rounded,
+    'livros': Icons.menu_book_rounded,
+    'papelaria': Icons.edit_note_rounded,
+    'brinquedos': Icons.toys_rounded,
+    'games': Icons.sports_esports_rounded,
+    'jogos': Icons.sports_esports_rounded,
+    'música': Icons.music_note_rounded,
+    'musica': Icons.music_note_rounded,
+    'flores': Icons.local_florist_rounded,
+    'floricultura': Icons.local_florist_rounded,
+    'presentes': Icons.card_giftcard_rounded,
+    'utilidades': Icons.home_rounded,
+    'variedades': Icons.auto_awesome_rounded,
+    'mercado': Icons.shopping_cart_rounded,
+    'supermercado': Icons.shopping_cart_rounded,
+    'conveniência': Icons.store_rounded,
+    'conveniencia': Icons.store_rounded,
+    'elétrica': Icons.electrical_services_rounded,
+    'eletrica': Icons.electrical_services_rounded,
+    'móveis': Icons.chair_rounded,
+    'moveis': Icons.chair_rounded,
+    'colchões': Icons.bed_rounded,
+    'colchoes': Icons.bed_rounded,
+    'enxoval': Icons.dry_cleaning_rounded,
+    'ar condicionado': Icons.ac_unit_rounded,
+    'climatização': Icons.ac_unit_rounded,
+    'climatizacao': Icons.ac_unit_rounded,
+    'ótica': Icons.visibility_rounded,
+    'otica': Icons.visibility_rounded,
+    'relojoaria': Icons.watch_rounded,
+  };
+
+  static IconData _iconeDaCategoria(String nome) {
+    final chave = nome.trim().toLowerCase();
+    if (_categoriaIcones.containsKey(chave)) return _categoriaIcones[chave]!;
+    for (final entry in _categoriaIcones.entries) {
+      if (chave.contains(entry.key) || entry.key.contains(chave)) {
+        return entry.value;
+      }
+    }
+    return Icons.category_rounded;
+  }
+
+  /// Ex.: "SÃO PAULO" → "São Paulo"
+  static String _formatarNomeCidade(String? raw) {
+    if (raw == null || raw.trim().isEmpty) return '';
+    return raw
+        .trim()
+        .split(RegExp(r'\s+'))
+        .map((w) {
+          if (w.isEmpty) return w;
+          if (w.length == 1) return w.toUpperCase();
+          return '${w[0].toUpperCase()}${w.substring(1).toLowerCase()}';
+        })
+        .join(' ');
+  }
+
   // ==========================================
   // FUNÇÃO MESTRA DE CONTATO (WhatsApp / Ligação)
   // ==========================================
@@ -75,37 +199,86 @@ class _SearchScreenState extends State<SearchScreen> {
       if (mounted) {
         showModalBottomSheet(
           context: context,
-          shape: const RoundedRectangleBorder(
-            borderRadius: BorderRadius.vertical(top: Radius.circular(20)),
-          ),
-          builder: (context) => SafeArea(
-            child: Column(
-              mainAxisSize: MainAxisSize.min,
-              children: [
-                const Padding(
-                  padding: EdgeInsets.all(15.0),
-                  child: Text(
-                    "Como deseja entrar em contato?",
-                    style: TextStyle(fontWeight: FontWeight.bold, fontSize: 16),
-                  ),
+          backgroundColor: Colors.transparent,
+          builder: (context) => Container(
+            decoration: const BoxDecoration(
+              color: Colors.white,
+              borderRadius: BorderRadius.vertical(top: Radius.circular(24)),
+            ),
+            child: SafeArea(
+              child: Padding(
+                padding: const EdgeInsets.fromLTRB(20, 12, 20, 16),
+                child: Column(
+                  mainAxisSize: MainAxisSize.min,
+                  children: [
+                    Container(
+                      width: 40,
+                      height: 4,
+                      margin: const EdgeInsets.only(bottom: 18),
+                      decoration: BoxDecoration(
+                        color: Colors.grey[300],
+                        borderRadius: BorderRadius.circular(2),
+                      ),
+                    ),
+                    const Text(
+                      'Como deseja entrar em contato?',
+                      style: TextStyle(fontWeight: FontWeight.w700, fontSize: 16, color: Color(0xFF1E1B4B)),
+                    ),
+                    const SizedBox(height: 16),
+                    Row(
+                      children: [
+                        Expanded(
+                          child: Material(
+                            color: const Color(0xFF25D366).withValues(alpha: 0.08),
+                            shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(14)),
+                            child: InkWell(
+                              onTap: () {
+                                Navigator.pop(context);
+                                chamarZap();
+                              },
+                              borderRadius: BorderRadius.circular(14),
+                              child: const Padding(
+                                padding: EdgeInsets.symmetric(vertical: 18),
+                                child: Column(
+                                  children: [
+                                    Icon(Icons.wechat, color: Color(0xFF25D366), size: 28),
+                                    SizedBox(height: 6),
+                                    Text('WhatsApp', style: TextStyle(fontWeight: FontWeight.w700, fontSize: 13, color: Color(0xFF25D366))),
+                                  ],
+                                ),
+                              ),
+                            ),
+                          ),
+                        ),
+                        const SizedBox(width: 12),
+                        Expanded(
+                          child: Material(
+                            color: diPertinRoxo.withValues(alpha: 0.08),
+                            shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(14)),
+                            child: InkWell(
+                              onTap: () {
+                                Navigator.pop(context);
+                                ligar();
+                              },
+                              borderRadius: BorderRadius.circular(14),
+                              child: const Padding(
+                                padding: EdgeInsets.symmetric(vertical: 18),
+                                child: Column(
+                                  children: [
+                                    Icon(Icons.phone_rounded, color: diPertinRoxo, size: 28),
+                                    SizedBox(height: 6),
+                                    Text('Ligar', style: TextStyle(fontWeight: FontWeight.w700, fontSize: 13, color: diPertinRoxo)),
+                                  ],
+                                ),
+                              ),
+                            ),
+                          ),
+                        ),
+                      ],
+                    ),
+                  ],
                 ),
-                ListTile(
-                  leading: const Icon(Icons.wechat, color: Colors.green),
-                  title: const Text("Enviar Mensagem no WhatsApp"),
-                  onTap: () {
-                    Navigator.pop(context);
-                    chamarZap();
-                  },
-                ),
-                ListTile(
-                  leading: const Icon(Icons.phone, color: diPertinRoxo),
-                  title: const Text("Fazer uma Ligação"),
-                  onTap: () {
-                    Navigator.pop(context);
-                    ligar();
-                  },
-                ),
-              ],
+              ),
             ),
           ),
         );
@@ -148,53 +321,137 @@ class _SearchScreenState extends State<SearchScreen> {
     context.watch<LocationService>();
 
     return Scaffold(
-      backgroundColor: Colors.grey[100],
-      appBar: AppBar(
-        title: const Text(
-          "Buscar & Guia da Cidade",
-          style: TextStyle(
-            color: Colors.white,
-            fontWeight: FontWeight.bold,
-            fontSize: 18,
-          ),
-        ),
-        backgroundColor: diPertinRoxo,
-        elevation: 0,
-      ),
+      backgroundColor: const Color(0xFFF6F5FA),
       body: Column(
         children: [
-          Container(
-            color: diPertinRoxo,
-            padding: const EdgeInsets.fromLTRB(15, 0, 15, 15),
-            child: TextField(
-              controller: _searchController,
-              autofocus: false,
-              onChanged: (val) =>
-                  setState(() => _buscaNome = val.toLowerCase()),
-              decoration: InputDecoration(
-                hintText: "Buscar lanches, produtos ou lojas...",
-                prefixIcon: const Icon(Icons.search, color: diPertinRoxo),
-                suffixIcon: _isPesquisando
-                    ? IconButton(
-                        icon: const Icon(Icons.close, color: Colors.red),
-                        onPressed: _limparFiltros,
-                      )
-                    : null,
-                filled: true,
-                fillColor: Colors.white,
-                contentPadding: const EdgeInsets.symmetric(vertical: 0),
-                border: OutlineInputBorder(
-                  borderRadius: BorderRadius.circular(30),
-                  borderSide: BorderSide.none,
+          _buildHeader(),
+          _buildCategorias(),
+          Expanded(
+            child: _isPesquisando
+                ? _buildResultadosPesquisa()
+                : _buildGuiaDaCidade(),
+          ),
+        ],
+      ),
+    );
+  }
+
+  Widget _buildHeader() {
+    final loc = context.read<LocationService>();
+    final cidadeExibicao = loc.cidadeExibicao;
+    return Container(
+      decoration: const BoxDecoration(
+        gradient: LinearGradient(
+          begin: Alignment.topCenter,
+          end: Alignment.bottomCenter,
+          colors: [Color(0xFF6A1B9A), Color(0xFF7B1FA2)],
+        ),
+      ),
+      child: SafeArea(
+        bottom: false,
+        child: Padding(
+          padding: const EdgeInsets.fromLTRB(20, 14, 20, 18),
+          child: Column(
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              Row(
+                children: [
+                  const Expanded(
+                    child: Text(
+                      'Buscar',
+                      style: TextStyle(
+                        color: Colors.white,
+                        fontWeight: FontWeight.w800,
+                        fontSize: 24,
+                        letterSpacing: -0.5,
+                      ),
+                    ),
+                  ),
+                  if (cidadeExibicao.isNotEmpty)
+                    Container(
+                      padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 5),
+                      decoration: BoxDecoration(
+                        color: Colors.white.withValues(alpha: 0.15),
+                        borderRadius: BorderRadius.circular(20),
+                      ),
+                      child: Row(
+                        mainAxisSize: MainAxisSize.min,
+                        children: [
+                          const Icon(Icons.place, color: Colors.white70, size: 14),
+                          const SizedBox(width: 4),
+                          Text(
+                            cidadeExibicao,
+                            style: const TextStyle(
+                              color: Colors.white,
+                              fontSize: 12,
+                              fontWeight: FontWeight.w600,
+                            ),
+                          ),
+                        ],
+                      ),
+                    ),
+                ],
+              ),
+              const SizedBox(height: 14),
+              Container(
+                decoration: BoxDecoration(
+                  color: Colors.white,
+                  borderRadius: BorderRadius.circular(14),
+                  boxShadow: [
+                    BoxShadow(
+                      color: Colors.black.withValues(alpha: 0.08),
+                      blurRadius: 12,
+                      offset: const Offset(0, 4),
+                    ),
+                  ],
+                ),
+                child: TextField(
+                  controller: _searchController,
+                  autofocus: false,
+                  onChanged: (val) => setState(() => _buscaNome = val.toLowerCase()),
+                  style: const TextStyle(fontSize: 15, fontWeight: FontWeight.w500),
+                  decoration: InputDecoration(
+                    hintText: 'Lojas, produtos ou categorias…',
+                    hintStyle: TextStyle(color: Colors.grey[400], fontWeight: FontWeight.w400, fontSize: 14),
+                    prefixIcon: Icon(Icons.search_rounded, color: Colors.grey[500], size: 22),
+                    suffixIcon: _isPesquisando
+                        ? IconButton(
+                            icon: Icon(Icons.close_rounded, color: Colors.grey[500], size: 20),
+                            onPressed: _limparFiltros,
+                          )
+                        : null,
+                    filled: true,
+                    fillColor: Colors.white,
+                    contentPadding: const EdgeInsets.symmetric(vertical: 14),
+                    border: OutlineInputBorder(
+                      borderRadius: BorderRadius.circular(14),
+                      borderSide: BorderSide.none,
+                    ),
+                    enabledBorder: OutlineInputBorder(
+                      borderRadius: BorderRadius.circular(14),
+                      borderSide: BorderSide.none,
+                    ),
+                    focusedBorder: OutlineInputBorder(
+                      borderRadius: BorderRadius.circular(14),
+                      borderSide: const BorderSide(color: diPertinLaranja, width: 1.5),
+                    ),
+                  ),
                 ),
               ),
-            ),
+            ],
           ),
+        ),
+      ),
+    );
+  }
 
-          Container(
-            color: Colors.white,
-            padding: const EdgeInsets.symmetric(vertical: 10),
-            height: 100,
+  Widget _buildCategorias() {
+    return Container(
+      color: Colors.white,
+      child: Column(
+        children: [
+          SizedBox(
+            height: 96,
             child: StreamBuilder<QuerySnapshot>(
               stream: FirebaseFirestore.instance
                   .collection('categorias')
@@ -202,66 +459,62 @@ class _SearchScreenState extends State<SearchScreen> {
                   .snapshots(),
               builder: (context, snapshot) {
                 if (!snapshot.hasData) {
-                  return const Center(
-                    child: LinearProgressIndicator(color: diPertinLaranja),
-                  );
+                  return const Center(child: LinearProgressIndicator(color: diPertinLaranja));
                 }
                 var categorias = snapshot.data!.docs;
-
                 return ListView.builder(
                   scrollDirection: Axis.horizontal,
-                  padding: const EdgeInsets.symmetric(horizontal: 10),
+                  padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 10),
                   itemCount: categorias.length,
                   itemBuilder: (context, index) {
                     var cat = categorias[index].data() as Map<String, dynamic>;
                     String nome = cat['nome'] ?? '';
                     String imagem = cat['imagem'] ?? '';
-                    bool estaSelecionada = _categoriaSelecionada == nome;
-
+                    bool sel = _categoriaSelecionada == nome;
                     return GestureDetector(
                       onTap: () {
-                        setState(
-                          () => _categoriaSelecionada = estaSelecionada
-                              ? null
-                              : nome,
-                        );
+                        setState(() => _categoriaSelecionada = sel ? null : nome);
                         FocusScope.of(context).unfocus();
                       },
-                      child: Container(
-                        width: 75,
-                        margin: const EdgeInsets.symmetric(horizontal: 5),
+                      child: AnimatedContainer(
+                        duration: const Duration(milliseconds: 200),
+                        width: 72,
+                        margin: const EdgeInsets.symmetric(horizontal: 4),
                         child: Column(
                           children: [
-                            CircleAvatar(
-                              radius: 28,
-                              backgroundColor: estaSelecionada
-                                  ? diPertinLaranja
-                                  : Colors.transparent,
+                            Container(
+                              width: 52,
+                              height: 52,
+                              decoration: BoxDecoration(
+                                shape: BoxShape.circle,
+                                border: Border.all(
+                                  color: sel ? diPertinLaranja : Colors.grey.shade200,
+                                  width: sel ? 2.5 : 1.5,
+                                ),
+                                boxShadow: sel
+                                    ? [BoxShadow(color: diPertinLaranja.withValues(alpha: 0.25), blurRadius: 8)]
+                                    : [],
+                              ),
                               child: CircleAvatar(
-                                radius: 25,
-                                backgroundImage: imagem.isNotEmpty
-                                    ? NetworkImage(imagem)
-                                    : null,
-                                backgroundColor: Colors.grey[200],
+                                radius: 24,
+                                backgroundImage: imagem.isNotEmpty ? NetworkImage(imagem) : null,
+                                backgroundColor: sel ? diPertinLaranja.withValues(alpha: 0.08) : Colors.grey[100],
                                 child: imagem.isEmpty
-                                    ? const Icon(
-                                        Icons.category,
-                                        color: Colors.grey,
+                                    ? Icon(
+                                        _iconeDaCategoria(nome),
+                                        color: sel ? diPertinLaranja : Colors.grey[500],
+                                        size: 22,
                                       )
                                     : null,
                               ),
                             ),
-                            const SizedBox(height: 5),
+                            const SizedBox(height: 6),
                             Text(
                               nome,
                               style: TextStyle(
-                                fontSize: 10,
-                                fontWeight: estaSelecionada
-                                    ? FontWeight.bold
-                                    : FontWeight.w500,
-                                color: estaSelecionada
-                                    ? diPertinLaranja
-                                    : Colors.black87,
+                                fontSize: 10.5,
+                                fontWeight: sel ? FontWeight.w700 : FontWeight.w500,
+                                color: sel ? diPertinLaranja : Colors.grey[700],
                               ),
                               textAlign: TextAlign.center,
                               maxLines: 1,
@@ -276,12 +529,7 @@ class _SearchScreenState extends State<SearchScreen> {
               },
             ),
           ),
-
-          Expanded(
-            child: _isPesquisando
-                ? _buildResultadosPesquisa()
-                : _buildGuiaDaCidade(),
-          ),
+          Container(height: 1, color: Colors.grey.shade100),
         ],
       ),
     );
@@ -290,65 +538,130 @@ class _SearchScreenState extends State<SearchScreen> {
   // ==========================================
   // WIDGET: O GUIA DA CIDADE
   // ==========================================
+  Widget _sectionTitle(String title, IconData icon, {String? subtitle}) {
+    return Padding(
+      padding: const EdgeInsets.only(bottom: 8),
+      child: Row(
+        children: [
+          Container(
+            width: 34,
+            height: 34,
+            decoration: BoxDecoration(
+              color: diPertinRoxo.withValues(alpha: 0.08),
+              borderRadius: BorderRadius.circular(10),
+            ),
+            child: Icon(icon, color: diPertinRoxo, size: 18),
+          ),
+          const SizedBox(width: 10),
+          Expanded(
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                Text(
+                  title,
+                  style: const TextStyle(
+                    fontSize: 16,
+                    fontWeight: FontWeight.w700,
+                    color: Color(0xFF1E1B4B),
+                    letterSpacing: -0.3,
+                  ),
+                ),
+                if (subtitle != null)
+                  Text(
+                    subtitle,
+                    style: TextStyle(fontSize: 12, color: Colors.grey[500], height: 1.4),
+                  ),
+              ],
+            ),
+          ),
+        ],
+      ),
+    );
+  }
+
   Widget _buildGuiaDaCidade() {
-    final cidadeNorm = context.read<LocationService>().cidadeNormalizada;
+    final loc = context.read<LocationService>();
+    final cidadeNorm = loc.cidadeNormalizada;
+    final ufNorm = loc.ufNormalizado;
+
     return SingleChildScrollView(
-      padding: const EdgeInsets.all(15),
+      padding: const EdgeInsets.fromLTRB(16, 18, 16, 30),
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
-          const Text(
-            "Serviços em Destaque",
-            style: TextStyle(
-              fontSize: 16,
-              fontWeight: FontWeight.bold,
-              color: Colors.black87,
-            ),
+          _sectionTitle(
+            'Serviços em destaque',
+            Icons.star_rounded,
+            subtitle: 'Profissionais com anúncio ativo na região',
           ),
-          const SizedBox(height: 10),
-          SizedBox(
-            height: 110,
-            child: StreamBuilder<QuerySnapshot>(
-              stream: FirebaseFirestore.instance
-                  .collection('servicos_destaque')
-                  .where('ativo', isEqualTo: true)
-                  .snapshots(),
-              builder: (context, snapshot) {
-                if (!snapshot.hasData) {
-                  return const Center(child: CircularProgressIndicator());
+          StreamBuilder<QuerySnapshot>(
+            stream: FirebaseFirestore.instance
+                .collection('servicos_destaque')
+                .where('ativo', isEqualTo: true)
+                .snapshots(),
+            builder: (context, snapshot) {
+              if (!snapshot.hasData) {
+                return SizedBox(
+                  height: 124,
+                  child: Center(
+                    child: CircularProgressIndicator(color: diPertinRoxo),
+                  ),
+                );
+              }
+
+              final agora = DateTime.now();
+              final anunciosValidos = snapshot.data!.docs.where((doc) {
+                final data = doc.data() as Map<String, dynamic>;
+                if (data['data_inicio'] == null || data['data_fim'] == null) {
+                  return false;
                 }
+                final inicio = (data['data_inicio'] as Timestamp).toDate();
+                final vencimento = (data['data_fim'] as Timestamp).toDate();
 
-                DateTime agora = DateTime.now();
-                var anunciosValidos = snapshot.data!.docs.where((doc) {
-                  var data = doc.data() as Map<String, dynamic>;
-                  if (data['data_inicio'] == null || data['data_fim'] == null) {
-                    return false;
-                  }
-                  DateTime inicio = (data['data_inicio'] as Timestamp).toDate();
-                  DateTime vencimento = (data['data_fim'] as Timestamp)
-                      .toDate();
+                final passaCidade = LocationService.cidadeCampoCorrespondeUsuario(
+                  campoCidade:
+                      (data['cidade_normalizada'] ?? data['cidade'])?.toString(),
+                  cidadeNormUsuario: cidadeNorm,
+                  ufNormUsuario: ufNorm,
+                );
 
-                  String cidadeAnuncio = (data['cidade'] ?? '')
-                      .toString()
-                      .toLowerCase();
-                  bool passaCidade = cidadeAnuncio.isEmpty ||
-                      cidadeAnuncio == cidadeNorm;
+                return agora.isAfter(inicio) &&
+                    agora.isBefore(vencimento) &&
+                    passaCidade;
+              }).toList();
 
-                  return agora.isAfter(inicio) &&
-                      agora.isBefore(vencimento) &&
-                      passaCidade;
-                }).toList();
+              anunciosValidos.sort((a, b) {
+                final dataA = a.data() as Map<String, dynamic>;
+                final dataB = b.data() as Map<String, dynamic>;
+                final timeA = dataA['data_criacao'] as Timestamp?;
+                final timeB = dataB['data_criacao'] as Timestamp?;
+                if (timeA == null || timeB == null) return 0;
+                return timeB.compareTo(timeA);
+              });
 
-                anunciosValidos.sort((a, b) {
-                  var dataA = a.data() as Map<String, dynamic>;
-                  var dataB = b.data() as Map<String, dynamic>;
-                  Timestamp? timeA = dataA['data_criacao'] as Timestamp?;
-                  Timestamp? timeB = dataB['data_criacao'] as Timestamp?;
-                  if (timeA == null || timeB == null) return 0;
-                  return timeB.compareTo(timeA);
-                });
+              if (anunciosValidos.isEmpty) {
+                return Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    Text(
+                      'Nenhum destaque na sua cidade no momento.',
+                      style: TextStyle(color: Colors.grey[700], fontSize: 13),
+                    ),
+                    const SizedBox(height: 10),
+                    SizedBox(
+                      height: 120,
+                      child: ListView(
+                        scrollDirection: Axis.horizontal,
+                        children: [_buildBannerAnuncieAqui()],
+                      ),
+                    ),
+                  ],
+                );
+              }
 
-                return ListView.builder(
+              return SizedBox(
+                height: 130,
+                child: ListView.builder(
                   scrollDirection: Axis.horizontal,
                   itemCount: anunciosValidos.length + 1,
                   itemBuilder: (context, i) {
@@ -356,84 +669,102 @@ class _SearchScreenState extends State<SearchScreen> {
                       return _buildBannerAnuncieAqui();
                     }
 
-                    var ad = anunciosValidos[i].data() as Map<String, dynamic>;
+                    final ad =
+                        anunciosValidos[i].data() as Map<String, dynamic>;
+                    final cidadeCard = _formatarNomeCidade(
+                      ad['cidade']?.toString(),
+                    );
 
                     return Container(
-                      width: 180,
-                      margin: const EdgeInsets.only(right: 15),
+                      width: 185,
+                      margin: const EdgeInsets.only(right: 10),
                       child: Material(
                         color: Colors.white,
-                        elevation: 2,
-                        borderRadius: BorderRadius.circular(15),
+                        elevation: 0,
+                        shape: RoundedRectangleBorder(
+                          borderRadius: BorderRadius.circular(16),
+                          side: BorderSide(color: Colors.grey.shade200),
+                        ),
+                        clipBehavior: Clip.antiAlias,
                         child: InkWell(
-                          borderRadius: BorderRadius.circular(15),
+                          borderRadius: BorderRadius.circular(16),
                           onTap: () => _abrirContato(
                             ad['telefone'] ?? '',
                             'whatsapp',
                             nomeProfissional: ad['titulo'],
                           ),
                           child: Padding(
-                            padding: const EdgeInsets.all(12.0),
+                            padding: const EdgeInsets.fromLTRB(14, 14, 14, 10),
                             child: Column(
                               crossAxisAlignment: CrossAxisAlignment.start,
                               children: [
                                 Text(
                                   ad['titulo'] ?? 'Profissional',
                                   style: const TextStyle(
-                                    fontWeight: FontWeight.bold,
-                                    fontSize: 13,
-                                    color: diPertinRoxo,
+                                    fontWeight: FontWeight.w700,
+                                    fontSize: 14,
+                                    color: Color(0xFF1E1B4B),
                                   ),
                                   maxLines: 1,
                                   overflow: TextOverflow.ellipsis,
                                 ),
                                 const SizedBox(height: 4),
-                                Text(
-                                  ad['categoria'] ?? 'Geral',
-                                  style: const TextStyle(
-                                    fontSize: 11,
-                                    color: diPertinLaranja,
-                                    fontWeight: FontWeight.bold,
+                                Container(
+                                  padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 2),
+                                  decoration: BoxDecoration(
+                                    color: diPertinLaranja.withValues(alpha: 0.1),
+                                    borderRadius: BorderRadius.circular(6),
                                   ),
-                                  maxLines: 1,
-                                  overflow: TextOverflow.ellipsis,
-                                ),
-                                const SizedBox(height: 2),
-                                Text(
-                                  "Atua em: ${ad['cidade'].toString().toUpperCase()}",
-                                  style: const TextStyle(
-                                    fontSize: 9,
-                                    color: Colors.grey,
+                                  child: Text(
+                                    ad['categoria'] ?? 'Geral',
+                                    style: const TextStyle(
+                                      fontSize: 10.5,
+                                      color: diPertinLaranja,
+                                      fontWeight: FontWeight.w700,
+                                    ),
+                                    maxLines: 1,
+                                    overflow: TextOverflow.ellipsis,
                                   ),
-                                  maxLines: 1,
-                                  overflow: TextOverflow.ellipsis,
                                 ),
+                                if (cidadeCard.isNotEmpty) ...[
+                                  const SizedBox(height: 4),
+                                  Row(
+                                    children: [
+                                      Icon(Icons.place, size: 11, color: Colors.grey[400]),
+                                      const SizedBox(width: 2),
+                                      Expanded(
+                                        child: Text(
+                                          cidadeCard,
+                                          style: TextStyle(fontSize: 10.5, color: Colors.grey[500]),
+                                          maxLines: 1,
+                                          overflow: TextOverflow.ellipsis,
+                                        ),
+                                      ),
+                                    ],
+                                  ),
+                                ],
                                 const Spacer(),
-                                Row(
-                                  mainAxisAlignment: MainAxisAlignment.end,
-                                  children: [
-                                    Container(
-                                      padding: const EdgeInsets.all(4),
-                                      decoration: const BoxDecoration(
-                                        color: Colors.green,
-                                        shape: BoxShape.circle,
+                                Container(
+                                  padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 5),
+                                  decoration: BoxDecoration(
+                                    color: const Color(0xFF25D366).withValues(alpha: 0.1),
+                                    borderRadius: BorderRadius.circular(8),
+                                  ),
+                                  child: const Row(
+                                    mainAxisSize: MainAxisSize.min,
+                                    children: [
+                                      Icon(Icons.wechat, color: Color(0xFF25D366), size: 14),
+                                      SizedBox(width: 4),
+                                      Text(
+                                        'Chamar',
+                                        style: TextStyle(
+                                          color: Color(0xFF25D366),
+                                          fontWeight: FontWeight.w700,
+                                          fontSize: 11.5,
+                                        ),
                                       ),
-                                      child: const Icon(
-                                        Icons.wechat,
-                                        color: Colors.white,
-                                        size: 12,
-                                      ),
-                                    ),
-                                    const SizedBox(width: 4),
-                                    const Text(
-                                      "Chamar",
-                                      style: TextStyle(
-                                        color: Colors.green,
-                                        fontWeight: FontWeight.bold,
-                                        fontSize: 11,
-                                      ),
-                                    ),
-                                  ],
+                                    ],
+                                  ),
                                 ),
                               ],
                             ),
@@ -442,64 +773,68 @@ class _SearchScreenState extends State<SearchScreen> {
                       ),
                     );
                   },
-                );
-              },
-            ),
+                ),
+              );
+            },
           ),
 
-          const SizedBox(height: 25),
+          const SizedBox(height: 28),
 
-          const Text(
-            "Telefones de Emergência",
-            style: TextStyle(
-              fontSize: 16,
-              fontWeight: FontWeight.bold,
-              color: Colors.black87,
-            ),
+          _sectionTitle(
+            'Emergência',
+            Icons.emergency_rounded,
+            subtitle: 'Ligações nacionais gratuitas',
           ),
-          const SizedBox(height: 10),
           Row(
             children: [
               Expanded(
                 child: _buildEmergenciaBotao(
-                  "Polícia",
-                  "190",
-                  Icons.local_police,
-                  Colors.blueGrey,
+                  titulo: 'Polícia',
+                  numero: '190',
+                  icone: Icons.local_police,
+                  cor: Colors.blueGrey,
+                  descricao:
+                      'Use quando precisar de presença policial: crimes em '
+                      'andamento, risco à segurança ou situações que exijam '
+                      'apoio da polícia. Ligação gratuita.',
                 ),
               ),
               const SizedBox(width: 10),
               Expanded(
                 child: _buildEmergenciaBotao(
-                  "SAMU",
-                  "192",
-                  Icons.medical_services,
-                  Colors.red,
+                  titulo: 'SAMU',
+                  numero: '192',
+                  icone: Icons.medical_services,
+                  cor: Colors.red,
+                  descricao:
+                      'Serviço de atendimento móvel de urgência. Em emergência '
+                      'médica, acidentes com vítimas ou quando precisar de '
+                      'ambulância.',
                 ),
               ),
               const SizedBox(width: 10),
               Expanded(
                 child: _buildEmergenciaBotao(
-                  "Bombeiros",
-                  "193",
-                  Icons.fire_truck,
-                  Colors.orange,
+                  titulo: 'Bombeiros',
+                  numero: '193',
+                  icone: Icons.fire_truck,
+                  cor: Colors.orange,
+                  descricao:
+                      'Incêndios, acidentes com vítimas, resgates e situações '
+                      'com risco à vida. Informe o endereço com clareza ao '
+                      'atender a ligação.',
                 ),
               ),
             ],
           ),
 
-          const SizedBox(height: 25),
+          const SizedBox(height: 28),
 
-          const Text(
-            "Acesso Rápido Premium",
-            style: TextStyle(
-              fontSize: 16,
-              fontWeight: FontWeight.bold,
-              color: Colors.black87,
-            ),
+          _sectionTitle(
+            'Acesso rápido',
+            Icons.phone_in_talk_rounded,
+            subtitle: 'Parceiros com telefone em destaque na região',
           ),
-          const SizedBox(height: 10),
           StreamBuilder<QuerySnapshot>(
             stream: FirebaseFirestore.instance
                 .collection('telefones_premium')
@@ -521,11 +856,12 @@ class _SearchScreenState extends State<SearchScreen> {
                 DateTime vencimento = (data['data_vencimento'] as Timestamp)
                     .toDate();
 
-                String cidadeAnuncio = (data['cidade'] ?? '')
-                    .toString()
-                    .toLowerCase();
-                bool passaCidade = cidadeAnuncio.isEmpty ||
-                    cidadeAnuncio == cidadeNorm;
+                bool passaCidade = LocationService.cidadeCampoCorrespondeUsuario(
+                  campoCidade:
+                      (data['cidade_normalizada'] ?? data['cidade'])?.toString(),
+                  cidadeNormUsuario: cidadeNorm,
+                  ufNormUsuario: ufNorm,
+                );
 
                 return agora.isAfter(inicio) &&
                     agora.isBefore(vencimento) &&
@@ -533,18 +869,19 @@ class _SearchScreenState extends State<SearchScreen> {
               }).toList();
 
               if (telefonesValidos.isEmpty) {
-                return const Text(
-                  "Nenhum parceiro de acesso rápido ativo hoje.",
-                  style: TextStyle(color: Colors.grey, fontSize: 12),
+                return Text(
+                  'Nenhum parceiro de acesso rápido ativo no momento.',
+                  style: TextStyle(color: Colors.grey[700], fontSize: 13),
                 );
               }
 
               return GridView.builder(
                 shrinkWrap: true,
+                padding: EdgeInsets.zero,
                 physics: const NeverScrollableScrollPhysics(),
                 gridDelegate: const SliverGridDelegateWithFixedCrossAxisCount(
                   crossAxisCount: 2,
-                  childAspectRatio: 2.5,
+                  childAspectRatio: 2.2,
                   crossAxisSpacing: 10,
                   mainAxisSpacing: 10,
                 ),
@@ -555,55 +892,54 @@ class _SearchScreenState extends State<SearchScreen> {
                   }
 
                   var tel = telefonesValidos[i].data() as Map<String, dynamic>;
-                  return InkWell(
-                    onTap: () => _abrirContato(
-                      tel['telefone'] ?? '',
-                      tel['tipo_contato'] ?? 'ligacao',
+                  return Material(
+                    color: Colors.white,
+                    shape: RoundedRectangleBorder(
+                      borderRadius: BorderRadius.circular(14),
+                      side: BorderSide(color: Colors.grey.shade200),
                     ),
-                    borderRadius: BorderRadius.circular(10),
-                    child: Container(
-                      decoration: BoxDecoration(
-                        color: Colors.white,
-                        borderRadius: BorderRadius.circular(10),
-                        border: Border.all(
-                          color: diPertinRoxo.withOpacity(0.3),
-                        ),
+                    clipBehavior: Clip.antiAlias,
+                    child: InkWell(
+                      onTap: () => _abrirContato(
+                        tel['telefone'] ?? '',
+                        tel['tipo_contato'] ?? 'ligacao',
                       ),
-                      padding: const EdgeInsets.symmetric(horizontal: 8),
-                      child: Row(
-                        children: [
-                          const Icon(
-                            Icons.phone_forwarded,
-                            color: diPertinRoxo,
-                            size: 24,
-                          ),
-                          const SizedBox(width: 8),
-                          Expanded(
-                            child: Column(
-                              crossAxisAlignment: CrossAxisAlignment.start,
-                              mainAxisAlignment: MainAxisAlignment.center,
-                              children: [
-                                Text(
-                                  tel['titulo'] ?? '',
-                                  style: const TextStyle(
-                                    fontSize: 11,
-                                    fontWeight: FontWeight.bold,
-                                  ),
-                                  maxLines: 1,
-                                  overflow: TextOverflow.ellipsis,
-                                ),
-                                Text(
-                                  tel['telefone'] ?? '',
-                                  style: const TextStyle(
-                                    fontSize: 12,
-                                    color: diPertinRoxo,
-                                    fontWeight: FontWeight.bold,
-                                  ),
-                                ),
-                              ],
+                      borderRadius: BorderRadius.circular(14),
+                      child: Padding(
+                        padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 10),
+                        child: Row(
+                          children: [
+                            Container(
+                              width: 32,
+                              height: 32,
+                              decoration: BoxDecoration(
+                                color: diPertinRoxo.withValues(alpha: 0.08),
+                                borderRadius: BorderRadius.circular(8),
+                              ),
+                              child: const Icon(Icons.phone_forwarded_rounded, color: diPertinRoxo, size: 16),
                             ),
-                          ),
-                        ],
+                            const SizedBox(width: 10),
+                            Expanded(
+                              child: Column(
+                                crossAxisAlignment: CrossAxisAlignment.start,
+                                mainAxisAlignment: MainAxisAlignment.center,
+                                children: [
+                                  Text(
+                                    tel['titulo'] ?? '',
+                                    style: const TextStyle(fontSize: 12, fontWeight: FontWeight.w700, color: Color(0xFF1E1B4B)),
+                                    maxLines: 1,
+                                    overflow: TextOverflow.ellipsis,
+                                  ),
+                                  const SizedBox(height: 1),
+                                  Text(
+                                    tel['telefone'] ?? '',
+                                    style: const TextStyle(fontSize: 12, color: diPertinRoxo, fontWeight: FontWeight.w600),
+                                  ),
+                                ],
+                              ),
+                            ),
+                          ],
+                        ),
                       ),
                     ),
                   );
@@ -612,47 +948,31 @@ class _SearchScreenState extends State<SearchScreen> {
             },
           ),
 
-          const SizedBox(height: 25),
-          const Text(
-            "Utilidade Pública",
-            style: TextStyle(
-              fontSize: 16,
-              fontWeight: FontWeight.bold,
-              color: Colors.black87,
-            ),
+          const SizedBox(height: 28),
+
+          _sectionTitle(
+            'Utilidade pública',
+            Icons.apps_rounded,
+            subtitle: 'Vagas, eventos e achados na cidade',
           ),
-          const SizedBox(height: 10),
 
           _buildUtilidadeItem(
-            "Vagas de Emprego",
-            "Oportunidades na sua região",
-            Icons.work,
-            Colors.green,
-            () async {
-              ScaffoldMessenger.of(context).showSnackBar(
-                const SnackBar(
-                  content: Text(
-                    'Encontre a sua próxima oportunidade! 🍀',
-                    style: TextStyle(fontWeight: FontWeight.bold),
-                  ),
-                  backgroundColor: Colors.green,
-                  duration: Duration(seconds: 2),
-                ),
+            'Vagas de emprego',
+            'Oportunidades na sua região',
+            Icons.work_rounded,
+            const Color(0xFF059669),
+            () {
+              Navigator.push(
+                context,
+                MaterialPageRoute(builder: (context) => const VagasScreen()),
               );
-              await Future.delayed(const Duration(seconds: 1));
-              if (mounted) {
-                Navigator.push(
-                  context,
-                  MaterialPageRoute(builder: (context) => const VagasScreen()),
-                );
-              }
             },
           ),
 
           _buildUtilidadeItem(
-            "Eventos e Festas",
-            "O que vai rolar na cidade",
-            Icons.event,
+            'Eventos e festas',
+            'O que vai rolar na cidade',
+            Icons.celebration_rounded,
             diPertinRoxo,
             () {
               Navigator.push(
@@ -663,9 +983,9 @@ class _SearchScreenState extends State<SearchScreen> {
           ),
 
           _buildUtilidadeItem(
-            "Achados e Perdidos",
-            "Documentos, pets e objetos",
-            Icons.search_off,
+            'Achados e perdidos',
+            'Documentos, pets e objetos',
+            Icons.manage_search_rounded,
             diPertinLaranja,
             () {
               Navigator.push(
@@ -682,122 +1002,296 @@ class _SearchScreenState extends State<SearchScreen> {
   }
 
   Widget _buildBannerAnuncieAqui() {
-    return InkWell(
-      onTap: _falarComSuporteParaAnunciar,
-      borderRadius: BorderRadius.circular(15),
-      child: Container(
-        width: 260,
-        margin: const EdgeInsets.only(right: 15),
-        padding: const EdgeInsets.all(15),
-        decoration: BoxDecoration(
-          color: Colors.white,
-          borderRadius: BorderRadius.circular(15),
-          border: Border.all(color: diPertinLaranja.withOpacity(0.5)),
+    return Container(
+      width: 185,
+      margin: const EdgeInsets.only(right: 10),
+      child: Material(
+        color: Colors.white,
+        shape: RoundedRectangleBorder(
+          borderRadius: BorderRadius.circular(16),
+          side: BorderSide(color: diPertinLaranja.withValues(alpha: 0.3), width: 1.5, strokeAlign: BorderSide.strokeAlignInside),
         ),
-        child: Row(
-          children: [
-            CircleAvatar(
-              backgroundColor: diPertinLaranja.withOpacity(0.2),
-              radius: 25,
-              child: const Icon(
-                Icons.campaign,
-                color: diPertinLaranja,
-                size: 25,
-              ),
-            ),
-            const SizedBox(width: 15),
-            const Expanded(
-              child: Column(
-                crossAxisAlignment: CrossAxisAlignment.start,
-                mainAxisAlignment: MainAxisAlignment.center,
-                children: [
-                  Text(
-                    "Anuncie seu Serviço",
-                    style: TextStyle(
-                      fontWeight: FontWeight.bold,
-                      fontSize: 13,
-                      color: diPertinLaranja,
-                    ),
+        clipBehavior: Clip.antiAlias,
+        child: InkWell(
+          onTap: _falarComSuporteParaAnunciar,
+          borderRadius: BorderRadius.circular(16),
+          child: Padding(
+            padding: const EdgeInsets.all(14),
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              mainAxisAlignment: MainAxisAlignment.center,
+              children: [
+                Container(
+                  width: 36,
+                  height: 36,
+                  decoration: BoxDecoration(
+                    color: diPertinLaranja.withValues(alpha: 0.1),
+                    borderRadius: BorderRadius.circular(10),
                   ),
-                  Text(
-                    "Fale com o suporte",
-                    style: TextStyle(fontSize: 12, color: Colors.grey),
-                  ),
-                ],
-              ),
+                  child: const Icon(Icons.campaign_rounded, color: diPertinLaranja, size: 20),
+                ),
+                const SizedBox(height: 10),
+                const Text(
+                  'Anuncie aqui',
+                  style: TextStyle(fontWeight: FontWeight.w700, fontSize: 13.5, color: diPertinLaranja),
+                ),
+                const SizedBox(height: 2),
+                Text(
+                  'Fale com o suporte',
+                  style: TextStyle(fontSize: 11, color: Colors.grey[500]),
+                ),
+              ],
             ),
-          ],
+          ),
         ),
       ),
     );
   }
 
   Widget _buildBotaoAnuncieTelefone() {
-    return InkWell(
-      onTap: _falarComSuporteParaAnunciar,
-      borderRadius: BorderRadius.circular(10),
-      child: Container(
-        decoration: BoxDecoration(
-          color: Colors.white,
-          borderRadius: BorderRadius.circular(10),
-          border: Border.all(color: Colors.green.withOpacity(0.5)),
-        ),
-        padding: const EdgeInsets.symmetric(horizontal: 8),
-        child: Row(
-          children: [
-            Icon(Icons.add_call, color: Colors.green[700], size: 24),
-            const SizedBox(width: 8),
-            Expanded(
-              child: Column(
-                crossAxisAlignment: CrossAxisAlignment.start,
-                mainAxisAlignment: MainAxisAlignment.center,
-                children: [
-                  Text(
-                    "Seu Disk Aqui",
-                    style: TextStyle(
-                      fontSize: 11,
-                      fontWeight: FontWeight.bold,
-                      color: Colors.green[700],
-                    ),
-                  ),
-                  const Text(
-                    "Patrocinar espaço",
-                    style: TextStyle(fontSize: 10, color: Colors.grey),
-                  ),
-                ],
+    return Material(
+      color: Colors.white,
+      shape: RoundedRectangleBorder(
+        borderRadius: BorderRadius.circular(14),
+        side: BorderSide(color: const Color(0xFF059669).withValues(alpha: 0.3), width: 1.5, strokeAlign: BorderSide.strokeAlignInside),
+      ),
+      clipBehavior: Clip.antiAlias,
+      child: InkWell(
+        onTap: _falarComSuporteParaAnunciar,
+        borderRadius: BorderRadius.circular(14),
+        child: Padding(
+          padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 10),
+          child: Row(
+            children: [
+              Container(
+                width: 32,
+                height: 32,
+                decoration: BoxDecoration(
+                  color: const Color(0xFF059669).withValues(alpha: 0.1),
+                  borderRadius: BorderRadius.circular(8),
+                ),
+                child: const Icon(Icons.add_call, color: Color(0xFF059669), size: 18),
               ),
-            ),
-          ],
+              const SizedBox(width: 10),
+              Expanded(
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  mainAxisAlignment: MainAxisAlignment.center,
+                  children: [
+                    const Text('Seu disk aqui', style: TextStyle(fontSize: 12, fontWeight: FontWeight.w700, color: Color(0xFF059669))),
+                    Text('Patrocinar espaço', style: TextStyle(fontSize: 10, color: Colors.grey[500])),
+                  ],
+                ),
+              ),
+            ],
+          ),
         ),
       ),
     );
   }
 
-  Widget _buildEmergenciaBotao(
-    String titulo,
-    String numero,
-    IconData icone,
-    Color cor,
-  ) {
-    return InkWell(
-      onTap: () => _abrirContato(numero, 'ligacao'),
-      borderRadius: BorderRadius.circular(10),
-      child: Container(
-        padding: const EdgeInsets.symmetric(vertical: 12),
-        decoration: BoxDecoration(
-          color: Colors.white,
-          borderRadius: BorderRadius.circular(10),
-          border: Border.all(color: Colors.grey[300]!),
-        ),
-        child: Column(
-          children: [
-            Icon(icone, color: cor, size: 28),
-            const SizedBox(height: 5),
-            Text(
-              titulo,
-              style: const TextStyle(fontSize: 11, fontWeight: FontWeight.bold),
+  void _mostrarInfoEmergencia({
+    required String titulo,
+    required String numero,
+    required IconData icone,
+    required Color cor,
+    required String descricao,
+  }) {
+    showModalBottomSheet<void>(
+      context: context,
+      isScrollControlled: true,
+      useSafeArea: true,
+      backgroundColor: Colors.transparent,
+      builder: (ctx) {
+        return Padding(
+          padding: EdgeInsets.only(bottom: MediaQuery.of(ctx).viewInsets.bottom),
+          child: Container(
+            decoration: const BoxDecoration(
+              color: Colors.white,
+              borderRadius: BorderRadius.vertical(top: Radius.circular(24)),
             ),
-          ],
+            child: SingleChildScrollView(
+              padding: const EdgeInsets.fromLTRB(24, 12, 24, 28),
+              child: Column(
+                mainAxisSize: MainAxisSize.min,
+                crossAxisAlignment: CrossAxisAlignment.stretch,
+                children: [
+                  Center(
+                    child: Container(
+                      width: 40,
+                      height: 4,
+                      margin: const EdgeInsets.only(bottom: 20),
+                      decoration: BoxDecoration(
+                        color: Colors.grey[300],
+                        borderRadius: BorderRadius.circular(2),
+                      ),
+                    ),
+                  ),
+                  Center(
+                    child: Container(
+                      width: 64,
+                      height: 64,
+                      decoration: BoxDecoration(
+                        color: cor.withValues(alpha: 0.1),
+                        borderRadius: BorderRadius.circular(20),
+                      ),
+                      child: Icon(icone, color: cor, size: 32),
+                    ),
+                  ),
+                  const SizedBox(height: 16),
+                  Text(
+                    titulo,
+                    textAlign: TextAlign.center,
+                    style: const TextStyle(
+                      fontSize: 20,
+                      fontWeight: FontWeight.w800,
+                      color: Color(0xFF1E1B4B),
+                      letterSpacing: -0.3,
+                    ),
+                  ),
+                  const SizedBox(height: 8),
+                  Container(
+                    margin: const EdgeInsets.symmetric(horizontal: 60),
+                    padding: const EdgeInsets.symmetric(vertical: 8),
+                    decoration: BoxDecoration(
+                      color: cor.withValues(alpha: 0.08),
+                      borderRadius: BorderRadius.circular(12),
+                    ),
+                    child: Text(
+                      numero,
+                      textAlign: TextAlign.center,
+                      style: TextStyle(
+                        fontSize: 30,
+                        fontWeight: FontWeight.w900,
+                        letterSpacing: 4,
+                        color: cor,
+                      ),
+                    ),
+                  ),
+                  const SizedBox(height: 6),
+                  Text(
+                    'Número nacional de referência',
+                    textAlign: TextAlign.center,
+                    style: TextStyle(fontSize: 12, color: Colors.grey[500]),
+                  ),
+                  const SizedBox(height: 20),
+                  Text(
+                    descricao,
+                    style: TextStyle(fontSize: 14.5, height: 1.5, color: Colors.grey[700]),
+                  ),
+                  const SizedBox(height: 12),
+                  Container(
+                    padding: const EdgeInsets.all(12),
+                    decoration: BoxDecoration(
+                      color: Colors.amber.shade50,
+                      borderRadius: BorderRadius.circular(12),
+                    ),
+                    child: Row(
+                      children: [
+                        Icon(Icons.info_outline_rounded, size: 16, color: Colors.amber.shade800),
+                        const SizedBox(width: 8),
+                        Expanded(
+                          child: Text(
+                            'Em emergência real, mantenha a calma e informe o local com clareza.',
+                            style: TextStyle(fontSize: 12, height: 1.35, color: Colors.amber.shade900),
+                          ),
+                        ),
+                      ],
+                    ),
+                  ),
+                  const SizedBox(height: 24),
+                  Row(
+                    children: [
+                      Expanded(
+                        child: OutlinedButton(
+                          onPressed: () => Navigator.pop(ctx),
+                          style: OutlinedButton.styleFrom(
+                            padding: const EdgeInsets.symmetric(vertical: 14),
+                            shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
+                            side: BorderSide(color: Colors.grey.shade300),
+                          ),
+                          child: Text('Fechar', style: TextStyle(color: Colors.grey[700], fontWeight: FontWeight.w600)),
+                        ),
+                      ),
+                      const SizedBox(width: 12),
+                      Expanded(
+                        flex: 2,
+                        child: FilledButton.icon(
+                          onPressed: () {
+                            Navigator.pop(ctx);
+                            _abrirContato(numero, 'ligacao');
+                          },
+                          icon: const Icon(Icons.phone_rounded, color: Colors.white, size: 20),
+                          label: const Text('Ligar agora', style: TextStyle(fontWeight: FontWeight.w700, fontSize: 15)),
+                          style: FilledButton.styleFrom(
+                            backgroundColor: cor,
+                            foregroundColor: Colors.white,
+                            padding: const EdgeInsets.symmetric(vertical: 14),
+                            shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
+                          ),
+                        ),
+                      ),
+                    ],
+                  ),
+                ],
+              ),
+            ),
+          ),
+        );
+      },
+    );
+  }
+
+  Widget _buildEmergenciaBotao({
+    required String titulo,
+    required String numero,
+    required IconData icone,
+    required Color cor,
+    required String descricao,
+  }) {
+    return Material(
+      color: Colors.white,
+      shape: RoundedRectangleBorder(
+        borderRadius: BorderRadius.circular(14),
+        side: BorderSide(color: Colors.grey.shade200),
+      ),
+      clipBehavior: Clip.antiAlias,
+      child: InkWell(
+        onTap: () => _mostrarInfoEmergencia(
+          titulo: titulo,
+          numero: numero,
+          icone: icone,
+          cor: cor,
+          descricao: descricao,
+        ),
+        borderRadius: BorderRadius.circular(14),
+        child: Padding(
+          padding: const EdgeInsets.symmetric(vertical: 14, horizontal: 6),
+          child: Column(
+            mainAxisAlignment: MainAxisAlignment.center,
+            children: [
+              Container(
+                width: 40,
+                height: 40,
+                decoration: BoxDecoration(
+                  color: cor.withValues(alpha: 0.1),
+                  borderRadius: BorderRadius.circular(12),
+                ),
+                child: Icon(icone, color: cor, size: 22),
+              ),
+              const SizedBox(height: 8),
+              Text(
+                titulo,
+                style: const TextStyle(fontSize: 12, fontWeight: FontWeight.w700, color: Color(0xFF1E1B4B)),
+                textAlign: TextAlign.center,
+              ),
+              const SizedBox(height: 2),
+              Text(
+                numero,
+                style: TextStyle(fontSize: 11, fontWeight: FontWeight.w600, color: cor),
+              ),
+            ],
+          ),
         ),
       ),
     );
@@ -810,33 +1304,50 @@ class _SearchScreenState extends State<SearchScreen> {
     Color cor,
     VoidCallback onTap,
   ) {
-    return Card(
-      elevation: 0,
-      margin: const EdgeInsets.only(bottom: 10),
-      shape: RoundedRectangleBorder(
-        borderRadius: BorderRadius.circular(12),
-        side: BorderSide(color: Colors.grey[200]!),
-      ),
-      child: ListTile(
-        leading: Container(
-          padding: const EdgeInsets.all(8),
-          decoration: BoxDecoration(
-            color: cor.withOpacity(0.1),
-            borderRadius: BorderRadius.circular(8),
+    return Padding(
+      padding: const EdgeInsets.only(bottom: 10),
+      child: Material(
+        color: Colors.white,
+        shape: RoundedRectangleBorder(
+          borderRadius: BorderRadius.circular(14),
+          side: BorderSide(color: Colors.grey.shade200),
+        ),
+        clipBehavior: Clip.antiAlias,
+        child: InkWell(
+          onTap: onTap,
+          borderRadius: BorderRadius.circular(14),
+          child: Padding(
+            padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 14),
+            child: Row(
+              children: [
+                Container(
+                  width: 44,
+                  height: 44,
+                  decoration: BoxDecoration(
+                    color: cor.withValues(alpha: 0.1),
+                    borderRadius: BorderRadius.circular(12),
+                  ),
+                  child: Icon(icone, color: cor, size: 22),
+                ),
+                const SizedBox(width: 14),
+                Expanded(
+                  child: Column(
+                    crossAxisAlignment: CrossAxisAlignment.start,
+                    children: [
+                      Text(
+                        titulo,
+                        style: const TextStyle(fontWeight: FontWeight.w700, fontSize: 14.5, color: Color(0xFF1E1B4B)),
+                      ),
+                      const SizedBox(height: 2),
+                      Text(subtitulo, style: TextStyle(fontSize: 12, color: Colors.grey[500])),
+                    ],
+                  ),
+                ),
+                Icon(Icons.chevron_right_rounded, size: 20, color: Colors.grey[400]),
+              ],
+            ),
           ),
-          child: Icon(icone, color: cor),
         ),
-        title: Text(
-          titulo,
-          style: const TextStyle(fontWeight: FontWeight.bold, fontSize: 15),
-        ),
-        subtitle: Text(subtitulo, style: const TextStyle(fontSize: 12)),
-        trailing: const Icon(
-          Icons.arrow_forward_ios,
-          size: 14,
-          color: Colors.grey,
-        ),
-        onTap: onTap,
       ),
     );
   }
@@ -845,7 +1356,9 @@ class _SearchScreenState extends State<SearchScreen> {
   // WIDGET: RESULTADOS DA BUSCA (LOJAS + PRODUTOS)
   // ==========================================
   Widget _buildResultadosPesquisa() {
-    final cidadeNorm = context.read<LocationService>().cidadeNormalizada;
+    final loc = context.read<LocationService>();
+    final cidadeNorm = loc.cidadeNormalizada;
+    final ufNorm = loc.ufNormalizado;
     return SingleChildScrollView(
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.start,
@@ -858,27 +1371,37 @@ class _SearchScreenState extends State<SearchScreen> {
                 .snapshots(),
             builder: (context, snapshotLojas) {
               List<String> lojasIdsEncontradas = [];
+              Set<String> lojasIdsDaCidade = {};
               Widget lojasWidget = const SizedBox.shrink();
 
-              // Se o usuário digitou algo, vamos buscar as lojas
+              if (snapshotLojas.hasData) {
+                for (final doc in snapshotLojas.data!.docs) {
+                  final l = doc.data() as Map<String, dynamic>;
+                  final cidadeLoja = (l['cidade_normalizada'] ??
+                          l['cidade'] ??
+                          l['endereco_cidade'] ??
+                          '')
+                      .toString();
+                  if (LocationService.cidadeCampoCorrespondeUsuario(
+                    campoCidade: cidadeLoja,
+                    cidadeNormUsuario: cidadeNorm,
+                    ufNormUsuario: ufNorm,
+                  )) {
+                    lojasIdsDaCidade.add(doc.id);
+                  }
+                }
+              }
+
               if (snapshotLojas.hasData && _buscaNome.isNotEmpty) {
                 var lojasEncontradas = snapshotLojas.data!.docs.where((doc) {
+                  if (!lojasIdsDaCidade.contains(doc.id)) return false;
                   var l = doc.data() as Map<String, dynamic>;
                   String nomeLoja = (l['loja_nome'] ?? l['nome'] ?? '')
                       .toString()
                       .toLowerCase();
-                  String cidadeLoja = (l['cidade'] ?? '')
-                      .toString()
-                      .toLowerCase();
-
-                  bool passaNome = nomeLoja.contains(_buscaNome);
-                  bool passaCidade = cidadeLoja.isEmpty ||
-                      cidadeLoja == cidadeNorm;
-
-                  return passaNome && passaCidade;
+                  return nomeLoja.contains(_buscaNome);
                 }).toList();
 
-                // GUARDA OS IDs DAS LOJAS PARA A BUSCA DOS PRODUTOS LOGO ABAIXO!
                 lojasIdsEncontradas = lojasEncontradas
                     .map((e) => e.id)
                     .toList();
@@ -888,16 +1411,9 @@ class _SearchScreenState extends State<SearchScreen> {
                   lojasWidget = Column(
                     crossAxisAlignment: CrossAxisAlignment.start,
                     children: [
-                      const Padding(
-                        padding: EdgeInsets.fromLTRB(15, 15, 15, 5),
-                        child: Text(
-                          "Lojas Encontradas",
-                          style: TextStyle(
-                            fontWeight: FontWeight.bold,
-                            fontSize: 16,
-                            color: diPertinRoxo,
-                          ),
-                        ),
+                      Padding(
+                        padding: const EdgeInsets.fromLTRB(16, 16, 16, 8),
+                        child: _sectionTitle('Lojas encontradas', Icons.store_rounded),
                       ),
                       SizedBox(
                         height: 120,
@@ -925,51 +1441,34 @@ class _SearchScreenState extends State<SearchScreen> {
                                 ),
                               ),
                               child: Container(
-                                width: 140,
-                                margin: const EdgeInsets.symmetric(
-                                  horizontal: 5,
-                                  vertical: 5,
-                                ),
+                                width: 130,
+                                margin: const EdgeInsets.symmetric(horizontal: 5, vertical: 4),
                                 decoration: BoxDecoration(
                                   color: Colors.white,
-                                  borderRadius: BorderRadius.circular(15),
-                                  boxShadow: [
-                                    BoxShadow(
-                                      color: Colors.black.withOpacity(0.05),
-                                      blurRadius: 5,
-                                    ),
-                                  ],
-                                  border: Border.all(
-                                    color: diPertinLaranja.withOpacity(0.3),
-                                  ),
+                                  borderRadius: BorderRadius.circular(16),
+                                  border: Border.all(color: Colors.grey.shade200),
                                 ),
                                 child: Column(
                                   mainAxisAlignment: MainAxisAlignment.center,
                                   children: [
-                                    CircleAvatar(
-                                      radius: 25,
-                                      backgroundColor: Colors.grey[200],
-                                      backgroundImage: foto.isNotEmpty
-                                          ? NetworkImage(foto)
-                                          : null,
-                                      child: foto.isEmpty
-                                          ? const Icon(
-                                              Icons.store,
-                                              color: Colors.grey,
-                                            )
-                                          : null,
+                                    Container(
+                                      decoration: BoxDecoration(
+                                        shape: BoxShape.circle,
+                                        border: Border.all(color: diPertinLaranja.withValues(alpha: 0.3), width: 2),
+                                      ),
+                                      child: CircleAvatar(
+                                        radius: 24,
+                                        backgroundColor: Colors.grey[100],
+                                        backgroundImage: foto.isNotEmpty ? NetworkImage(foto) : null,
+                                        child: foto.isEmpty ? Icon(Icons.store_rounded, color: Colors.grey[400], size: 22) : null,
+                                      ),
                                     ),
                                     const SizedBox(height: 8),
                                     Padding(
-                                      padding: const EdgeInsets.symmetric(
-                                        horizontal: 8.0,
-                                      ),
+                                      padding: const EdgeInsets.symmetric(horizontal: 8),
                                       child: Text(
                                         nome,
-                                        style: const TextStyle(
-                                          fontWeight: FontWeight.bold,
-                                          fontSize: 12,
-                                        ),
+                                        style: const TextStyle(fontWeight: FontWeight.w700, fontSize: 12, color: Color(0xFF1E1B4B)),
                                         maxLines: 2,
                                         textAlign: TextAlign.center,
                                         overflow: TextOverflow.ellipsis,
@@ -988,22 +1487,13 @@ class _SearchScreenState extends State<SearchScreen> {
                 }
               }
 
-              // Retorna a coluna final com Lojas + Produtos
               return Column(
                 crossAxisAlignment: CrossAxisAlignment.start,
                 children: [
-                  lojasWidget, // Mostra as lojas no topo (se encontrar alguma)
-                  // 2. RESULTADOS DE PRODUTOS
-                  const Padding(
-                    padding: EdgeInsets.symmetric(horizontal: 15, vertical: 5),
-                    child: Text(
-                      "Produtos",
-                      style: TextStyle(
-                        fontWeight: FontWeight.bold,
-                        fontSize: 16,
-                        color: diPertinRoxo,
-                      ),
-                    ),
+                  lojasWidget,
+                  Padding(
+                    padding: const EdgeInsets.fromLTRB(16, 10, 16, 4),
+                    child: _sectionTitle('Produtos', Icons.inventory_2_rounded),
                   ),
                   StreamBuilder<QuerySnapshot>(
                     stream: FirebaseFirestore.instance
@@ -1023,7 +1513,7 @@ class _SearchScreenState extends State<SearchScreen> {
                       if (!snapshotProdutos.hasData ||
                           snapshotProdutos.data!.docs.isEmpty) {
                         return const Center(
-                          child: Text("Nenhum produto cadastrado."),
+                          child: Text('Nenhum produto cadastrado.'),
                         );
                       }
 
@@ -1040,44 +1530,43 @@ class _SearchScreenState extends State<SearchScreen> {
                         String lojistaIdDoProduto = (p['lojista_id'] ?? '')
                             .toString();
 
-                        // === A MÁGICA REAL ACONTECE AQUI ===
-                        // Se a busca estiver vazia, mostra todos.
-                        // Se não, mostra se o NOME DO PRODUTO bater OU se ele for DESSA LOJA encontrada no passo acima!
+                        if (!lojasIdsDaCidade.contains(lojistaIdDoProduto)) {
+                          return false;
+                        }
+
                         bool passaNomeOuLoja =
                             _buscaNome.isEmpty ||
                             nomeProduto.contains(_buscaNome) ||
                             lojasIdsEncontradas.contains(lojistaIdDoProduto);
 
-                        String cidadeProduto = (p['cidade'] ?? '')
-                            .toString()
-                            .toLowerCase();
-                        bool passaCidadeProduto =
-                            cidadeProduto.isEmpty ||
-                            cidadeProduto == cidadeNorm;
-
-                        return passaCategoria &&
-                            passaNomeOuLoja &&
-                            passaCidadeProduto;
+                        return passaCategoria && passaNomeOuLoja;
                       }).toList();
 
                       if (docs.isEmpty) {
-                        return Center(
-                          child: Padding(
-                            padding: const EdgeInsets.all(30.0),
-                            child: Column(
-                              children: [
-                                Icon(
-                                  Icons.search_off,
-                                  size: 60,
-                                  color: Colors.grey[400],
+                        return Padding(
+                          padding: const EdgeInsets.symmetric(vertical: 40, horizontal: 30),
+                          child: Column(
+                            children: [
+                              Container(
+                                width: 64,
+                                height: 64,
+                                decoration: BoxDecoration(
+                                  color: Colors.grey.shade100,
+                                  borderRadius: BorderRadius.circular(20),
                                 ),
-                                const SizedBox(height: 10),
-                                const Text(
-                                  "Nenhum produto encontrado.",
-                                  style: TextStyle(color: Colors.grey),
-                                ),
-                              ],
-                            ),
+                                child: Icon(Icons.search_off_rounded, size: 32, color: Colors.grey[400]),
+                              ),
+                              const SizedBox(height: 14),
+                              Text(
+                                'Nenhum produto encontrado',
+                                style: TextStyle(fontWeight: FontWeight.w600, fontSize: 15, color: Colors.grey[700]),
+                              ),
+                              const SizedBox(height: 4),
+                              Text(
+                                'Tente buscar com outros termos',
+                                style: TextStyle(fontSize: 13, color: Colors.grey[500]),
+                              ),
+                            ],
                           ),
                         );
                       }
@@ -1102,70 +1591,53 @@ class _SearchScreenState extends State<SearchScreen> {
                               ? p['imagens'][0]
                               : '';
 
-                          return GestureDetector(
-                            onTap: () => Navigator.push(
-                              context,
-                              MaterialPageRoute(
-                                builder: (context) =>
-                                    ProductDetailsScreen(produto: p),
-                              ),
+                          return Material(
+                            color: Colors.white,
+                            shape: RoundedRectangleBorder(
+                              borderRadius: BorderRadius.circular(16),
+                              side: BorderSide(color: Colors.grey.shade200),
                             ),
-                            child: Container(
-                              decoration: BoxDecoration(
-                                color: Colors.white,
-                                borderRadius: BorderRadius.circular(15),
-                                boxShadow: [
-                                  BoxShadow(
-                                    color: Colors.black.withOpacity(0.05),
-                                    blurRadius: 5,
-                                  ),
-                                ],
+                            clipBehavior: Clip.antiAlias,
+                            child: InkWell(
+                              onTap: () => Navigator.push(
+                                context,
+                                MaterialPageRoute(
+                                  builder: (context) => ProductDetailsScreen(produto: p),
+                                ),
                               ),
+                              borderRadius: BorderRadius.circular(16),
                               child: Column(
                                 crossAxisAlignment: CrossAxisAlignment.start,
                                 children: [
                                   Expanded(
                                     child: ClipRRect(
-                                      borderRadius: const BorderRadius.vertical(
-                                        top: Radius.circular(15),
-                                      ),
+                                      borderRadius: const BorderRadius.vertical(top: Radius.circular(16)),
                                       child: Image.network(
                                         img,
                                         width: double.infinity,
                                         fit: BoxFit.cover,
                                         errorBuilder: (c, e, s) => Container(
-                                          color: Colors.grey[200],
-                                          child: const Icon(
-                                            Icons.broken_image,
-                                            color: Colors.grey,
-                                          ),
+                                          color: Colors.grey[100],
+                                          child: Icon(Icons.image_not_supported_outlined, color: Colors.grey[300], size: 32),
                                         ),
                                       ),
                                     ),
                                   ),
                                   Padding(
-                                    padding: const EdgeInsets.all(10.0),
+                                    padding: const EdgeInsets.fromLTRB(10, 10, 10, 12),
                                     child: Column(
-                                      crossAxisAlignment:
-                                          CrossAxisAlignment.start,
+                                      crossAxisAlignment: CrossAxisAlignment.start,
                                       children: [
                                         Text(
                                           p['nome'] ?? '',
-                                          style: const TextStyle(
-                                            fontWeight: FontWeight.bold,
-                                            fontSize: 13,
-                                          ),
+                                          style: const TextStyle(fontWeight: FontWeight.w700, fontSize: 13, color: Color(0xFF1E1B4B)),
                                           maxLines: 2,
                                           overflow: TextOverflow.ellipsis,
                                         ),
                                         const SizedBox(height: 4),
                                         Text(
                                           "R\$ ${(p['preco'] ?? 0.0).toStringAsFixed(2)}",
-                                          style: const TextStyle(
-                                            color: diPertinLaranja,
-                                            fontWeight: FontWeight.bold,
-                                            fontSize: 14,
-                                          ),
+                                          style: const TextStyle(color: diPertinLaranja, fontWeight: FontWeight.w800, fontSize: 14.5),
                                         ),
                                       ],
                                     ),

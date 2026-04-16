@@ -52,12 +52,28 @@ class CartProvider with ChangeNotifier {
   // FUNÇÕES DO CARRINHO
   // ==========================================
   void addItem(CartItemModel product) {
+    addItemWithQuantity(product, 1);
+  }
+
+  /// Adiciona várias unidades de uma vez (detalhe do produto).
+  void addItemWithQuantity(CartItemModel product, int quantidade) {
+    if (quantidade <= 0) return;
     final index = _items.indexWhere((i) => i.id == product.id);
 
     if (index >= 0) {
-      _items[index].quantidade += 1;
+      _items[index].quantidade += quantidade;
     } else {
-      _items.add(product);
+      _items.add(
+        CartItemModel(
+          id: product.id,
+          nome: product.nome,
+          preco: product.preco,
+          lojaId: product.lojaId,
+          lojaNome: product.lojaNome,
+          imagem: product.imagem,
+          quantidade: quantidade,
+        ),
+      );
     }
     notifyListeners();
     _saveCart();

@@ -1,0 +1,14 @@
+{
+  "name": "dipertin-site",
+  "private": true,
+  "type": "module",
+  "scripts": {
+    "sitemap": "node scripts/generate-sitemap.mjs",
+    "ping-sitemap": "node scripts/ping-google-sitemap.mjs",
+    "minify": "npx --yes esbuild js/main.js --minify --outfile=js/main.min.js && npx --yes esbuild js/pixel.js --minify --outfile=js/pixel.min.js && npx --yes esbuild js/config.js --minify --outfile=js/config.min.js && npx --yes esbuild js/product-demo.js --minify --outfile=js/product-demo.min.js && npx --yes esbuild js/loja-demo.js --minify --outfile=js/loja-demo.min.js && npx --yes csso css/styles.css --output css/styles.min.css"
+  },
+  "devDependencies": {
+    "csso-cli": "^4.0.0",
+    "esbuild": "^0.24.0"
+  }
+}

@@ -1,0 +1,5 @@
+# DiPertin — permitir rastreamento. Ajuste a URL do sitemap ao publicar.
+User-agent: *
+Allow: /
+
+Sitemap: https://www.dipertin.com.br/sitemap.xml

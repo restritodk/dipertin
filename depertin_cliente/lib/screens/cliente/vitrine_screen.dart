@@ -2,13 +2,16 @@
 
 import 'dart:async';
 import 'package:cloud_firestore/cloud_firestore.dart';
+import 'package:flutter/foundation.dart';
 import 'package:flutter/material.dart';
 import 'package:intl/intl.dart';
 import 'package:provider/provider.dart';
 import 'package:url_launcher/url_launcher.dart';
+import 'package:depertin_cliente/widgets/loja_rating_row.dart';
 
 import '../../providers/cart_provider.dart';
 import '../../services/location_service.dart';
+import '../../utils/loja_pausa.dart';
 import 'cart_screen.dart';
 import 'product_details_screen.dart';
 import '../lojista/loja_catalogo_screen.dart';
@@ -34,21 +37,37 @@ class _VitrineScreenState extends State<VitrineScreen> {
     return (p['lojista_id'] ?? p['loja_id'] ?? '').toString();
   }
 
-  bool _cidadeCorresponde(String? cidadeBanco, String? ufBanco,
-      String cidadeNorm, String ufNorm) {
-    if (cidadeBanco == null || cidadeBanco.trim().isEmpty) return false;
+  /// Verifica se a cidade do documento bate EXATAMENTE com a cidade do GPS.
+  /// Sem fallback: documento sem cidade = não visível.
+  bool _cidadeCorresponde(
+    Map<String, dynamic> dados,
+    String cidadeNorm,
+    String ufNorm,
+  ) {
+    final cidadeBanco = dados['cidade_normalizada']?.toString().trim() ??
+        dados['cidade']?.toString().trim() ??
+        dados['endereco_cidade']?.toString().trim();
+    if (cidadeBanco == null || cidadeBanco.isEmpty) return false;
     final cidadeNormBanco = LocationService.normalizar(cidadeBanco);
     if (cidadeNormBanco != cidadeNorm) return false;
+
+    final ufBanco = dados['uf']?.toString() ?? dados['estado']?.toString();
     if (ufBanco != null && ufBanco.trim().isNotEmpty) {
       final ufNormBanco =
-          LocationService.extrairUf(ufBanco) ?? LocationService.normalizar(ufBanco);
+          LocationService.extrairUf(ufBanco) ??
+          LocationService.normalizar(ufBanco);
       if (ufNormBanco != ufNorm) return false;
     }
     return true;
   }
 
-  /// Se o produto tiver cidade/UF no documento, deve coincidir com a região do usuário.
-  bool _produtoNaMesmaRegiao(Map<String, dynamic> p, String cidadeNorm, String ufNorm) {
+  /// Produto deve pertencer a uma loja da cidade do GPS.
+  /// Se o produto tiver cidade própria, deve coincidir; senão, depende da loja (já filtrada).
+  bool _produtoNaMesmaRegiao(
+    Map<String, dynamic> p,
+    String cidadeNorm,
+    String ufNorm,
+  ) {
     final cn = p['cidade_normalizada']?.toString().trim();
     if (cn != null && cn.isNotEmpty) {
       return LocationService.normalizar(cn) == cidadeNorm;
@@ -58,71 +77,65 @@ class _VitrineScreenState extends State<VitrineScreen> {
       if (LocationService.normalizar(c) != cidadeNorm) return false;
       final u = p['uf']?.toString() ?? p['estado']?.toString();
       if (u != null && u.trim().isNotEmpty) {
-        final un = LocationService.extrairUf(u) ?? LocationService.normalizar(u);
+        final un =
+            LocationService.extrairUf(u) ?? LocationService.normalizar(u);
         if (un != ufNorm) return false;
       }
       return true;
+    }
+    // Sem cidade no produto: depende exclusivamente do filtro da loja (statusLojas)
+    return true;
+  }
+
+  /// Banner dentro do período configurado no painel (alinhado ao uso de datas).
+  /// Sem `data_inicio`/`data_fim` (legado) → continua visível se `ativo`.
+  bool _bannerDentroDoPeriodoVigente(Map<String, dynamic> data) {
+    final now = DateTime.now();
+    final di = data['data_inicio'];
+    final df = data['data_fim'];
+    if (di == null && df == null) return true;
+    if (di is Timestamp) {
+      if (now.isBefore(di.toDate())) return false;
+    }
+    if (df is Timestamp) {
+      final f = df.toDate();
+      final fimDia =
+          DateTime(f.year, f.month, f.day, 23, 59, 59, 999);
+      if (now.isAfter(fimDia)) return false;
     }
     return true;
   }
 
   List<QueryDocumentSnapshot> _filtrarBannersCidade(
-      List<QueryDocumentSnapshot> banners,
-      String cidadeNorm,
-      String ufNorm) {
+    List<QueryDocumentSnapshot> banners,
+    String cidadeNorm,
+    String ufNorm,
+  ) {
     return banners.where((doc) {
       var data = doc.data() as Map<String, dynamic>;
-      String cidadeBanner =
-          (data['cidade'] ?? 'todas').toString().toLowerCase().trim();
+      if (!_bannerDentroDoPeriodoVigente(data)) return false;
+      String cidadeBanner = (data['cidade'] ?? '')
+          .toString()
+          .toLowerCase()
+          .trim();
       if (cidadeBanner == 'todas') return true;
-      return _cidadeCorresponde(
-          data['cidade']?.toString(), data['uf']?.toString(), cidadeNorm, ufNorm);
+      return _cidadeCorresponde(data, cidadeNorm, ufNorm);
     }).toList();
   }
 
   bool _verificarSeLojaEstaAberta(Map<String, dynamic> loja) {
-    if (loja['pausado_manualmente'] == true) return false;
-    if (!loja.containsKey('horarios') || loja['horarios'] == null) {
-      return loja['loja_aberta'] ?? true;
+    return LojaPausa.lojaEstaAberta(loja);
+  }
+
+  /// Nome da loja (Config. operacional: `loja_nome` em [users]), não o nome do perfil (`nome`).
+  String _nomeLojaParaCardVitrine(Map<String, dynamic> lojaData) {
+    for (final key in ['loja_nome', 'nome_loja']) {
+      final v = lojaData[key]?.toString().trim();
+      if (v != null && v.isNotEmpty) return v;
     }
-
-    Map<String, dynamic> horarios = loja['horarios'];
-    DateTime agora = DateTime.now();
-    List<String> diasDaSemana = [
-      'segunda',
-      'terca',
-      'quarta',
-      'quinta',
-      'sexta',
-      'sabado',
-      'domingo',
-    ];
-    String diaDeHoje = diasDaSemana[agora.weekday - 1];
-
-    if (horarios[diaDeHoje] == null || horarios[diaDeHoje]['ativo'] == false) {
-      return false;
-    }
-
-    try {
-      String horaAbre = horarios[diaDeHoje]['abre'];
-      String horaFecha = horarios[diaDeHoje]['fecha'];
-      int minAtual = agora.hour * 60 + agora.minute;
-      int minAbre =
-          int.parse(horaAbre.split(':')[0]) * 60 +
-          int.parse(horaAbre.split(':')[1]);
-      int minFecha =
-          int.parse(horaFecha.split(':')[0]) * 60 +
-          int.parse(horaFecha.split(':')[1]);
-
-      if (minFecha < minAbre) {
-        if (minAtual >= minAbre || minAtual <= minFecha) return true;
-      } else {
-        if (minAtual >= minAbre && minAtual <= minFecha) return true;
-      }
-    } catch (e) {
-      return true;
-    }
-    return false;
+    final n = lojaData['nome']?.toString().trim();
+    if (n != null && n.isNotEmpty) return n;
+    return 'Loja Parceira';
   }
 
   @override
@@ -134,7 +147,7 @@ class _VitrineScreenState extends State<VitrineScreen> {
 
     if (!locationService.cidadePronta) {
       return Scaffold(
-        backgroundColor: Colors.grey[200],
+        backgroundColor: Colors.grey[100],
         appBar: AppBar(
           backgroundColor: diPertinRoxo,
           elevation: 0,
@@ -154,32 +167,43 @@ class _VitrineScreenState extends State<VitrineScreen> {
     }
 
     return Scaffold(
-      backgroundColor: Colors.grey[200],
+      backgroundColor: Colors.grey[100],
       appBar: AppBar(
         backgroundColor: diPertinRoxo,
         elevation: 0,
+        toolbarHeight: 92,
         title: Column(
           crossAxisAlignment: CrossAxisAlignment.start,
+          mainAxisSize: MainAxisSize.min,
           children: [
             const Text(
-              "DiPertin - O que você precisa, bem aqui!",
+              'DiPertin',
               style: TextStyle(
                 color: Colors.white,
                 fontWeight: FontWeight.bold,
                 fontSize: 20,
               ),
             ),
+            Text(
+              'O que você precisa, bem aqui',
+              style: TextStyle(
+                color: Colors.white.withValues(alpha: 0.88),
+                fontSize: 12,
+                fontWeight: FontWeight.w500,
+              ),
+            ),
+            const SizedBox(height: 4),
             Row(
               children: [
-                const Icon(
-                  Icons.location_on,
-                  size: 12,
-                  color: diPertinLaranja,
-                ),
+                const Icon(Icons.location_on, size: 13, color: diPertinLaranja),
                 const SizedBox(width: 4),
-                Text(
-                  cidadeExibicao,
-                  style: const TextStyle(color: Colors.white70, fontSize: 12),
+                Expanded(
+                  child: Text(
+                    'Comprando em $cidadeExibicao',
+                    style: const TextStyle(color: Colors.white70, fontSize: 12),
+                    maxLines: 1,
+                    overflow: TextOverflow.ellipsis,
+                  ),
                 ),
               ],
             ),
@@ -188,7 +212,7 @@ class _VitrineScreenState extends State<VitrineScreen> {
         actions: [
           IconButton(
             icon: const Icon(Icons.my_location, color: Colors.white),
-            tooltip: "Atualizar cidade pelo GPS",
+            tooltip: 'Atualizar cidade pelo GPS',
             onPressed: locationService.detectandoCidade
                 ? null
                 : () => locationService.detectarCidade(),
@@ -198,6 +222,7 @@ class _VitrineScreenState extends State<VitrineScreen> {
             children: [
               IconButton(
                 icon: const Icon(Icons.shopping_cart, color: Colors.white),
+                tooltip: 'Abrir carrinho',
                 onPressed: () => Navigator.push(
                   context,
                   MaterialPageRoute(builder: (context) => const CartScreen()),
@@ -243,253 +268,272 @@ class _VitrineScreenState extends State<VitrineScreen> {
               List<QueryDocumentSnapshot> bannersDoBanco = [];
               if (snapshot.hasData && snapshot.data!.docs.isNotEmpty) {
                 bannersDoBanco = _filtrarBannersCidade(
-                    snapshot.data!.docs, cidadeNorm, ufNorm);
+                  snapshot.data!.docs,
+                  cidadeNorm,
+                  ufNorm,
+                );
               }
 
               return Container(
-                margin: const EdgeInsets.symmetric(vertical: 10),
-                child: AutoSlidingBanner(banners: bannersDoBanco, altura: 150),
+                margin: EdgeInsets.symmetric(
+                  vertical: bannersDoBanco.isEmpty ? 6 : 10,
+                ),
+                child: AutoSlidingBanner(
+                  banners: bannersDoBanco,
+                  altura: 150,
+                  paddingHorizontal: 16,
+                ),
               );
             },
           ),
 
           Padding(
-            padding: const EdgeInsets.symmetric(horizontal: 15.0, vertical: 5),
-            child: Align(
-              alignment: Alignment.centerLeft,
-              child: Text(
-                "Destaques da sua região — $cidadeExibicao",
-                style: const TextStyle(
-                  fontSize: 18,
-                  fontWeight: FontWeight.bold,
-                  color: Colors.black87,
+            padding: const EdgeInsets.fromLTRB(16, 8, 16, 4),
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                Text(
+                  'Destaques da sua região — $cidadeExibicao',
+                  style: const TextStyle(
+                    fontSize: 18,
+                    fontWeight: FontWeight.bold,
+                    color: Colors.black87,
+                  ),
                 ),
-              ),
+                const SizedBox(height: 4),
+                Text(
+                  'Lojas abertas no horário aparecem primeiro. Toque no produto '
+                  'para ver detalhes ou na loja para ver o cardápio.',
+                  style: TextStyle(
+                    fontSize: 13,
+                    height: 1.35,
+                    color: Colors.grey[700],
+                  ),
+                ),
+              ],
             ),
           ),
 
           // 2. VITRINE DE PRODUTOS
           Expanded(
             child: StreamBuilder<QuerySnapshot>(
-                    stream: FirebaseFirestore.instance
-                        .collection('users')
-                        .where('role', isEqualTo: 'lojista')
-                        .snapshots(),
-                    builder: (context, snapshotLojas) {
-                      if (snapshotLojas.connectionState ==
-                          ConnectionState.waiting) {
-                        return const Center(
-                          child: CircularProgressIndicator(color: diPertinRoxo),
-                        );
-                      }
-                      if (!snapshotLojas.hasData ||
-                          snapshotLojas.data!.docs.isEmpty) {
-                        return const Center(
-                          child: Text(
-                            "Nenhuma loja vendendo nesta cidade ainda.",
-                            style: TextStyle(color: Colors.grey),
-                          ),
-                        );
-                      }
+              stream: FirebaseFirestore.instance
+                  .collection('users')
+                  .where('role', isEqualTo: 'lojista')
+                  .snapshots(),
+              builder: (context, snapshotLojas) {
+                if (snapshotLojas.connectionState == ConnectionState.waiting &&
+                    !snapshotLojas.hasData) {
+                  return const Center(
+                    child: CircularProgressIndicator(color: diPertinRoxo),
+                  );
+                }
+                if (!snapshotLojas.hasData ||
+                    snapshotLojas.data!.docs.isEmpty) {
+                  return _listaComPullParaVazio(
+                    _painelVazio(
+                      Icons.store_mall_directory_outlined,
+                      'Nenhuma loja nesta cidade ainda',
+                      'Quando houver lojas parceiras aprovadas, os '
+                          'produtos aparecem aqui. Você pode atualizar a '
+                          'localização pelo ícone de GPS no topo.',
+                    ),
+                  );
+                }
 
-                      Map<String, bool> statusLojas = {};
-                      Map<String, String> nomesLojas = {};
+                Map<String, bool> statusLojas = {};
+                Map<String, Map<String, dynamic>> dadosLojasPorId = {};
+                Map<String, String> nomesLojas = {};
+                Map<String, double?> ratingMediaLojas = {};
+                Map<String, int> totalAvaliacoesLojas = {};
 
-                      for (var doc in snapshotLojas.data!.docs) {
-                        var lojaData = doc.data() as Map<String, dynamic>;
+                for (var doc in snapshotLojas.data!.docs) {
+                  var lojaData = doc.data() as Map<String, dynamic>;
+                  dadosLojasPorId[doc.id] = lojaData;
 
-                        if (!_cidadeCorresponde(
-                            lojaData['cidade']?.toString(),
-                            lojaData['uf']?.toString() ??
-                                lojaData['estado']?.toString(),
-                            cidadeNorm,
-                            ufNorm)) {
-                          continue;
-                        }
+                  if (!_cidadeCorresponde(lojaData, cidadeNorm, ufNorm)) {
+                    continue;
+                  }
 
-                        String status = lojaData['status_loja'] ?? 'pendente';
-                        if (status != 'aprovada' && status != 'aprovado') {
-                          continue;
-                        }
+                  String status = lojaData['status_loja'] ?? 'pendente';
+                  if (status != 'aprovada' &&
+                      status != 'aprovado' &&
+                      status != 'ativo') {
+                    continue;
+                  }
 
-                        statusLojas[doc.id] = _verificarSeLojaEstaAberta(
-                          lojaData,
-                        );
-                        nomesLojas[doc.id] =
-                            lojaData['nome_loja'] ??
-                            lojaData['nome'] ??
-                            'Loja Parceira';
-                      }
+                  statusLojas[doc.id] = _verificarSeLojaEstaAberta(lojaData);
+                  nomesLojas[doc.id] = _nomeLojaParaCardVitrine(lojaData);
+                  ratingMediaLojas[doc.id] =
+                      (lojaData['rating_media'] as num?)?.toDouble();
+                  totalAvaliacoesLojas[doc.id] =
+                      (lojaData['total_avaliacoes'] as num?)?.toInt() ?? 0;
+                }
 
-                      debugPrint("[LOJAS] total: ${snapshotLojas.data!.docs.length} | filtradas '$cidadeExibicao': ${statusLojas.length}");
+                if (kDebugMode) {
+                  debugPrint(
+                    '[LOJAS] total: ${snapshotLojas.data!.docs.length} | '
+                    "filtradas '$cidadeExibicao': ${statusLojas.length}",
+                  );
+                }
 
-                      if (statusLojas.isEmpty) {
-                        return const Center(
-                          child: Text(
-                            "Nenhuma loja vendendo nesta cidade ainda.",
-                            style: TextStyle(color: Colors.grey),
-                          ),
-                        );
-                      }
+                if (statusLojas.isEmpty) {
+                  return _listaComPullParaVazio(
+                    _painelVazio(
+                      Icons.store_mall_directory_outlined,
+                      'Nenhuma loja disponível na sua região',
+                      'Não há lojas aprovadas para esta cidade no momento. '
+                          'Tente novamente mais tarde.',
+                    ),
+                  );
+                }
 
-                      return StreamBuilder<QuerySnapshot>(
-                        stream: FirebaseFirestore.instance
-                            .collection('banners')
-                            .where('ativo', isEqualTo: true)
-                            .snapshots(),
-                        builder: (context, snapshotBanners) {
-                          return StreamBuilder<QuerySnapshot>(
-                            stream: FirebaseFirestore.instance
-                                .collection('produtos')
-                                .where('ativo', isEqualTo: true)
-                                .snapshots(),
-                            builder: (context, snapshotProdutos) {
-                              if (snapshotProdutos.connectionState ==
-                                  ConnectionState.waiting) {
-                                return const Center(
-                                  child: CircularProgressIndicator(
-                                    color: diPertinRoxo,
-                                  ),
-                                );
-                              }
-                              if (!snapshotProdutos.hasData ||
-                                  snapshotProdutos.data!.docs.isEmpty) {
-                                return const Center(
-                                  child: Text(
-                                    "Nenhum produto disponível.",
-                                    style: TextStyle(color: Colors.grey),
-                                  ),
-                                );
-                              }
-
-                              List<QueryDocumentSnapshot> produtosFiltrados =
-                                  snapshotProdutos.data!.docs.where((doc) {
-                                    var p = doc.data() as Map<String, dynamic>;
-                                    if (!statusLojas.containsKey(
-                                        _donoProduto(p))) {
-                                      return false;
-                                    }
-                                    return _produtoNaMesmaRegiao(
-                                        p, cidadeNorm, ufNorm);
-                                  }).toList();
-
-                              debugPrint("[PRODUTOS] antes filtro: ${snapshotProdutos.data!.docs.length} | após filtro cidade: ${produtosFiltrados.length}");
-
-                              if (produtosFiltrados.isEmpty) {
-                                return const Center(
-                                  child: Text(
-                                    "Nenhum produto cadastrado pelas lojas desta cidade.",
-                                    style: TextStyle(color: Colors.grey),
-                                  ),
-                                );
-                              }
-
-                              produtosFiltrados.sort((a, b) {
-                                var pA = a.data() as Map<String, dynamic>;
-                                var pB = b.data() as Map<String, dynamic>;
-                                bool abertaA =
-                                    statusLojas[_donoProduto(pA)] ?? true;
-                                bool abertaB =
-                                    statusLojas[_donoProduto(pB)] ?? true;
-                                if (abertaA && !abertaB) return -1;
-                                if (!abertaA && abertaB) return 1;
-                                return 0;
-                              });
-
-                              final bannersDoBanco = _filtrarBannersCidade(
-                                  snapshotBanners.data?.docs ?? [],
-                                  cidadeNorm,
-                                  ufNorm);
-                              List<Widget> itensDaVitrine = [];
-
-                              for (
-                                int i = 0;
-                                i < produtosFiltrados.length;
-                                i += 2
-                              ) {
-                                var prod1 =
-                                    produtosFiltrados[i].data()
-                                        as Map<String, dynamic>;
-                                prod1['id_documento'] = produtosFiltrados[i].id;
-                                prod1['loja_nome_vitrine'] =
-                                    nomesLojas[_donoProduto(prod1)];
-                                prod1['loja_aberta'] =
-                                    statusLojas[_donoProduto(prod1)];
-
-                                Map<String, dynamic>? prod2;
-                                if (i + 1 < produtosFiltrados.length) {
-                                  prod2 =
-                                      produtosFiltrados[i + 1].data()
-                                          as Map<String, dynamic>;
-                                  prod2['id_documento'] =
-                                      produtosFiltrados[i + 1].id;
-                                  prod2['loja_nome_vitrine'] =
-                                      nomesLojas[_donoProduto(prod2)];
-                                  prod2['loja_aberta'] =
-                                      statusLojas[_donoProduto(prod2)];
-                                }
-
-                                itensDaVitrine.add(
-                                  Padding(
-                                    padding: const EdgeInsets.only(bottom: 12),
-                                    child: SizedBox(
-                                      height: 272,
-                                      child: Row(
-                                        children: [
-                                          Expanded(
-                                            child: _buildProductCard(
-                                              context,
-                                              prod1,
-                                            ),
-                                          ),
-                                          const SizedBox(width: 12),
-                                          Expanded(
-                                            child: prod2 != null
-                                                ? _buildProductCard(
-                                                    context,
-                                                    prod2,
-                                                  )
-                                                : const SizedBox(),
-                                          ),
-                                        ],
-                                      ),
-                                    ),
-                                  ),
-                                );
-
-                                // BANNERS A CADA 30 PRODUTOS (10 Linhas)
-                                // Removido o bloqueio. Vai exibir mesmo se só tiver o banner estático!
-                                if ((i + 2) % 30 == 0 &&
-                                    (i + 2) < produtosFiltrados.length) {
-                                  itensDaVitrine.add(
-                                    Padding(
-                                      padding: const EdgeInsets.only(
-                                        bottom: 15,
-                                        top: 5,
-                                      ),
-                                      child: AutoSlidingBanner(
-                                        banners: bannersDoBanco,
-                                        altura: 120,
-                                      ),
-                                    ),
-                                  );
-                                }
-                              }
-
-                              return ListView(
-                                padding: const EdgeInsets.symmetric(
-                                  horizontal: 12,
-                                ),
-                                children: itensDaVitrine,
-                              );
-                            },
+                return StreamBuilder<QuerySnapshot>(
+                  stream: FirebaseFirestore.instance
+                      .collection('banners')
+                      .where('ativo', isEqualTo: true)
+                      .snapshots(),
+                  builder: (context, snapshotBanners) {
+                    return StreamBuilder<QuerySnapshot>(
+                      stream: FirebaseFirestore.instance
+                          .collection('produtos')
+                          .where('ativo', isEqualTo: true)
+                          .snapshots(),
+                      builder: (context, snapshotProdutos) {
+                        if (snapshotProdutos.connectionState ==
+                                ConnectionState.waiting &&
+                            !snapshotProdutos.hasData) {
+                          return const Center(
+                            child: CircularProgressIndicator(
+                              color: diPertinRoxo,
+                            ),
                           );
-                        },
-                      );
-                    },
-                  ),
+                        }
+                        if (!snapshotProdutos.hasData ||
+                            snapshotProdutos.data!.docs.isEmpty) {
+                          return _listaComPullParaVazio(
+                            _painelVazio(
+                              Icons.inventory_2_outlined,
+                              'Nenhum produto cadastrado',
+                              'As lojas da região ainda não publicaram '
+                                  'itens. Volte em breve.',
+                            ),
+                          );
+                        }
+
+                        List<QueryDocumentSnapshot> produtosFiltrados =
+                            snapshotProdutos.data!.docs.where((doc) {
+                              var p = doc.data() as Map<String, dynamic>;
+                              if (!statusLojas.containsKey(_donoProduto(p))) {
+                                return false;
+                              }
+                              return _produtoNaMesmaRegiao(
+                                p,
+                                cidadeNorm,
+                                ufNorm,
+                              );
+                            }).toList();
+
+                        if (kDebugMode) {
+                          debugPrint(
+                            '[PRODUTOS] antes filtro: '
+                            '${snapshotProdutos.data!.docs.length} | '
+                            'após filtro cidade: ${produtosFiltrados.length}',
+                          );
+                        }
+
+                        if (produtosFiltrados.isEmpty) {
+                          return _listaComPullParaVazio(
+                            _painelVazio(
+                              Icons.shopping_bag_outlined,
+                              'Nenhum produto para mostrar',
+                              'Não há produtos ativos das lojas desta cidade '
+                                  'no momento. Puxe para atualizar.',
+                            ),
+                          );
+                        }
+
+                        final bannersDoBanco = _filtrarBannersCidade(
+                          snapshotBanners.data?.docs ?? [],
+                          cidadeNorm,
+                          ufNorm,
+                        );
+
+                        return _VitrineListaProdutosComPausa(
+                          produtosFiltrados: produtosFiltrados,
+                          dadosLojasPorId: dadosLojasPorId,
+                          nomesLojas: nomesLojas,
+                          ratingMediaLojas: ratingMediaLojas,
+                          totalAvaliacoesLojas: totalAvaliacoesLojas,
+                          bannersDoBanco: bannersDoBanco,
+                          buildCard: _buildProductCard,
+                          donoProduto: _donoProduto,
+                        );
+                      },
+                    );
+                  },
+                );
+              },
+            ),
           ),
         ],
+      ),
+    );
+  }
+
+  Widget _painelVazio(IconData icon, String titulo, String subtitulo) {
+    return Center(
+      child: Padding(
+        padding: const EdgeInsets.symmetric(horizontal: 28),
+        child: Column(
+          mainAxisAlignment: MainAxisAlignment.center,
+          children: [
+            Icon(icon, size: 64, color: Colors.grey[400]),
+            const SizedBox(height: 16),
+            Text(
+              titulo,
+              textAlign: TextAlign.center,
+              style: TextStyle(
+                fontSize: 17,
+                fontWeight: FontWeight.w600,
+                color: Colors.grey[800],
+              ),
+            ),
+            const SizedBox(height: 8),
+            Text(
+              subtitulo,
+              textAlign: TextAlign.center,
+              style: TextStyle(
+                fontSize: 14,
+                height: 1.35,
+                color: Colors.grey[600],
+              ),
+            ),
+          ],
+        ),
+      ),
+    );
+  }
+
+  Widget _listaComPullParaVazio(Widget painel) {
+    return RefreshIndicator(
+      color: diPertinLaranja,
+      onRefresh: () async {
+        await Future<void>.delayed(const Duration(milliseconds: 450));
+      },
+      child: LayoutBuilder(
+        builder: (context, constraints) {
+          final h = constraints.maxHeight;
+          return ListView(
+            physics: const AlwaysScrollableScrollPhysics(),
+            children: [
+              SizedBox(
+                height: h.isFinite && h > 120 ? h * 0.88 : 420,
+                child: painel,
+              ),
+            ],
+          );
+        },
       ),
     );
   }
@@ -507,10 +551,13 @@ class _VitrineScreenState extends State<VitrineScreen> {
     final double? precoOriginal = (produto['preco'] as num?)?.toDouble();
     final double? precoOferta = (produto['oferta'] as num?)?.toDouble();
     final bool temOferta =
-        precoOferta != null && precoOriginal != null && precoOferta < precoOriginal;
-    final double precoFinal =
-        temOferta ? precoOferta : (precoOriginal ?? 0.0);
+        precoOferta != null &&
+        precoOriginal != null &&
+        precoOferta < precoOriginal;
+    final double precoFinal = temOferta ? precoOferta : (precoOriginal ?? 0.0);
     final bool lojaAberta = produto['loja_aberta'] != false;
+    final String motivoPausaPublico =
+        (produto['loja_pausa_motivo_publico'] as String?) ?? '';
 
     void abrirDetalhes() {
       Navigator.push(
@@ -550,7 +597,7 @@ class _VitrineScreenState extends State<VitrineScreen> {
             crossAxisAlignment: CrossAxisAlignment.stretch,
             children: [
               Expanded(
-                flex: 58,
+                flex: 52,
                 child: ClipRRect(
                   borderRadius: const BorderRadius.vertical(
                     top: Radius.circular(radius),
@@ -580,7 +627,8 @@ class _VitrineScreenState extends State<VitrineScreen> {
                               ),
                             );
                           },
-                          errorBuilder: (c, e, s) => _placeholderImagemProduto(),
+                          errorBuilder: (c, e, s) =>
+                              _placeholderImagemProduto(),
                         )
                       else
                         _placeholderImagemProduto(),
@@ -647,20 +695,27 @@ class _VitrineScreenState extends State<VitrineScreen> {
                           top: 8,
                           right: 8,
                           child: Container(
+                            constraints: const BoxConstraints(maxWidth: 148),
                             padding: const EdgeInsets.symmetric(
                               horizontal: 8,
-                              vertical: 4,
+                              vertical: 5,
                             ),
                             decoration: BoxDecoration(
                               color: Colors.black.withValues(alpha: 0.62),
-                              borderRadius: BorderRadius.circular(20),
+                              borderRadius: BorderRadius.circular(10),
                             ),
-                            child: const Text(
-                              'Fechada',
-                              style: TextStyle(
+                            child: Text(
+                              motivoPausaPublico.isNotEmpty
+                                  ? motivoPausaPublico
+                                  : 'Fechada',
+                              maxLines: 3,
+                              overflow: TextOverflow.ellipsis,
+                              textAlign: TextAlign.right,
+                              style: const TextStyle(
                                 color: Colors.white,
-                                fontSize: 10,
+                                fontSize: 9.5,
                                 fontWeight: FontWeight.w700,
+                                height: 1.2,
                               ),
                             ),
                           ),
@@ -670,38 +725,43 @@ class _VitrineScreenState extends State<VitrineScreen> {
                 ),
               ),
               Expanded(
-                flex: 42,
+                flex: 48,
                 child: Padding(
-                  padding: const EdgeInsets.fromLTRB(12, 10, 12, 10),
+                  padding: const EdgeInsets.fromLTRB(10, 8, 10, 8),
                   child: Column(
                     crossAxisAlignment: CrossAxisAlignment.start,
                     children: [
-                      Text(
-                        produto['nome'] ?? 'Sem nome',
-                        style: const TextStyle(
-                          fontWeight: FontWeight.w700,
-                          fontSize: 14,
-                          height: 1.22,
-                          letterSpacing: -0.2,
-                          color: Color(0xFF1A1A2E),
+                      Flexible(
+                        flex: 2,
+                        child: Text(
+                          produto['nome'] ?? 'Sem nome',
+                          style: const TextStyle(
+                            fontWeight: FontWeight.w700,
+                            fontSize: 14,
+                            height: 1.2,
+                            letterSpacing: -0.2,
+                            color: Color(0xFF1A1A2E),
+                          ),
+                          maxLines: 2,
+                          overflow: TextOverflow.ellipsis,
                         ),
-                        maxLines: 2,
-                        overflow: TextOverflow.ellipsis,
                       ),
-                      const SizedBox(height: 6),
+                      const SizedBox(height: 4),
                       Material(
                         color: const Color(0xFFF3E5F5).withValues(alpha: 0.65),
                         borderRadius: BorderRadius.circular(8),
                         child: InkWell(
                           onTap: () {
-                            final id = produto['lojista_id'] ?? produto['loja_id'];
+                            final id =
+                                produto['lojista_id'] ?? produto['loja_id'];
                             if (id != null && '$id'.isNotEmpty) {
                               Navigator.push(
                                 context,
                                 MaterialPageRoute(
                                   builder: (context) => LojaCatalogoScreen(
                                     lojaId: '$id',
-                                    nomeLoja: produto['loja_nome_vitrine'] ??
+                                    nomeLoja:
+                                        produto['loja_nome_vitrine'] ??
                                         'Loja parceira',
                                   ),
                                 ),
@@ -727,7 +787,9 @@ class _VitrineScreenState extends State<VitrineScreen> {
                                     produto['loja_nome_vitrine'] ??
                                         'Loja parceira',
                                     style: TextStyle(
-                                      color: diPertinRoxo.withValues(alpha: 0.9),
+                                      color: diPertinRoxo.withValues(
+                                        alpha: 0.9,
+                                      ),
                                       fontSize: 11,
                                       fontWeight: FontWeight.w600,
                                     ),
@@ -738,6 +800,19 @@ class _VitrineScreenState extends State<VitrineScreen> {
                               ],
                             ),
                           ),
+                        ),
+                      ),
+                      Padding(
+                        padding: const EdgeInsets.only(left: 4, top: 2, right: 4),
+                        child: LojaRatingRow(
+                          media:
+                              (produto['loja_rating_media'] as num?)?.toDouble(),
+                          total:
+                              (produto['loja_total_avaliacoes'] as num?)?.toInt() ??
+                              0,
+                          dense: true,
+                          fontSize: 10,
+                          iconSize: 12,
                         ),
                       ),
                       const Spacer(),
@@ -820,17 +895,186 @@ class _VitrineScreenState extends State<VitrineScreen> {
   }
 }
 
+/// Lista da vitrine + timer só aqui: reavalia pausa/almoço sem dar `setState` na tela inteira
+/// (evita “piscar” a cada leitura do Firestore ou tick do timer).
+class _VitrineListaProdutosComPausa extends StatefulWidget {
+  const _VitrineListaProdutosComPausa({
+    required this.produtosFiltrados,
+    required this.dadosLojasPorId,
+    required this.nomesLojas,
+    required this.ratingMediaLojas,
+    required this.totalAvaliacoesLojas,
+    required this.bannersDoBanco,
+    required this.buildCard,
+    required this.donoProduto,
+  });
+
+  final List<QueryDocumentSnapshot> produtosFiltrados;
+  final Map<String, Map<String, dynamic>> dadosLojasPorId;
+  final Map<String, String> nomesLojas;
+  final Map<String, double?> ratingMediaLojas;
+  final Map<String, int> totalAvaliacoesLojas;
+  final List<QueryDocumentSnapshot> bannersDoBanco;
+  final Widget Function(BuildContext, Map<String, dynamic>) buildCard;
+  final String Function(Map<String, dynamic>) donoProduto;
+
+  @override
+  State<_VitrineListaProdutosComPausa> createState() =>
+      _VitrineListaProdutosComPausaState();
+}
+
+class _VitrineListaProdutosComPausaState
+    extends State<_VitrineListaProdutosComPausa> {
+  /// Reavalia horário de pausa sem rebuild do Scaffold/StreamBuilders externos.
+  Timer? _timerReavaliaPausa;
+
+  @override
+  void initState() {
+    super.initState();
+    _timerReavaliaPausa = Timer.periodic(const Duration(seconds: 45), (_) {
+      if (mounted) setState(() {});
+    });
+  }
+
+  @override
+  void dispose() {
+    _timerReavaliaPausa?.cancel();
+    super.dispose();
+  }
+
+  Map<String, bool> _statusLojasAgora() {
+    final m = <String, bool>{};
+    for (final id in widget.nomesLojas.keys) {
+      final d = widget.dadosLojasPorId[id];
+      if (d != null) {
+        m[id] = LojaPausa.lojaEstaAberta(d);
+      }
+    }
+    return m;
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    final statusLojas = _statusLojasAgora();
+    final produtos = List<QueryDocumentSnapshot>.from(widget.produtosFiltrados)
+      ..sort((a, b) {
+        final pA = a.data() as Map<String, dynamic>;
+        final pB = b.data() as Map<String, dynamic>;
+        final abertaA = statusLojas[widget.donoProduto(pA)] ?? true;
+        final abertaB = statusLojas[widget.donoProduto(pB)] ?? true;
+        if (abertaA && !abertaB) return -1;
+        if (!abertaA && abertaB) return 1;
+        return 0;
+      });
+
+    final itensDaVitrine = <Widget>[];
+
+    for (var i = 0; i < produtos.length; i += 2) {
+      var prod1 = produtos[i].data() as Map<String, dynamic>;
+      prod1 = Map<String, dynamic>.from(prod1);
+      prod1['id_documento'] = produtos[i].id;
+      final idLoja1 = widget.donoProduto(prod1);
+      prod1['loja_nome_vitrine'] = widget.nomesLojas[idLoja1];
+      prod1['loja_aberta'] = statusLojas[idLoja1];
+      final dl1 = widget.dadosLojasPorId[idLoja1];
+      prod1['loja_pausa_motivo_publico'] =
+          dl1 != null ? LojaPausa.textoMotivoPublico(dl1) : '';
+      prod1['loja_rating_media'] = widget.ratingMediaLojas[idLoja1];
+      prod1['loja_total_avaliacoes'] =
+          widget.totalAvaliacoesLojas[idLoja1] ?? 0;
+
+      Map<String, dynamic>? prod2;
+      if (i + 1 < produtos.length) {
+        prod2 = produtos[i + 1].data() as Map<String, dynamic>;
+        prod2 = Map<String, dynamic>.from(prod2);
+        prod2['id_documento'] = produtos[i + 1].id;
+        final idLoja2 = widget.donoProduto(prod2);
+        prod2['loja_nome_vitrine'] = widget.nomesLojas[idLoja2];
+        prod2['loja_aberta'] = statusLojas[idLoja2];
+        final dl2 = widget.dadosLojasPorId[idLoja2];
+        prod2['loja_pausa_motivo_publico'] =
+            dl2 != null ? LojaPausa.textoMotivoPublico(dl2) : '';
+        prod2['loja_rating_media'] = widget.ratingMediaLojas[idLoja2];
+        prod2['loja_total_avaliacoes'] =
+            widget.totalAvaliacoesLojas[idLoja2] ?? 0;
+      }
+
+      itensDaVitrine.add(
+        Padding(
+          padding: const EdgeInsets.only(bottom: 12),
+          child: SizedBox(
+            height: 280,
+            child: Row(
+              children: [
+                Expanded(
+                  child: widget.buildCard(context, prod1),
+                ),
+                const SizedBox(width: 12),
+                Expanded(
+                  child: prod2 != null
+                      ? widget.buildCard(context, prod2)
+                      : const SizedBox(),
+                ),
+              ],
+            ),
+          ),
+        ),
+      );
+
+      if ((i + 2) % 30 == 0 && (i + 2) < produtos.length) {
+        itensDaVitrine.add(
+          Padding(
+            padding: const EdgeInsets.only(bottom: 15, top: 5),
+            child: AutoSlidingBanner(
+              banners: widget.bannersDoBanco,
+              altura: 120,
+              paddingHorizontal: 0,
+            ),
+          ),
+        );
+      }
+    }
+
+    return RefreshIndicator(
+      color: diPertinLaranja,
+      onRefresh: () async {
+        try {
+          await FirebaseFirestore.instance
+              .collection('banners')
+              .where('ativo', isEqualTo: true)
+              .get(const GetOptions(source: Source.server));
+        } catch (_) {}
+        await Future<void>.delayed(const Duration(milliseconds: 200));
+      },
+      child: RepaintBoundary(
+        child: ListView(
+          key: const PageStorageKey<String>('vitrine_lista_produtos'),
+          physics: const AlwaysScrollableScrollPhysics(),
+          padding: const EdgeInsets.symmetric(horizontal: 12),
+          children: itensDaVitrine,
+        ),
+      ),
+    );
+  }
+}
+
 // ==========================================
-// CARROSSEL ANIMADO INTELIGENTE E SUAVE
+// Carrossel de banners (altura fixa, card único, indicadores)
 // ==========================================
 class AutoSlidingBanner extends StatefulWidget {
   final List<QueryDocumentSnapshot> banners;
   final double altura;
+
+  /// Recuo lateral do card. Use `0` quando o pai já tiver padding (ex.: lista da vitrine).
+  final double paddingHorizontal;
+
   const AutoSlidingBanner({
     super.key,
     required this.banners,
     required this.altura,
+    this.paddingHorizontal = 16,
   });
+
   @override
   State<AutoSlidingBanner> createState() => _AutoSlidingBannerState();
 }
@@ -839,21 +1083,21 @@ class _AutoSlidingBannerState extends State<AutoSlidingBanner> {
   late PageController _pageController;
   Timer? _timer;
   int _totalItems = 0;
-  int _currentPage = 0;
+
+  /// Índice lógico da página (inclui loop infinito).
+  int _paginaAtual = 0;
 
   @override
   void initState() {
     super.initState();
 
-    _totalItems = widget.banners.length + 1;
+    _totalItems = widget.banners.length;
 
-    // A MÁGICA REAL: Usamos um número gigante que é MÚLTIPLO EXATO do total.
-    // Assim o Flutter abre na primeira página silenciosamente e o timer só pula +1.
-    _currentPage = _totalItems * 1000;
+    _paginaAtual = _totalItems > 0 ? _totalItems * 1000 : 0;
 
     _pageController = PageController(
-      initialPage: _currentPage,
-      viewportFraction: 0.9,
+      initialPage: _paginaAtual,
+      viewportFraction: 1,
     );
 
     _iniciarAnimacao();
@@ -864,9 +1108,9 @@ class _AutoSlidingBannerState extends State<AutoSlidingBanner> {
     if (_totalItems > 1) {
       _timer = Timer.periodic(const Duration(seconds: 4), (Timer timer) {
         if (_pageController.hasClients) {
-          _currentPage++;
+          _paginaAtual++;
           _pageController.animateToPage(
-            _currentPage,
+            _paginaAtual,
             duration: const Duration(milliseconds: 800),
             curve: Curves.fastOutSlowIn,
           );
@@ -878,13 +1122,12 @@ class _AutoSlidingBannerState extends State<AutoSlidingBanner> {
   @override
   void didUpdateWidget(AutoSlidingBanner oldWidget) {
     super.didUpdateWidget(oldWidget);
-    int novosTotal = widget.banners.length + 1;
+    final int novosTotal = widget.banners.length;
     if (_totalItems != novosTotal) {
       _totalItems = novosTotal;
-      // Se vier um novo banner do Firebase, recalcula o ponto silenciosamente
-      _currentPage = _totalItems * 1000;
+      _paginaAtual = _totalItems > 0 ? _totalItems * 1000 : 0;
       if (_pageController.hasClients) {
-        _pageController.jumpToPage(_currentPage);
+        _pageController.jumpToPage(_paginaAtual);
       }
       _iniciarAnimacao();
     }
@@ -897,92 +1140,201 @@ class _AutoSlidingBannerState extends State<AutoSlidingBanner> {
     super.dispose();
   }
 
-  @override
-  Widget build(BuildContext context) {
-    return AspectRatio(
-      aspectRatio: 2 / 1,
-      child: PageView.builder(
-        controller: _pageController,
-        onPageChanged: (int index) => _currentPage = index,
-        // Loop infinito só funciona se tiver mais de 1 item
-        itemCount: _totalItems > 1 ? null : 1,
-        itemBuilder: (context, index) {
-          final int indexReal = index % _totalItems;
+  Future<void> _abrirLink(String linkDestino) async {
+    if (linkDestino.isEmpty) return;
+    final Uri url = Uri.parse(linkDestino);
+    if (await canLaunchUrl(url)) {
+      await launchUrl(url, mode: LaunchMode.externalApplication);
+    }
+  }
 
-          // SE FOR O ÚLTIMO ÍNDICE, MOSTRA A ARTE LOCAL "ANUNCIE AQUI"
-          if (indexReal == widget.banners.length) {
-            return GestureDetector(
-              onTap: () async {
-                String numeroWhatsApp = "5566992244000"; // Substitua pelo seu
-                String mensagem =
-                    "Olá! Tenho interesse em anunciar minha loja/serviço no DiPertin.";
-                final Uri url = Uri.parse(
-                  'https://wa.me/$numeroWhatsApp?text=${Uri.encodeComponent(mensagem)}',
-                );
-
-                if (await canLaunchUrl(url)) {
-                  await launchUrl(url, mode: LaunchMode.externalApplication);
-                }
-              },
-              child: Container(
-                margin: const EdgeInsets.symmetric(horizontal: 5),
-                decoration: BoxDecoration(
-                  borderRadius: BorderRadius.circular(15),
-                  image: const DecorationImage(
-                    image: AssetImage('assets/banner_anuncie.jpg'),
-                    fit: BoxFit.cover,
+  Widget _slideBannerRede(
+    String bannerDocId,
+    String urlImagem,
+    String linkDestino,
+  ) {
+    return GestureDetector(
+      onTap: () => _abrirLink(linkDestino),
+      behavior: HitTestBehavior.opaque,
+      child: urlImagem.trim().isEmpty
+          ? ColoredBox(
+              color: const Color(0xFFF0EEF5),
+              child: Column(
+                mainAxisAlignment: MainAxisAlignment.center,
+                children: [
+                  Icon(
+                    Icons.hide_image_outlined,
+                    size: 40,
+                    color: Colors.grey.shade400,
                   ),
-                  boxShadow: const [
-                    BoxShadow(
-                      color: Colors.black12,
-                      blurRadius: 4,
-                      offset: Offset(0, 2),
+                  const SizedBox(height: 6),
+                  Text(
+                    'Banner sem imagem',
+                    style: TextStyle(
+                      fontSize: 12,
+                      color: Colors.grey.shade600,
+                      fontWeight: FontWeight.w600,
                     ),
-                  ],
-                ),
-              ),
-            );
-          }
-
-          // SE NÃO FOR O ÚLTIMO, MOSTRA OS BANNERS DO FIREBASE
-          var bannerData =
-              widget.banners[indexReal].data() as Map<String, dynamic>;
-          String urlImagem =
-              bannerData['imagem'] ?? bannerData['url_imagem'] ?? '';
-          String linkDestino =
-              bannerData['link'] ?? bannerData['link_destino'] ?? '';
-
-          return GestureDetector(
-            onTap: () async {
-              if (linkDestino.isNotEmpty) {
-                final Uri url = Uri.parse(linkDestino);
-                if (await canLaunchUrl(url)) {
-                  await launchUrl(url, mode: LaunchMode.externalApplication);
-                }
-              }
-            },
-            child: Container(
-              margin: const EdgeInsets.symmetric(horizontal: 5),
-              decoration: BoxDecoration(
-                borderRadius: BorderRadius.circular(15),
-                color: Colors.grey[300],
-                image: urlImagem.isNotEmpty
-                    ? DecorationImage(
-                        image: NetworkImage(urlImagem),
-                        fit: BoxFit.cover,
-                      )
-                    : null,
-                boxShadow: const [
-                  BoxShadow(
-                    color: Colors.black12,
-                    blurRadius: 4,
-                    offset: Offset(0, 2),
                   ),
                 ],
               ),
+            )
+          : LayoutBuilder(
+              builder: (context, constraints) {
+                final double w = constraints.maxWidth;
+                final double h = constraints.maxHeight;
+                final dpr = MediaQuery.devicePixelRatioOf(context);
+                final int cacheW = (w * dpr).round().clamp(1, 4096);
+                final int cacheH = (h * dpr).round().clamp(1, 4096);
+
+                return ClipRect(
+                  child: Image.network(
+                    urlImagem,
+                    key: ValueKey<String>('banner_${bannerDocId}_$urlImagem'),
+                    width: w,
+                    height: h,
+                    fit: BoxFit.cover,
+                    alignment: Alignment.center,
+                    filterQuality: FilterQuality.medium,
+                    gaplessPlayback: false,
+                    cacheWidth: cacheW,
+                    cacheHeight: cacheH,
+                    loadingBuilder: (context, child, loadingProgress) {
+                      if (loadingProgress == null) {
+                        return SizedBox(
+                          width: w,
+                          height: h,
+                          child: child,
+                        );
+                      }
+                      return ColoredBox(
+                        color: Colors.white,
+                        child: Center(
+                          child: SizedBox(
+                            width: 32,
+                            height: 32,
+                            child: CircularProgressIndicator(
+                              strokeWidth: 2.5,
+                              color: diPertinRoxo.withValues(alpha: 0.85),
+                              value: loadingProgress.expectedTotalBytes != null
+                                  ? loadingProgress.cumulativeBytesLoaded /
+                                      loadingProgress.expectedTotalBytes!
+                                  : null,
+                            ),
+                          ),
+                        ),
+                      );
+                    },
+                    errorBuilder: (context, error, stackTrace) => ColoredBox(
+                      color: const Color(0xFFF0EEF5),
+                      child: Column(
+                        mainAxisAlignment: MainAxisAlignment.center,
+                        children: [
+                          Icon(
+                            Icons.wifi_tethering_error_rounded,
+                            size: 36,
+                            color: Colors.grey.shade500,
+                          ),
+                          const SizedBox(height: 6),
+                          Text(
+                            'Não foi possível carregar',
+                            style: TextStyle(
+                              fontSize: 12,
+                              color: Colors.grey.shade600,
+                              fontWeight: FontWeight.w600,
+                            ),
+                          ),
+                        ],
+                      ),
+                    ),
+                  ),
+                );
+              },
             ),
-          );
-        },
+    );
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    if (_totalItems == 0) return const SizedBox.shrink();
+
+    final int slideAtivo = _paginaAtual % _totalItems;
+
+    return Padding(
+      padding: EdgeInsets.symmetric(horizontal: widget.paddingHorizontal),
+      child: Column(
+        mainAxisSize: MainAxisSize.min,
+        children: [
+          Container(
+            decoration: BoxDecoration(
+              color: Colors.white,
+              borderRadius: BorderRadius.circular(16),
+              border: Border.all(color: const Color(0xFFE8E6ED)),
+              boxShadow: [
+                BoxShadow(
+                  color: Colors.black.withValues(alpha: 0.06),
+                  blurRadius: 14,
+                  offset: const Offset(0, 4),
+                ),
+              ],
+            ),
+            clipBehavior: Clip.antiAlias,
+            child: SizedBox(
+              height: widget.altura,
+              width: double.infinity,
+              child: PageView.builder(
+                controller: _pageController,
+                onPageChanged: (int index) {
+                  setState(() {
+                    _paginaAtual = index;
+                  });
+                },
+                itemCount: _totalItems > 1 ? null : 1,
+                itemBuilder: (context, index) {
+                  final int indexReal = index % _totalItems;
+
+                  final Map<String, dynamic> bannerData =
+                      widget.banners[indexReal].data()
+                          as Map<String, dynamic>;
+                  final String urlImagem =
+                      bannerData['imagem'] ??
+                      bannerData['url_imagem'] ??
+                      '';
+                  final String linkDestino =
+                      bannerData['link'] ??
+                      bannerData['link_destino'] ??
+                      '';
+
+                  return _slideBannerRede(
+                    widget.banners[indexReal].id,
+                    urlImagem,
+                    linkDestino,
+                  );
+                },
+              ),
+            ),
+          ),
+          if (_totalItems > 1) ...[
+            const SizedBox(height: 10),
+            Row(
+              mainAxisAlignment: MainAxisAlignment.center,
+              children: List.generate(_totalItems, (i) {
+                final bool ativo = slideAtivo == i;
+                return AnimatedContainer(
+                  duration: const Duration(milliseconds: 220),
+                  curve: Curves.easeOutCubic,
+                  margin: const EdgeInsets.symmetric(horizontal: 3),
+                  width: ativo ? 20 : 7,
+                  height: 7,
+                  decoration: BoxDecoration(
+                    borderRadius: BorderRadius.circular(4),
+                    color: ativo ? diPertinLaranja : Colors.grey.shade300,
+                  ),
+                );
+              }),
+            ),
+          ],
+        ],
       ),
     );
   }

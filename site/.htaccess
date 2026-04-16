@@ -1,0 +1,159 @@
+# ═══════════════════════════════════════════════════════════════
+# DiPertin — Hardening Apache (HostGator / cPanel)
+# ═══════════════════════════════════════════════════════════════
+
+# ── HTTPS obrigatório ──────────────────────────────────────────
+<IfModule mod_rewrite.c>
+  RewriteEngine On
+  RewriteCond %{HTTPS} !=on
+  RewriteRule ^ https://%{HTTP_HOST}%{REQUEST_URI} [L,R=301]
+
+  # Forçar www (SEO canônico)
+  RewriteCond %{HTTP_HOST} ^dipertin\.com\.br$ [NC]
+  RewriteRule ^ https://www.dipertin.com.br%{REQUEST_URI} [L,R=301]
+
+  # Bloquear TRACE (XST / fingerprinting)
+  RewriteCond %{REQUEST_METHOD} ^TRACE [NC]
+  RewriteRule .* - [F,L]
+
+  # Bloquear rotas comuns de scanners em sites estáticos (WordPress, etc.)
+  RewriteRule ^(wp-admin|wp-includes|wp-content)(/|$) - [F,L]
+  RewriteRule ^(wp-login\.php|xmlrpc\.php|wlwmanifest\.xml|readme\.html|license\.txt)$ - [F,L]
+  RewriteRule ^(phpmyadmin|pma|myadmin|mysql|adminer)(/|$) - [F,L]
+  RewriteRule ^(\.git|\.svn|\.hg)(/|$) - [F,L]
+</IfModule>
+
+# ── Página 404 personalizada ───────────────────────────────────
+ErrorDocument 404 /404.html
+ErrorDocument 403 /404.html
+
+# ── Headers de segurança ───────────────────────────────────────
+<IfModule mod_headers.c>
+  # HSTS — navegador só aceita HTTPS por 2 anos + subdomínios
+  Header always set Strict-Transport-Security "max-age=63072000; includeSubDomains; preload"
+
+  # Impede que o navegador "adivinhe" o tipo MIME
+  Header always set X-Content-Type-Options "nosniff"
+
+  # Bloqueia iframe em outros domínios (anti-clickjacking)
+  Header always set X-Frame-Options "SAMEORIGIN"
+
+  # Controla o Referer enviado a terceiros
+  Header always set Referrer-Policy "strict-origin-when-cross-origin"
+
+  # Desativa APIs perigosas do navegador
+  Header always set Permissions-Policy "accelerometer=(), ambient-light-sensor=(), autoplay=(), battery=(), camera=(), display-capture=(), document-domain=(), encrypted-media=(), execution-while-not-rendered=(), execution-while-out-of-viewport=(), fullscreen=(self), geolocation=(self), gyroscope=(), magnetometer=(), microphone=(), midi=(), payment=(), picture-in-picture=(), publickey-credentials-get=(), screen-wake-lock=(), speaker-selection=(), sync-xhr=(), usb=(), web-share=(), xr-spatial-tracking=()"
+
+  # OAuth Google / Firebase Auth: "same-origin" quebra o popup __/auth/handler (janela fica branca).
+  # same-origin-allow-popups mantém segurança razoável e permite o fluxo de login.
+  Header always set Cross-Origin-Opener-Policy "same-origin-allow-popups"
+
+  # CORP "same-origin" pode interferir em fluxos OAuth / recursos cruzados no mesmo site.
+  # (Removido de propósito — o painel usa login Google em popup.)
+
+  # Content Security Policy
+  Header always set Content-Security-Policy "\
+    default-src 'self';\
+    base-uri 'self';\
+    object-src 'none';\
+    frame-ancestors 'self';\
+    frame-src 'self' https://www.facebook.com https://accounts.google.com https://www.google.com https://www.gstatic.com https://depertin-f940f.firebaseapp.com https://*.firebaseapp.com;\
+    worker-src 'self' blob:;\
+    manifest-src 'self';\
+    script-src 'self' 'unsafe-inline' 'wasm-unsafe-eval' https://connect.facebook.net https://www.facebook.com https://static.cloudflareinsights.com https://www.gstatic.com https://apis.google.com;\
+    style-src 'self' 'unsafe-inline' https://fonts.googleapis.com https://accounts.google.com;\
+    font-src 'self' https://fonts.gstatic.com data:;\
+    img-src 'self' data: https:;\
+    connect-src 'self' https://connect.facebook.net https://www.facebook.com https://*.facebook.com https://graph.facebook.com https://us-central1-depertin-f940f.cloudfunctions.net https://cloudflareinsights.com https://firestore.googleapis.com https://firebase.googleapis.com https://identitytoolkit.googleapis.com https://securetoken.googleapis.com https://www.googleapis.com https://www.gstatic.com https://*.gstatic.com https://accounts.google.com https://apis.google.com;\
+    form-action 'self' mailto:;\
+    upgrade-insecure-requests;\
+    block-all-mixed-content"
+
+  # Remove header que expõe versão do servidor
+  Header always unset X-Powered-By
+  Header always unset Server
+
+  Header always set X-Permitted-Cross-Domain-Policies "none"
+  Header always set X-DNS-Prefetch-Control "off"
+
+  # Previne cache de páginas HTML (evita dados antigos pós-deploy)
+  <FilesMatch "\.(html)$">
+    Header set Cache-Control "no-cache, no-store, must-revalidate"
+    Header set Pragma "no-cache"
+    Header set Expires "0"
+  </FilesMatch>
+</IfModule>
+
+# ── Bloquear acesso a arquivos sensíveis ───────────────────────
+<IfModule mod_rewrite.c>
+  # Exceção: .well-known (Let's Encrypt, security.txt)
+  RewriteRule ^\.well-known/ - [L]
+
+  # Bloquear arquivos ocultos (.env, .git, .htpasswd, etc.)
+  RewriteRule (^|/)\. - [F,L]
+</IfModule>
+
+# Bloquear extensões perigosas
+<FilesMatch "\.(bak|config|sql|fla|psd|ini|log|sh|inc|swp|dist|env|local)$">
+  <IfModule mod_authz_core.c>
+    Require all denied
+  </IfModule>
+  <IfModule !mod_authz_core.c>
+    Order allow,deny
+    Deny from all
+  </IfModule>
+</FilesMatch>
+
+# Bloquear listagem de diretórios
+Options -Indexes
+
+# Bloquear execução de scripts em pastas de assets
+<IfModule mod_rewrite.c>
+  RewriteRule ^(assets|css|data|js)/.*\.(php|cgi|pl|py|sh|asp|aspx|jsp)$ - [F,L]
+</IfModule>
+
+# ── Desabilitar Server Signature ────────────────────────────────
+ServerSignature Off
+
+# ── Proteger .htaccess ──────────────────────────────────────────
+<Files ".htaccess">
+  <IfModule mod_authz_core.c>
+    Require all denied
+  </IfModule>
+  <IfModule !mod_authz_core.c>
+    Order allow,deny
+    Deny from all
+  </IfModule>
+</Files>
+
+# ── Bloquear hotlinking de imagens ──────────────────────────────
+<IfModule mod_rewrite.c>
+  RewriteCond %{HTTP_REFERER} !^$
+  RewriteCond %{HTTP_REFERER} !^https?://(www\.)?dipertin\.com\.br [NC]
+  RewriteCond %{HTTP_REFERER} !^https?://depertin-f940f\.web\.app [NC]
+  RewriteCond %{HTTP_REFERER} !^https?://depertin-f940f--.*\.web\.app [NC]
+  RewriteRule \.(jpg|jpeg|png|gif|webp|svg|ico)$ - [F,L]
+</IfModule>
+
+# ── Cache de assets estáticos (imutáveis) ──────────────────────
+<IfModule mod_expires.c>
+  ExpiresActive On
+  ExpiresByType text/css "access plus 1 year"
+  ExpiresByType application/javascript "access plus 1 year"
+  ExpiresByType image/png "access plus 1 year"
+  ExpiresByType image/jpeg "access plus 1 year"
+  ExpiresByType image/svg+xml "access plus 1 year"
+  ExpiresByType image/webp "access plus 1 year"
+  ExpiresByType image/x-icon "access plus 1 year"
+  ExpiresByType font/woff2 "access plus 1 year"
+  ExpiresByType application/json "access plus 1 day"
+  ExpiresByType text/xml "access plus 1 day"
+  ExpiresByType text/plain "access plus 1 day"
+</IfModule>
+
+# ── Compressão GZIP ────────────────────────────────────────────
+<IfModule mod_deflate.c>
+  AddOutputFilterByType DEFLATE text/html text/plain text/css
+  AddOutputFilterByType DEFLATE application/javascript application/json
+  AddOutputFilterByType DEFLATE image/svg+xml text/xml application/xml
+</IfModule>

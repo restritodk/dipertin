@@ -1,13 +1,16 @@
 // Arquivo: lib/screens/cliente/loja_catalogo_screen.dart
 
+import 'dart:async';
 import 'package:depertin_cliente/screens/cliente/product_details_screen.dart';
 import 'package:flutter/material.dart';
 import 'package:cloud_firestore/cloud_firestore.dart';
 
+import '../../utils/loja_pausa.dart';
+
 const Color diPertinRoxo = Color(0xFF6A1B9A);
 const Color diPertinLaranja = Color(0xFFFF8F00);
 
-class LojaCatalogoScreen extends StatelessWidget {
+class LojaCatalogoScreen extends StatefulWidget {
   final String lojaId;
   final String nomeLoja;
 
@@ -16,6 +19,40 @@ class LojaCatalogoScreen extends StatelessWidget {
     required this.lojaId,
     required this.nomeLoja,
   });
+
+  @override
+  State<LojaCatalogoScreen> createState() => _LojaCatalogoScreenState();
+}
+
+class _LojaCatalogoScreenState extends State<LojaCatalogoScreen> {
+  bool _lojaAberta = true;
+  StreamSubscription<DocumentSnapshot>? _subLoja;
+  Timer? _timerReavalia;
+
+  @override
+  void initState() {
+    super.initState();
+    _timerReavalia = Timer.periodic(const Duration(seconds: 45), (_) {
+      if (mounted) setState(() {});
+    });
+    _subLoja = FirebaseFirestore.instance
+        .collection('users')
+        .doc(widget.lojaId)
+        .snapshots()
+        .listen((snap) {
+      if (!mounted || !snap.exists) return;
+      final dados = snap.data() as Map<String, dynamic>;
+      final bool aberta = LojaPausa.lojaEstaAberta(dados);
+      if (aberta != _lojaAberta) setState(() => _lojaAberta = aberta);
+    });
+  }
+
+  @override
+  void dispose() {
+    _timerReavalia?.cancel();
+    _subLoja?.cancel();
+    super.dispose();
+  }
 
   Widget _buildProductCard(BuildContext context, Map<String, dynamic> produto) {
     String imagemVitrine = '';
@@ -48,13 +85,49 @@ class LojaCatalogoScreen extends StatelessWidget {
                 borderRadius: const BorderRadius.vertical(
                   top: Radius.circular(15),
                 ),
-                child: imagemVitrine.isNotEmpty
-                    ? Image.network(imagemVitrine, fit: BoxFit.cover)
-                    : const Icon(
-                        Icons.image_not_supported,
-                        size: 50,
-                        color: Colors.grey,
+                child: Stack(
+                  fit: StackFit.expand,
+                  children: [
+                    imagemVitrine.isNotEmpty
+                        ? Image.network(imagemVitrine, fit: BoxFit.cover)
+                        : const Icon(
+                            Icons.image_not_supported,
+                            size: 50,
+                            color: Colors.grey,
+                          ),
+                    if (!_lojaAberta)
+                      Positioned.fill(
+                        child: DecoratedBox(
+                          decoration: BoxDecoration(
+                            color: Colors.white.withValues(alpha: 0.42),
+                          ),
+                        ),
                       ),
+                    if (!_lojaAberta)
+                      Positioned(
+                        top: 8,
+                        right: 8,
+                        child: Container(
+                          padding: const EdgeInsets.symmetric(
+                            horizontal: 8,
+                            vertical: 4,
+                          ),
+                          decoration: BoxDecoration(
+                            color: Colors.black.withValues(alpha: 0.62),
+                            borderRadius: BorderRadius.circular(10),
+                          ),
+                          child: const Text(
+                            'Fechada',
+                            style: TextStyle(
+                              color: Colors.white,
+                              fontSize: 10,
+                              fontWeight: FontWeight.w700,
+                            ),
+                          ),
+                        ),
+                      ),
+                  ],
+                ),
               ),
             ),
             Expanded(
@@ -105,7 +178,7 @@ class LojaCatalogoScreen extends StatelessWidget {
       backgroundColor: Colors.grey[100],
       appBar: AppBar(
         title: Text(
-          nomeLoja,
+          widget.nomeLoja,
           style: const TextStyle(
             color: Colors.white,
             fontWeight: FontWeight.bold,
@@ -115,10 +188,9 @@ class LojaCatalogoScreen extends StatelessWidget {
         iconTheme: const IconThemeData(color: Colors.white),
       ),
       body: StreamBuilder<QuerySnapshot>(
-        // Busca apenas os produtos DESSA loja específica e que estejam ATIVOS
         stream: FirebaseFirestore.instance
             .collection('produtos')
-            .where('lojista_id', isEqualTo: lojaId)
+            .where('lojista_id', isEqualTo: widget.lojaId)
             .where('ativo', isEqualTo: true)
             .snapshots(),
         builder: (context, snapshot) {
@@ -152,8 +224,8 @@ class LojaCatalogoScreen extends StatelessWidget {
           return GridView.builder(
             padding: const EdgeInsets.all(15),
             gridDelegate: const SliverGridDelegateWithFixedCrossAxisCount(
-              crossAxisCount: 2, // 2 produtos por linha
-              childAspectRatio: 0.75, // Proporção da altura do card
+              crossAxisCount: 2,
+              childAspectRatio: 0.75,
               crossAxisSpacing: 10,
               mainAxisSpacing: 10,
             ),
@@ -161,10 +233,9 @@ class LojaCatalogoScreen extends StatelessWidget {
             itemBuilder: (context, index) {
               var p = produtos[index].data() as Map<String, dynamic>;
               p['id_documento'] = produtos[index].id;
-
-              // Injetamos a loja_id e o nome da loja no produto para o Carrinho não se perder!
-              p['loja_id'] = lojaId;
-              p['loja_nome_vitrine'] = nomeLoja;
+              p['loja_id'] = widget.lojaId;
+              p['loja_nome_vitrine'] = widget.nomeLoja;
+              p['loja_aberta'] = _lojaAberta;
 
               return _buildProductCard(context, p);
             },

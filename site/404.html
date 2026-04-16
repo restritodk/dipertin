@@ -1,0 +1,245 @@
+<!DOCTYPE html>
+<html lang="pt-BR">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover" />
+  <meta name="robots" content="noindex, nofollow" />
+  <meta name="theme-color" content="#6A1B9A" />
+  <title>Página não encontrada — DiPertin</title>
+
+  <link rel="preconnect" href="https://fonts.googleapis.com" />
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+  <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;600;700;800&display=swap" rel="stylesheet" />
+  <link rel="icon" type="image/png" href="/assets/logo.png" />
+
+  <style>
+    *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
+
+    :root {
+      --primary: #FF8F00;
+      --secondary: #6A1B9A;
+      --secondary-dark: #4A148C;
+      --ink: #111017;
+      --ink-soft: #64606B;
+      --bg: #FFFFFF;
+      --font: 'Inter', system-ui, -apple-system, sans-serif;
+    }
+
+    html { height: 100%; }
+
+    body {
+      min-height: 100vh;
+      display: flex;
+      flex-direction: column;
+      font-family: var(--font);
+      color: var(--ink);
+      background: linear-gradient(168deg, #0B0814 0%, #150F22 38%, var(--secondary-dark) 100%);
+      -webkit-font-smoothing: antialiased;
+      overflow-x: hidden;
+    }
+
+    .page-404 {
+      flex: 1;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      padding: 2rem;
+      position: relative;
+    }
+
+    .page-404__bg {
+      position: absolute;
+      inset: 0;
+      pointer-events: none;
+      overflow: hidden;
+    }
+
+    .page-404__orb {
+      position: absolute;
+      border-radius: 50%;
+      filter: blur(120px);
+      opacity: .25;
+    }
+
+    .page-404__orb--1 {
+      width: 500px;
+      height: 500px;
+      top: -15%;
+      right: -10%;
+      background: var(--primary);
+      animation: orb-float 8s ease-in-out infinite;
+    }
+
+    .page-404__orb--2 {
+      width: 400px;
+      height: 400px;
+      bottom: -20%;
+      left: -8%;
+      background: var(--secondary);
+      animation: orb-float 10s ease-in-out infinite reverse;
+    }
+
+    @keyframes orb-float {
+      0%, 100% { transform: translate(0, 0) scale(1); }
+      50% { transform: translate(30px, -20px) scale(1.05); }
+    }
+
+    .page-404__card {
+      position: relative;
+      z-index: 1;
+      text-align: center;
+      max-width: 520px;
+      width: 100%;
+      padding: 3.5rem 2.5rem;
+      background: rgba(255, 255, 255, 0.06);
+      backdrop-filter: blur(24px);
+      -webkit-backdrop-filter: blur(24px);
+      border: 1px solid rgba(255, 255, 255, 0.1);
+      border-radius: 24px;
+    }
+
+    .page-404__logo {
+      width: 72px;
+      height: 72px;
+      margin: 0 auto 1.5rem;
+      border-radius: 16px;
+      filter: drop-shadow(0 8px 24px rgba(106, 27, 154, .4));
+    }
+
+    .page-404__code {
+      font-size: clamp(5rem, 15vw, 8rem);
+      font-weight: 800;
+      letter-spacing: -.06em;
+      line-height: 1;
+      background: linear-gradient(135deg, var(--primary) 15%, #FFD54F 90%);
+      -webkit-background-clip: text;
+      background-clip: text;
+      color: transparent;
+      margin-bottom: .5rem;
+    }
+
+    .page-404__title {
+      font-size: clamp(1.25rem, 3vw, 1.6rem);
+      font-weight: 700;
+      color: #fff;
+      margin-bottom: .75rem;
+      letter-spacing: -.02em;
+    }
+
+    .page-404__desc {
+      font-size: clamp(.9rem, 2vw, 1rem);
+      color: rgba(255, 255, 255, .6);
+      line-height: 1.7;
+      margin-bottom: 2rem;
+    }
+
+    .page-404__actions {
+      display: flex;
+      flex-wrap: wrap;
+      gap: .75rem;
+      justify-content: center;
+    }
+
+    .page-404__btn {
+      display: inline-flex;
+      align-items: center;
+      gap: .5rem;
+      padding: .85rem 2rem;
+      font-family: var(--font);
+      font-size: .9rem;
+      font-weight: 600;
+      border-radius: 999px;
+      text-decoration: none;
+      border: 2px solid transparent;
+      cursor: pointer;
+      transition: all .2s cubic-bezier(.22, 1, .36, 1);
+      min-height: 48px;
+    }
+
+    .page-404__btn:active { transform: scale(.97); }
+
+    .page-404__btn--primary {
+      background: var(--secondary);
+      color: #fff;
+    }
+
+    .page-404__btn--primary:hover {
+      background: var(--primary);
+      transform: translateY(-2px);
+      box-shadow: 0 8px 24px rgba(255, 143, 0, .3);
+    }
+
+    .page-404__btn--outline {
+      background: transparent;
+      color: #fff;
+      border-color: rgba(255, 255, 255, .25);
+    }
+
+    .page-404__btn--outline:hover {
+      border-color: rgba(255, 255, 255, .5);
+      background: rgba(255, 255, 255, .06);
+      transform: translateY(-2px);
+    }
+
+    .page-404__footer {
+      padding: 1.5rem 2rem;
+      text-align: center;
+    }
+
+    .page-404__footer a {
+      display: inline-flex;
+      align-items: center;
+      gap: .5rem;
+      color: rgba(255, 255, 255, .4);
+      text-decoration: none;
+      font-size: .82rem;
+      font-weight: 500;
+      transition: color .2s;
+    }
+
+    .page-404__footer a:hover { color: rgba(255, 255, 255, .7); }
+
+    .page-404__footer img {
+      width: 24px;
+      height: 24px;
+      border-radius: 6px;
+    }
+
+    @media (max-width: 480px) {
+      .page-404__card { padding: 2.5rem 1.5rem; }
+      .page-404__actions { flex-direction: column; align-items: stretch; }
+      .page-404__btn { justify-content: center; }
+    }
+  </style>
+</head>
+<body>
+  <div class="page-404">
+    <div class="page-404__bg" aria-hidden="true">
+      <div class="page-404__orb page-404__orb--1"></div>
+      <div class="page-404__orb page-404__orb--2"></div>
+    </div>
+    <div class="page-404__card">
+      <img src="/assets/logo.png" alt="DiPertin" class="page-404__logo" />
+      <div class="page-404__code">404</div>
+      <h1 class="page-404__title">Página não encontrada</h1>
+      <p class="page-404__desc">O endereço que você tentou acessar não existe ou foi movido. Verifique o link ou volte para a página inicial.</p>
+      <div class="page-404__actions">
+        <a href="/" class="page-404__btn page-404__btn--primary">
+          <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M3 9l9-7 9 7v11a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2z"/><polyline points="9 22 9 12 15 12 15 22"/></svg>
+          Ir para o início
+        </a>
+        <a href="javascript:history.back()" class="page-404__btn page-404__btn--outline">
+          <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><line x1="19" y1="12" x2="5" y2="12"/><polyline points="12 19 5 12 12 5"/></svg>
+          Voltar
+        </a>
+      </div>
+    </div>
+  </div>
+  <div class="page-404__footer">
+    <a href="/">
+      <img src="/assets/logo.png" alt="" />
+      <span>DiPertin</span>
+    </a>
+  </div>
+</body>
+</html>

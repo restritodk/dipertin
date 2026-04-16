@@ -7,6 +7,7 @@ import 'package:firebase_auth/firebase_auth.dart';
 import 'package:firebase_storage/firebase_storage.dart';
 import 'package:image_picker/image_picker.dart';
 import '../../services/location_service.dart';
+import '../../services/permissoes_app_service.dart';
 
 const Color diPertinLaranja = Color(0xFFFF8F00);
 
@@ -46,6 +47,13 @@ class _LojistaNovosProdutosScreenState
   final ImagePicker _picker = ImagePicker();
 
   Future<void> _escolherImagem() async {
+    final ResultadoPermissao pr =
+        await PermissoesAppService.garantirGaleriaFotos();
+    if (!mounted) return;
+    if (pr != ResultadoPermissao.concedida) {
+      PermissoesFeedback.galeria(context, pr);
+      return;
+    }
     final XFile? imagemMovel = await _picker.pickImage(
       source: ImageSource.gallery,
       imageQuality: 70,

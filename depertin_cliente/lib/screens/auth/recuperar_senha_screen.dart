@@ -9,7 +9,17 @@ import 'package:flutter/services.dart';
 import '../../services/recuperacao_senha_service.dart';
 
 class RecuperarSenhaScreen extends StatefulWidget {
-  const RecuperarSenhaScreen({super.key});
+  const RecuperarSenhaScreen({
+    super.key,
+    this.emailInicial,
+    this.tituloAppBar,
+  });
+
+  /// Ex.: usuário logado em [ContaSegurancaScreen] — pré-preenche o e-mail.
+  final String? emailInicial;
+
+  /// Ex.: `Alterar senha` em vez de `Recuperação de senha`.
+  final String? tituloAppBar;
 
   @override
   State<RecuperarSenhaScreen> createState() => _RecuperarSenhaScreenState();
@@ -32,6 +42,19 @@ class _RecuperarSenhaScreenState extends State<RecuperarSenhaScreen> {
   final _otpCtrl = TextEditingController();
   final _novaSenhaCtrl = TextEditingController();
   final _confirmaCtrl = TextEditingController();
+
+  @override
+  void initState() {
+    super.initState();
+    final e = widget.emailInicial?.trim();
+    if (e != null && e.isNotEmpty) {
+      _emailCtrl.text = e;
+    }
+  }
+
+  bool get _emailPreenchidoPeloApp =>
+      widget.emailInicial != null &&
+      widget.emailInicial!.trim().isNotEmpty;
 
   /// ID de sessão no servidor após OTP válido (usado em [definirNovaSenha]).
   String _sessionIdRecuperacao = '';
@@ -299,9 +322,9 @@ class _RecuperarSenhaScreenState extends State<RecuperarSenhaScreen> {
   Widget build(BuildContext context) {
     return Scaffold(
       appBar: AppBar(
-        title: const Text(
-          'Recuperação de senha',
-          style: TextStyle(color: Colors.white),
+        title: Text(
+          widget.tituloAppBar ?? 'Recuperação de senha',
+          style: const TextStyle(color: Colors.white),
         ),
         backgroundColor: _roxo,
         iconTheme: const IconThemeData(color: Colors.white),
@@ -354,7 +377,10 @@ class _RecuperarSenhaScreenState extends State<RecuperarSenhaScreen> {
       crossAxisAlignment: CrossAxisAlignment.stretch,
       children: [
         Text(
-          'Informe o e-mail da sua conta. Se existir cadastro, enviaremos um código.',
+          _emailPreenchidoPeloApp
+              ? 'Enviaremos um código de verificação para o e-mail da sua conta. '
+                  'Depois você define a nova senha.'
+              : 'Informe o e-mail da sua conta. Se existir cadastro, enviaremos um código.',
           style: TextStyle(color: Colors.grey.shade700, height: 1.35),
         ),
         const SizedBox(height: 20),
@@ -362,6 +388,7 @@ class _RecuperarSenhaScreenState extends State<RecuperarSenhaScreen> {
           controller: _emailCtrl,
           keyboardType: TextInputType.emailAddress,
           autocorrect: false,
+          readOnly: _emailPreenchidoPeloApp,
           decoration: const InputDecoration(
             labelText: 'E-mail',
             border: OutlineInputBorder(),

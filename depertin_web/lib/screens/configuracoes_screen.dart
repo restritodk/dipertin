@@ -1,8 +1,10 @@
-import 'package:depertin_web/widgets/botao_suporte_flutuante.dart';
-import 'package:flutter/material.dart';
+import 'dart:math' show min;
+
 import 'package:cloud_firestore/cloud_firestore.dart';
-// import 'package:http/http.dart' as http;
-// import 'dart:convert';
+import 'package:depertin_web/theme/painel_admin_theme.dart';
+import 'package:depertin_web/widgets/botao_suporte_flutuante.dart';
+import 'package:flutter/foundation.dart' show kIsWeb;
+import 'package:flutter/material.dart';
 
 class ConfiguracoesScreen extends StatefulWidget {
   const ConfiguracoesScreen({super.key});
@@ -11,16 +13,31 @@ class ConfiguracoesScreen extends StatefulWidget {
   State<ConfiguracoesScreen> createState() => _ConfiguracoesScreenState();
 }
 
-class _ConfiguracoesScreenState extends State<ConfiguracoesScreen> {
-  final Color diPertinRoxo = const Color(0xFF6A1B9A);
-  final Color diPertinLaranja = const Color(0xFFFF8F00);
+class _ConfiguracoesScreenState extends State<ConfiguracoesScreen>
+    with SingleTickerProviderStateMixin {
+  final Color diPertinRoxo = PainelAdminTheme.roxo;
+  final Color diPertinLaranja = PainelAdminTheme.laranja;
+
+  late TabController _tabController;
 
   List<String> _cidadesSugeridas = ['Todas'];
+
+  static const double _kMaxContentWidth = 920;
 
   @override
   void initState() {
     super.initState();
+    _tabController = TabController(length: 4, vsync: this);
+    _tabController.addListener(() {
+      if (mounted) setState(() {});
+    });
     _carregarCidadesDoBanco();
+  }
+
+  @override
+  void dispose() {
+    _tabController.dispose();
+    super.dispose();
   }
 
   Future<void> _carregarCidadesDoBanco() async {
@@ -48,34 +65,164 @@ class _ConfiguracoesScreenState extends State<ConfiguracoesScreen> {
     }
   }
 
-  // === POP-UP PARA CRIAR NOVO PLANO (COMISSÃO DO APP) ===
-  void _mostrarFormularioNovoPlano() {
-    String publicoAlvo = 'lojista';
-    String tipoCobranca = 'porcentagem';
-    String frequencia = 'venda';
-    String veiculo = 'Todos';
-    TextEditingController nomePlanoC = TextEditingController();
-    TextEditingController valorC = TextEditingController();
-    String cidadeSelecionada = 'Todas';
-    bool isLoading = false;
+  InputDecoration _dialogFieldDecoration(
+    String label, {
+    Widget? suffixIcon,
+    String? prefixText,
+    String? suffixText,
+  }) {
+    return InputDecoration(
+      labelText: label,
+      filled: true,
+      fillColor: const Color(0xFFF8F7FC),
+      contentPadding: const EdgeInsets.symmetric(horizontal: 16, vertical: 14),
+      border: OutlineInputBorder(
+        borderRadius: BorderRadius.circular(12),
+        borderSide: BorderSide(color: Colors.grey.shade300),
+      ),
+      enabledBorder: OutlineInputBorder(
+        borderRadius: BorderRadius.circular(12),
+        borderSide: BorderSide(color: Colors.grey.shade300),
+      ),
+      focusedBorder: OutlineInputBorder(
+        borderRadius: BorderRadius.circular(12),
+        borderSide: BorderSide(color: diPertinRoxo, width: 1.5),
+      ),
+      labelStyle: TextStyle(
+        color: Colors.grey.shade700,
+        fontWeight: FontWeight.w500,
+        fontSize: 14,
+      ),
+      suffixIcon: suffixIcon,
+      prefixText: prefixText,
+      suffixText: suffixText,
+    );
+  }
 
-    showDialog(
+  Widget _dialogHeader({
+    required IconData icon,
+    required String titulo,
+    required String subtitulo,
+  }) {
+    return Container(
+      width: double.infinity,
+      padding: const EdgeInsets.fromLTRB(22, 20, 22, 18),
+      decoration: BoxDecoration(
+        gradient: LinearGradient(
+          begin: Alignment.topLeft,
+          end: Alignment.bottomRight,
+          colors: [
+            diPertinRoxo.withValues(alpha: 0.09),
+            diPertinRoxo.withValues(alpha: 0.03),
+          ],
+        ),
+        border: Border(
+          bottom: BorderSide(color: Colors.grey.shade200),
+        ),
+      ),
+      child: Row(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          Container(
+            padding: const EdgeInsets.all(10),
+            decoration: BoxDecoration(
+              color: Colors.white,
+              borderRadius: BorderRadius.circular(12),
+              boxShadow: [
+                BoxShadow(
+                  color: diPertinRoxo.withValues(alpha: 0.12),
+                  blurRadius: 12,
+                  offset: const Offset(0, 4),
+                ),
+              ],
+            ),
+            child: Icon(icon, color: diPertinRoxo, size: 24),
+          ),
+          const SizedBox(width: 14),
+          Expanded(
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                Text(
+                  titulo,
+                  style: TextStyle(
+                    fontSize: 19,
+                    fontWeight: FontWeight.w800,
+                    color: diPertinRoxo,
+                    letterSpacing: -0.3,
+                  ),
+                ),
+                const SizedBox(height: 6),
+                Text(
+                  subtitulo,
+                  style: const TextStyle(
+                    fontSize: 13,
+                    height: 1.4,
+                    color: PainelAdminTheme.textoSecundario,
+                  ),
+                ),
+              ],
+            ),
+          ),
+        ],
+      ),
+    );
+  }
+
+  // === POP-UP CRIAR / EDITAR PLANO (COMISSÃO DO APP) ===
+  void _mostrarFormularioNovoPlano({
+    String publicoInicial = 'lojista',
+    String? docIdEditar,
+    Map<String, dynamic>? dadosEditar,
+  }) {
+    final isEdicao = docIdEditar != null;
+    String publicoAlvo =
+        dadosEditar != null ? (dadosEditar['publico'] ?? publicoInicial) : publicoInicial;
+    String tipoCobranca =
+        dadosEditar != null ? (dadosEditar['tipo_cobranca'] ?? 'porcentagem') : 'porcentagem';
+    String frequencia =
+        dadosEditar != null ? (dadosEditar['frequencia'] ?? 'venda') : 'venda';
+    String veiculo =
+        dadosEditar != null ? (dadosEditar['veiculo'] ?? 'Todos') : 'Todos';
+    final nomePlanoC = TextEditingController(
+      text: dadosEditar != null ? (dadosEditar['nome'] ?? '') : '',
+    );
+    final valorC = TextEditingController(
+      text: dadosEditar != null ? (dadosEditar['valor']?.toString() ?? '') : '',
+    );
+    final cidadeInicial = dadosEditar != null
+        ? _capitalizar(dadosEditar['cidade']?.toString() ?? 'Todas')
+        : 'Todas';
+    String cidadeSelecionada = cidadeInicial;
+    var isLoading = false;
+
+    showDialog<void>(
       context: context,
       barrierDismissible: false,
-      builder: (context) {
+      barrierColor: Colors.black.withValues(alpha: 0.45),
+      builder: (dialogContext) {
         return StatefulBuilder(
           builder: (context, setState) {
             Future<void> salvarPlano() async {
-              if (nomePlanoC.text.isEmpty ||
-                  valorC.text.isEmpty ||
+              if (nomePlanoC.text.trim().isEmpty ||
+                  valorC.text.trim().isEmpty ||
                   cidadeSelecionada.isEmpty) {
+                ScaffoldMessenger.of(context).showSnackBar(
+                  SnackBar(
+                    content: const Text(
+                      "Preencha o nome do plano e o valor.",
+                    ),
+                    backgroundColor: diPertinRoxo,
+                    behavior: SnackBarBehavior.floating,
+                  ),
+                );
                 return;
               }
               setState(() => isLoading = true);
               try {
-                double valor =
+                final valor =
                     double.tryParse(valorC.text.replaceAll(',', '.')) ?? 0.0;
-                Map<String, dynamic> dados = {
+                final dados = <String, dynamic>{
                   'nome': nomePlanoC.text.trim(),
                   'publico': publicoAlvo,
                   'tipo_cobranca': tipoCobranca,
@@ -83,193 +230,303 @@ class _ConfiguracoesScreenState extends State<ConfiguracoesScreen> {
                   'valor': valor,
                   'cidade': cidadeSelecionada.trim().toLowerCase(),
                   'ativo': true,
-                  'data_criacao': FieldValue.serverTimestamp(),
+                  if (isEdicao)
+                    'data_atualizacao': FieldValue.serverTimestamp()
+                  else
+                    'data_criacao': FieldValue.serverTimestamp(),
                 };
-                if (publicoAlvo == 'entregador') dados['veiculo'] = veiculo;
-                await FirebaseFirestore.instance
-                    .collection('planos_taxas')
-                    .add(dados);
-                if (context.mounted) {
-                  Navigator.pop(context);
+                if (publicoAlvo == 'entregador') {
+                  dados['veiculo'] = veiculo;
                 }
+                if (isEdicao) {
+                  await FirebaseFirestore.instance
+                      .collection('planos_taxas')
+                      .doc(docIdEditar)
+                      .update(dados);
+                } else {
+                  await FirebaseFirestore.instance
+                      .collection('planos_taxas')
+                      .add(dados);
+                }
+                if (context.mounted) Navigator.pop(context);
               } catch (e) {
                 debugPrint("Erro: $e");
+                if (context.mounted) {
+                  ScaffoldMessenger.of(context).showSnackBar(
+                    SnackBar(
+                      content: Text("Não foi possível salvar: $e"),
+                      backgroundColor: const Color(0xFFB91C1C),
+                      behavior: SnackBarBehavior.floating,
+                    ),
+                  );
+                }
               } finally {
-                setState(() => isLoading = false);
+                if (context.mounted) {
+                  setState(() => isLoading = false);
+                }
               }
             }
 
-            return AlertDialog(
-              title: Text(
-                "Criar Plano/Taxa (Ganhos do App)",
-                style: TextStyle(
-                  color: diPertinRoxo,
-                  fontWeight: FontWeight.bold,
-                ),
+            final mq = MediaQuery.sizeOf(context);
+            final dialogW = min(500.0, mq.width - 40);
+            final dialogH = min(640.0, mq.height * 0.88);
+
+            return Dialog(
+              shape: RoundedRectangleBorder(
+                borderRadius: BorderRadius.circular(20),
               ),
-              content: SizedBox(
-                width: 450,
-                child: SingleChildScrollView(
-                  child: Column(
-                    mainAxisSize: MainAxisSize.min,
-                    crossAxisAlignment: CrossAxisAlignment.start,
-                    children: [
-                      DropdownButtonFormField<String>(
-                        initialValue: publicoAlvo,
-                        decoration: const InputDecoration(
-                          labelText: "Para quem é este plano?",
-                          border: OutlineInputBorder(),
-                        ),
-                        items: const [
-                          DropdownMenuItem(
-                            value: 'lojista',
-                            child: Text("Lojistas"),
-                          ),
-                          DropdownMenuItem(
-                            value: 'entregador',
-                            child: Text("Entregadores"),
-                          ),
-                        ],
-                        onChanged: (val) => setState(() => publicoAlvo = val!),
-                      ),
-                      const SizedBox(height: 15),
-                      TextField(
-                        controller: nomePlanoC,
-                        decoration: const InputDecoration(
-                          labelText: "Nome do Plano",
-                          border: OutlineInputBorder(),
-                        ),
-                      ),
-                      const SizedBox(height: 15),
-                      Autocomplete<String>(
-                        initialValue: const TextEditingValue(text: 'Todas'),
-                        optionsBuilder: (TextEditingValue text) {
-                          if (text.text.isEmpty) return _cidadesSugeridas;
-                          return _cidadesSugeridas.where(
-                            (String option) => option.toLowerCase().contains(
-                              text.text.toLowerCase(),
-                            ),
-                          );
-                        },
-                        onSelected: (String selection) =>
-                            cidadeSelecionada = selection,
-                        fieldViewBuilder:
-                            (context, controller, focusNode, onFieldSubmitted) {
-                              controller.addListener(
-                                () => cidadeSelecionada = controller.text,
-                              );
-                              return TextField(
-                                controller: controller,
-                                focusNode: focusNode,
-                                decoration: const InputDecoration(
-                                  labelText: "Cidade Específica",
-                                  border: OutlineInputBorder(),
-                                  suffixIcon: Icon(Icons.search),
-                                ),
-                              );
-                            },
-                      ),
-                      const SizedBox(height: 15),
-                      if (publicoAlvo == 'entregador') ...[
-                        DropdownButtonFormField<String>(
-                          initialValue: veiculo,
-                          decoration: const InputDecoration(
-                            labelText: "Tipo de Veículo",
-                            border: OutlineInputBorder(),
-                          ),
-                          items: ['Todos', 'Moto', 'Carro', 'Bicicleta']
-                              .map(
-                                (v) =>
-                                    DropdownMenuItem(value: v, child: Text(v)),
-                              )
-                              .toList(),
-                          onChanged: (val) => setState(() => veiculo = val!),
-                        ),
-                        const SizedBox(height: 15),
-                      ],
-                      DropdownButtonFormField<String>(
-                        initialValue: frequencia,
-                        decoration: const InputDecoration(
-                          labelText: "Frequência da Cobrança",
-                          border: OutlineInputBorder(),
-                        ),
-                        items: const [
-                          DropdownMenuItem(
-                            value: 'venda',
-                            child: Text("Por Venda"),
-                          ),
-                          DropdownMenuItem(
-                            value: 'semana',
-                            child: Text("Semanalmente"),
-                          ),
-                          DropdownMenuItem(
-                            value: 'mes',
-                            child: Text("Mensalmente"),
-                          ),
-                        ],
-                        onChanged: (val) => setState(() => frequencia = val!),
-                      ),
-                      const SizedBox(height: 15),
-                      Row(
-                        children: [
-                          Expanded(
-                            child: DropdownButtonFormField<String>(
-                              initialValue: tipoCobranca,
-                              decoration: const InputDecoration(
-                                labelText: "Tipo de Cobrança",
-                                border: OutlineInputBorder(),
+              clipBehavior: Clip.antiAlias,
+              insetPadding: const EdgeInsets.symmetric(
+                horizontal: 20,
+                vertical: 28,
+              ),
+              backgroundColor: Colors.white,
+              elevation: 16,
+              shadowColor: diPertinRoxo.withValues(alpha: 0.2),
+              child: SizedBox(
+                width: dialogW,
+                height: dialogH,
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.stretch,
+                  children: [
+                    _dialogHeader(
+                      icon: isEdicao
+                          ? Icons.edit_note_rounded
+                          : Icons.percent_rounded,
+                      titulo: isEdicao
+                          ? "Editar comissão"
+                          : "Nova comissão ou taxa",
+                      subtitulo:
+                          "Defina o público, a cidade e como o app cobra (percentual ou valor fixo).",
+                    ),
+                    Expanded(
+                      child: SingleChildScrollView(
+                        padding: const EdgeInsets.fromLTRB(22, 20, 22, 8),
+                        child: Column(
+                          crossAxisAlignment: CrossAxisAlignment.stretch,
+                          children: [
+                            DropdownButtonFormField<String>(
+                              key: ValueKey<String>('dlg_pub_$publicoAlvo'),
+                              initialValue: publicoAlvo,
+                              decoration: _dialogFieldDecoration(
+                                "Público-alvo",
                               ),
                               items: const [
                                 DropdownMenuItem(
-                                  value: 'porcentagem',
-                                  child: Text("Porcentagem (%)"),
+                                  value: 'lojista',
+                                  child: Text("Lojistas"),
                                 ),
                                 DropdownMenuItem(
-                                  value: 'fixo',
-                                  child: Text("Valor Fixo (R\$)"),
+                                  value: 'entregador',
+                                  child: Text("Entregadores"),
                                 ),
                               ],
                               onChanged: (val) =>
-                                  setState(() => tipoCobranca = val!),
+                                  setState(() => publicoAlvo = val!),
+                            ),
+                            const SizedBox(height: 16),
+                            TextField(
+                              controller: nomePlanoC,
+                              textCapitalization: TextCapitalization.words,
+                              decoration: _dialogFieldDecoration(
+                                "Nome identificador do plano",
+                              ),
+                            ),
+                            const SizedBox(height: 16),
+                            Autocomplete<String>(
+                              initialValue:
+                                  TextEditingValue(text: cidadeInicial),
+                              optionsBuilder: (TextEditingValue text) {
+                                if (text.text.isEmpty) {
+                                  return _cidadesSugeridas;
+                                }
+                                return _cidadesSugeridas.where(
+                                  (String option) => option
+                                      .toLowerCase()
+                                      .contains(text.text.toLowerCase()),
+                                );
+                              },
+                              onSelected: (String selection) =>
+                                  cidadeSelecionada = selection,
+                              fieldViewBuilder: (
+                                context,
+                                controller,
+                                focusNode,
+                                onFieldSubmitted,
+                              ) {
+                                controller.addListener(
+                                  () => cidadeSelecionada = controller.text,
+                                );
+                                return TextField(
+                                  controller: controller,
+                                  focusNode: focusNode,
+                                  decoration: _dialogFieldDecoration(
+                                    "Cidade",
+                                    suffixIcon: Icon(
+                                      Icons.search_rounded,
+                                      color: Colors.grey.shade600,
+                                      size: 22,
+                                    ),
+                                  ),
+                                );
+                              },
+                            ),
+                            const SizedBox(height: 16),
+                            if (publicoAlvo == 'entregador') ...[
+                              DropdownButtonFormField<String>(
+                                key: ValueKey<String>(
+                                  'dlg_veic_${publicoAlvo}_$veiculo',
+                                ),
+                                initialValue: veiculo,
+                                decoration: _dialogFieldDecoration(
+                                  "Tipo de veículo",
+                                ),
+                                items: ['Todos', 'Moto', 'Carro', 'Bicicleta']
+                                    .map(
+                                      (v) => DropdownMenuItem(
+                                        value: v,
+                                        child: Text(v),
+                                      ),
+                                    )
+                                    .toList(),
+                                onChanged: (val) =>
+                                    setState(() => veiculo = val!),
+                              ),
+                              const SizedBox(height: 16),
+                            ],
+                            DropdownButtonFormField<String>(
+                              key: ValueKey<String>('dlg_freq_$frequencia'),
+                              initialValue: frequencia,
+                              decoration: _dialogFieldDecoration(
+                                "Frequência da cobrança",
+                              ),
+                              items: const [
+                                DropdownMenuItem(
+                                  value: 'venda',
+                                  child: Text("Por venda"),
+                                ),
+                                DropdownMenuItem(
+                                  value: 'semana',
+                                  child: Text("Semanal"),
+                                ),
+                                DropdownMenuItem(
+                                  value: 'mes',
+                                  child: Text("Mensal"),
+                                ),
+                              ],
+                              onChanged: (val) =>
+                                  setState(() => frequencia = val!),
+                            ),
+                            const SizedBox(height: 16),
+                            Row(
+                              crossAxisAlignment: CrossAxisAlignment.start,
+                              children: [
+                                Expanded(
+                                  child: DropdownButtonFormField<String>(
+                                    key: ValueKey<String>(
+                                      'dlg_tipo_$tipoCobranca',
+                                    ),
+                                    initialValue: tipoCobranca,
+                                    decoration: _dialogFieldDecoration(
+                                      "Tipo de cobrança",
+                                    ),
+                                    items: const [
+                                      DropdownMenuItem(
+                                        value: 'porcentagem',
+                                        child: Text("Percentual (%)"),
+                                      ),
+                                      DropdownMenuItem(
+                                        value: 'fixo',
+                                        child: Text("Valor fixo (R\$)"),
+                                      ),
+                                    ],
+                                    onChanged: (val) =>
+                                        setState(() => tipoCobranca = val!),
+                                  ),
+                                ),
+                                const SizedBox(width: 12),
+                                Expanded(
+                                  child: TextField(
+                                    controller: valorC,
+                                    keyboardType:
+                                        const TextInputType.numberWithOptions(
+                                      decimal: true,
+                                    ),
+                                    decoration: _dialogFieldDecoration(
+                                      "Valor",
+                                      prefixText: tipoCobranca == 'fixo'
+                                          ? "R\$ "
+                                          : null,
+                                      suffixText: tipoCobranca == 'porcentagem'
+                                          ? " %"
+                                          : null,
+                                    ),
+                                  ),
+                                ),
+                              ],
+                            ),
+                          ],
+                        ),
+                      ),
+                    ),
+                    const Divider(height: 1),
+                    Padding(
+                      padding: const EdgeInsets.fromLTRB(16, 12, 16, 16),
+                      child: Row(
+                        mainAxisAlignment: MainAxisAlignment.end,
+                        children: [
+                          TextButton(
+                            onPressed: isLoading
+                                ? null
+                                : () => Navigator.pop(context),
+                            child: Text(
+                              "Cancelar",
+                              style: TextStyle(
+                                color: diPertinRoxo,
+                                fontWeight: FontWeight.w600,
+                              ),
                             ),
                           ),
-                          const SizedBox(width: 10),
-                          Expanded(
-                            child: TextField(
-                              controller: valorC,
-                              keyboardType: TextInputType.number,
-                              decoration: InputDecoration(
-                                labelText: "Valor",
-                                border: const OutlineInputBorder(),
-                                prefixText: tipoCobranca == 'fixo'
-                                    ? "R\$ "
-                                    : null,
-                                suffixText: tipoCobranca == 'porcentagem'
-                                    ? "%"
-                                    : null,
+                          const SizedBox(width: 8),
+                          FilledButton.icon(
+                            onPressed: isLoading ? null : salvarPlano,
+                            icon: isLoading
+                                ? SizedBox(
+                                    width: 18,
+                                    height: 18,
+                                    child: CircularProgressIndicator(
+                                      strokeWidth: 2,
+                                      color: Colors.white.withValues(
+                                        alpha: 0.9,
+                                      ),
+                                    ),
+                                  )
+                                : const Icon(Icons.check_rounded, size: 20),
+                            label: Text(
+                              isLoading
+                                  ? "Salvando…"
+                                  : isEdicao
+                                      ? "Salvar alterações"
+                                      : "Salvar plano",
+                            ),
+                            style: FilledButton.styleFrom(
+                              backgroundColor: diPertinLaranja,
+                              foregroundColor: Colors.white,
+                              padding: const EdgeInsets.symmetric(
+                                horizontal: 22,
+                                vertical: 14,
+                              ),
+                              shape: RoundedRectangleBorder(
+                                borderRadius: BorderRadius.circular(12),
                               ),
                             ),
                           ),
                         ],
                       ),
-                    ],
-                  ),
+                    ),
+                  ],
                 ),
               ),
-              actions: [
-                TextButton(
-                  onPressed: () => Navigator.pop(context),
-                  child: const Text("Cancelar"),
-                ),
-                ElevatedButton(
-                  onPressed: isLoading ? null : salvarPlano,
-                  style: ElevatedButton.styleFrom(
-                    backgroundColor: diPertinLaranja,
-                    foregroundColor: Colors.white,
-                  ),
-                  child: const Text("Salvar Plano"),
-                ),
-              ],
             );
           },
         );
@@ -278,39 +535,69 @@ class _ConfiguracoesScreenState extends State<ConfiguracoesScreen> {
   }
 
   // === FORMULÁRIO DE FRETES ===
-  void _mostrarFormularioNovoFrete() {
-    TextEditingController valorBaseC = TextEditingController();
-    TextEditingController distBaseC = TextEditingController(text: '3');
-    TextEditingController valorKmExtraC = TextEditingController();
-    String cidadeSelecionada = 'Todas';
-    String veiculo = 'Padrão (Moto/Bike)';
-    bool isLoading = false;
+  void _mostrarFormularioNovoFrete({
+    String? docIdEditar,
+    Map<String, dynamic>? dadosEditar,
+  }) {
+    final isEdicao = docIdEditar != null;
+    final valorBaseC = TextEditingController(
+      text: dadosEditar != null
+          ? (dadosEditar['valor_base']?.toString() ?? '')
+          : '',
+    );
+    final distBaseC = TextEditingController(
+      text: dadosEditar != null
+          ? (dadosEditar['distancia_base_km']?.toString() ?? '3')
+          : '3',
+    );
+    final valorKmExtraC = TextEditingController(
+      text: dadosEditar != null
+          ? (dadosEditar['valor_km_adicional']?.toString() ?? '')
+          : '',
+    );
+    final cidadeInicial = dadosEditar != null
+        ? _capitalizar(dadosEditar['cidade']?.toString() ?? 'Todas')
+        : 'Todas';
+    String cidadeSelecionada = cidadeInicial;
+    String veiculo =
+        dadosEditar != null ? (dadosEditar['veiculo'] ?? 'Padrão (Moto/Bike)') : 'Padrão (Moto/Bike)';
+    var isLoading = false;
 
-    showDialog(
+    showDialog<void>(
       context: context,
       barrierDismissible: false,
+      barrierColor: Colors.black.withValues(alpha: 0.45),
       builder: (context) {
         return StatefulBuilder(
           builder: (context, setState) {
             Future<void> salvarFrete() async {
-              if (valorBaseC.text.isEmpty ||
-                  distBaseC.text.isEmpty ||
-                  valorKmExtraC.text.isEmpty ||
+              if (valorBaseC.text.trim().isEmpty ||
+                  distBaseC.text.trim().isEmpty ||
+                  valorKmExtraC.text.trim().isEmpty ||
                   cidadeSelecionada.isEmpty) {
+                ScaffoldMessenger.of(context).showSnackBar(
+                  SnackBar(
+                    content: const Text(
+                      "Preencha valor base, distância e valor por km extra.",
+                    ),
+                    backgroundColor: diPertinRoxo,
+                    behavior: SnackBarBehavior.floating,
+                  ),
+                );
                 return;
               }
               setState(() => isLoading = true);
               try {
-                double valorBase =
+                final valorBase =
                     double.tryParse(valorBaseC.text.replaceAll(',', '.')) ??
                     0.0;
-                double distBase =
+                final distBase =
                     double.tryParse(distBaseC.text.replaceAll(',', '.')) ?? 0.0;
-                double valorKmExtra =
+                final valorKmExtra =
                     double.tryParse(valorKmExtraC.text.replaceAll(',', '.')) ??
                     0.0;
 
-                Map<String, dynamic> dados = {
+                final dados = <String, dynamic>{
                   'cidade': cidadeSelecionada.trim().toLowerCase(),
                   'veiculo': veiculo,
                   'valor_base': valorBase,
@@ -318,133 +605,240 @@ class _ConfiguracoesScreenState extends State<ConfiguracoesScreen> {
                   'valor_km_adicional': valorKmExtra,
                   'data_atualizacao': FieldValue.serverTimestamp(),
                 };
-                String docId =
-                    "${cidadeSelecionada.trim().toLowerCase()}_${veiculo.contains('Carro') ? 'carro' : 'padrao'}";
-                await FirebaseFirestore.instance
-                    .collection('tabela_fretes')
-                    .doc(docId)
-                    .set(dados);
+                if (isEdicao) {
+                  await FirebaseFirestore.instance
+                      .collection('tabela_fretes')
+                      .doc(docIdEditar)
+                      .update(dados);
+                } else {
+                  final docId =
+                      "${cidadeSelecionada.trim().toLowerCase()}_${veiculo.contains('Carro') ? 'carro' : 'padrao'}";
+                  await FirebaseFirestore.instance
+                      .collection('tabela_fretes')
+                      .doc(docId)
+                      .set(dados);
+                }
                 if (context.mounted) Navigator.pop(context);
               } catch (e) {
                 debugPrint("Erro: $e");
+                if (context.mounted) {
+                  ScaffoldMessenger.of(context).showSnackBar(
+                    SnackBar(
+                      content: Text("Não foi possível salvar: $e"),
+                      backgroundColor: const Color(0xFFB91C1C),
+                      behavior: SnackBarBehavior.floating,
+                    ),
+                  );
+                }
               } finally {
-                setState(() => isLoading = false);
+                if (context.mounted) {
+                  setState(() => isLoading = false);
+                }
               }
             }
 
-            return AlertDialog(
-              title: Text(
-                "Nova Regra de Frete",
-                style: TextStyle(
-                  color: diPertinRoxo,
-                  fontWeight: FontWeight.bold,
-                ),
+            final mq = MediaQuery.sizeOf(context);
+            final dialogW = min(500.0, mq.width - 40);
+            final dialogH = min(560.0, mq.height * 0.88);
+
+            return Dialog(
+              shape: RoundedRectangleBorder(
+                borderRadius: BorderRadius.circular(20),
               ),
-              content: SizedBox(
-                width: 450,
-                child: SingleChildScrollView(
-                  child: Column(
-                    mainAxisSize: MainAxisSize.min,
-                    crossAxisAlignment: CrossAxisAlignment.start,
-                    children: [
-                      Autocomplete<String>(
-                        initialValue: const TextEditingValue(text: 'Todas'),
-                        optionsBuilder: (TextEditingValue text) {
-                          if (text.text.isEmpty) return _cidadesSugeridas;
-                          return _cidadesSugeridas.where(
-                            (String option) => option.toLowerCase().contains(
-                              text.text.toLowerCase(),
+              clipBehavior: Clip.antiAlias,
+              insetPadding: const EdgeInsets.symmetric(
+                horizontal: 20,
+                vertical: 28,
+              ),
+              backgroundColor: Colors.white,
+              elevation: 16,
+              shadowColor: diPertinRoxo.withValues(alpha: 0.2),
+              child: SizedBox(
+                width: dialogW,
+                height: dialogH,
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.stretch,
+                  children: [
+                    _dialogHeader(
+                      icon: isEdicao
+                          ? Icons.edit_road_rounded
+                          : Icons.route_rounded,
+                      titulo:
+                          isEdicao ? "Editar regra de frete" : "Nova regra de frete",
+                      subtitulo:
+                          "Valor fixo até uma distância base e acréscimo por quilómetro extra.",
+                    ),
+                    Expanded(
+                      child: SingleChildScrollView(
+                        padding: const EdgeInsets.fromLTRB(22, 20, 22, 8),
+                        child: Column(
+                          crossAxisAlignment: CrossAxisAlignment.stretch,
+                          children: [
+                            Autocomplete<String>(
+                              initialValue:
+                                  TextEditingValue(text: cidadeInicial),
+                              optionsBuilder: (TextEditingValue text) {
+                                if (text.text.isEmpty) {
+                                  return _cidadesSugeridas;
+                                }
+                                return _cidadesSugeridas.where(
+                                  (String option) => option
+                                      .toLowerCase()
+                                      .contains(text.text.toLowerCase()),
+                                );
+                              },
+                              onSelected: (String selection) =>
+                                  cidadeSelecionada = selection,
+                              fieldViewBuilder: (
+                                context,
+                                controller,
+                                focusNode,
+                                onFieldSubmitted,
+                              ) {
+                                controller.addListener(
+                                  () => cidadeSelecionada = controller.text,
+                                );
+                                return TextField(
+                                  controller: controller,
+                                  focusNode: focusNode,
+                                  decoration: _dialogFieldDecoration(
+                                    "Cidade",
+                                    suffixIcon: Icon(
+                                      Icons.search_rounded,
+                                      color: Colors.grey.shade600,
+                                      size: 22,
+                                    ),
+                                  ),
+                                );
+                              },
                             ),
-                          );
-                        },
-                        onSelected: (String selection) =>
-                            cidadeSelecionada = selection,
-                        fieldViewBuilder:
-                            (context, controller, focusNode, onFieldSubmitted) {
-                              controller.addListener(
-                                () => cidadeSelecionada = controller.text,
-                              );
-                              return TextField(
-                                controller: controller,
-                                focusNode: focusNode,
-                                decoration: const InputDecoration(
-                                  labelText: "Cidade Específica",
-                                  border: OutlineInputBorder(),
-                                  suffixIcon: Icon(Icons.search),
+                            const SizedBox(height: 16),
+                            DropdownButtonFormField<String>(
+                              key: ValueKey<String>('dlg_frete_veic_$veiculo'),
+                              initialValue: veiculo,
+                              decoration: _dialogFieldDecoration(
+                                "Categoria do frete",
+                              ),
+                              items: const [
+                                DropdownMenuItem(
+                                  value: 'Padrão (Moto/Bike)',
+                                  child: Text("Padrão (moto / bike)"),
                                 ),
-                              );
-                            },
-                      ),
-                      const SizedBox(height: 15),
-                      DropdownButtonFormField<String>(
-                        initialValue: veiculo,
-                        decoration: const InputDecoration(
-                          labelText: "Categoria do Frete",
-                          border: OutlineInputBorder(),
+                                DropdownMenuItem(
+                                  value: 'Cargas Maiores (Carro)',
+                                  child: Text("Cargas maiores (carro)"),
+                                ),
+                              ],
+                              onChanged: (val) =>
+                                  setState(() => veiculo = val!),
+                            ),
+                            const SizedBox(height: 16),
+                            Row(
+                              crossAxisAlignment: CrossAxisAlignment.start,
+                              children: [
+                                Expanded(
+                                  child: TextField(
+                                    controller: valorBaseC,
+                                    keyboardType:
+                                        const TextInputType.numberWithOptions(
+                                      decimal: true,
+                                    ),
+                                    decoration: _dialogFieldDecoration(
+                                      "Valor fixo base",
+                                      prefixText: "R\$ ",
+                                    ),
+                                  ),
+                                ),
+                                const SizedBox(width: 12),
+                                Expanded(
+                                  child: TextField(
+                                    controller: distBaseC,
+                                    keyboardType:
+                                        const TextInputType.numberWithOptions(
+                                      decimal: true,
+                                    ),
+                                    decoration: _dialogFieldDecoration(
+                                      "Incluído até",
+                                      suffixText: " km",
+                                    ),
+                                  ),
+                                ),
+                              ],
+                            ),
+                            const SizedBox(height: 16),
+                            TextField(
+                              controller: valorKmExtraC,
+                              keyboardType:
+                                  const TextInputType.numberWithOptions(
+                                decimal: true,
+                              ),
+                              decoration: _dialogFieldDecoration(
+                                "Valor por km adicional",
+                                prefixText: "+ R\$ ",
+                              ),
+                            ),
+                          ],
                         ),
-                        items: ['Padrão (Moto/Bike)', 'Cargas Maiores (Carro)']
-                            .map(
-                              (v) => DropdownMenuItem(value: v, child: Text(v)),
-                            )
-                            .toList(),
-                        onChanged: (val) => setState(() => veiculo = val!),
                       ),
-                      const SizedBox(height: 15),
-                      Row(
+                    ),
+                    const Divider(height: 1),
+                    Padding(
+                      padding: const EdgeInsets.fromLTRB(16, 12, 16, 16),
+                      child: Row(
+                        mainAxisAlignment: MainAxisAlignment.end,
                         children: [
-                          Expanded(
-                            child: TextField(
-                              controller: valorBaseC,
-                              keyboardType: TextInputType.number,
-                              decoration: const InputDecoration(
-                                labelText: "Valor Fixo Base",
-                                border: OutlineInputBorder(),
-                                prefixText: "R\$ ",
+                          TextButton(
+                            onPressed: isLoading
+                                ? null
+                                : () => Navigator.pop(context),
+                            child: Text(
+                              "Cancelar",
+                              style: TextStyle(
+                                color: diPertinRoxo,
+                                fontWeight: FontWeight.w600,
                               ),
                             ),
                           ),
-                          const SizedBox(width: 10),
-                          Expanded(
-                            child: TextField(
-                              controller: distBaseC,
-                              keyboardType: TextInputType.number,
-                              decoration: const InputDecoration(
-                                labelText: "Até quantos KM?",
-                                border: OutlineInputBorder(),
-                                suffixText: " km",
+                          const SizedBox(width: 8),
+                          FilledButton.icon(
+                            onPressed: isLoading ? null : salvarFrete,
+                            icon: isLoading
+                                ? SizedBox(
+                                    width: 18,
+                                    height: 18,
+                                    child: CircularProgressIndicator(
+                                      strokeWidth: 2,
+                                      color: Colors.white.withValues(
+                                        alpha: 0.9,
+                                      ),
+                                    ),
+                                  )
+                                : const Icon(Icons.check_rounded, size: 20),
+                            label: Text(
+                              isLoading
+                                  ? "Salvando…"
+                                  : isEdicao
+                                      ? "Salvar alterações"
+                                      : "Salvar regra",
+                            ),
+                            style: FilledButton.styleFrom(
+                              backgroundColor: diPertinLaranja,
+                              foregroundColor: Colors.white,
+                              padding: const EdgeInsets.symmetric(
+                                horizontal: 22,
+                                vertical: 14,
+                              ),
+                              shape: RoundedRectangleBorder(
+                                borderRadius: BorderRadius.circular(12),
                               ),
                             ),
                           ),
                         ],
                       ),
-                      const SizedBox(height: 15),
-                      TextField(
-                        controller: valorKmExtraC,
-                        keyboardType: TextInputType.number,
-                        decoration: const InputDecoration(
-                          labelText: "Valor por KM Adicional",
-                          border: OutlineInputBorder(),
-                          prefixText: "+ R\$ ",
-                        ),
-                      ),
-                    ],
-                  ),
+                    ),
+                  ],
                 ),
               ),
-              actions: [
-                TextButton(
-                  onPressed: () => Navigator.pop(context),
-                  child: const Text("Cancelar"),
-                ),
-                ElevatedButton(
-                  onPressed: isLoading ? null : salvarFrete,
-                  style: ElevatedButton.styleFrom(
-                    backgroundColor: diPertinLaranja,
-                    foregroundColor: Colors.white,
-                  ),
-                  child: const Text("Salvar Matemática"),
-                ),
-              ],
             );
           },
         );
@@ -452,21 +846,38 @@ class _ConfiguracoesScreenState extends State<ConfiguracoesScreen> {
     );
   }
 
-  Future<void> _deletarDocumento(String colecao, String id) async {
+  Future<void> _deletarDocumento(
+    String colecao,
+    String id, {
+    String? nomeExibicao,
+  }) async {
     showDialog(
       context: context,
       builder: (ctx) => AlertDialog(
-        title: const Text(
-          "Apagar Registro",
-          style: TextStyle(color: Colors.red),
+        title: Row(
+          children: [
+            Icon(Icons.warning_amber_rounded, color: diPertinLaranja),
+            const SizedBox(width: 12),
+            const Expanded(
+              child: Text(
+                "Remover registro",
+                style: TextStyle(fontWeight: FontWeight.w700),
+              ),
+            ),
+          ],
         ),
-        content: const Text("Tem certeza? Esta ação não pode ser desfeita."),
+        content: Text(
+          nomeExibicao != null && nomeExibicao.isNotEmpty
+              ? "O item \"$nomeExibicao\" será removido permanentemente. Esta ação não pode ser desfeita."
+              : "Este registro será removido permanentemente. Esta ação não pode ser desfeita.",
+          style: const TextStyle(height: 1.4),
+        ),
         actions: [
           TextButton(
             onPressed: () => Navigator.pop(ctx),
             child: const Text("Cancelar"),
           ),
-          ElevatedButton(
+          FilledButton(
             onPressed: () async {
               await FirebaseFirestore.instance
                   .collection(colecao)
@@ -474,59 +885,260 @@ class _ConfiguracoesScreenState extends State<ConfiguracoesScreen> {
                   .delete();
               if (ctx.mounted) Navigator.pop(ctx);
             },
-            style: ElevatedButton.styleFrom(
-              backgroundColor: Colors.red,
+            style: FilledButton.styleFrom(
+              backgroundColor: const Color(0xFFB91C1C),
               foregroundColor: Colors.white,
             ),
-            child: const Text("Apagar"),
+            child: const Text("Remover"),
           ),
         ],
       ),
     );
   }
 
+  String _capitalizar(String s) {
+    if (s.isEmpty) return s;
+    return s[0].toUpperCase() + s.substring(1);
+  }
+
+  String _labelFrequencia(Object? raw) {
+    final s = raw?.toString() ?? '';
+    switch (s) {
+      case 'venda':
+        return 'por venda';
+      case 'semana':
+        return 'por semana';
+      case 'mes':
+        return 'por mês';
+      default:
+        return s.isEmpty ? '—' : s;
+    }
+  }
+
+  Widget _wrapConteudoCentral(Widget child) {
+    return Align(
+      alignment: Alignment.topCenter,
+      child: ConstrainedBox(
+        constraints: const BoxConstraints(maxWidth: _kMaxContentWidth),
+        child: child,
+      ),
+    );
+  }
+
+  Widget _emptyState({
+    required IconData icon,
+    required String titulo,
+    required String subtitulo,
+    VoidCallback? onAdicionar,
+    String? labelBotao,
+  }) {
+    return Center(
+      child: ConstrainedBox(
+        constraints: const BoxConstraints(maxWidth: 420),
+        child: Padding(
+          padding: const EdgeInsets.all(32),
+          child: Column(
+            mainAxisAlignment: MainAxisAlignment.center,
+            children: [
+              Icon(icon, size: 56, color: diPertinRoxo.withValues(alpha: 0.35)),
+              const SizedBox(height: 20),
+              Text(
+                titulo,
+                textAlign: TextAlign.center,
+                style: TextStyle(
+                  fontSize: 18,
+                  fontWeight: FontWeight.w700,
+                  color: diPertinRoxo,
+                ),
+              ),
+              const SizedBox(height: 8),
+              Text(
+                subtitulo,
+                textAlign: TextAlign.center,
+                style: const TextStyle(
+                  color: PainelAdminTheme.textoSecundario,
+                  height: 1.45,
+                ),
+              ),
+              if (onAdicionar != null && labelBotao != null) ...[
+                const SizedBox(height: 24),
+                FilledButton.icon(
+                  onPressed: onAdicionar,
+                  icon: const Icon(Icons.add, size: 20),
+                  label: Text(labelBotao),
+                  style: FilledButton.styleFrom(
+                    backgroundColor: diPertinLaranja,
+                    foregroundColor: Colors.white,
+                    padding: const EdgeInsets.symmetric(
+                      horizontal: 20,
+                      vertical: 14,
+                    ),
+                  ),
+                ),
+              ],
+            ],
+          ),
+        ),
+      ),
+    );
+  }
+
+  Widget _chipInfo(String texto, {IconData? icon}) {
+    return Chip(
+      avatar: icon != null
+          ? Icon(icon, size: 16, color: diPertinRoxo)
+          : null,
+      label: Text(texto),
+      visualDensity: VisualDensity.compact,
+      padding: const EdgeInsets.symmetric(horizontal: 4),
+      side: BorderSide(color: Colors.grey.shade300),
+      backgroundColor: Colors.grey.shade50,
+      labelStyle: const TextStyle(fontSize: 13),
+    );
+  }
+
   Widget _buildListaPlanos(String publico) {
+    final isLojista = publico == 'lojista';
     return StreamBuilder<QuerySnapshot>(
       stream: FirebaseFirestore.instance
           .collection('planos_taxas')
           .where('publico', isEqualTo: publico)
           .snapshots(),
       builder: (context, snapshot) {
-        if (!snapshot.hasData) {
+        if (snapshot.connectionState == ConnectionState.waiting &&
+            !snapshot.hasData) {
           return const Center(child: CircularProgressIndicator());
         }
-        var planos = snapshot.data!.docs;
-        return ListView.builder(
-          padding: const EdgeInsets.all(20),
-          itemCount: planos.length,
-          itemBuilder: (context, index) {
-            var dados = planos[index].data() as Map<String, dynamic>;
-            bool isFixo = dados['tipo_cobranca'] == 'fixo';
-            String valorTexto = isFixo
-                ? "R\$ ${dados['valor']} por ${dados['frequencia']}"
-                : "${dados['valor']}% por ${dados['frequencia']}";
-            return Card(
-              child: ListTile(
-                leading: CircleAvatar(
-                  child: Icon(
-                    publico == 'lojista' ? Icons.store : Icons.motorcycle,
+        final planos = snapshot.data?.docs ?? [];
+        if (planos.isEmpty) {
+          return _emptyState(
+            icon: isLojista ? Icons.store_outlined : Icons.two_wheeler_outlined,
+            titulo: isLojista
+                ? "Nenhuma comissão para lojistas"
+                : "Nenhuma comissão para entregadores",
+            subtitulo: isLojista
+                ? "Crie regras de comissão por cidade (percentual ou valor fixo) para os lojistas."
+                : "Defina taxas por veículo e cidade para os entregadores da rede.",
+            onAdicionar: () => _mostrarFormularioNovoPlano(
+              publicoInicial: publico,
+            ),
+            labelBotao: isLojista
+                ? "Nova comissão (lojista)"
+                : "Nova comissão (entregador)",
+          );
+        }
+        return _wrapConteudoCentral(
+          ListView.separated(
+            padding: const EdgeInsets.fromLTRB(24, 20, 24, 32),
+            itemCount: planos.length,
+            separatorBuilder: (_, _) => const SizedBox(height: 12),
+            itemBuilder: (context, index) {
+              final doc = planos[index];
+              final dados = doc.data() as Map<String, dynamic>;
+              final nome = (dados['nome'] ?? 'Sem nome').toString();
+              final cidadeRaw = dados['cidade'];
+              final cidade = cidadeRaw?.toString().trim().isNotEmpty == true
+                  ? cidadeRaw.toString()
+                  : 'todas';
+              final isFixo = dados['tipo_cobranca'] == 'fixo';
+              final freq = _labelFrequencia(dados['frequencia']);
+              final valorResumo = isFixo
+                  ? "R\$ ${dados['valor']} · $freq"
+                  : "${dados['valor']}% · $freq";
+              final tipoLabel =
+                  isFixo ? "Valor fixo" : "Percentual";
+
+              return Material(
+                color: Colors.white,
+                elevation: 0,
+                shape: RoundedRectangleBorder(
+                  borderRadius: BorderRadius.circular(16),
+                  side: BorderSide(color: Colors.grey.shade200),
+                ),
+                clipBehavior: Clip.antiAlias,
+                child: Padding(
+                  padding: const EdgeInsets.symmetric(
+                    horizontal: 18,
+                    vertical: 16,
+                  ),
+                  child: Row(
+                    crossAxisAlignment: CrossAxisAlignment.start,
+                    children: [
+                      Container(
+                        padding: const EdgeInsets.all(12),
+                        decoration: BoxDecoration(
+                          color: diPertinRoxo.withValues(alpha: 0.08),
+                          borderRadius: BorderRadius.circular(12),
+                        ),
+                        child: Icon(
+                          isLojista ? Icons.storefront_rounded : Icons.moped_rounded,
+                          color: diPertinRoxo,
+                          size: 26,
+                        ),
+                      ),
+                      const SizedBox(width: 16),
+                      Expanded(
+                        child: Column(
+                          crossAxisAlignment: CrossAxisAlignment.start,
+                          children: [
+                            Text(
+                              nome,
+                              style: const TextStyle(
+                                fontSize: 17,
+                                fontWeight: FontWeight.w700,
+                                letterSpacing: -0.2,
+                              ),
+                            ),
+                            const SizedBox(height: 10),
+                            Wrap(
+                              spacing: 8,
+                              runSpacing: 8,
+                              children: [
+                                _chipInfo(
+                                  "Local: ${cidade.toUpperCase()}",
+                                  icon: Icons.place_outlined,
+                                ),
+                                _chipInfo(tipoLabel, icon: Icons.category_outlined),
+                                _chipInfo(
+                                  "Comissão: $valorResumo",
+                                  icon: Icons.payments_outlined,
+                                ),
+                              ],
+                            ),
+                          ],
+                        ),
+                      ),
+                      const SizedBox(width: 8),
+                      IconButton(
+                        tooltip: "Editar plano",
+                        icon: Icon(
+                          Icons.edit_outlined,
+                          color: diPertinRoxo,
+                        ),
+                        onPressed: () => _mostrarFormularioNovoPlano(
+                          publicoInicial: publico,
+                          docIdEditar: doc.id,
+                          dadosEditar: dados,
+                        ),
+                      ),
+                      IconButton(
+                        tooltip: "Remover plano",
+                        icon: Icon(
+                          Icons.delete_outline_rounded,
+                          color: Colors.grey.shade600,
+                        ),
+                        onPressed: () => _deletarDocumento(
+                          'planos_taxas',
+                          doc.id,
+                          nomeExibicao: nome,
+                        ),
+                      ),
+                    ],
                   ),
                 ),
-                title: Text(
-                  dados['nome'] ?? 'Sem Nome',
-                  style: const TextStyle(fontWeight: FontWeight.bold),
-                ),
-                subtitle: Text(
-                  "Local: ${dados['cidade'].toString().toUpperCase()}\nComissão: $valorTexto",
-                ),
-                trailing: IconButton(
-                  icon: const Icon(Icons.delete, color: Colors.red),
-                  onPressed: () =>
-                      _deletarDocumento('planos_taxas', planos[index].id),
-                ),
-              ),
-            );
-          },
+              );
+            },
+          ),
         );
       },
     );
@@ -538,50 +1150,133 @@ class _ConfiguracoesScreenState extends State<ConfiguracoesScreen> {
           .collection('tabela_fretes')
           .snapshots(),
       builder: (context, snapshot) {
-        if (!snapshot.hasData) {
+        if (snapshot.connectionState == ConnectionState.waiting &&
+            !snapshot.hasData) {
           return const Center(child: CircularProgressIndicator());
         }
-        var fretes = snapshot.data!.docs;
-        return ListView.builder(
-          padding: const EdgeInsets.all(20),
-          itemCount: fretes.length,
-          itemBuilder: (context, index) {
-            var dados = fretes[index].data() as Map<String, dynamic>;
-            double base = (dados['valor_base'] as num?)?.toDouble() ?? 0.0;
-            double dist =
-                (dados['distancia_base_km'] as num?)?.toDouble() ?? 0.0;
-            double extra =
-                (dados['valor_km_adicional'] as num?)?.toDouble() ?? 0.0;
-            return Card(
-              child: ListTile(
-                leading: const CircleAvatar(
-                  backgroundColor: Colors.green,
-                  child: Icon(Icons.map, color: Colors.white),
+        final fretes = snapshot.data?.docs ?? [];
+        if (fretes.isEmpty) {
+          return _emptyState(
+            icon: Icons.route_outlined,
+            titulo: "Nenhuma regra de frete",
+            subtitulo:
+                "Cadastre valores base por cidade e km adicional para o cálculo de entregas.",
+            onAdicionar: _mostrarFormularioNovoFrete,
+            labelBotao: "Nova regra de frete",
+          );
+        }
+        return _wrapConteudoCentral(
+          ListView.separated(
+            padding: const EdgeInsets.fromLTRB(24, 20, 24, 32),
+            itemCount: fretes.length,
+            separatorBuilder: (_, _) => const SizedBox(height: 12),
+            itemBuilder: (context, index) {
+              final doc = fretes[index];
+              final dados = doc.data() as Map<String, dynamic>;
+              final base = (dados['valor_base'] as num?)?.toDouble() ?? 0.0;
+              final dist =
+                  (dados['distancia_base_km'] as num?)?.toDouble() ?? 0.0;
+              final extra =
+                  (dados['valor_km_adicional'] as num?)?.toDouble() ?? 0.0;
+              final veiculo = (dados['veiculo'] ?? '—').toString();
+              final cidade = (dados['cidade'] ?? '—').toString();
+              final titulo = "$veiculo · ${cidade.toUpperCase()}";
+
+              return Material(
+                color: Colors.white,
+                elevation: 0,
+                shape: RoundedRectangleBorder(
+                  borderRadius: BorderRadius.circular(16),
+                  side: BorderSide(color: Colors.grey.shade200),
                 ),
-                title: Text(
-                  "${dados['veiculo']} - ${dados['cidade'].toString().toUpperCase()}",
-                  style: const TextStyle(fontWeight: FontWeight.bold),
+                clipBehavior: Clip.antiAlias,
+                child: Padding(
+                  padding: const EdgeInsets.symmetric(
+                    horizontal: 18,
+                    vertical: 16,
+                  ),
+                  child: Row(
+                    crossAxisAlignment: CrossAxisAlignment.start,
+                    children: [
+                      Container(
+                        padding: const EdgeInsets.all(12),
+                        decoration: BoxDecoration(
+                          color: diPertinLaranja.withValues(alpha: 0.12),
+                          borderRadius: BorderRadius.circular(12),
+                        ),
+                        child: Icon(
+                          Icons.local_shipping_outlined,
+                          color: diPertinLaranja,
+                          size: 26,
+                        ),
+                      ),
+                      const SizedBox(width: 16),
+                      Expanded(
+                        child: Column(
+                          crossAxisAlignment: CrossAxisAlignment.start,
+                          children: [
+                            Text(
+                              titulo,
+                              style: const TextStyle(
+                                fontSize: 17,
+                                fontWeight: FontWeight.w700,
+                                letterSpacing: -0.2,
+                              ),
+                            ),
+                            const SizedBox(height: 10),
+                            Wrap(
+                              spacing: 8,
+                              runSpacing: 8,
+                              children: [
+                                _chipInfo(
+                                  "Base: R\$ ${base.toStringAsFixed(2)} até ${dist.toStringAsFixed(0)} km",
+                                  icon: Icons.flag_outlined,
+                                ),
+                                _chipInfo(
+                                  "+ R\$ ${extra.toStringAsFixed(2)} / km extra",
+                                  icon: Icons.add_road,
+                                ),
+                              ],
+                            ),
+                          ],
+                        ),
+                      ),
+                      IconButton(
+                        tooltip: "Editar regra",
+                        icon: Icon(
+                          Icons.edit_outlined,
+                          color: diPertinLaranja,
+                        ),
+                        onPressed: () => _mostrarFormularioNovoFrete(
+                          docIdEditar: doc.id,
+                          dadosEditar: dados,
+                        ),
+                      ),
+                      IconButton(
+                        tooltip: "Remover regra",
+                        icon: Icon(
+                          Icons.delete_outline_rounded,
+                          color: Colors.grey.shade600,
+                        ),
+                        onPressed: () => _deletarDocumento(
+                          'tabela_fretes',
+                          doc.id,
+                          nomeExibicao: titulo,
+                        ),
+                      ),
+                    ],
+                  ),
                 ),
-                subtitle: Text(
-                  "R\$ ${base.toStringAsFixed(2)} (Até ${dist}km) + R\$ ${extra.toStringAsFixed(2)}/km extra",
-                ),
-                trailing: IconButton(
-                  icon: const Icon(Icons.delete, color: Colors.red),
-                  onPressed: () =>
-                      _deletarDocumento('tabela_fretes', fretes[index].id),
-                ),
-              ),
-            );
-          },
+              );
+            },
+          ),
         );
       },
     );
   }
 
-  // === NOVO: WIDGET DE INTEGRAÇÕES (GATEWAYS) ===
   Widget _buildGatewaysPagamento() {
-    // Definimos os gateways disponíveis no DiPertin
-    List<Map<String, String>> gatewaysDisponiveis = [
+    final gatewaysDisponiveis = <Map<String, String>>[
       {
         'id': 'mercado_pago',
         'nome': 'Mercado Pago',
@@ -602,364 +1297,507 @@ class _ConfiguracoesScreenState extends State<ConfiguracoesScreen> {
     ];
 
     return StreamBuilder<QuerySnapshot>(
-      // Vamos ler as configurações salvas no banco
       stream: FirebaseFirestore.instance
           .collection('gateways_pagamento')
           .snapshots(),
       builder: (context, snapshot) {
-        if (snapshot.connectionState == ConnectionState.waiting) {
+        if (snapshot.connectionState == ConnectionState.waiting &&
+            !snapshot.hasData) {
           return const Center(child: CircularProgressIndicator());
         }
 
-        // Mapeia o que já está salvo no banco
-        Map<String, Map<String, dynamic>> gatewaysSalvos = {};
+        final gatewaysSalvos = <String, Map<String, dynamic>>{};
         if (snapshot.hasData) {
-          for (var doc in snapshot.data!.docs) {
+          for (final doc in snapshot.data!.docs) {
             gatewaysSalvos[doc.id] = doc.data() as Map<String, dynamic>;
           }
         }
 
-        return ListView.builder(
-          padding: const EdgeInsets.all(30),
-          itemCount: gatewaysDisponiveis.length,
-          itemBuilder: (context, index) {
-            var gw = gatewaysDisponiveis[index];
-            var dados = gatewaysSalvos[gw['id']] ?? {};
-
-            bool isAtivo = dados['ativo'] ?? false;
-            TextEditingController publicKeyC = TextEditingController(
-              text: dados['public_key'] ?? '',
-            );
-            TextEditingController accessTokenC = TextEditingController(
-              text: dados['access_token'] ?? '',
-            );
-
-            return Card(
-              elevation: isAtivo ? 8 : 2, // Fica "saltado" se estiver ativo
-              margin: const EdgeInsets.only(bottom: 25),
-              shape: RoundedRectangleBorder(
-                borderRadius: BorderRadius.circular(15),
-                side: BorderSide(
-                  color: isAtivo ? Colors.green : Colors.transparent,
-                  width: 2,
-                ),
-              ),
-              child: Padding(
-                padding: const EdgeInsets.all(25),
-                child: Column(
-                  crossAxisAlignment: CrossAxisAlignment.start,
-                  children: [
-                    Row(
-                      mainAxisAlignment: MainAxisAlignment.spaceBetween,
-                      children: [
-                        Row(
-                          children: [
-                            Image.network(
-                              gw['logo']!,
-                              height: 40,
-                              width: 40,
-                              errorBuilder: (c, e, s) =>
-                                  const Icon(Icons.account_balance, size: 40),
-                            ),
-                            const SizedBox(width: 15),
-                            Text(
-                              gw['nome']!,
-                              style: const TextStyle(
-                                fontSize: 22,
-                                fontWeight: FontWeight.bold,
-                              ),
-                            ),
-                          ],
-                        ),
-                        if (isAtivo)
-                          Container(
-                            padding: const EdgeInsets.symmetric(
-                              horizontal: 12,
-                              vertical: 6,
-                            ),
-                            decoration: BoxDecoration(
-                              color: Colors.green,
-                              borderRadius: BorderRadius.circular(20),
-                            ),
-                            child: const Text(
-                              "INTEGRAÇÃO ATIVA",
-                              style: TextStyle(
-                                color: Colors.white,
-                                fontWeight: FontWeight.bold,
-                                fontSize: 12,
-                              ),
-                            ),
-                          ),
-                      ],
-                    ),
-                    const Divider(height: 30),
-
-                    Row(
-                      children: [
-                        Expanded(
-                          child: TextField(
-                            controller: publicKeyC,
-                            decoration: const InputDecoration(
-                              labelText: "Public Key (Chave Pública)",
-                              border: OutlineInputBorder(),
-                              prefixIcon: Icon(Icons.vpn_key),
-                            ),
-                          ),
-                        ),
-                        const SizedBox(width: 15),
-                        Expanded(
-                          child: TextField(
-                            controller: accessTokenC,
-                            obscureText: true, // Esconde o token sensível
-                            decoration: const InputDecoration(
-                              labelText: "Access Token (Token Privado)",
-                              border: OutlineInputBorder(),
-                              prefixIcon: Icon(Icons.lock),
-                            ),
-                          ),
-                        ),
-                      ],
-                    ),
-                    const SizedBox(height: 20),
-
-                    Row(
-                      mainAxisAlignment: MainAxisAlignment.end,
-                      children: [
-                        // BOTÃO DE SALVAR E ATIVAR
-                        ElevatedButton.icon(
-                          onPressed: () async {
-                            if (publicKeyC.text.trim().isEmpty ||
-                                accessTokenC.text.trim().isEmpty) {
-                              ScaffoldMessenger.of(context).showSnackBar(
-                                const SnackBar(
-                                  content: Text(
-                                    "Preencha as duas chaves para ativar!",
-                                  ),
-                                  backgroundColor: Colors.red,
-                                ),
-                              );
-                              return;
-                            }
-
-                            // ABRIR O AVISO DE CARREGAMENTO
-                            showDialog(
-                              context: context,
-                              barrierDismissible: false,
-                              builder: (c) => const AlertDialog(
-                                content: Row(
-                                  children: [
-                                    CircularProgressIndicator(),
-                                    SizedBox(width: 20),
-                                    Text("Salvando credenciais no sistema..."),
-                                  ],
-                                ),
-                              ),
-                            );
-
-                            try {
-                              // Desativa todos os gateways primeiro
-                              var batch = FirebaseFirestore.instance.batch();
-                              var todos = await FirebaseFirestore.instance
-                                  .collection('gateways_pagamento')
-                                  .get();
-                              for (var doc in todos.docs) {
-                                batch.update(doc.reference, {'ativo': false});
-                              }
-                              await batch.commit();
-
-                              // Salva e ativa o que foi clicado
-                              await FirebaseFirestore.instance
-                                  .collection('gateways_pagamento')
-                                  .doc(gw['id'])
-                                  .set({
-                                    'nome': gw['nome'],
-                                    'public_key': publicKeyC.text.trim(),
-                                    'access_token': accessTokenC.text.trim(),
-                                    'ativo': true,
-                                    'data_atualizacao':
-                                        FieldValue.serverTimestamp(),
-                                  });
-
-                              // FECHAR O AVISO DE CARREGAMENTO
-                              if (context.mounted) Navigator.pop(context);
-
-                              if (context.mounted) {
-                                ScaffoldMessenger.of(context).showSnackBar(
-                                  SnackBar(
-                                    content: Text(
-                                      "${gw['nome']} agora é o método de pagamento oficial do app!",
-                                    ),
-                                    backgroundColor: Colors.green,
-                                  ),
-                                );
-                              }
-                            } catch (e) {
-                              // FECHAR O AVISO DE CARREGAMENTO EM CASO DE ERRO NO FIREBASE
-                              if (context.mounted) Navigator.pop(context);
-
-                              if (context.mounted) {
-                                ScaffoldMessenger.of(context).showSnackBar(
-                                  SnackBar(
-                                    content: Text(
-                                      "Erro ao salvar no banco de dados: $e",
-                                    ),
-                                    backgroundColor: Colors.red,
-                                  ),
-                                );
-                              }
-                            }
-                          },
-                          icon: const Icon(
-                            Icons.check_circle,
-                            color: Colors.white,
-                          ),
-                          label: Text(
-                            isAtivo ? "Atualizar Chaves" : "Salvar e Ativar",
-                            style: const TextStyle(
-                              color: Colors.white,
-                              fontWeight: FontWeight.bold,
-                            ),
-                          ),
-                          style: ElevatedButton.styleFrom(
-                            backgroundColor: isAtivo
-                                ? Colors.blue
-                                : Colors.green,
-                            padding: const EdgeInsets.symmetric(
-                              horizontal: 20,
-                              vertical: 15,
-                            ),
-                          ),
-                        ),
-                      ],
-                    ),
-                  ],
-                ),
-              ),
-            );
-          },
+        return _wrapConteudoCentral(
+          ListView.separated(
+            padding: const EdgeInsets.fromLTRB(24, 20, 24, 32),
+            itemCount: gatewaysDisponiveis.length,
+            separatorBuilder: (_, _) => const SizedBox(height: 20),
+            itemBuilder: (context, index) {
+              final gw = gatewaysDisponiveis[index];
+              final dados = gatewaysSalvos[gw['id']] ?? <String, dynamic>{};
+              return _GatewayConfigCard(
+                gateway: gw,
+                dadosIniciais: dados,
+                roxo: diPertinRoxo,
+                laranja: diPertinLaranja,
+              );
+            },
+          ),
         );
       },
     );
   }
 
+  Widget _buildAcoesContextuaisTopo() {
+    final i = _tabController.index;
+    if (i == 3) {
+      return Text(
+        "Defina abaixo qual gateway estará ativo no app.",
+        style: TextStyle(
+          fontSize: 13,
+          color: Colors.grey.shade600,
+          fontWeight: FontWeight.w500,
+        ),
+      );
+    }
+    if (i == 2) {
+      return FilledButton.icon(
+        onPressed: _mostrarFormularioNovoFrete,
+        icon: const Icon(Icons.add_road_rounded, size: 20),
+        label: const Text("Nova regra de frete"),
+        style: FilledButton.styleFrom(
+          backgroundColor: diPertinLaranja,
+          foregroundColor: Colors.white,
+          padding: const EdgeInsets.symmetric(horizontal: 18, vertical: 14),
+        ),
+      );
+    }
+    if (i == 1) {
+      return FilledButton.icon(
+        onPressed: () =>
+            _mostrarFormularioNovoPlano(publicoInicial: 'entregador'),
+        icon: const Icon(Icons.percent_rounded, size: 20),
+        label: const Text("Nova comissão (entregador)"),
+        style: FilledButton.styleFrom(
+          backgroundColor: diPertinLaranja,
+          foregroundColor: Colors.white,
+          padding: const EdgeInsets.symmetric(horizontal: 18, vertical: 14),
+        ),
+      );
+    }
+    return FilledButton.icon(
+      onPressed: () => _mostrarFormularioNovoPlano(publicoInicial: 'lojista'),
+      icon: const Icon(Icons.percent_rounded, size: 20),
+      label: const Text("Nova comissão (lojista)"),
+      style: FilledButton.styleFrom(
+        backgroundColor: diPertinLaranja,
+        foregroundColor: Colors.white,
+        padding: const EdgeInsets.symmetric(horizontal: 18, vertical: 14),
+      ),
+    );
+  }
+
   @override
   Widget build(BuildContext context) {
-    return DefaultTabController(
-      length: 4, // <--- Agora são 4 abas!
-      child: Scaffold(
-        backgroundColor: Colors.grey[100],
-        body: Column(
-          crossAxisAlignment: CrossAxisAlignment.start,
-          children: [
-            Container(
-              color: Colors.white,
-              padding: const EdgeInsets.only(
-                top: 30,
-                left: 30,
-                right: 30,
-              ),
-              child: Column(
-                crossAxisAlignment: CrossAxisAlignment.start,
-                children: [
-                  Row(
-                    mainAxisAlignment: MainAxisAlignment.spaceBetween,
-                    children: [
-                      Column(
-                        crossAxisAlignment: CrossAxisAlignment.start,
-                        children: [
-                          Text(
-                            "Configurações Financeiras",
-                            style: TextStyle(
-                              fontSize: 28,
-                                    fontWeight: FontWeight.bold,
-                                    color: diPertinRoxo,
-                                  ),
-                                ),
-                                const Text(
-                                  "Gerencie comissões, planos e métodos de pagamento.",
-                                  style: TextStyle(
-                                    color: Colors.grey,
-                                    fontSize: 16,
-                                  ),
-                                ),
-                              ],
-                            ),
-                            Row(
-                              children: [
-                                ElevatedButton.icon(
-                                  onPressed: _mostrarFormularioNovoFrete,
-                                  icon: const Icon(
-                                    Icons.map,
-                                    color: Colors.white,
-                                  ),
-                                  label: const Text(
-                                    "Nova Regra de Frete",
-                                    style: TextStyle(color: Colors.white),
-                                  ),
-                                  style: ElevatedButton.styleFrom(
-                                    backgroundColor: Colors.green,
-                                  ),
-                                ),
-                                const SizedBox(width: 10),
-                                ElevatedButton.icon(
-                                  onPressed: _mostrarFormularioNovoPlano,
-                                  icon: const Icon(
-                                    Icons.percent,
-                                    color: Colors.white,
-                                  ),
-                                  label: const Text(
-                                    "Criar Comissão/Plano",
-                                    style: TextStyle(color: Colors.white),
-                                  ),
-                                  style: ElevatedButton.styleFrom(
-                                    backgroundColor: diPertinLaranja,
-                                  ),
-                                ),
-                              ],
-                            ),
-                          ],
-                        ),
-                        const SizedBox(height: 20),
-                        TabBar(
-                          labelColor: diPertinRoxo,
-                          unselectedLabelColor: Colors.grey,
-                          indicatorColor: diPertinLaranja,
-                          tabs: [
-                            Tab(
-                              icon: Icon(Icons.store),
-                              text: "Comissões Lojistas",
-                            ),
-                            Tab(
-                              icon: Icon(Icons.motorcycle),
-                              text: "Comissões Entregadores",
-                            ),
-                            Tab(
-                              icon: Icon(Icons.map),
-                              text: "Tabela de Fretes",
-                            ),
-                            Tab(
-                              icon: Icon(Icons.credit_card),
-                              text: "Integrações Pagamentos",
-                            ), // <--- A nova aba
-                          ],
-                        ),
-                      ],
-                    ),
-                  ),
+    final theme = Theme.of(context);
 
-                  Expanded(
-                    child: TabBarView(
+    return Scaffold(
+      backgroundColor: PainelAdminTheme.fundoCanvas,
+      body: Column(
+        crossAxisAlignment: CrossAxisAlignment.stretch,
+        children: [
+          Material(
+            color: Colors.white,
+            elevation: 0,
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.stretch,
+              children: [
+                LayoutBuilder(
+                  builder: (context, constraints) {
+                    final narrow = constraints.maxWidth < 720;
+                    final tituloCol = Column(
+                      crossAxisAlignment: narrow
+                          ? CrossAxisAlignment.center
+                          : CrossAxisAlignment.start,
                       children: [
-                        _buildListaPlanos('lojista'),
-                        _buildListaPlanos('entregador'),
-                        _buildListaFretes(),
-                        _buildGatewaysPagamento(), // <--- Tela dos Gateways
+                        Text(
+                          "Configurações financeiras",
+                          textAlign: narrow ? TextAlign.center : TextAlign.start,
+                          style: theme.textTheme.headlineSmall?.copyWith(
+                                fontWeight: FontWeight.w800,
+                                color: diPertinRoxo,
+                                letterSpacing: -0.5,
+                              ) ??
+                              TextStyle(
+                                fontSize: 26,
+                                fontWeight: FontWeight.w800,
+                                color: diPertinRoxo,
+                                letterSpacing: -0.5,
+                              ),
+                        ),
+                        const SizedBox(height: 6),
+                        Text(
+                          "Taxas por cidade, fretes e gateways de pagamento — tudo num só lugar.",
+                          textAlign: narrow ? TextAlign.center : TextAlign.start,
+                          style: const TextStyle(
+                            color: PainelAdminTheme.textoSecundario,
+                            fontSize: 15,
+                            height: 1.4,
+                          ),
+                        ),
                       ],
-                    ),
+                    );
+                    final acao = Align(
+                      alignment: narrow
+                          ? Alignment.center
+                          : Alignment.topRight,
+                      child: _buildAcoesContextuaisTopo(),
+                    );
+                    return Padding(
+                      padding: const EdgeInsets.fromLTRB(28, 28, 28, 0),
+                      child: narrow
+                          ? Column(
+                              crossAxisAlignment: CrossAxisAlignment.stretch,
+                              children: [
+                                tituloCol,
+                                const SizedBox(height: 16),
+                                acao,
+                              ],
+                            )
+                          : Row(
+                              crossAxisAlignment: CrossAxisAlignment.start,
+                              children: [
+                                Expanded(child: tituloCol),
+                                const SizedBox(width: 24),
+                                Flexible(child: acao),
+                              ],
+                            ),
+                    );
+                  },
+                ),
+                const SizedBox(height: 8),
+                TabBar(
+                  controller: _tabController,
+                  isScrollable: true,
+                  tabAlignment: TabAlignment.start,
+                  labelColor: diPertinRoxo,
+                  unselectedLabelColor: PainelAdminTheme.textoSecundario,
+                  indicatorColor: diPertinLaranja,
+                  indicatorWeight: 3,
+                  labelStyle: const TextStyle(
+                    fontWeight: FontWeight.w700,
+                    fontSize: 13,
                   ),
+                  unselectedLabelStyle: const TextStyle(
+                    fontWeight: FontWeight.w600,
+                    fontSize: 13,
+                  ),
+                  tabs: const [
+                    Tab(
+                      icon: Icon(Icons.storefront_rounded),
+                      height: 72,
+                      text: "Comissões da Plataforma",
+                    ),
+                    Tab(
+                      icon: Icon(Icons.two_wheeler_rounded),
+                      height: 72,
+                      text: "Desconto do Entregadores",
+                    ),
+                    Tab(
+                      icon: Icon(Icons.route_rounded),
+                      height: 72,
+                      text: "Tabela de fretes",
+                    ),
+                    Tab(
+                      icon: Icon(Icons.credit_card_rounded),
+                      height: 72,
+                      text: "Pagamentos",
+                    ),
+                  ],
+                ),
+                Divider(height: 1, color: Colors.grey.shade200),
+              ],
+            ),
+          ),
+          Expanded(
+            child: TabBarView(
+              controller: _tabController,
+              children: [
+                _buildListaPlanos('lojista'),
+                _buildListaPlanos('entregador'),
+                _buildListaFretes(),
+                _buildGatewaysPagamento(),
+              ],
+            ),
+          ),
+        ],
+      ),
+      floatingActionButton: const BotaoSuporteFlutuante(),
+    );
+  }
+}
+
+/// Cartão de gateway com controllers estáveis (evita perder texto a cada rebuild).
+class _GatewayConfigCard extends StatefulWidget {
+  const _GatewayConfigCard({
+    required this.gateway,
+    required this.dadosIniciais,
+    required this.roxo,
+    required this.laranja,
+  });
+
+  final Map<String, String> gateway;
+  final Map<String, dynamic> dadosIniciais;
+  final Color roxo;
+  final Color laranja;
+
+  @override
+  State<_GatewayConfigCard> createState() => _GatewayConfigCardState();
+}
+
+class _GatewayConfigCardState extends State<_GatewayConfigCard> {
+  late TextEditingController _publicKey;
+  late TextEditingController _accessToken;
+
+  @override
+  void initState() {
+    super.initState();
+    _publicKey = TextEditingController(
+      text: (widget.dadosIniciais['public_key'] ?? '').toString(),
+    );
+    _accessToken = TextEditingController(
+      text: (widget.dadosIniciais['access_token'] ?? '').toString(),
+    );
+  }
+
+  @override
+  void didUpdateWidget(covariant _GatewayConfigCard oldWidget) {
+    super.didUpdateWidget(oldWidget);
+    final nk = (widget.dadosIniciais['public_key'] ?? '').toString();
+    final ok = (oldWidget.dadosIniciais['public_key'] ?? '').toString();
+    final nt = (widget.dadosIniciais['access_token'] ?? '').toString();
+    final ot = (oldWidget.dadosIniciais['access_token'] ?? '').toString();
+    if (nk != ok && _publicKey.text != nk) {
+      _publicKey.text = nk;
+    }
+    if (nt != ot && _accessToken.text != nt) {
+      _accessToken.text = nt;
+    }
+  }
+
+  @override
+  void dispose() {
+    _publicKey.dispose();
+    _accessToken.dispose();
+    super.dispose();
+  }
+
+  Future<void> _salvarEAtivar() async {
+    if (_publicKey.text.trim().isEmpty || _accessToken.text.trim().isEmpty) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(
+          content: const Text("Preencha a chave pública e o access token."),
+          backgroundColor: widget.roxo,
+        ),
+      );
+      return;
+    }
+
+    showDialog<void>(
+      context: context,
+      barrierDismissible: false,
+      builder: (c) => const AlertDialog(
+        content: Row(
+          children: [
+            CircularProgressIndicator(),
+            SizedBox(width: 20),
+            Expanded(child: Text("A gravar credenciais…")),
           ],
         ),
-        floatingActionButton: const BotaoSuporteFlutuante(),
+      ),
+    );
+
+    try {
+      final batch = FirebaseFirestore.instance.batch();
+      final todos = await FirebaseFirestore.instance
+          .collection('gateways_pagamento')
+          .get();
+      for (final doc in todos.docs) {
+        batch.update(doc.reference, {'ativo': false});
+      }
+      await batch.commit();
+
+      await FirebaseFirestore.instance
+          .collection('gateways_pagamento')
+          .doc(widget.gateway['id'])
+          .set({
+            'nome': widget.gateway['nome'],
+            'public_key': _publicKey.text.trim(),
+            'access_token': _accessToken.text.trim(),
+            'ativo': true,
+            'data_atualizacao': FieldValue.serverTimestamp(),
+          });
+
+      if (!mounted) return;
+      Navigator.of(context).pop();
+
+      if (!mounted) return;
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(
+          content: Text(
+            "${widget.gateway['nome']} é agora o método de pagamento ativo.",
+          ),
+          backgroundColor: const Color(0xFF15803D),
+        ),
+      );
+    } catch (e) {
+      if (!mounted) return;
+      Navigator.of(context).pop();
+      if (!mounted) return;
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(
+          content: Text("Erro ao gravar: $e"),
+          backgroundColor: const Color(0xFFB91C1C),
+        ),
+      );
+    }
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    final gw = widget.gateway;
+    final isAtivo = widget.dadosIniciais['ativo'] == true;
+
+    return Material(
+      color: Colors.white,
+      elevation: 0,
+      shape: RoundedRectangleBorder(
+        borderRadius: BorderRadius.circular(16),
+        side: BorderSide(
+          color: isAtivo ? widget.laranja : Colors.grey.shade200,
+          width: isAtivo ? 2 : 1,
+        ),
+      ),
+      clipBehavior: Clip.antiAlias,
+      child: Padding(
+        padding: const EdgeInsets.all(22),
+        child: Column(
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            Row(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                ClipRRect(
+                  borderRadius: BorderRadius.circular(10),
+                  child: Image.network(
+                    gw['logo']!,
+                    height: 44,
+                    width: 44,
+                    fit: BoxFit.cover,
+                    webHtmlElementStrategy: kIsWeb
+                        ? WebHtmlElementStrategy.prefer
+                        : WebHtmlElementStrategy.never,
+                    errorBuilder: (c, e, s) => Container(
+                      height: 44,
+                      width: 44,
+                      color: widget.roxo.withValues(alpha: 0.08),
+                      child: Icon(Icons.account_balance, color: widget.roxo),
+                    ),
+                  ),
+                ),
+                const SizedBox(width: 14),
+                Expanded(
+                  child: Column(
+                    crossAxisAlignment: CrossAxisAlignment.start,
+                    children: [
+                      Text(
+                        gw['nome']!,
+                        style: const TextStyle(
+                          fontSize: 18,
+                          fontWeight: FontWeight.w800,
+                          letterSpacing: -0.3,
+                        ),
+                      ),
+                      const SizedBox(height: 4),
+                      Text(
+                        "Credenciais armazenadas de forma segura no Firestore.",
+                        style: TextStyle(
+                          fontSize: 12,
+                          color: Colors.grey.shade600,
+                        ),
+                      ),
+                    ],
+                  ),
+                ),
+                if (isAtivo)
+                  Container(
+                    padding: const EdgeInsets.symmetric(
+                      horizontal: 10,
+                      vertical: 6,
+                    ),
+                    decoration: BoxDecoration(
+                      color: widget.roxo.withValues(alpha: 0.12),
+                      borderRadius: BorderRadius.circular(20),
+                    ),
+                    child: Text(
+                      "ATIVO NO APP",
+                      style: TextStyle(
+                        color: widget.roxo,
+                        fontWeight: FontWeight.w800,
+                        fontSize: 11,
+                        letterSpacing: 0.4,
+                      ),
+                    ),
+                  ),
+              ],
+            ),
+            const SizedBox(height: 20),
+            LayoutBuilder(
+              builder: (context, c) {
+                final narrow = c.maxWidth < 720;
+                final campos = [
+                  TextField(
+                    controller: _publicKey,
+                    decoration: InputDecoration(
+                      labelText: "Public key (chave pública)",
+                      border: const OutlineInputBorder(),
+                      prefixIcon: Icon(Icons.vpn_key_outlined, color: widget.roxo),
+                    ),
+                  ),
+                  TextField(
+                    controller: _accessToken,
+                    obscureText: true,
+                    decoration: InputDecoration(
+                      labelText: "Access token",
+                      border: const OutlineInputBorder(),
+                      prefixIcon: Icon(Icons.lock_outline_rounded, color: widget.roxo),
+                    ),
+                  ),
+                ];
+                if (narrow) {
+                  return Column(
+                    children: [
+                      campos[0],
+                      const SizedBox(height: 14),
+                      campos[1],
+                    ],
+                  );
+                }
+                return Row(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    Expanded(child: campos[0]),
+                    const SizedBox(width: 14),
+                    Expanded(child: campos[1]),
+                  ],
+                );
+              },
+            ),
+            const SizedBox(height: 20),
+            Align(
+              alignment: Alignment.centerRight,
+              child: FilledButton.icon(
+                onPressed: _salvarEAtivar,
+                icon: const Icon(Icons.check_circle_outline_rounded, size: 20),
+                label: Text(isAtivo ? "Atualizar e manter ativo" : "Salvar e ativar"),
+                style: FilledButton.styleFrom(
+                  backgroundColor: widget.laranja,
+                  foregroundColor: Colors.white,
+                  padding: const EdgeInsets.symmetric(
+                    horizontal: 20,
+                    vertical: 14,
+                  ),
+                ),
+              ),
+            ),
+          ],
+        ),
       ),
     );
   }

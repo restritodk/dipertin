@@ -27,7 +27,7 @@ class _ChatPedidoScreenState extends State<ChatPedidoScreen> {
   final TextEditingController _mensagemController = TextEditingController();
   final String _meuId = FirebaseAuth.instance.currentUser?.uid ?? '';
 
-  void _enviarMensagem() async {
+  Future<void> _enviarMensagem() async {
     String texto = _mensagemController.text.trim();
     if (texto.isEmpty) return;
 
@@ -42,6 +42,11 @@ class _ChatPedidoScreenState extends State<ChatPedidoScreen> {
           'remetente_id': _meuId,
           'data_envio': FieldValue.serverTimestamp(),
         });
+  }
+
+  static bool _chatEncerrado(String? status) {
+    final s = status ?? '';
+    return s == 'entregue' || s == 'cancelado';
   }
 
   @override
@@ -65,17 +70,54 @@ class _ChatPedidoScreenState extends State<ChatPedidoScreen> {
         backgroundColor: diPertinRoxo,
         iconTheme: const IconThemeData(color: Colors.white),
       ),
-      body: Column(
-        children: [
-          Expanded(
-            child: StreamBuilder<QuerySnapshot>(
-              stream: FirebaseFirestore.instance
-                  .collection('pedidos')
-                  .doc(widget.pedidoId)
-                  .collection('mensagens')
-                  .orderBy('data_envio', descending: true)
-                  .snapshots(),
-              builder: (context, snapshot) {
+      body: StreamBuilder<DocumentSnapshot<Map<String, dynamic>>>(
+        stream: FirebaseFirestore.instance
+            .collection('pedidos')
+            .doc(widget.pedidoId)
+            .snapshots(),
+        builder: (context, pedidoSnap) {
+          final st = pedidoSnap.data?.data()?['status']?.toString();
+          final encerrado = _chatEncerrado(st);
+
+          return Column(
+            children: [
+              if (encerrado)
+                Material(
+                  color: Colors.amber.shade50,
+                  child: Padding(
+                    padding: const EdgeInsets.symmetric(
+                      horizontal: 12,
+                      vertical: 10,
+                    ),
+                    child: Row(
+                      children: [
+                        Icon(Icons.info_outline, color: Colors.amber.shade900),
+                        const SizedBox(width: 10),
+                        Expanded(
+                          child: Text(
+                            st == 'cancelado'
+                                ? 'Pedido cancelado. O chat está somente leitura.'
+                                : 'Pedido entregue. O chat está somente leitura.',
+                            style: TextStyle(
+                              fontSize: 13,
+                              color: Colors.grey.shade900,
+                              height: 1.3,
+                            ),
+                          ),
+                        ),
+                      ],
+                    ),
+                  ),
+                ),
+              Expanded(
+                child: StreamBuilder<QuerySnapshot>(
+                  stream: FirebaseFirestore.instance
+                      .collection('pedidos')
+                      .doc(widget.pedidoId)
+                      .collection('mensagens')
+                      .orderBy('data_envio', descending: true)
+                      .snapshots(),
+                  builder: (context, snapshot) {
                 if (snapshot.connectionState == ConnectionState.waiting) {
                   return const Center(
                     child: CircularProgressIndicator(color: diPertinRoxo),
@@ -136,7 +178,7 @@ class _ChatPedidoScreenState extends State<ChatPedidoScreen> {
                           ),
                           boxShadow: [
                             BoxShadow(
-                              color: Colors.black.withOpacity(0.05),
+                              color: Colors.black.withValues(alpha: 0.05),
                               blurRadius: 5,
                             ),
                           ],
@@ -152,67 +194,73 @@ class _ChatPedidoScreenState extends State<ChatPedidoScreen> {
                     );
                   },
                 );
-              },
-            ),
-          ),
-
-          // BARRA DE DIGITAÇÃO
-          Container(
-            padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 10),
-            decoration: const BoxDecoration(
-              color: Colors.white,
-              boxShadow: [
-                BoxShadow(
-                  color: Colors.black12,
-                  blurRadius: 10,
-                  offset: Offset(0, -5),
+                  },
                 ),
-              ],
-            ),
-            child: SafeArea(
-              child: Row(
-                children: [
-                  Expanded(
-                    child: TextField(
-                      controller: _mensagemController,
-                      decoration: InputDecoration(
-                        hintText: "Digite sua mensagem...",
-                        contentPadding: const EdgeInsets.symmetric(
-                          horizontal: 20,
-                          vertical: 10,
-                        ),
-                        border: OutlineInputBorder(
-                          borderRadius: BorderRadius.circular(25),
-                          borderSide: BorderSide(color: Colors.grey[300]!),
-                        ),
-                        enabledBorder: OutlineInputBorder(
-                          borderRadius: BorderRadius.circular(25),
-                          borderSide: BorderSide(color: Colors.grey[300]!),
-                        ),
-                        focusedBorder: OutlineInputBorder(
-                          borderRadius: BorderRadius.circular(25),
-                          borderSide: const BorderSide(color: diPertinRoxo),
-                        ),
-                        filled: true,
-                        fillColor: Colors.grey[50],
-                      ),
-                      textCapitalization: TextCapitalization.sentences,
-                    ),
-                  ),
-                  const SizedBox(width: 10),
-                  CircleAvatar(
-                    radius: 25,
-                    backgroundColor: diPertinLaranja,
-                    child: IconButton(
-                      icon: const Icon(Icons.send, color: Colors.white),
-                      onPressed: _enviarMensagem,
-                    ),
-                  ),
-                ],
               ),
-            ),
-          ),
-        ],
+
+              // BARRA DE DIGITAÇÃO
+              if (!encerrado)
+                Container(
+                  padding: const EdgeInsets.symmetric(
+                    horizontal: 10,
+                    vertical: 10,
+                  ),
+                  decoration: const BoxDecoration(
+                    color: Colors.white,
+                    boxShadow: [
+                      BoxShadow(
+                        color: Colors.black12,
+                        blurRadius: 10,
+                        offset: Offset(0, -5),
+                      ),
+                    ],
+                  ),
+                  child: SafeArea(
+                    child: Row(
+                      children: [
+                        Expanded(
+                          child: TextField(
+                            controller: _mensagemController,
+                            decoration: InputDecoration(
+                              hintText: "Digite sua mensagem...",
+                              contentPadding: const EdgeInsets.symmetric(
+                                horizontal: 20,
+                                vertical: 10,
+                              ),
+                              border: OutlineInputBorder(
+                                borderRadius: BorderRadius.circular(25),
+                                borderSide: BorderSide(color: Colors.grey[300]!),
+                              ),
+                              enabledBorder: OutlineInputBorder(
+                                borderRadius: BorderRadius.circular(25),
+                                borderSide: BorderSide(color: Colors.grey[300]!),
+                              ),
+                              focusedBorder: OutlineInputBorder(
+                                borderRadius: BorderRadius.circular(25),
+                                borderSide: const BorderSide(color: diPertinRoxo),
+                              ),
+                              filled: true,
+                              fillColor: Colors.grey[50],
+                            ),
+                            textCapitalization: TextCapitalization.sentences,
+                          ),
+                        ),
+                        const SizedBox(width: 10),
+                        CircleAvatar(
+                          radius: 25,
+                          backgroundColor: diPertinLaranja,
+                          child: IconButton(
+                            icon: const Icon(Icons.send, color: Colors.white),
+                            onPressed: _enviarMensagem,
+                          ),
+                        ),
+                      ],
+                    ),
+                  ),
+                ),
+            ],
+          );
+        },
       ),
     );
   }
