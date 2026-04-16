@@ -37,6 +37,7 @@ import 'screens/cliente/vitrine_screen.dart';
 import 'screens/cliente/meus_enderecos_screen.dart';
 import 'screens/cliente/search_screen.dart';
 import 'screens/comum/profile_screen.dart';
+import 'screens/comum/comunicados_app_screen.dart';
 
 const Color diPertinRoxo = Color(0xFF6A1B9A);
 const Color diPertinLaranja = Color(0xFFFF8F00);
@@ -869,6 +870,7 @@ class MainNavigator extends StatefulWidget {
 class _MainNavigatorState extends State<MainNavigator> {
   late int _selectedIndex;
   bool _onboardingEnderecoProcessado = false;
+  bool _comunicadosExibidos = false;
   String? _ultimoUidOnboarding;
   StreamSubscription<User?>? _authSub;
   final List<Widget> _telas = [
@@ -885,23 +887,29 @@ class _MainNavigatorState extends State<MainNavigator> {
         (t != null && t >= 0 && t < _telas.length) ? t : 1;
     _ultimoUidOnboarding = FirebaseAuth.instance.currentUser?.uid;
     WidgetsBinding.instance.addPostFrameCallback((_) {
-      _executarOnboardingEnderecoPrimeiroAcesso();
+      _executarOnboardingEnderecoPrimeiroAcesso().then((_) {
+        _exibirComunicadosNaoLidos();
+      });
     });
     _authSub = FirebaseAuth.instance.authStateChanges().listen((user) {
       final uid = user?.uid;
       if (uid == null) {
         _ultimoUidOnboarding = null;
         _onboardingEnderecoProcessado = false;
+        _comunicadosExibidos = false;
         return;
       }
 
       if (_ultimoUidOnboarding != uid) {
         _ultimoUidOnboarding = uid;
         _onboardingEnderecoProcessado = false;
+        _comunicadosExibidos = false;
       }
 
       WidgetsBinding.instance.addPostFrameCallback((_) {
-        _executarOnboardingEnderecoPrimeiroAcesso();
+        _executarOnboardingEnderecoPrimeiroAcesso().then((_) {
+          _exibirComunicadosNaoLidos();
+        });
       });
     });
   }
@@ -1015,6 +1023,17 @@ class _MainNavigatorState extends State<MainNavigator> {
         }, SetOptions(merge: true));
       }
     }
+  }
+
+  Future<void> _exibirComunicadosNaoLidos() async {
+    if (_comunicadosExibidos || !mounted) return;
+    final user = FirebaseAuth.instance.currentUser;
+    if (user == null) return;
+    _comunicadosExibidos = true;
+
+    try {
+      await mostrarComunicadosNaoLidos(context);
+    } catch (_) {}
   }
 
   @override

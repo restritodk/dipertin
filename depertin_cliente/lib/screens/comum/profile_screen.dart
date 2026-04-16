@@ -10,6 +10,7 @@ import 'package:image_picker/image_picker.dart';
 
 import 'package:depertin_cliente/auth/google_auth_helper.dart';
 import 'package:depertin_cliente/screens/cliente/chat_suporte_screen.dart';
+import 'package:depertin_cliente/screens/comum/comunicados_app_screen.dart';
 import 'package:depertin_cliente/screens/comum/configuracoes_screen.dart';
 import 'package:depertin_cliente/screens/comum/edit_profile_screen.dart';
 import 'package:depertin_cliente/screens/entregador/entregador_home_screen.dart';
@@ -763,6 +764,19 @@ class _ProfileScreenState extends State<ProfileScreen> {
                 onTap: () => Navigator.push(
                   context,
                   MaterialPageRoute(builder: (context) => const OrdersScreen()),
+                ),
+              ),
+              Divider(height: 1, color: Colors.grey.shade200),
+              _buildMenuItem(
+                icon: Icons.campaign_rounded,
+                color: const Color(0xFF1D4ED8),
+                title: 'Comunicados',
+                subtitle: 'Avisos e novidades da plataforma',
+                onTap: () => Navigator.push(
+                  context,
+                  MaterialPageRoute(
+                    builder: (context) => const ComunicadosAppScreen(),
+                  ),
                 ),
               ),
               Divider(height: 1, color: Colors.grey.shade200),
