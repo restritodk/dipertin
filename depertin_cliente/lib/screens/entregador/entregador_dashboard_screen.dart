@@ -20,6 +20,8 @@ import 'package:depertin_cliente/services/conta_bloqueio_entregador_service.dart
 import 'package:depertin_cliente/services/firebase_functions_config.dart';
 import 'package:depertin_cliente/services/permissoes_app_service.dart';
 import 'package:depertin_cliente/services/corrida_chamada_entregador_audio.dart';
+import 'package:depertin_cliente/services/acessibilidade_prefs_service.dart';
+import 'package:depertin_cliente/services/flash_alerta_corrida.dart';
 import 'package:permission_handler/permission_handler.dart';
 
 import 'diagnostico_alertas_corrida_screen.dart';
@@ -134,6 +136,7 @@ class _EntregadorDashboardScreenState extends State<EntregadorDashboardScreen>
     super.initState();
     WidgetsBinding.instance.addObserver(this);
     _uid = _auth.currentUser!.uid;
+    unawaited(AcessibilidadePrefsService.instance.carregarESincronizar());
     _pedidosStream = FirebaseFirestore.instance
         .collection('pedidos')
         .where(
@@ -1082,7 +1085,26 @@ class _EntregadorDashboardScreenState extends State<EntregadorDashboardScreen>
     if (seq > anterior) {
       _ultimaSeqSomPorPedido[pedidoId] = seq;
       unawaited(CorridaChamadaEntregadorAudio.tocarChamada());
+      unawaited(_dispararAlertasAcessibilidade());
       unawaited(_abrirTelaOficialChamada(pedidoId, pedido));
+    }
+  }
+
+  Future<void> _dispararAlertasAcessibilidade() async {
+    try {
+      final prefs = await AcessibilidadePrefsService.instance.lerCacheLocal();
+      if (prefs.vibracao) {
+        await HapticFeedback.heavyImpact();
+        for (int i = 0; i < 4; i++) {
+          await Future<void>.delayed(const Duration(milliseconds: 280));
+          await HapticFeedback.vibrate();
+        }
+      }
+      if (prefs.flash && mounted) {
+        FlashAlertaCorrida.disparar(context: context);
+      }
+    } catch (e) {
+      debugPrint('[alerta-acessibilidade] $e');
     }
   }
 

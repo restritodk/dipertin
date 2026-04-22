@@ -1,6 +1,7 @@
 // Arquivo: lib/screens/entregador/entregador_home_screen.dart
 
 import 'package:flutter/material.dart';
+import 'configuracoes/configuracoes_entregador_screen.dart';
 import 'entregador_dashboard_screen.dart';
 import 'entregador_carteira_screen.dart';
 import 'entregador_historico_screen.dart';
@@ -15,11 +16,11 @@ class EntregadorHomeScreen extends StatefulWidget {
 class _EntregadorHomeScreenState extends State<EntregadorHomeScreen> {
   int _indiceAtual = 0;
 
-  // Lista de telas que o entregador pode navegar
-  final List<Widget> _telas = [
-    const EntregadorDashboardScreen(),
-    const EntregadorHistoricoScreen(),
-    const EntregadorCarteiraScreen(),
+  final List<Widget> _telas = const [
+    EntregadorDashboardScreen(),
+    EntregadorHistoricoScreen(),
+    EntregadorCarteiraScreen(),
+    ConfiguracoesEntregadorScreen(),
   ];
 
   @override
@@ -45,6 +46,10 @@ class _EntregadorHomeScreenState extends State<EntregadorHomeScreen> {
           BottomNavigationBarItem(
             icon: Icon(Icons.account_balance_wallet),
             label: 'Ganhos',
+          ),
+          BottomNavigationBarItem(
+            icon: Icon(Icons.settings_rounded),
+            label: 'Configurações',
           ),
         ],
       ),

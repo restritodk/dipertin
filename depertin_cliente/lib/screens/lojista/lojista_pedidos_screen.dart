@@ -11,6 +11,7 @@ import 'package:flutter/material.dart';
 
 import 'package:depertin_cliente/constants/pedido_status.dart';
 import 'package:depertin_cliente/services/firebase_functions_config.dart';
+import 'package:depertin_cliente/widgets/badge_entregador_acessibilidade.dart';
 import 'package:depertin_cliente/widgets/chat_pedido_botao.dart';
 
 const Color diPertinRoxo = Color(0xFF6A1B9A);
@@ -514,6 +515,8 @@ class _LojistaPedidosScreenState extends State<LojistaPedidosScreen> {
     final tel = pedido['entregador_telefone']?.toString() ?? '';
     final veiculo = pedido['entregador_veiculo']?.toString() ?? '';
     final foto = pedido['entregador_foto_url']?.toString() ?? '';
+    final audicao =
+        pedido['entregador_acessibilidade_audicao']?.toString() ?? '';
 
     return Container(
       width: double.infinity,
@@ -570,6 +573,7 @@ class _LojistaPedidosScreenState extends State<LojistaPedidosScreen> {
               ),
             ],
           ),
+          BadgeEntregadorAcessibilidade(audicao: audicao),
         ],
       ),
     );

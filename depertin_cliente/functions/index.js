@@ -701,6 +701,20 @@ const entregadorStatusNotificacao = require("./entregador_status_notificacao");
 exports.onEntregadorStatusCadastroAtualizado =
     entregadorStatusNotificacao.onEntregadorStatusCadastroAtualizado;
 
+// Fase 3 (Configurações do entregador) — mantém campos planos em `users`
+// sincronizados com a subcoleção `veiculos/{vid}` para compat do painel.
+const veiculosEntregador = require("./veiculos_entregador");
+exports.sincronizarVeiculoAtivoCampoPlano =
+    veiculosEntregador.sincronizarVeiculoAtivoCampoPlano;
+exports.sincronizarCrlvVeiculoAtivo =
+    veiculosEntregador.sincronizarCrlvVeiculoAtivo;
+
+// Fase 4 (Configurações do entregador) — agrega ganhos brutos, taxas e
+// líquido por ano/mês para a tela de Informações Fiscais.
+const fiscalEntregador = require("./fiscal_entregador");
+exports.agregarFiscalEntregadorOnEntrega =
+    fiscalEntregador.agregarFiscalEntregadorOnEntrega;
+
 // Fase 3G.1 — mirror público de lojas (coleção `lojas_public` alimentada por
 // allowlist). Ver docs e allowlist em `sincronizar_lojas_public.js`.
 const sincronizarLojasPublic = require("./sincronizar_lojas_public");
@@ -1390,6 +1404,11 @@ exports.enviarCandidaturaVaga = candidaturaVaga.enviarCandidaturaVaga;
 // Validação de cupons (callable para o app)
 const validarCupomModule = require("./validar_cupom");
 exports.validarCupom = validarCupomModule.validarCupom;
+
+// Painel web — Gestão de Entregadores → aba Atualizações (lista via Admin SDK)
+const painelEntregadoresAtualizacoes = require("./painel_entregadores_atualizacoes");
+exports.painelEntregadoresAtualizacoesPendentes =
+    painelEntregadoresAtualizacoes.painelEntregadoresAtualizacoesPendentes;
 
 // ==========================================
 // DESATIVAÇÃO AUTOMÁTICA DE PUBLICAÇÕES VENCIDAS (3+ dias)

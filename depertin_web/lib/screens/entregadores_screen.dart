@@ -13,7 +13,9 @@ import '../constants/conta_bloqueio_lojista.dart';
 import '../theme/painel_admin_theme.dart';
 import '../utils/admin_perfil.dart';
 import '../utils/conta_bloqueio_entregador.dart';
+import '../services/firebase_functions_config.dart';
 import '../widgets/botao_suporte_flutuante.dart';
+import '../widgets/entregador_editar_modal.dart';
 import '../widgets/pdf_preview_iframe.dart';
 
 class _StatusVisual {
@@ -53,9 +55,36 @@ const _kStatus = <String, _StatusVisual>{
     Color(0xFFFEF2F2),
     Color(0xFFFECACA),
   ),
+  'atualizacoes': _StatusVisual(
+    'Atualizações',
+    Icons.autorenew_rounded,
+    Color(0xFF2563EB),
+    Color(0xFFEFF6FF),
+    Color(0xFFBFDBFE),
+  ),
 };
 
-enum _MaisAcoesEntregador { documentos, planoTaxa, bloquear }
+enum _MaisAcoesEntregador { editar, documentos, planoTaxa, bloquear }
+
+/// Item da fila de documentos (CNH/CRLV) em `status == pendente`.
+class _DocPendentePainel {
+  _DocPendentePainel({
+    required this.uid,
+    required this.tipo,
+    required this.veiculoId,
+    required this.docRef,
+    required this.docData,
+  });
+
+  final String uid;
+  /// `cnh` ou `crlv`.
+  final String tipo;
+  final String? veiculoId;
+  final DocumentReference<Map<String, dynamic>> docRef;
+  final Map<String, dynamic> docData;
+
+  String get chaveUnica => docRef.path;
+}
 
 class EntregadoresScreen extends StatefulWidget {
   const EntregadoresScreen({super.key});
@@ -72,6 +101,15 @@ class _EntregadoresScreenState extends State<EntregadoresScreen>
 
   late final TextEditingController _campoBuscaController;
   Timer? _debounceBusca;
+  /// Evita clique duplo em aprovar/reprovar na aba Atualizações.
+  String? _docPendenteSalvandoPath;
+
+  /// Lista da aba Atualizações vem da Cloud Function (Admin SDK) — evita
+  /// `permission-denied` em `collectionGroup` no cliente em produção.
+  List<_DocPendentePainel>? _atualizacoesDocsCache;
+  String? _atualizacoesFetchErro;
+  bool _atualizacoesCarregando = false;
+  Timer? _atualizacoesPoll;
 
   static const int _debounceBuscaMs = 350;
   static const int _itensPorPagina = 10;
@@ -80,9 +118,15 @@ class _EntregadoresScreenState extends State<EntregadoresScreen>
     'pendente': 0,
     'aprovado': 0,
     'bloqueado': 0,
+    'atualizacoes': 0,
   };
 
-  static const _statusTabs = ['pendente', 'aprovado', 'bloqueado'];
+  static const _statusTabs = [
+    'pendente',
+    'aprovado',
+    'bloqueado',
+    'atualizacoes',
+  ];
 
   late final TabController _tabController;
 
@@ -91,11 +135,94 @@ class _EntregadoresScreenState extends State<EntregadoresScreen>
     super.initState();
     _campoBuscaController = TextEditingController();
     _tabController = TabController(length: _statusTabs.length, vsync: this);
+    _tabController.addListener(_onTabEntregadoresChanged);
     _buscarDadosDoGestor();
+  }
+
+  int get _abaAtualizacoesIndex => _statusTabs.indexOf('atualizacoes');
+
+  void _onTabEntregadoresChanged() {
+    if (!mounted) return;
+    if (_tabController.index == _abaAtualizacoesIndex) {
+      _iniciarPollAtualizacoesPainel();
+    } else {
+      _pararPollAtualizacoesPainel();
+    }
+  }
+
+  void _iniciarPollAtualizacoesPainel() {
+    _atualizacoesPoll?.cancel();
+    _fetchAtualizacoesPendentesPainel();
+    _atualizacoesPoll = Timer.periodic(const Duration(seconds: 25), (_) {
+      if (mounted && _tabController.index == _abaAtualizacoesIndex) {
+        _fetchAtualizacoesPendentesPainel();
+      }
+    });
+  }
+
+  void _pararPollAtualizacoesPainel() {
+    _atualizacoesPoll?.cancel();
+    _atualizacoesPoll = null;
+  }
+
+  Future<void> _fetchAtualizacoesPendentesPainel() async {
+    if (!mounted) return;
+    setState(() {
+      _atualizacoesCarregando = true;
+      _atualizacoesFetchErro = null;
+    });
+    try {
+      final r = await callFirebaseFunctionSafe(
+        'painelEntregadoresAtualizacoesPendentes',
+        timeout: const Duration(seconds: 120),
+      );
+      final raw = r['items'];
+      final list = <_DocPendentePainel>[];
+      if (raw is List) {
+        for (final e in raw) {
+          if (e is! Map) continue;
+          final m = Map<String, dynamic>.from(e);
+          final path = _str(m['documentPath']).trim();
+          final tipo = _str(m['tipoDoc']).trim().toLowerCase();
+          final uid = _str(m['uid']).trim();
+          final vid = (m['veiculoId'] ?? '').toString().trim();
+          final dataRaw = m['data'];
+          final data = dataRaw is Map
+              ? Map<String, dynamic>.from(dataRaw)
+              : <String, dynamic>{};
+          if (path.isEmpty || uid.isEmpty) continue;
+          if (tipo != 'cnh' && tipo != 'crlv') continue;
+          list.add(
+            _DocPendentePainel(
+              uid: uid,
+              tipo: tipo,
+              veiculoId: tipo == 'crlv' && vid.isNotEmpty ? vid : null,
+              docRef:
+                  FirebaseFirestore.instance.doc(path),
+              docData: data,
+            ),
+          );
+        }
+      }
+      if (!mounted) return;
+      setState(() {
+        _atualizacoesDocsCache = list;
+        _atualizacoesCarregando = false;
+        _atualizacoesFetchErro = null;
+      });
+    } catch (e) {
+      if (!mounted) return;
+      setState(() {
+        _atualizacoesCarregando = false;
+        _atualizacoesFetchErro = e.toString();
+      });
+    }
   }
 
   @override
   void dispose() {
+    _tabController.removeListener(_onTabEntregadoresChanged);
+    _pararPollAtualizacoesPainel();
     _debounceBusca?.cancel();
     _campoBuscaController.dispose();
     _tabController.dispose();
@@ -649,7 +776,7 @@ class _EntregadoresScreenState extends State<EntregadoresScreen>
                               letterSpacing: -0.5)),
                       const SizedBox(height: 4),
                       Text(
-                          'Aprove motoboys e defina os planos de comissão deles.',
+                          'Aprove motoboys, defina planos e revise CNH/CRLV enviados por entregadores já aprovados (aba Atualizações).',
                           style: GoogleFonts.plusJakartaSans(
                               fontSize: 14,
                               color: PainelAdminTheme.textoSecundario,
@@ -740,6 +867,9 @@ class _EntregadoresScreenState extends State<EntregadoresScreen>
   }
 
   Widget _buildListaEntregadores(String status) {
+    if (status == 'atualizacoes') {
+      return _buildAtualizacoesPendentes();
+    }
     final info = _kStatus[status]!;
     return StreamBuilder<QuerySnapshot<Map<String, dynamic>>>(
       stream: _queryPorStatus(status).snapshots(),
@@ -773,7 +903,7 @@ class _EntregadoresScreenState extends State<EntregadoresScreen>
                   final nome = _str(data['nome']).toLowerCase();
                   final cidade = _str(data['cidade']).toLowerCase();
                   final veiculo = _str(data['veiculoTipo']).toLowerCase();
-                  final placa = _str(data['placa']).toLowerCase();
+                  final placa = _placaExibicao(data).toLowerCase();
                   return nome.contains(_busca) ||
                       cidade.contains(_busca) ||
                       veiculo.contains(_busca) ||
@@ -868,7 +998,9 @@ class _EntregadoresScreenState extends State<EntregadoresScreen>
             final resumo = Text(
               totalItens == 0
                   ? 'Nenhum registro'
-                  : 'Mostrando $inicioExib–$fimExib de $totalItens ${totalItens == 1 ? 'entregador' : 'entregadores'}',
+                  : status == 'atualizacoes'
+                      ? 'Mostrando $inicioExib–$fimExib de $totalItens ${totalItens == 1 ? 'solicitação' : 'solicitações'}'
+                      : 'Mostrando $inicioExib–$fimExib de $totalItens ${totalItens == 1 ? 'entregador' : 'entregadores'}',
               style: GoogleFonts.plusJakartaSans(
                 fontSize: 13,
                 fontWeight: FontWeight.w500,
@@ -1085,6 +1217,18 @@ class _EntregadoresScreenState extends State<EntregadoresScreen>
 
   Widget _buildEmptyState(String status, _StatusVisual info) {
     final hasSearch = _busca.isNotEmpty;
+    final titulo = hasSearch
+        ? 'Nenhum resultado para "$_busca"'
+        : status == 'atualizacoes'
+            ? 'Nada na fila de atualizações.'
+            : 'Nenhum entregador ${info.label.toLowerCase()} encontrado.';
+    final subtitulo = hasSearch
+        ? 'Tente outro termo de busca.'
+        : status == 'pendente'
+            ? 'Novos entregadores aparecerão aqui ao solicitar cadastro.'
+            : status == 'atualizacoes'
+                ? 'CNH ou CRLV enviados por entregadores já aprovados aparecem aqui quando estiverem em análise.'
+                : 'Nenhum registro nesta categoria no momento.';
     return Center(
       child: Column(
         mainAxisSize: MainAxisSize.min,
@@ -1098,9 +1242,7 @@ class _EntregadoresScreenState extends State<EntregadoresScreen>
           ),
           const SizedBox(height: 20),
           Text(
-            hasSearch
-                ? 'Nenhum entregador encontrado para "$_busca"'
-                : 'Nenhum entregador ${info.label.toLowerCase()} encontrado.',
+            titulo,
             style: GoogleFonts.plusJakartaSans(
                 fontSize: 15,
                 fontWeight: FontWeight.w600,
@@ -1108,17 +1250,691 @@ class _EntregadoresScreenState extends State<EntregadoresScreen>
           ),
           const SizedBox(height: 8),
           Text(
-            hasSearch
-                ? 'Tente outro termo de busca.'
-                : status == 'pendente'
-                    ? 'Novos entregadores aparecerão aqui ao solicitar cadastro.'
-                    : 'Nenhum registro nesta categoria no momento.',
+            subtitulo,
             style: GoogleFonts.plusJakartaSans(
                 fontSize: 13,
                 color: PainelAdminTheme.textoSecundario
                     .withValues(alpha: 0.7)),
           ),
         ],
+      ),
+    );
+  }
+
+  int _millisFirestore(dynamic t) {
+    if (t is Timestamp) return t.millisecondsSinceEpoch;
+    if (t is int) return t;
+    if (t is num) return t.toInt();
+    if (t is String) {
+      final d = DateTime.tryParse(t);
+      if (d != null) return d.millisecondsSinceEpoch;
+    }
+    if (t is Map) {
+      final s = t['_seconds'];
+      if (s is int) return s * 1000;
+    }
+    return 0;
+  }
+
+  String _rotuloTipoVeiculoCodigo(dynamic codigo) {
+    final v = _str(codigo).toLowerCase();
+    if (v == 'moto') return 'Moto';
+    if (v == 'carro') return 'Carro';
+    if (v == 'bike') return 'Bicicleta';
+    final s = _str(codigo);
+    return s.isEmpty ? '' : s;
+  }
+
+  Future<
+      ({
+        Map<String, Map<String, dynamic>> users,
+        Map<String, String> rotulosVeiculo,
+      })> _carregarContextoDocsPendentes(List<_DocPendentePainel> rows) async {
+    final uids = rows.map((e) => e.uid).toSet();
+    final users = <String, Map<String, dynamic>>{};
+    await Future.wait(uids.map((uid) async {
+      final s =
+          await FirebaseFirestore.instance.collection('users').doc(uid).get();
+      if (s.exists && s.data() != null) users[uid] = s.data()!;
+    }));
+
+    final veiculoKeys = <String>{};
+    for (final r in rows) {
+      if (r.tipo == 'crlv' && (r.veiculoId ?? '').isNotEmpty) {
+        veiculoKeys.add('${r.uid}|${r.veiculoId}');
+      }
+    }
+    final rotulosVeiculo = <String, String>{};
+    await Future.wait(veiculoKeys.map((k) async {
+      final seg = k.split('|');
+      if (seg.length != 2) return;
+      final uid = seg[0];
+      final vid = seg[1];
+      final vs = await FirebaseFirestore.instance
+          .collection('users')
+          .doc(uid)
+          .collection('veiculos')
+          .doc(vid)
+          .get();
+      if (!vs.exists || vs.data() == null) return;
+      final d = vs.data()!;
+      final partes = <String>[
+        _rotuloTipoVeiculoCodigo(d['tipo']),
+        _str(d['modelo']),
+        _str(d['placa']).toUpperCase(),
+      ].where((e) => e.trim().isNotEmpty).toList();
+      rotulosVeiculo[k] = partes.isEmpty ? 'Veículo $vid' : partes.join(' · ');
+    }));
+
+    return (users: users, rotulosVeiculo: rotulosVeiculo);
+  }
+
+  Future<void> _aprovarDocumentoPendente(_DocPendentePainel row) async {
+    final url = _str(row.docData['url']).trim();
+    if (url.isEmpty) {
+      mostrarSnackPainel(context,
+          erro: true, mensagem: 'Documento sem URL — não é possível aprovar.');
+      return;
+    }
+    final admin = FirebaseAuth.instance.currentUser;
+    if (admin == null) return;
+
+    setState(() => _docPendenteSalvandoPath = row.chaveUnica);
+    try {
+      final batch = FirebaseFirestore.instance.batch();
+      batch.update(row.docRef, {
+        'status': 'aprovado',
+        'motivo_reprovacao': FieldValue.delete(),
+        'atualizado_em': FieldValue.serverTimestamp(),
+        'revisado_por_uid': admin.uid,
+        'revisado_por_email': admin.email,
+      });
+
+      final userRef =
+          FirebaseFirestore.instance.collection('users').doc(row.uid);
+      if (row.tipo == 'cnh') {
+        batch.update(userRef, {'url_doc_pessoal': url});
+      } else if (row.tipo == 'crlv' && (row.veiculoId ?? '').isNotEmpty) {
+        final userSnap = await userRef.get();
+        final ativoId = _str(userSnap.data()?['veiculo_ativo_id']);
+        if (ativoId.isNotEmpty && ativoId == row.veiculoId) {
+          batch.update(userRef, {'url_crlv': url});
+        }
+      }
+
+      await batch.commit();
+      if (!mounted) return;
+      mostrarSnackPainel(context, mensagem: 'Documento aprovado.');
+      await _fetchAtualizacoesPendentesPainel();
+    } on FirebaseException catch (e) {
+      if (!mounted) return;
+      mostrarSnackPainel(context,
+          erro: true,
+          mensagem: e.code == 'permission-denied'
+              ? 'Sem permissão para esta ação.'
+              : 'Erro: ${e.message ?? e.code}');
+    } catch (e) {
+      if (!mounted) return;
+      mostrarSnackPainel(context, erro: true, mensagem: 'Erro: $e');
+    } finally {
+      if (mounted) setState(() => _docPendenteSalvandoPath = null);
+    }
+  }
+
+  Future<void> _reprovarDocumentoPendente(
+    _DocPendentePainel row,
+    String motivo,
+  ) async {
+    final admin = FirebaseAuth.instance.currentUser;
+    if (admin == null) return;
+    setState(() => _docPendenteSalvandoPath = row.chaveUnica);
+    try {
+      await row.docRef.update({
+        'status': 'reprovado',
+        'motivo_reprovacao': motivo.trim(),
+        'atualizado_em': FieldValue.serverTimestamp(),
+        'revisado_por_uid': admin.uid,
+        'revisado_por_email': admin.email,
+      });
+      if (!mounted) return;
+      mostrarSnackPainel(context, mensagem: 'Documento reprovado.');
+      await _fetchAtualizacoesPendentesPainel();
+    } on FirebaseException catch (e) {
+      if (!mounted) return;
+      mostrarSnackPainel(context,
+          erro: true,
+          mensagem: e.code == 'permission-denied'
+              ? 'Sem permissão para esta ação.'
+              : 'Erro: ${e.message ?? e.code}');
+    } catch (e) {
+      if (!mounted) return;
+      mostrarSnackPainel(context, erro: true, mensagem: 'Erro: $e');
+    } finally {
+      if (mounted) setState(() => _docPendenteSalvandoPath = null);
+    }
+  }
+
+  void _mostrarDialogoReprovarDocumento(_DocPendentePainel row) {
+    final motivoC = TextEditingController();
+    var salvando = false;
+
+    showDialog<void>(
+      context: context,
+      builder: (ctx) => StatefulBuilder(
+        builder: (ctx, setS) => AlertDialog(
+          title: Text('Reprovar documento',
+              style: GoogleFonts.plusJakartaSans(fontWeight: FontWeight.w700)),
+          content: Column(
+            mainAxisSize: MainAxisSize.min,
+            crossAxisAlignment: CrossAxisAlignment.stretch,
+            children: [
+              Text(
+                'O entregador verá o motivo no aplicativo.',
+                style: GoogleFonts.plusJakartaSans(
+                    fontSize: 13, color: PainelAdminTheme.textoSecundario),
+              ),
+              const SizedBox(height: 12),
+              TextField(
+                controller: motivoC,
+                maxLines: 3,
+                decoration: InputDecoration(
+                  labelText: 'Motivo',
+                  border: OutlineInputBorder(
+                      borderRadius: BorderRadius.circular(10)),
+                ),
+              ),
+            ],
+          ),
+          actions: [
+            TextButton(
+              onPressed: salvando ? null : () => Navigator.pop(ctx),
+              child: const Text('Cancelar'),
+            ),
+            FilledButton(
+              onPressed: salvando
+                  ? null
+                  : () async {
+                      if (motivoC.text.trim().isEmpty) {
+                        mostrarSnackPainel(ctx,
+                            erro: true, mensagem: 'Informe o motivo.');
+                        return;
+                      }
+                      setS(() => salvando = true);
+                      await _reprovarDocumentoPendente(row, motivoC.text);
+                      if (ctx.mounted) Navigator.pop(ctx);
+                    },
+              child: salvando
+                  ? const SizedBox(
+                      width: 18,
+                      height: 18,
+                      child: CircularProgressIndicator(strokeWidth: 2))
+                  : const Text('Confirmar'),
+            ),
+          ],
+        ),
+      ),
+    );
+  }
+
+  Widget _buildAtualizacoesPendentes() {
+    final info = _kStatus['atualizacoes']!;
+    if (_atualizacoesFetchErro != null) {
+      return Center(
+        child: Padding(
+          padding: const EdgeInsets.all(32),
+          child: Column(
+            mainAxisSize: MainAxisSize.min,
+            children: [
+              Text(
+                'Erro ao carregar atualizações.\n$_atualizacoesFetchErro',
+                textAlign: TextAlign.center,
+                style: GoogleFonts.plusJakartaSans(
+                  color: const Color(0xFFDC2626),
+                  fontSize: 14,
+                ),
+              ),
+              const SizedBox(height: 20),
+              FilledButton.icon(
+                onPressed: _atualizacoesCarregando
+                    ? null
+                    : () => _fetchAtualizacoesPendentesPainel(),
+                icon: const Icon(Icons.refresh_rounded, size: 20),
+                label: const Text('Tentar novamente'),
+              ),
+            ],
+          ),
+        ),
+      );
+    }
+    if (_atualizacoesDocsCache == null && _atualizacoesCarregando) {
+      return Center(
+        child: CircularProgressIndicator(
+            color: PainelAdminTheme.roxo, strokeWidth: 2.5),
+      );
+    }
+
+    final brutos = List<_DocPendentePainel>.from(_atualizacoesDocsCache ?? []);
+    brutos.sort((a, b) => _millisFirestore(b.docData['atualizado_em'])
+        .compareTo(_millisFirestore(a.docData['atualizado_em'])));
+
+    final keyVal = brutos.map((e) => e.chaveUnica).join('|');
+    return FutureBuilder<
+        ({
+          Map<String, Map<String, dynamic>> users,
+          Map<String, String> rotulosVeiculo,
+        })>(
+      key: ValueKey(keyVal),
+      future: brutos.isEmpty
+          ? Future.value((
+              users: <String, Map<String, dynamic>>{},
+              rotulosVeiculo: <String, String>{},
+            ))
+          : _carregarContextoDocsPendentes(brutos),
+      builder: (context, fut) {
+        if (fut.connectionState == ConnectionState.waiting && !fut.hasData) {
+          return Center(
+            child: CircularProgressIndicator(
+                color: PainelAdminTheme.roxo, strokeWidth: 2.5),
+          );
+        }
+        final ctxData = fut.data;
+        final users = ctxData?.users ?? {};
+        final rotulosVeiculo = ctxData?.rotulosVeiculo ?? {};
+
+        final vis = brutos
+            .where((row) => users[row.uid] != null)
+            .toList();
+
+        final filtrados = _busca.isEmpty
+            ? vis
+            : vis.where((row) {
+                final u = users[row.uid];
+                if (u == null) return false;
+                final nome = _str(u['nome']).toLowerCase();
+                final cidade = _str(u['cidade']).toLowerCase();
+                final tipoDoc = row.tipo == 'cnh' ? 'cnh' : 'crlv';
+                final rv = row.tipo == 'crlv' && row.veiculoId != null
+                    ? _str(rotulosVeiculo['${row.uid}|${row.veiculoId}'])
+                        .toLowerCase()
+                    : '';
+                return nome.contains(_busca) ||
+                    cidade.contains(_busca) ||
+                    tipoDoc.contains(_busca) ||
+                    rv.contains(_busca);
+              }).toList();
+
+        if (filtrados.isEmpty) {
+          return Column(
+            crossAxisAlignment: CrossAxisAlignment.stretch,
+            children: [
+              Padding(
+                padding: const EdgeInsets.fromLTRB(32, 12, 32, 0),
+                child: Align(
+                  alignment: Alignment.centerRight,
+                  child: TextButton.icon(
+                    onPressed: _atualizacoesCarregando
+                        ? null
+                        : () => _fetchAtualizacoesPendentesPainel(),
+                    icon: _atualizacoesCarregando
+                        ? SizedBox(
+                            width: 16,
+                            height: 16,
+                            child: CircularProgressIndicator(
+                              strokeWidth: 2,
+                              color: PainelAdminTheme.roxo,
+                            ),
+                          )
+                        : const Icon(Icons.refresh_rounded, size: 20),
+                    label: const Text('Atualizar lista'),
+                  ),
+                ),
+              ),
+              Expanded(child: _buildEmptyState('atualizacoes', info)),
+            ],
+          );
+        }
+
+        final totalItens = filtrados.length;
+        final totalPaginas = math.max(
+          1,
+          ((totalItens - 1) ~/ _itensPorPagina) + 1,
+        );
+        final paginaArmazenada = _paginaPorStatus['atualizacoes'] ?? 0;
+        final paginaAtual = paginaArmazenada.clamp(0, totalPaginas - 1);
+        final inicio = paginaAtual * _itensPorPagina;
+        final fim = math.min(inicio + _itensPorPagina, totalItens);
+        final paginaItens = filtrados.sublist(inicio, fim);
+
+        return Column(
+          crossAxisAlignment: CrossAxisAlignment.stretch,
+          children: [
+            Padding(
+              padding: const EdgeInsets.fromLTRB(32, 12, 32, 0),
+              child: Row(
+                children: [
+                  Expanded(
+                    child: Container(
+                      padding: const EdgeInsets.all(14),
+                      decoration: BoxDecoration(
+                        color: info.bgColor,
+                        borderRadius: BorderRadius.circular(12),
+                        border: Border.all(color: info.borderColor),
+                      ),
+                      child: Row(
+                        crossAxisAlignment: CrossAxisAlignment.start,
+                        children: [
+                          Icon(Icons.info_outline_rounded,
+                              color: info.color, size: 22),
+                          const SizedBox(width: 12),
+                          Expanded(
+                            child: Text(
+                              'Somente entregadores com cadastro já aprovado. '
+                              'Novos cadastros continuam na aba Pendentes. '
+                              'Lista atualizada pelo servidor a cada ~25 s ou ao tocar em Atualizar.',
+                              style: GoogleFonts.plusJakartaSans(
+                                fontSize: 13,
+                                height: 1.45,
+                                color: PainelAdminTheme.dashboardInk,
+                              ),
+                            ),
+                          ),
+                        ],
+                      ),
+                    ),
+                  ),
+                  const SizedBox(width: 12),
+                  TextButton.icon(
+                    onPressed: _atualizacoesCarregando
+                        ? null
+                        : () => _fetchAtualizacoesPendentesPainel(),
+                    icon: _atualizacoesCarregando
+                        ? SizedBox(
+                            width: 16,
+                            height: 16,
+                            child: CircularProgressIndicator(
+                              strokeWidth: 2,
+                              color: PainelAdminTheme.roxo,
+                            ),
+                          )
+                        : const Icon(Icons.refresh_rounded, size: 20),
+                    label: const Text('Atualizar'),
+                  ),
+                ],
+              ),
+            ),
+            Expanded(
+              child: ListView.separated(
+                padding: const EdgeInsets.fromLTRB(32, 16, 32, 16),
+                itemCount: paginaItens.length,
+                separatorBuilder: (_, __) => const SizedBox(height: 12),
+                itemBuilder: (_, i) => _buildCardAtualizacaoDocumento(
+                  paginaItens[i],
+                  users[paginaItens[i].uid] ?? {},
+                  rotulosVeiculo,
+                ),
+              ),
+            ),
+            _buildBarraPaginacaoEntregadores(
+              status: 'atualizacoes',
+              totalItens: totalItens,
+              paginaAtual: paginaAtual,
+              totalPaginas: totalPaginas,
+            ),
+          ],
+        );
+      },
+    );
+  }
+
+  Widget _buildCardAtualizacaoDocumento(
+    _DocPendentePainel row,
+    Map<String, dynamic> user,
+    Map<String, String> rotulosVeiculo,
+  ) {
+    final nome = _str(user['nome'], 'Sem nome');
+    final cidade = _str(user['cidade']);
+    final salvando = _docPendenteSalvandoPath == row.chaveUnica;
+    final tipoLabel = row.tipo == 'cnh' ? 'CNH' : 'CRLV';
+    String subt;
+    if (row.tipo == 'crlv' && row.veiculoId != null) {
+      subt = rotulosVeiculo['${row.uid}|${row.veiculoId}'] ??
+          'Veículo ${row.veiculoId}';
+    } else {
+      subt = 'Documento pessoal';
+    }
+    final rawUrl = _str(row.docData['url']);
+    final urlFuture = _resolverUrlDocumento(rawUrl);
+
+    return Material(
+      color: Colors.white,
+      elevation: 0,
+      shape: RoundedRectangleBorder(
+        borderRadius: BorderRadius.circular(16),
+        side: const BorderSide(color: Color(0xFFE2E8F0)),
+      ),
+      child: Padding(
+        padding: const EdgeInsets.all(18),
+        child: Column(
+          crossAxisAlignment: CrossAxisAlignment.stretch,
+          children: [
+            Row(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                Expanded(
+                  child: Column(
+                    crossAxisAlignment: CrossAxisAlignment.start,
+                    children: [
+                      Text(
+                        nome,
+                        style: GoogleFonts.plusJakartaSans(
+                          fontSize: 16,
+                          fontWeight: FontWeight.w800,
+                          color: PainelAdminTheme.dashboardInk,
+                        ),
+                      ),
+                      const SizedBox(height: 4),
+                      Text(
+                        '$cidade · $tipoLabel · $subt',
+                        style: GoogleFonts.plusJakartaSans(
+                          fontSize: 13,
+                          color: PainelAdminTheme.textoSecundario,
+                        ),
+                      ),
+                    ],
+                  ),
+                ),
+                Container(
+                  padding:
+                      const EdgeInsets.symmetric(horizontal: 10, vertical: 6),
+                  decoration: BoxDecoration(
+                    color: const Color(0xFFFFF7ED),
+                    borderRadius: BorderRadius.circular(8),
+                    border: Border.all(color: const Color(0xFFFED7AA)),
+                  ),
+                  child: Text(
+                    'Em análise',
+                    style: GoogleFonts.plusJakartaSans(
+                      fontSize: 12,
+                      fontWeight: FontWeight.w700,
+                      color: const Color(0xFFD97706),
+                    ),
+                  ),
+                ),
+              ],
+            ),
+            const SizedBox(height: 14),
+            FutureBuilder<String>(
+              future: urlFuture,
+              builder: (context, snap) {
+                final url = (snap.data ?? '').trim();
+                if (snap.connectionState == ConnectionState.waiting) {
+                  return const SizedBox(
+                    height: 120,
+                    child: Center(
+                      child: SizedBox(
+                        width: 24,
+                        height: 24,
+                        child: CircularProgressIndicator(strokeWidth: 2),
+                      ),
+                    ),
+                  );
+                }
+                if (url.isEmpty) {
+                  return Column(
+                    crossAxisAlignment: CrossAxisAlignment.stretch,
+                    children: [
+                      Text(
+                        'URL ausente.',
+                        style: GoogleFonts.plusJakartaSans(
+                            fontStyle: FontStyle.italic,
+                            color: PainelAdminTheme.textoSecundario),
+                      ),
+                      const SizedBox(height: 14),
+                      Wrap(
+                        spacing: 10,
+                        runSpacing: 8,
+                        children: [
+                          FilledButton.icon(
+                            onPressed: salvando
+                                ? null
+                                : () => _aprovarDocumentoPendente(row),
+                            icon: salvando
+                                ? const SizedBox(
+                                    width: 16,
+                                    height: 16,
+                                    child: CircularProgressIndicator(
+                                        strokeWidth: 2,
+                                        color: Colors.white))
+                                : const Icon(Icons.check_rounded, size: 18),
+                            label: const Text('Aprovar'),
+                            style: FilledButton.styleFrom(
+                              backgroundColor: const Color(0xFF059669),
+                            ),
+                          ),
+                          OutlinedButton.icon(
+                            onPressed: salvando
+                                ? null
+                                : () =>
+                                    _mostrarDialogoReprovarDocumento(row),
+                            icon: const Icon(Icons.close_rounded, size: 18),
+                            label: const Text('Reprovar'),
+                            style: OutlinedButton.styleFrom(
+                              foregroundColor: const Color(0xFFDC2626),
+                              side: const BorderSide(color: Color(0xFFFECACA)),
+                            ),
+                          ),
+                        ],
+                      ),
+                    ],
+                  );
+                }
+                Widget preview;
+                if (_ehPdf(url)) {
+                  preview = ClipRRect(
+                    borderRadius: BorderRadius.circular(12),
+                    child: SizedBox(
+                      height: 220,
+                      child: buildPdfPreview(url, height: 220),
+                    ),
+                  );
+                } else {
+                  preview = ClipRRect(
+                    borderRadius: BorderRadius.circular(12),
+                    child: Material(
+                      color: const Color(0xFFF8FAFC),
+                      child: InkWell(
+                        onTap: () =>
+                            _mostrarImagemAmpliada(url, '$tipoLabel — $nome'),
+                        child: Image.network(
+                          url,
+                          height: 200,
+                          fit: BoxFit.contain,
+                          webHtmlElementStrategy: kIsWeb
+                              ? WebHtmlElementStrategy.prefer
+                              : WebHtmlElementStrategy.never,
+                          loadingBuilder: (_, child, p) => p == null
+                              ? child
+                              : const SizedBox(
+                                  height: 200,
+                                  child: Center(
+                                      child: CircularProgressIndicator()),
+                                ),
+                          errorBuilder: (context, error, stackTrace) =>
+                              const Padding(
+                            padding: EdgeInsets.all(24),
+                            child: Text('Não foi possível carregar a imagem.'),
+                          ),
+                        ),
+                      ),
+                    ),
+                  );
+                }
+                return Column(
+                  crossAxisAlignment: CrossAxisAlignment.stretch,
+                  children: [
+                    preview,
+                    const SizedBox(height: 14),
+                    Wrap(
+                      spacing: 10,
+                      runSpacing: 8,
+                      children: [
+                        OutlinedButton.icon(
+                          onPressed: salvando
+                              ? null
+                              : () async {
+                                  final u = Uri.tryParse(url);
+                                  if (u == null) return;
+                                  if (!await launchUrl(u,
+                                      mode:
+                                          LaunchMode.externalApplication)) {
+                                    if (context.mounted) {
+                                      mostrarSnackPainel(context,
+                                          erro: true,
+                                          mensagem:
+                                              'Não foi possível abrir o link.');
+                                    }
+                                  }
+                                },
+                          icon:
+                              const Icon(Icons.open_in_new_rounded, size: 18),
+                          label: const Text('Abrir em nova aba'),
+                        ),
+                        FilledButton.icon(
+                          onPressed: salvando
+                              ? null
+                              : () => _aprovarDocumentoPendente(row),
+                          icon: salvando
+                              ? const SizedBox(
+                                  width: 16,
+                                  height: 16,
+                                  child: CircularProgressIndicator(
+                                      strokeWidth: 2, color: Colors.white))
+                              : const Icon(Icons.check_rounded, size: 18),
+                          label: const Text('Aprovar'),
+                          style: FilledButton.styleFrom(
+                            backgroundColor: const Color(0xFF059669),
+                          ),
+                        ),
+                        OutlinedButton.icon(
+                          onPressed: salvando
+                              ? null
+                              : () =>
+                                  _mostrarDialogoReprovarDocumento(row),
+                          icon: const Icon(Icons.close_rounded, size: 18),
+                          label: const Text('Reprovar'),
+                          style: OutlinedButton.styleFrom(
+                            foregroundColor: const Color(0xFFDC2626),
+                            side: const BorderSide(color: Color(0xFFFECACA)),
+                          ),
+                        ),
+                      ],
+                    ),
+                  ],
+                );
+              },
+            ),
+          ],
+        ),
       ),
     );
   }
@@ -1137,6 +1953,15 @@ class _EntregadoresScreenState extends State<EntregadoresScreen>
     final a = _str(d['url_foto_veículo']);
     if (a.isNotEmpty) return a;
     return _str(d['url_foto_veiculo']);
+  }
+
+  /// Placa salva no app como `placa_veiculo`; painel antigo lia só `placa`.
+  String _placaExibicao(Map<String, dynamic> dados) {
+    for (final key in ['placa_veiculo', 'placa', 'placaVeiculo']) {
+      final s = _str(dados[key]).trim();
+      if (s.isNotEmpty) return s.toUpperCase();
+    }
+    return 'S/ Placa';
   }
 
   Future<String> _resolverUrlDocumento(String rawUrl) async {
@@ -1164,7 +1989,7 @@ class _EntregadoresScreenState extends State<EntregadoresScreen>
     final nome = _str(dados['nome'], 'Entregador sem nome');
     final cidade = _str(dados['cidade'], '—');
     final veiculo = _str(dados['veiculoTipo'], 'Moto');
-    final placa = _str(dados['placa'], 'S/ Placa');
+    final placa = _placaExibicao(dados);
     final planoId = dados['plano_entregador_id'];
     final fotoUrl = _str(dados['foto_url']);
     final motivoRecusa = _str(dados['motivo_recusa']);
@@ -1369,6 +2194,9 @@ class _EntregadoresScreenState extends State<EntregadoresScreen>
       surfaceTintColor: Colors.transparent,
       onSelected: (acao) {
         switch (acao) {
+          case _MaisAcoesEntregador.editar:
+            showEntregadorEditarDialog(context, entregadorId: doc.id);
+            break;
           case _MaisAcoesEntregador.documentos:
             _mostrarDocumentosModal(dados);
             break;
@@ -1388,6 +2216,18 @@ class _EntregadoresScreenState extends State<EntregadoresScreen>
       },
       itemBuilder: (context) {
         final entries = <PopupMenuEntry<_MaisAcoesEntregador>>[
+          PopupMenuItem<_MaisAcoesEntregador>(
+            value: _MaisAcoesEntregador.editar,
+            padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 10),
+            child: Row(
+              children: [
+                Icon(Icons.edit_rounded,
+                    size: 20, color: PainelAdminTheme.roxo),
+                const SizedBox(width: 12),
+                Text('Editar', style: textStyle),
+              ],
+            ),
+          ),
           PopupMenuItem<_MaisAcoesEntregador>(
             value: _MaisAcoesEntregador.documentos,
             padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 10),
@@ -1498,8 +2338,14 @@ class _EntregadoresScreenState extends State<EntregadoresScreen>
     );
   }
 
-  bool _ehPdf(String url) =>
-      Uri.tryParse(url)?.path.toLowerCase().endsWith('.pdf') ?? false;
+  bool _ehPdf(String url) {
+    final u = url.trim().toLowerCase();
+    if (u.isEmpty) return false;
+    // URLs do Firebase Storage costumam ter `.pdf` antes de `?alt=media`.
+    if (u.contains('.pdf')) return true;
+    final path = Uri.tryParse(url)?.path.toLowerCase() ?? '';
+    return path.endsWith('.pdf');
+  }
 
   void _mostrarImagemAmpliada(String url, String titulo) {
     showDialog(

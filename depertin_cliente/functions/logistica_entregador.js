@@ -1044,6 +1044,12 @@ exports.aceitarOfertaCorrida = functions.https.onCall(async (data, context) => {
     const foto = String(ud.foto_perfil || "").trim();
     const tel = String(ud.telefone || "").trim();
     const veiculo = String(ud.veiculoTipo || "").trim();
+    const audicaoRaw = ud.acessibilidade && typeof ud.acessibilidade === "object"
+        ? String(ud.acessibilidade.audicao || "").trim().toLowerCase()
+        : "";
+    const audicao = ["surdo", "deficiencia", "deficiência", "normal"].includes(audicaoRaw)
+        ? (audicaoRaw === "deficiência" ? "deficiencia" : audicaoRaw)
+        : "";
 
     let resultado = { ok: true, aceito: true };
 
@@ -1107,6 +1113,7 @@ exports.aceitarOfertaCorrida = functions.https.onCall(async (data, context) => {
             entregador_foto_url: foto,
             entregador_telefone: tel,
             entregador_veiculo: veiculo,
+            entregador_acessibilidade_audicao: audicao,
             entregador_aceito_em: admin.firestore.FieldValue.serverTimestamp(),
             despacho_oferta_uid: admin.firestore.FieldValue.delete(),
             despacho_oferta_expira_em: admin.firestore.FieldValue.delete(),

@@ -2,7 +2,6 @@ import 'package:flutter_localizations/flutter_localizations.dart';
 import 'package:flutter/foundation.dart' show kDebugMode, kIsWeb;
 import 'package:flutter/material.dart';
 import 'package:cloud_firestore/cloud_firestore.dart';
-import 'package:firebase_app_check/firebase_app_check.dart';
 import 'package:firebase_auth/firebase_auth.dart';
 import 'package:firebase_core/firebase_core.dart';
 import 'package:intl/intl.dart';
@@ -13,51 +12,15 @@ import 'theme/painel_admin_theme.dart';
 import 'screens/login_admin_screen.dart';
 import 'widgets/painel_shell_screen.dart';
 
-/// Site Key do reCAPTCHA v3 (app "depertin_web" no Firebase App Check).
-/// Público por design — pode ficar em código versionado. Par privado (secret)
-/// fica só no Firebase Console.
-const String _recaptchaV3SiteKey = '6LeKK70sAAAAAILrKAehrUn8KMVogIAc_B2moo-e';
-
-/// Ativa Firebase App Check no painel web.
-///
-/// Em **produção** (Chrome/Edge) usa reCAPTCHA v3 — o browser obtém um token
-/// silencioso (sem checkbox) baseado em comportamento; o Firebase valida com
-/// o `secret key` guardado no console. Se o Firebase considerar suspeito,
-/// nega o token e as callables/Firestore/Storage que tiverem enforce rejeitam.
-///
-/// Em **debug** (`flutter run -d chrome`) usa [AppCheckProvider.debug] — o SDK
-/// imprime um debug token no console do navegador uma vez; esse token precisa
-/// ser registrado no Firebase Console → App Check → apps → depertin_web →
-/// "Gerenciar tokens de debug" pra ser aceito.
-///
-/// **Não enforça nada por si só** — a ativação só anexa o token nas requests.
-/// O enforcement continua sendo decidido por cada Cloud Function / rule.
-// ignore: unused_element
-Future<void> _ativarAppCheckPainel() async {
-  if (!kIsWeb) return;
-  try {
-    await FirebaseAppCheck.instance
-        .activate(webProvider: ReCaptchaV3Provider(_recaptchaV3SiteKey))
-        .timeout(const Duration(seconds: 5));
-  } catch (e) {
-    debugPrint('FirebaseAppCheck (painel): $e');
-  }
-}
-
 void main() async {
   WidgetsFlutterBinding.ensureInitialized();
   // Português do Brasil (Material, intl/DateFormat, números).
   Intl.defaultLocale = 'pt_BR';
   await Firebase.initializeApp(options: DefaultFirebaseOptions.currentPlatform);
-  // App Check DESATIVADO temporariamente: o reCAPTCHA v3 estava retornando
-  // `appCheck/recaptcha-error` em produção (provavelmente porque o domínio
-  // www.dipertin.com.br não está registrado no site key do reCAPTCHA, ou porque
-  // o Chrome está bloqueando cookies de terceiros). Com o provider ativo,
-  // cada chamada Firebase tentava obter um token, falhava, e o login quebrava.
-  // Para reativar: verificar em Firebase Console → App Check → apps →
-  // depertin_web se o site key está vinculado aos domínios certos
-  // (dipertin.com.br E www.dipertin.com.br), e depois descomentar a linha abaixo.
-  // await _ativarAppCheckPainel();
+  // App Check **não** é dependência deste projeto: com o plugin presente, o
+  // Firebase Auth (web) tentava obter token reCAPTCHA e gerava
+  // appCheck/recaptcha-error + falhas no painel. Reintroduzir exige
+  // firebase_app_check + domínios no reCAPTCHA / App Check.
   // OAuth redirect: getRedirectResult só pode ser chamado uma vez; com hash routing
   // o resultado perdia-se se fosse só no LoginScreen.
   // Timeout defensivo: em alguns cenários (CSP, iframe bloqueado, 3rd party cookies

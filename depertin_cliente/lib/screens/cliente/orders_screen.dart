@@ -2,6 +2,7 @@
 
 import 'package:depertin_cliente/constants/pedido_status.dart';
 import 'package:depertin_cliente/screens/cliente/avaliar_pedido_sheet.dart';
+import 'package:depertin_cliente/widgets/badge_entregador_acessibilidade.dart';
 import 'package:depertin_cliente/widgets/chat_pedido_botao.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
@@ -1557,6 +1558,11 @@ class _OrdersScreenState extends State<OrdersScreen> {
                                             statusAtual ==
                                                 PedidoStatus.saiuEntrega) ...[
                                           const SizedBox(height: 14),
+                                          BadgeEntregadorAcessibilidade(
+                                            audicao: pedido[
+                                                    'entregador_acessibilidade_audicao']
+                                                ?.toString(),
+                                          ),
                                           Container(
                                             width: double.infinity,
                                             padding: const EdgeInsets.all(14),

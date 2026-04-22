@@ -107,6 +107,25 @@ function isLojistaDoc(data) {
     return r === "lojista";
 }
 
+function isEntregadorDoc(data) {
+    if (!data) return false;
+    const r = (data.role || data.tipoUsuario || data.tipo || "").toString();
+    return r === "entregador";
+}
+
+/** Lê o código da audição declarada no perfil (`acessibilidade.audicao`). */
+function audicaoEntregador(data) {
+    const d = data || {};
+    const a = d.acessibilidade && typeof d.acessibilidade === "object"
+        ? d.acessibilidade
+        : {};
+    const raw = (a.audicao || "").toString().trim().toLowerCase();
+    if (raw === "surdo") return "surdo";
+    if (raw === "deficiencia" || raw === "deficiência") return "deficiencia";
+    if (raw === "normal") return "normal";
+    return "";
+}
+
 /**
  * Atualiza em batch os pedidos ativos de um usuário com a nova identidade.
  * @param {string} campoId - "cliente_id" ou "loja_id".
@@ -186,6 +205,26 @@ exports.sincronizarIdentidadePedidosOnUpdate = functions.firestore
                     `[sincronizarIdentidadePedidos] erro cliente_id=${uid}:`,
                     e,
                 );
+            }
+        }
+
+        // --- Perfil do ENTREGADOR nos pedidos (entregador_id == uid) ---
+        // Propaga mudança da preferência de acessibilidade auditiva pra pedidos
+        // ativos em que o entregador já foi atribuído.
+        if (isEntregadorDoc(antes) || isEntregadorDoc(depois)) {
+            const audicaoAntes = audicaoEntregador(antes);
+            const audicaoDepois = audicaoEntregador(depois);
+            if (audicaoAntes !== audicaoDepois) {
+                try {
+                    await atualizarPedidosAtivos("entregador_id", uid, {
+                        entregador_acessibilidade_audicao: audicaoDepois,
+                    });
+                } catch (e) {
+                    console.error(
+                        `[sincronizarIdentidadePedidos] erro entregador_id=${uid}:`,
+                        e,
+                    );
+                }
             }
         }
 

@@ -2,6 +2,7 @@
 
 import 'dart:io';
 import 'package:flutter/material.dart';
+import 'package:flutter/services.dart';
 import 'package:cloud_firestore/cloud_firestore.dart';
 import 'package:firebase_auth/firebase_auth.dart';
 import 'package:firebase_storage/firebase_storage.dart';
@@ -25,6 +26,14 @@ class _EntregadorFormScreenState extends State<EntregadorFormScreen> {
   File? _arqCRLV;
   File? _arqFotoVeiculo;
 
+  // URLs já enviados anteriormente (para reenvio sem precisar anexar de novo)
+  String? _urlDocPessoalAtual;
+  String? _urlCrlvAtual;
+  String? _urlFotoVeiculoAtual;
+
+  final _modeloController = TextEditingController();
+  final _placaController = TextEditingController();
+
   bool _isLoading = false;
   bool _carregandoInicial = true;
   String? _statusAtual;
@@ -32,10 +41,19 @@ class _EntregadorFormScreenState extends State<EntregadorFormScreen> {
 
   final List<String> _tiposVeiculo = ['Moto', 'Carro', 'Bicicleta'];
 
+  bool get _precisaPlaca => _veiculoSelecionado != 'Bicicleta';
+
   @override
   void initState() {
     super.initState();
     _buscarDadosIniciais();
+  }
+
+  @override
+  void dispose() {
+    _modeloController.dispose();
+    _placaController.dispose();
+    super.dispose();
   }
 
   // === MÁGICA: LÊ SE O CADASTRO FOI RECUSADO PARA AVISAR O USUÁRIO ===
@@ -49,6 +67,25 @@ class _EntregadorFormScreenState extends State<EntregadorFormScreen> {
             .get();
         if (doc.exists) {
           var dados = doc.data() as Map<String, dynamic>;
+
+          // Tenta buscar o veículo ativo da subcoleção (fonte mais nova)
+          String? modeloAtivo;
+          String? placaAtiva;
+          try {
+            final ativoQ = await FirebaseFirestore.instance
+                .collection('users')
+                .doc(user.uid)
+                .collection('veiculos')
+                .where('ativo', isEqualTo: true)
+                .limit(1)
+                .get();
+            if (ativoQ.docs.isNotEmpty) {
+              final v = ativoQ.docs.first.data();
+              modeloAtivo = (v['modelo'] ?? '').toString();
+              placaAtiva = (v['placa'] ?? '').toString();
+            }
+          } catch (_) {}
+
           if (mounted) {
             setState(() {
               _statusAtual = dados['entregador_status'];
@@ -57,6 +94,24 @@ class _EntregadorFormScreenState extends State<EntregadorFormScreen> {
                   _tiposVeiculo.contains(dados['veiculoTipo'])) {
                 _veiculoSelecionado = dados['veiculoTipo'];
               }
+              _modeloController.text = (modeloAtivo?.isNotEmpty ?? false)
+                  ? modeloAtivo!
+                  : (dados['veiculoModelo'] ?? '').toString();
+              _placaController.text = ((placaAtiva?.isNotEmpty ?? false)
+                      ? placaAtiva!
+                      : (dados['placa_veiculo'] ?? '').toString())
+                  .toUpperCase();
+              _urlDocPessoalAtual =
+                  (dados['url_doc_pessoal'] ?? '').toString().isNotEmpty
+                      ? dados['url_doc_pessoal'].toString()
+                      : null;
+              _urlCrlvAtual = (dados['url_crlv'] ?? '').toString().isNotEmpty
+                  ? dados['url_crlv'].toString()
+                  : null;
+              _urlFotoVeiculoAtual =
+                  (dados['url_foto_veículo'] ?? '').toString().isNotEmpty
+                      ? dados['url_foto_veículo'].toString()
+                      : null;
             });
           }
         }
@@ -105,9 +160,16 @@ class _EntregadorFormScreenState extends State<EntregadorFormScreen> {
   }
 
   Future<void> _enviarSolicitacao() async {
-    if (_arqDocPessoal == null ||
-        _arqFotoVeiculo == null ||
-        (_veiculoSelecionado != 'Bicicleta' && _arqCRLV == null)) {
+    // Validação de documentos (permite reaproveitar URL anterior em reenvio)
+    final temDocPessoal = _arqDocPessoal != null ||
+        (_urlDocPessoalAtual != null && _urlDocPessoalAtual!.isNotEmpty);
+    final temFotoVeiculo = _arqFotoVeiculo != null ||
+        (_urlFotoVeiculoAtual != null && _urlFotoVeiculoAtual!.isNotEmpty);
+    final temCrlv = _veiculoSelecionado == 'Bicicleta' ||
+        _arqCRLV != null ||
+        (_urlCrlvAtual != null && _urlCrlvAtual!.isNotEmpty);
+
+    if (!temDocPessoal || !temFotoVeiculo || !temCrlv) {
       ScaffoldMessenger.of(context).showSnackBar(
         const SnackBar(
           content: Text('Anexe todos os documentos obrigatórios.'),
@@ -117,44 +179,103 @@ class _EntregadorFormScreenState extends State<EntregadorFormScreen> {
       return;
     }
 
+    // Validação de placa (quando não é bicicleta)
+    final placaNormalizada = _placaController.text
+        .replaceAll('-', '')
+        .replaceAll(' ', '')
+        .trim()
+        .toUpperCase();
+    if (_precisaPlaca) {
+      final okPlaca = RegExp(r'^[A-Z]{3}[0-9][A-Z0-9][0-9]{2}$')
+          .hasMatch(placaNormalizada);
+      if (!okPlaca) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          const SnackBar(
+            content:
+                Text('Informe a placa do veículo (ex.: ABC1D23 ou ABC1234).'),
+            backgroundColor: Colors.red,
+          ),
+        );
+        return;
+      }
+    }
+
     setState(() => _isLoading = true);
 
     try {
       final user = FirebaseAuth.instance.currentUser;
       if (user != null) {
-        String urlDocPessoal = await _fazerUpload(
-          _arqDocPessoal!,
-          'doc_pessoal_${DateTime.now().millisecondsSinceEpoch}',
-          user.uid,
-        );
-        String urlFotoVeiculo = await _fazerUpload(
-          _arqFotoVeiculo!,
-          'foto_veiculo_${DateTime.now().millisecondsSinceEpoch}',
-          user.uid,
-        );
-        String urlCRLV = "";
-        if (_veiculoSelecionado != 'Bicicleta') {
+        String urlDocPessoal = _urlDocPessoalAtual ?? '';
+        if (_arqDocPessoal != null) {
+          urlDocPessoal = await _fazerUpload(
+            _arqDocPessoal!,
+            'doc_pessoal_${DateTime.now().millisecondsSinceEpoch}',
+            user.uid,
+          );
+        }
+
+        String urlFotoVeiculo = _urlFotoVeiculoAtual ?? '';
+        if (_arqFotoVeiculo != null) {
+          urlFotoVeiculo = await _fazerUpload(
+            _arqFotoVeiculo!,
+            'foto_veiculo_${DateTime.now().millisecondsSinceEpoch}',
+            user.uid,
+          );
+        }
+
+        String urlCRLV = _urlCrlvAtual ?? '';
+        if (_veiculoSelecionado != 'Bicicleta' && _arqCRLV != null) {
           urlCRLV = await _fazerUpload(
             _arqCRLV!,
             'crlv_${DateTime.now().millisecondsSinceEpoch}',
             user.uid,
           );
         }
+        if (_veiculoSelecionado == 'Bicicleta') {
+          urlCRLV = '';
+        }
 
-        // === ATUALIZA OS DADOS NO BANCO ===
-        await FirebaseFirestore.instance.collection('users').doc(user.uid).update({
+        // === Atualiza o doc principal (campos planos — painel web) ===
+        await FirebaseFirestore.instance
+            .collection('users')
+            .doc(user.uid)
+            .update({
           'role': 'entregador',
-          'entregador_status': 'pendente', // Volta para a fila de análise!
-          'veiculoTipo':
-              _veiculoSelecionado, // Ajustado para o nome exato que o painel web lê
+          'entregador_status': 'pendente',
+          'veiculoTipo': _veiculoSelecionado,
+          'veiculoModelo': _modeloController.text.trim(),
+          'placa_veiculo': _precisaPlaca ? placaNormalizada : '',
           'url_doc_pessoal': urlDocPessoal,
-          'url_foto_veículo':
-              urlFotoVeiculo, // Ajustado para o nome exato que o painel web lê
+          'url_foto_veículo': urlFotoVeiculo,
           'url_crlv': urlCRLV,
-          'motivo_recusa':
-              FieldValue.delete(), // Apaga o motivo da recusa antiga!
+          'motivo_recusa': FieldValue.delete(),
           'data_solicitacao_entregador': FieldValue.serverTimestamp(),
         });
+
+        // === Semeia veículo ativo em users/{uid}/veiculos ===
+        await _garantirVeiculoAtivoNaSubcolecao(
+          uid: user.uid,
+          tipoLabel: _veiculoSelecionado,
+          modelo: _modeloController.text.trim(),
+          placa: _precisaPlaca ? placaNormalizada : '',
+          urlCrlv: urlCRLV,
+        );
+
+        // === Semeia CNH em users/{uid}/documentos/cnh ===
+        if (urlDocPessoal.isNotEmpty) {
+          await FirebaseFirestore.instance
+              .collection('users')
+              .doc(user.uid)
+              .collection('documentos')
+              .doc('cnh')
+              .set({
+            'url': urlDocPessoal,
+            'status': 'pendente',
+            'motivo_reprovacao': FieldValue.delete(),
+            'origem': 'cadastro_entregador',
+            'atualizado_em': FieldValue.serverTimestamp(),
+          }, SetOptions(merge: true));
+        }
 
         if (mounted) {
           ScaffoldMessenger.of(context).showSnackBar(
@@ -182,11 +303,72 @@ class _EntregadorFormScreenState extends State<EntregadorFormScreen> {
     }
   }
 
+  String _tipoCodigo(String label) {
+    switch (label) {
+      case 'Moto':
+        return 'moto';
+      case 'Carro':
+        return 'carro';
+      case 'Bicicleta':
+        return 'bike';
+      default:
+        return label.toLowerCase();
+    }
+  }
+
+  Future<void> _garantirVeiculoAtivoNaSubcolecao({
+    required String uid,
+    required String tipoLabel,
+    required String modelo,
+    required String placa,
+    required String urlCrlv,
+  }) async {
+    final col = FirebaseFirestore.instance
+        .collection('users')
+        .doc(uid)
+        .collection('veiculos');
+    final ativos = await col.where('ativo', isEqualTo: true).limit(1).get();
+    final DocumentReference<Map<String, dynamic>> vRef = ativos.docs.isNotEmpty
+        ? ativos.docs.first.reference
+        : col.doc();
+    final ehNovo = ativos.docs.isEmpty;
+
+    await vRef.set({
+      'tipo': _tipoCodigo(tipoLabel),
+      'modelo': modelo,
+      'placa': placa,
+      'ativo': true,
+      'seed_from_cadastro': true,
+      if (ehNovo) 'criado_em': FieldValue.serverTimestamp(),
+      'atualizado_em': FieldValue.serverTimestamp(),
+    }, SetOptions(merge: true));
+
+    await FirebaseFirestore.instance.collection('users').doc(uid).set({
+      'veiculo_ativo_id': vRef.id,
+    }, SetOptions(merge: true));
+
+    if (urlCrlv.isNotEmpty) {
+      await vRef.collection('documentos').doc('crlv').set({
+        'url': urlCrlv,
+        'status': 'pendente',
+        'motivo_reprovacao': FieldValue.delete(),
+        'origem': 'cadastro_entregador',
+        'atualizado_em': FieldValue.serverTimestamp(),
+      }, SetOptions(merge: true));
+    }
+  }
+
   Widget _botaoUploadCustomizado({
     required String titulo,
     required File? arquivo,
     required int tipoID,
+    String? urlExistente,
   }) {
+    final bool jaEnviado = arquivo == null &&
+        urlExistente != null &&
+        urlExistente.isNotEmpty;
+    final bool novoAnexado = arquivo != null;
+    final bool verde = novoAnexado || jaEnviado;
     return Container(
       margin: const EdgeInsets.only(bottom: 15),
       padding: const EdgeInsets.all(12),
@@ -194,32 +376,37 @@ class _EntregadorFormScreenState extends State<EntregadorFormScreen> {
         color: Colors.grey[100],
         borderRadius: BorderRadius.circular(8),
         border: Border.all(
-          color: arquivo != null ? Colors.green : Colors.grey[400]!,
+          color: verde ? Colors.green : Colors.grey[400]!,
         ),
       ),
       child: Row(
         children: [
           Icon(
-            arquivo != null ? Icons.check_circle : Icons.upload_file,
-            color: arquivo != null ? Colors.green : diPertinRoxo,
+            verde ? Icons.check_circle : Icons.upload_file,
+            color: verde ? Colors.green : diPertinRoxo,
           ),
           const SizedBox(width: 10),
           Expanded(
             child: Text(
-              arquivo != null ? "Arquivo Anexado" : titulo,
+              novoAnexado
+                  ? "Arquivo Anexado"
+                  : jaEnviado
+                      ? "Já enviado — toque em Trocar para atualizar"
+                      : titulo,
               style: TextStyle(
                 fontWeight: FontWeight.bold,
-                color: arquivo != null ? Colors.green : Colors.black87,
+                color: verde ? Colors.green : Colors.black87,
+                fontSize: 13,
               ),
             ),
           ),
           ElevatedButton(
             onPressed: () => _escolherArquivo(tipoID),
             style: ElevatedButton.styleFrom(
-              backgroundColor: arquivo != null ? Colors.grey : diPertinLaranja,
+              backgroundColor: verde ? Colors.grey : diPertinLaranja,
             ),
             child: Text(
-              arquivo != null ? "Trocar" : "Anexar",
+              verde ? "Trocar" : "Anexar",
               style: const TextStyle(color: Colors.white, fontSize: 12),
             ),
           ),
@@ -341,14 +528,54 @@ class _EntregadorFormScreenState extends State<EntregadorFormScreen> {
                         onChanged: (String? novoValor) {
                           setState(() {
                             _veiculoSelecionado = novoValor!;
-                            _arqCRLV = null;
-                            _arqDocPessoal = null;
-                            _arqFotoVeiculo = null;
+                            if (_veiculoSelecionado == 'Bicicleta') {
+                              _placaController.clear();
+                              _arqCRLV = null;
+                              _urlCrlvAtual = null;
+                            }
                           });
                         },
                       ),
                     ),
                   ),
+                  const SizedBox(height: 14),
+
+                  TextField(
+                    controller: _modeloController,
+                    decoration: InputDecoration(
+                      labelText: _veiculoSelecionado == 'Bicicleta'
+                          ? 'Modelo (opcional)'
+                          : 'Modelo do veículo',
+                      hintText: _veiculoSelecionado == 'Bicicleta'
+                          ? 'Ex.: Caloi 10'
+                          : 'Ex.: Honda CG 160',
+                      border: OutlineInputBorder(
+                        borderRadius: BorderRadius.circular(8),
+                      ),
+                    ),
+                  ),
+
+                  if (_precisaPlaca) ...[
+                    const SizedBox(height: 10),
+                    TextField(
+                      controller: _placaController,
+                      textCapitalization: TextCapitalization.characters,
+                      inputFormatters: [
+                        FilteringTextInputFormatter.allow(
+                          RegExp(r'[A-Za-z0-9-]'),
+                        ),
+                        LengthLimitingTextInputFormatter(8),
+                      ],
+                      decoration: InputDecoration(
+                        labelText: 'Placa do veículo',
+                        hintText: 'ABC1D23 (Mercosul) ou ABC1234',
+                        border: OutlineInputBorder(
+                          borderRadius: BorderRadius.circular(8),
+                        ),
+                      ),
+                    ),
+                  ],
+
                   const SizedBox(height: 20),
 
                   const Text(
@@ -367,12 +594,14 @@ class _EntregadorFormScreenState extends State<EntregadorFormScreen> {
                         : "CNH Válida",
                     arquivo: _arqDocPessoal,
                     tipoID: 1,
+                    urlExistente: _urlDocPessoalAtual,
                   ),
                   if (_veiculoSelecionado != 'Bicicleta')
                     _botaoUploadCustomizado(
                       titulo: "Documento do Veículo (CRLV)",
                       arquivo: _arqCRLV,
                       tipoID: 2,
+                      urlExistente: _urlCrlvAtual,
                     ),
                   _botaoUploadCustomizado(
                     titulo: _veiculoSelecionado == 'Bicicleta'
@@ -380,6 +609,7 @@ class _EntregadorFormScreenState extends State<EntregadorFormScreen> {
                         : "Foto do Veículo (Placa Visível)",
                     arquivo: _arqFotoVeiculo,
                     tipoID: 3,
+                    urlExistente: _urlFotoVeiculoAtual,
                   ),
 
                   const SizedBox(height: 20),

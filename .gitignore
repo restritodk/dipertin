@@ -41,6 +41,8 @@ criar_repo_e_push.ps1
 # Logs e temp
 *.log
 **/firebase-debug.log
+# Cache do Firebase CLI (ex.: `firebase deploy` no site)
+**/.firebase/
 .DS_Store
 
 # Chaves de serviço Firebase (nunca commitar)

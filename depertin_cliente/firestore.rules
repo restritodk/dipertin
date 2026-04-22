@@ -29,16 +29,21 @@ service cloud.firestore {
       return d.get(key, '');
     }
 
+    function normStr(v) {
+      return v is string ? v.lower().trim() : '';
+    }
+
     function isMasterValue(v) {
-      return v == 'master' || v == 'superadmin' || v == 'super_admin';
+      let n = normStr(v);
+      return n == 'master' || n == 'superadmin' || n == 'super_admin';
     }
 
     function isMasterCityValue(v) {
-      return v == 'master_city';
+      return normStr(v) == 'master_city';
     }
 
     function isEntregadorValue(v) {
-      return v == 'entregador';
+      return normStr(v) == 'entregador';
     }
 
     function role() {
@@ -235,6 +240,76 @@ service cloud.firestore {
       // Dono lê e escreve. Staff (master/master_city) lê para Central de Clientes.
       allow read: if signedIn() && (request.auth.uid == userId || isStaff());
       allow write: if signedIn() && request.auth.uid == userId;
+    }
+
+    // Configurações → Veículos do entregador (subcoleção).
+    // Fase 3 do módulo Configurações do entregador.
+    // Staff (painel Gestão de entregadores → Editar) pode ajustar veículo/CRLV.
+    match /users/{userId}/veiculos/{veiculoId} {
+      allow read: if signedIn() && (request.auth.uid == userId || isStaff());
+      allow write: if signedIn() && (
+        request.auth.uid == userId
+        || isStaff()
+      );
+
+      // Documentos por veículo (CRLV).
+      match /documentos/{tipo} {
+        allow read: if signedIn() && (request.auth.uid == userId || isStaff());
+        // Dono ou staff (correção cadastral no painel).
+        allow create: if signedIn() && (
+          request.auth.uid == userId
+          || isStaff()
+        );
+        allow update: if isStaff() || (
+          signedIn() && request.auth.uid == userId
+          && request.resource.data.diff(resource.data).affectedKeys()
+            .hasOnly(['url', 'status', 'motivo_reprovacao', 'atualizado_em'])
+          && request.resource.data.status == 'pendente'
+        );
+        allow delete: if isStaff();
+      }
+    }
+
+    // Configurações → Documentos do entregador (nível do usuário: CNH).
+    match /users/{userId}/documentos/{tipo} {
+      allow read: if signedIn() && (request.auth.uid == userId || isStaff());
+      allow create: if signedIn() && (
+        request.auth.uid == userId
+        || isStaff()
+      );
+      allow update: if isStaff() || (
+        signedIn() && request.auth.uid == userId
+        && request.resource.data.diff(resource.data).affectedKeys()
+          .hasOnly(['url', 'status', 'motivo_reprovacao', 'atualizado_em'])
+        && request.resource.data.status == 'pendente'
+      );
+      allow delete: if isStaff();
+    }
+
+    // Painel web — Gestão de Entregadores → aba "Atualizações" (`collectionGroup('documentos')`).
+    // Em produção, a query agregada pode falhar com PERMISSION_DENIED se só existirem
+    // matches segmentados; este bloco cobre explicitamente CNH e CRLV sob `users/`.
+    match /{prefix=**}/documentos/{tipo} {
+      allow read: if signedIn()
+        && isStaff()
+        && (tipo == 'cnh' || tipo == 'crlv');
+    }
+
+    // Informações fiscais agregadas do entregador.
+    // Escrita apenas via Cloud Function (Admin SDK).
+    match /fiscal/{userId} {
+      allow read: if signedIn() && (request.auth.uid == userId || isStaff());
+      allow write: if false;
+
+      match /anos/{ano} {
+        allow read: if signedIn() && (request.auth.uid == userId || isStaff());
+        allow write: if false;
+
+        match /meses/{mes} {
+          allow read: if signedIn() && (request.auth.uid == userId || isStaff());
+          allow write: if false;
+        }
+      }
     }
 
     // Fase 3G.1 — mirror público de lojistas.

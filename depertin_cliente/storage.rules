@@ -109,12 +109,16 @@ service firebase.storage {
     }
 
     // Documentos pessoais do entregador (CNH/CRLV/Foto veículo) -----------
+    // Staff (painel web) pode enviar em nome do entregador ao corrigir cadastro.
     match /documentos_entregadores/{userId}/{allPaths=**} {
       allow read: if request.auth != null
         && (request.auth.uid == userId || isStaff());
       allow create, update: if request.auth != null
-        && request.auth.uid == userId
-        && request.resource.size < 20 * 1024 * 1024;
+        && request.resource.size < 20 * 1024 * 1024
+        && (
+          request.auth.uid == userId
+          || isStaff()
+        );
       allow delete: if request.auth != null
         && (request.auth.uid == userId || isStaff());
     }
