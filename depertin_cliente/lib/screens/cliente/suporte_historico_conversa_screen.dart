@@ -3,6 +3,7 @@
 import 'package:cloud_firestore/cloud_firestore.dart';
 import 'package:firebase_auth/firebase_auth.dart';
 import 'package:flutter/material.dart';
+import 'package:url_launcher/url_launcher.dart';
 
 const Color _roxo = Color(0xFF6A1B9A);
 const Color _laranja = Color(0xFFFF8F00);
@@ -198,7 +199,10 @@ class SuporteHistoricoConversaScreen extends StatelessWidget {
                                       ),
                                     );
                                   }
-                                  final souCliente = tipo == 'client';
+                                  final suporteAuto =
+                                      msg['suporte_auto'] == true;
+                                  final souCliente =
+                                      tipo == 'client' && !suporteAuto;
                                   return Align(
                                     alignment: souCliente
                                         ? Alignment.centerRight
@@ -206,8 +210,8 @@ class SuporteHistoricoConversaScreen extends StatelessWidget {
                                     child: Container(
                                       margin: const EdgeInsets.only(bottom: 10),
                                       padding: const EdgeInsets.symmetric(
-                                        horizontal: 14,
-                                        vertical: 10,
+                                        horizontal: 10,
+                                        vertical: 8,
                                       ),
                                       constraints: BoxConstraints(
                                         maxWidth:
@@ -237,13 +241,45 @@ class SuporteHistoricoConversaScreen extends StatelessWidget {
                                           ),
                                         ],
                                       ),
-                                      child: Text(
-                                        texto,
-                                        style: const TextStyle(
-                                          color: Colors.white,
-                                          fontSize: 15,
-                                          height: 1.35,
-                                        ),
+                                      child: Column(
+                                        crossAxisAlignment:
+                                            CrossAxisAlignment.start,
+                                        mainAxisSize: MainAxisSize.min,
+                                        children: [
+                                          if (suporteAuto)
+                                            Padding(
+                                              padding: const EdgeInsets.only(
+                                                left: 2,
+                                                right: 2,
+                                                bottom: 4,
+                                              ),
+                                              child: Row(
+                                                mainAxisSize: MainAxisSize.min,
+                                                children: const [
+                                                  Icon(
+                                                    Icons.support_agent,
+                                                    size: 14,
+                                                    color: Colors.white,
+                                                  ),
+                                                  SizedBox(width: 6),
+                                                  Text(
+                                                    'Central de Ajuda · DiPertin',
+                                                    style: TextStyle(
+                                                      color: Colors.white,
+                                                      fontSize: 11,
+                                                      fontWeight:
+                                                          FontWeight.w700,
+                                                    ),
+                                                  ),
+                                                ],
+                                              ),
+                                            ),
+                                          _bolhaConteudoHistorico(
+                                            context,
+                                            msg,
+                                            texto,
+                                          ),
+                                        ],
                                       ),
                                     ),
                                   );
@@ -259,6 +295,145 @@ class SuporteHistoricoConversaScreen extends StatelessWidget {
               ),
       ),
     );
+  }
+
+  Widget _bolhaConteudoHistorico(
+    BuildContext context,
+    Map<String, dynamic> msg,
+    String texto,
+  ) {
+    final url = (msg['anexo_url'] ?? '').toString();
+    if (url.isEmpty) {
+      return Padding(
+        padding: const EdgeInsets.symmetric(horizontal: 4, vertical: 2),
+        child: Text(
+          texto,
+          style: const TextStyle(
+            color: Colors.white,
+            fontSize: 15,
+            height: 1.35,
+          ),
+        ),
+      );
+    }
+    final tipo = (msg['anexo_tipo'] ?? '').toString();
+    final nome = (msg['anexo_nome'] ?? 'arquivo').toString();
+    final tamanho = (msg['anexo_tamanho'] is num)
+        ? (msg['anexo_tamanho'] as num).toInt()
+        : 0;
+
+    Widget anexo;
+    if (tipo == 'image') {
+      anexo = GestureDetector(
+        onTap: () async {
+          final uri = Uri.tryParse(url);
+          if (uri == null) return;
+          await launchUrl(uri, mode: LaunchMode.externalApplication);
+        },
+        child: ClipRRect(
+          borderRadius: BorderRadius.circular(10),
+          child: ConstrainedBox(
+            constraints: const BoxConstraints(
+              maxHeight: 240,
+              minWidth: 160,
+            ),
+            child: Image.network(
+              url,
+              fit: BoxFit.cover,
+              errorBuilder: (_, __, ___) => Container(
+                height: 120,
+                width: 160,
+                color: Colors.black.withValues(alpha: 0.25),
+                alignment: Alignment.center,
+                child: const Icon(
+                  Icons.broken_image_outlined,
+                  color: Colors.white,
+                ),
+              ),
+            ),
+          ),
+        ),
+      );
+    } else {
+      anexo = InkWell(
+        onTap: () async {
+          final uri = Uri.tryParse(url);
+          if (uri == null) return;
+          await launchUrl(uri, mode: LaunchMode.externalApplication);
+        },
+        borderRadius: BorderRadius.circular(10),
+        child: Container(
+          padding: const EdgeInsets.all(10),
+          decoration: BoxDecoration(
+            color: Colors.white.withValues(alpha: 0.18),
+            borderRadius: BorderRadius.circular(10),
+          ),
+          child: Row(
+            mainAxisSize: MainAxisSize.min,
+            children: [
+              const Icon(Icons.insert_drive_file_outlined,
+                  color: Colors.white, size: 30),
+              const SizedBox(width: 10),
+              Flexible(
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  mainAxisSize: MainAxisSize.min,
+                  children: [
+                    Text(
+                      nome,
+                      maxLines: 2,
+                      overflow: TextOverflow.ellipsis,
+                      style: const TextStyle(
+                        color: Colors.white,
+                        fontWeight: FontWeight.w600,
+                      ),
+                    ),
+                    const SizedBox(height: 2),
+                    Text(
+                      tamanho > 0
+                          ? '${_formatarTamanhoHistorico(tamanho)} • toque para abrir'
+                          : 'Toque para abrir',
+                      style: const TextStyle(
+                        color: Colors.white70,
+                        fontSize: 11,
+                      ),
+                    ),
+                  ],
+                ),
+              ),
+            ],
+          ),
+        ),
+      );
+    }
+
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.start,
+      mainAxisSize: MainAxisSize.min,
+      children: [
+        anexo,
+        if (texto.trim().isNotEmpty) ...[
+          const SizedBox(height: 6),
+          Padding(
+            padding: const EdgeInsets.symmetric(horizontal: 4),
+            child: Text(
+              texto,
+              style: const TextStyle(
+                color: Colors.white,
+                fontSize: 15,
+                height: 1.35,
+              ),
+            ),
+          ),
+        ],
+      ],
+    );
+  }
+
+  static String _formatarTamanhoHistorico(int bytes) {
+    if (bytes < 1024) return '$bytes B';
+    if (bytes < 1024 * 1024) return '${(bytes / 1024).toStringAsFixed(1)} KB';
+    return '${(bytes / (1024 * 1024)).toStringAsFixed(1)} MB';
   }
 
   static String _rotuloStatus(String s) {

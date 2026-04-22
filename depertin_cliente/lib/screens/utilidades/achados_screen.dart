@@ -2,9 +2,11 @@
 
 import 'package:depertin_cliente/screens/auth/login_screen.dart';
 import 'package:depertin_cliente/screens/cliente/chat_suporte_screen.dart';
+import 'package:depertin_cliente/services/location_service.dart';
 import 'package:flutter/material.dart';
 import 'package:cloud_firestore/cloud_firestore.dart';
 import 'package:firebase_auth/firebase_auth.dart';
+import 'package:provider/provider.dart';
 import 'package:url_launcher/url_launcher.dart';
 
 const Color diPertinLaranja = Color(0xFFFF8F00);
@@ -140,6 +142,12 @@ class _AchadosScreenState extends State<AchadosScreen> {
 
   @override
   Widget build(BuildContext context) {
+    // Reage a mudanças na cidade detectada do usuário para refiltrar.
+    context.watch<LocationService>();
+    final loc = context.read<LocationService>();
+    final cidadeNorm = loc.cidadeNormalizada;
+    final ufNorm = loc.ufNormalizado;
+
     return Scaffold(
       backgroundColor: Colors.grey[100],
       appBar: AppBar(
@@ -181,6 +189,20 @@ class _AchadosScreenState extends State<AchadosScreen> {
           final limite3Dias = agora.subtract(const Duration(days: 3));
           var itens = snapshot.data!.docs.where((doc) {
             var data = doc.data() as Map<String, dynamic>;
+
+            // Filtro por cidade: vazio => global; preenchido => apenas
+            // para usuários da cidade/UF correspondente. Usa o helper que
+            // prefere o campo com UF (evita match de cidades homônimas).
+            if (!LocationService.anuncioCidadeCorrespondeUsuario(
+              cidadeNormalizada: data['cidade_normalizada']?.toString(),
+              cidade: data['cidade']?.toString(),
+              cidadeNormUsuario: cidadeNorm,
+              ufNormUsuario: ufNorm,
+              globalSeVazio: true,
+            )) {
+              return false;
+            }
+
             final tsFim = data['data_fim'] as Timestamp?;
             final tsVenc = data['data_vencimento'] as Timestamp?;
             final venc = tsFim?.toDate() ?? tsVenc?.toDate();

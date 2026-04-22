@@ -9,6 +9,7 @@ import 'package:google_fonts/google_fonts.dart';
 import 'package:url_launcher/url_launcher.dart';
 
 import '../constants/conta_bloqueio_lojista.dart';
+import '../constants/lojista_motivo_recusa.dart';
 import '../theme/painel_admin_theme.dart';
 import '../utils/admin_perfil.dart';
 import '../utils/conta_bloqueio_lojista.dart';
@@ -163,8 +164,12 @@ class _LojasScreenState extends State<LojasScreen>
       update['recusa_cadastro'] = true;
     } else if (novoStatus == 'aprovada') {
       update['motivo_recusa'] = FieldValue.delete();
+      update['motivo_recusa_codigo'] = FieldValue.delete();
+      update['motivo_recusa_descricao'] = FieldValue.delete();
       update['motivo_bloqueio'] = FieldValue.delete();
       update['recusa_cadastro'] = FieldValue.delete();
+      update['data_recusa'] = FieldValue.delete();
+      update['bloqueio_cadastro_ate'] = FieldValue.delete();
       update['status_conta'] = ContaBloqueioLojista.statusContaActive;
       update['block_active'] = false;
       update['block_type'] = FieldValue.delete();
@@ -190,6 +195,68 @@ class _LojasScreenState extends State<LojasScreen>
     } catch (e) {
       if (!mounted) return;
       mostrarSnackPainel(context, erro: true, mensagem: 'Erro: $e');
+    }
+  }
+
+  /// Persistência estruturada da recusa de cadastro. Os campos são lidos por:
+  /// - `lojista_status_notificacao.js` → e-mail + push (via `motivo_recusa`)
+  /// - `ContaBloqueioLojistaService` no app → fluxo de correção vs bloqueio de 30 dias
+  Future<bool> _recusarCadastroEstruturado({
+    required String uid,
+    required String codigo,
+    String? motivoCustomizado,
+  }) async {
+    final mensagemLojista = LojistaMotivoRecusa.mensagemParaLojista(
+      codigo,
+      motivoCustomizado: motivoCustomizado,
+    );
+
+    final update = <String, dynamic>{
+      'status_loja': 'bloqueada',
+      'recusa_cadastro': true,
+      'motivo_recusa': mensagemLojista,
+      'motivo_recusa_codigo': codigo,
+      'motivo_recusa_descricao': codigo == LojistaMotivoRecusa.outros
+          ? (motivoCustomizado ?? '').trim()
+          : FieldValue.delete(),
+      'data_recusa': FieldValue.serverTimestamp(),
+    };
+
+    final bloqueioAte = LojistaMotivoRecusa.calcularBloqueioAte(codigo);
+    if (bloqueioAte != null) {
+      update['bloqueio_cadastro_ate'] = bloqueioAte;
+    } else {
+      update['bloqueio_cadastro_ate'] = FieldValue.delete();
+    }
+
+    if (LojistaMotivoRecusa.permiteReenvioImediato(codigo)) {
+      update['status_documentacao'] = 'PENDENTE_ENVIO';
+    } else {
+      update['status_documentacao'] = FieldValue.delete();
+    }
+
+    try {
+      await FirebaseFirestore.instance
+          .collection('users')
+          .doc(uid)
+          .update(update);
+      if (!mounted) return true;
+      mostrarSnackPainel(context, mensagem: 'Recusa registrada com sucesso.');
+      return true;
+    } on FirebaseException catch (e) {
+      if (!mounted) return false;
+      mostrarSnackPainel(
+        context,
+        erro: true,
+        mensagem: e.code == 'permission-denied'
+            ? 'Sem permissão para esta ação.'
+            : 'Erro: ${e.message ?? e.code}',
+      );
+      return false;
+    } catch (e) {
+      if (!mounted) return false;
+      mostrarSnackPainel(context, erro: true, mensagem: 'Erro: $e');
+      return false;
     }
   }
 
@@ -1493,120 +1560,286 @@ class _LojasScreenState extends State<LojasScreen>
   // ─── modal recusa ───
 
   void _mostrarModalRecusa(String id, String nomeLoja) {
-    final motivoC = TextEditingController();
+    const opcoes = <_OpcaoRecusa>[
+      _OpcaoRecusa(
+        codigo: LojistaMotivoRecusa.fotoIlegivel,
+        titulo: 'Foto/documento ilegível',
+        subtitulo: 'Permite reenvio imediato dos documentos.',
+      ),
+      _OpcaoRecusa(
+        codigo: LojistaMotivoRecusa.dadosInconsistentes,
+        titulo: 'Dados inconsistentes',
+        subtitulo: 'Permite reenvio imediato dos documentos.',
+      ),
+      _OpcaoRecusa(
+        codigo: LojistaMotivoRecusa.desinteresseComercial,
+        titulo: 'Sem interesse comercial no momento',
+        subtitulo: 'Bloqueia nova solicitação por 30 dias.',
+        bloqueia30Dias: true,
+      ),
+      _OpcaoRecusa(
+        codigo: LojistaMotivoRecusa.outros,
+        titulo: 'Outros',
+        subtitulo: 'Exige descrição. Bloqueia nova solicitação por 30 dias.',
+        bloqueia30Dias: true,
+      ),
+    ];
+
+    String? motivoSelecionado;
+    final descricaoController = TextEditingController();
     bool isSalvando = false;
 
     showDialog(
       context: context,
+      barrierDismissible: false,
       builder: (ctx) => StatefulBuilder(
-        builder: (ctx, setS) => Dialog(
-          shape:
-              RoundedRectangleBorder(borderRadius: BorderRadius.circular(20)),
-          child: ConstrainedBox(
-            constraints: const BoxConstraints(maxWidth: 480),
-            child: Padding(
-              padding: const EdgeInsets.all(28),
-              child: Column(
-                mainAxisSize: MainAxisSize.min,
-                crossAxisAlignment: CrossAxisAlignment.start,
-                children: [
-                  Row(children: [
-                    Container(
-                      padding: const EdgeInsets.all(10),
-                      decoration: BoxDecoration(
-                          color: const Color(0xFFFEF2F2),
-                          borderRadius: BorderRadius.circular(12)),
-                      child: const Icon(Icons.block_rounded,
-                          color: Color(0xFFDC2626), size: 24),
-                    ),
-                    const SizedBox(width: 14),
-                    Expanded(
-                      child: Column(
-                          crossAxisAlignment: CrossAxisAlignment.start,
-                          children: [
-                            Text('Recusar / Bloquear',
-                                style: GoogleFonts.plusJakartaSans(
-                                    fontSize: 18,
-                                    fontWeight: FontWeight.w700,
-                                    color: const Color(0xFF991B1B))),
-                            Text(nomeLoja,
-                                style: GoogleFonts.plusJakartaSans(
-                                    fontSize: 14,
-                                    color:
-                                        PainelAdminTheme.textoSecundario),
-                                overflow: TextOverflow.ellipsis),
-                          ]),
-                    ),
-                  ]),
-                  const SizedBox(height: 20),
-                  Text(
-                      'O lojista verá esta mensagem no aplicativo para poder corrigir.',
+        builder: (ctx, setS) {
+          final opcaoAtual = opcoes.firstWhere(
+            (o) => o.codigo == motivoSelecionado,
+            orElse: () => const _OpcaoRecusa(
+              codigo: '',
+              titulo: '',
+              subtitulo: '',
+            ),
+          );
+          final exigeDescricao = opcaoAtual.codigo == LojistaMotivoRecusa.outros;
+
+          return Dialog(
+            shape: RoundedRectangleBorder(
+                borderRadius: BorderRadius.circular(20)),
+            child: ConstrainedBox(
+              constraints: const BoxConstraints(maxWidth: 520),
+              child: Padding(
+                padding: const EdgeInsets.all(28),
+                child: Column(
+                  mainAxisSize: MainAxisSize.min,
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    Row(children: [
+                      Container(
+                        padding: const EdgeInsets.all(10),
+                        decoration: BoxDecoration(
+                            color: const Color(0xFFFEF2F2),
+                            borderRadius: BorderRadius.circular(12)),
+                        child: const Icon(Icons.block_rounded,
+                            color: Color(0xFFDC2626), size: 24),
+                      ),
+                      const SizedBox(width: 14),
+                      Expanded(
+                        child: Column(
+                            crossAxisAlignment: CrossAxisAlignment.start,
+                            children: [
+                              Text('Recusar cadastro',
+                                  style: GoogleFonts.plusJakartaSans(
+                                      fontSize: 18,
+                                      fontWeight: FontWeight.w700,
+                                      color: const Color(0xFF991B1B))),
+                              Text(nomeLoja,
+                                  style: GoogleFonts.plusJakartaSans(
+                                      fontSize: 14,
+                                      color:
+                                          PainelAdminTheme.textoSecundario),
+                                  overflow: TextOverflow.ellipsis),
+                            ]),
+                      ),
+                    ]),
+                    const SizedBox(height: 20),
+                    Text(
+                      'Selecione o motivo da recusa. O lojista receberá '
+                      'notificação por e-mail e no aplicativo.',
                       style: GoogleFonts.plusJakartaSans(
                           fontSize: 13,
                           color: PainelAdminTheme.textoSecundario,
-                          height: 1.4)),
-                  const SizedBox(height: 16),
-                  TextField(
-                    controller: motivoC,
-                    maxLines: 3,
-                    style: GoogleFonts.plusJakartaSans(fontSize: 14),
-                    decoration: InputDecoration(
-                      labelText: 'Motivo da recusa',
-                      hintText: 'Ex: CNPJ inválido, comprovante ilegível…',
-                      hintStyle: GoogleFonts.plusJakartaSans(
-                          fontSize: 13,
-                          color: PainelAdminTheme.textoSecundario),
-                      border: OutlineInputBorder(
-                          borderRadius: BorderRadius.circular(12)),
-                      focusedBorder: OutlineInputBorder(
-                          borderRadius: BorderRadius.circular(12),
-                          borderSide: const BorderSide(
-                              color: Color(0xFFDC2626), width: 1.5)),
+                          height: 1.45),
                     ),
-                  ),
-                  const SizedBox(height: 24),
-                  Row(mainAxisAlignment: MainAxisAlignment.end, children: [
-                    TextButton(
-                        onPressed: () => Navigator.pop(ctx),
-                        child: Text('Cancelar',
-                            style: GoogleFonts.plusJakartaSans(
-                                fontWeight: FontWeight.w600))),
-                    const SizedBox(width: 12),
-                    FilledButton.icon(
-                      onPressed: isSalvando
-                          ? null
-                          : () async {
-                              if (motivoC.text.trim().isEmpty) {
-                                mostrarSnackPainel(ctx,
-                                    erro: true,
-                                    mensagem:
-                                        'Você precisa digitar um motivo.');
-                                return;
-                              }
-                              setS(() => isSalvando = true);
-                              await _alterarStatusLoja(id, 'bloqueada',
-                                  motivo: motivoC.text.trim());
-                              if (ctx.mounted) Navigator.pop(ctx);
-                            },
-                      icon: isSalvando
-                          ? const SizedBox(
-                              width: 16,
-                              height: 16,
-                              child: CircularProgressIndicator(
-                                  strokeWidth: 2, color: Colors.white))
-                          : const Icon(Icons.block_rounded, size: 18),
-                      label: const Text('Confirmar Recusa'),
-                      style: FilledButton.styleFrom(
-                          backgroundColor: const Color(0xFFDC2626),
-                          shape: RoundedRectangleBorder(
+                    const SizedBox(height: 18),
+                    for (final op in opcoes)
+                      _buildOpcaoRecusaTile(
+                        op: op,
+                        selecionado: motivoSelecionado == op.codigo,
+                        onSelect: () =>
+                            setS(() => motivoSelecionado = op.codigo),
+                      ),
+                    if (exigeDescricao) ...[
+                      const SizedBox(height: 8),
+                      TextField(
+                        controller: descricaoController,
+                        maxLines: 3,
+                        maxLength: 280,
+                        style: GoogleFonts.plusJakartaSans(fontSize: 14),
+                        decoration: InputDecoration(
+                          labelText: 'Descreva o motivo *',
+                          hintText: 'Esta mensagem será enviada ao lojista.',
+                          hintStyle: GoogleFonts.plusJakartaSans(
+                              fontSize: 13,
+                              color: PainelAdminTheme.textoSecundario),
+                          border: OutlineInputBorder(
                               borderRadius: BorderRadius.circular(12)),
-                          padding: const EdgeInsets.symmetric(
-                              horizontal: 20, vertical: 14)),
-                    ),
-                  ]),
-                ],
+                          focusedBorder: OutlineInputBorder(
+                              borderRadius: BorderRadius.circular(12),
+                              borderSide: const BorderSide(
+                                  color: Color(0xFFDC2626), width: 1.5)),
+                        ),
+                      ),
+                    ],
+                    const SizedBox(height: 20),
+                    Row(mainAxisAlignment: MainAxisAlignment.end, children: [
+                      TextButton(
+                          onPressed: isSalvando
+                              ? null
+                              : () => Navigator.pop(ctx),
+                          child: Text('Cancelar',
+                              style: GoogleFonts.plusJakartaSans(
+                                  fontWeight: FontWeight.w600))),
+                      const SizedBox(width: 12),
+                      FilledButton.icon(
+                        onPressed: isSalvando
+                            ? null
+                            : () async {
+                                final codigo = motivoSelecionado;
+                                if (codigo == null) {
+                                  mostrarSnackPainel(ctx,
+                                      erro: true,
+                                      mensagem:
+                                          'Selecione o motivo da recusa.');
+                                  return;
+                                }
+                                final desc = descricaoController.text.trim();
+                                if (codigo == LojistaMotivoRecusa.outros &&
+                                    desc.isEmpty) {
+                                  mostrarSnackPainel(ctx,
+                                      erro: true,
+                                      mensagem:
+                                          'Descreva o motivo da recusa.');
+                                  return;
+                                }
+                                setS(() => isSalvando = true);
+                                final ok = await _recusarCadastroEstruturado(
+                                  uid: id,
+                                  codigo: codigo,
+                                  motivoCustomizado:
+                                      codigo == LojistaMotivoRecusa.outros
+                                          ? desc
+                                          : null,
+                                );
+                                if (!ctx.mounted) return;
+                                if (ok) {
+                                  Navigator.pop(ctx);
+                                } else {
+                                  setS(() => isSalvando = false);
+                                }
+                              },
+                        icon: isSalvando
+                            ? const SizedBox(
+                                width: 16,
+                                height: 16,
+                                child: CircularProgressIndicator(
+                                    strokeWidth: 2, color: Colors.white))
+                            : const Icon(Icons.block_rounded, size: 18),
+                        label: const Text('Confirmar Recusa'),
+                        style: FilledButton.styleFrom(
+                            backgroundColor: const Color(0xFFDC2626),
+                            shape: RoundedRectangleBorder(
+                                borderRadius: BorderRadius.circular(12)),
+                            padding: const EdgeInsets.symmetric(
+                                horizontal: 20, vertical: 14)),
+                      ),
+                    ]),
+                  ],
+                ),
               ),
             ),
+          );
+        },
+      ),
+    );
+  }
+
+  Widget _buildOpcaoRecusaTile({
+    required _OpcaoRecusa op,
+    required bool selecionado,
+    required VoidCallback onSelect,
+  }) {
+    final corBorda = selecionado
+        ? const Color(0xFFDC2626)
+        : const Color(0xFFE2E8F0);
+    final corFundo =
+        selecionado ? const Color(0xFFFEF2F2) : Colors.white;
+
+    return Padding(
+      padding: const EdgeInsets.only(bottom: 10),
+      child: InkWell(
+        borderRadius: BorderRadius.circular(12),
+        onTap: onSelect,
+        child: Container(
+          padding: const EdgeInsets.all(14),
+          decoration: BoxDecoration(
+            color: corFundo,
+            borderRadius: BorderRadius.circular(12),
+            border: Border.all(
+                color: corBorda, width: selecionado ? 1.5 : 1),
+          ),
+          child: Row(
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              Radio<String>(
+                value: op.codigo,
+                groupValue: selecionado ? op.codigo : null,
+                onChanged: (_) => onSelect(),
+                activeColor: const Color(0xFFDC2626),
+                materialTapTargetSize: MaterialTapTargetSize.shrinkWrap,
+              ),
+              const SizedBox(width: 6),
+              Expanded(
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    Row(
+                      children: [
+                        Expanded(
+                          child: Text(
+                            op.titulo,
+                            style: GoogleFonts.plusJakartaSans(
+                              fontSize: 14,
+                              fontWeight: FontWeight.w700,
+                              color: PainelAdminTheme.dashboardInk,
+                            ),
+                          ),
+                        ),
+                        if (op.bloqueia30Dias)
+                          Container(
+                            padding: const EdgeInsets.symmetric(
+                                horizontal: 8, vertical: 3),
+                            decoration: BoxDecoration(
+                              color: const Color(0xFFFFF7ED),
+                              borderRadius: BorderRadius.circular(20),
+                              border: Border.all(
+                                  color: const Color(0xFFFED7AA)),
+                            ),
+                            child: Text(
+                              '30 dias',
+                              style: GoogleFonts.plusJakartaSans(
+                                fontSize: 11,
+                                fontWeight: FontWeight.w700,
+                                color: const Color(0xFFB45309),
+                              ),
+                            ),
+                          ),
+                      ],
+                    ),
+                    const SizedBox(height: 2),
+                    Text(
+                      op.subtitulo,
+                      style: GoogleFonts.plusJakartaSans(
+                        fontSize: 12,
+                        color: PainelAdminTheme.textoSecundario,
+                        height: 1.4,
+                      ),
+                    ),
+                  ],
+                ),
+              ),
+            ],
           ),
         ),
       ),
@@ -2486,4 +2719,17 @@ class _LojasScreenState extends State<LojasScreen>
       ),
     );
   }
+}
+
+class _OpcaoRecusa {
+  final String codigo;
+  final String titulo;
+  final String subtitulo;
+  final bool bloqueia30Dias;
+  const _OpcaoRecusa({
+    required this.codigo,
+    required this.titulo,
+    required this.subtitulo,
+    this.bloqueia30Dias = false,
+  });
 }

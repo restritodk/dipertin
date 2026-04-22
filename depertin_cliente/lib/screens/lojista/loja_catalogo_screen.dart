@@ -35,8 +35,9 @@ class _LojaCatalogoScreenState extends State<LojaCatalogoScreen> {
     _timerReavalia = Timer.periodic(const Duration(seconds: 45), (_) {
       if (mounted) setState(() {});
     });
+    // Fase 3G.2 — lê `lojas_public` (status de pausa/horário da loja).
     _subLoja = FirebaseFirestore.instance
-        .collection('users')
+        .collection('lojas_public')
         .doc(widget.lojaId)
         .snapshots()
         .listen((snap) {

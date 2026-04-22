@@ -21,6 +21,23 @@ exports.validarCupom = functions.https.onCall(async (data, context) => {
     const codigo = String(data?.codigo ?? "").trim().toUpperCase();
     const subtotalProdutos = Number(data?.subtotal_produtos ?? 0);
     const lojaId = String(data?.loja_id ?? "").trim();
+
+    // `loja_ids` é a lista COMPLETA de lojas únicas presentes no carrinho.
+    // Para cupons de escopo "loja", essa lista define se podemos aceitar
+    // o cupom (não pode haver outras lojas no carrinho além da do cupom).
+    // Compat retroativa: se o app antigo não enviar `loja_ids`, usamos `loja_id`.
+    let lojaIds = [];
+    if (Array.isArray(data?.loja_ids)) {
+        lojaIds = data.loja_ids
+            .map((x) => String(x || "").trim())
+            .filter((x) => x.length > 0);
+    }
+    if (lojaIds.length === 0 && lojaId) {
+        lojaIds = [lojaId];
+    }
+    // Dedup final
+    lojaIds = Array.from(new Set(lojaIds));
+
     const clienteId = context.auth.uid;
 
     if (!codigo) {
@@ -68,7 +85,25 @@ exports.validarCupom = functions.https.onCall(async (data, context) => {
             .where("cliente_id", "==", clienteId)
             .where("cupom_codigo", "==", codigo)
             .get();
-        if (pedidosSnap.size >= limitePorUsuario) {
+
+        // Conta CHECKOUTS únicos, não pedidos. Em multi-loja, 1 compra
+        // gera N pedidos com o mesmo `checkout_grupo_id` mas representa
+        // apenas 1 uso do cupom (mesma regra do contador global em
+        // `processarFinanceiroPedidoOnCreate`). Pedidos cancelados/recusados
+        // antes da entrega NÃO consomem uso (cliente pode tentar de novo).
+        const checkoutsUnicos = new Set();
+        pedidosSnap.docs.forEach((doc) => {
+            const data = doc.data() || {};
+            const st = String(data.status || "").toLowerCase();
+            // Pedidos cancelados (PIX expirado, cliente desistiu, recusa)
+            // não devem contar como uso consumido — libera o cupom de novo.
+            if (st === "cancelado" || st === "recusado") return;
+            const grupo = String(data.checkout_grupo_id || "").trim();
+            const chave = grupo ? `g:${grupo}` : `p:${doc.id}`;
+            checkoutsUnicos.add(chave);
+        });
+
+        if (checkoutsUnicos.size >= limitePorUsuario) {
             return {
                 valid: false,
                 mensagem: "Você já utilizou este cupom o número máximo de vezes.",
@@ -85,7 +120,27 @@ exports.validarCupom = functions.https.onCall(async (data, context) => {
     }
 
     if (cupom.escopo === "loja" && cupom.loja_id) {
-        if (lojaId !== String(cupom.loja_id)) {
+        const lojaCupom = String(cupom.loja_id);
+
+        // Cupom restrito a UMA loja: o carrinho não pode conter itens
+        // de outras lojas — não há como aplicar parcial só nessa loja
+        // sem distorcer o desconto (rateio iria para outras lojas que
+        // não fazem parte do escopo do cupom). Regra: tudo ou nada.
+        if (lojaIds.length > 1) {
+            return {
+                valid: false,
+                mensagem:
+                    "Este cupom é válido apenas para uma loja específica. " +
+                    "Remova os produtos das outras lojas do carrinho para usá-lo.",
+            };
+        }
+        if (lojaIds.length === 1 && lojaIds[0] !== lojaCupom) {
+            return {
+                valid: false,
+                mensagem: "Este cupom não é válido para esta loja.",
+            };
+        }
+        if (lojaIds.length === 0) {
             return {
                 valid: false,
                 mensagem: "Este cupom não é válido para esta loja.",

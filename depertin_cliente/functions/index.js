@@ -167,8 +167,21 @@ exports.processarEntregaConcluida = functions.firestore
                     financeiro_veiculo_entregador: veiculoEntregador || null,
                 }, { merge: true });
             } catch (e) {
-                valorLiquidoEntregador = Number(depois.taxa_entrega || 0);
-                console.error(`[entrega] Erro cálculo repasse entregador pedido=${pedidoId}: ${e.message} (fallback taxa_entrega)`);
+                // Fallback prioriza valor_liquido_entregador já gravado no
+                // onCreate (com comissão sobre frete aplicada). Só se nada
+                // disso existir, usa taxa_entrega cheia (compat retroativa).
+                const liquidoExistente = Number(
+                    depois.valor_liquido_entregador != null && depois.valor_liquido_entregador !== ""
+                        ? depois.valor_liquido_entregador
+                        : 0,
+                );
+                if (liquidoExistente > 0) {
+                    valorLiquidoEntregador = liquidoExistente;
+                    console.warn(`[entrega] Erro cálculo repasse entregador pedido=${pedidoId}: ${e.message} (fallback valor_liquido_entregador=${liquidoExistente.toFixed(2)})`);
+                } else {
+                    valorLiquidoEntregador = Number(depois.taxa_entrega || 0);
+                    console.error(`[entrega] Erro cálculo repasse entregador pedido=${pedidoId}: ${e.message} (fallback taxa_entrega)`);
+                }
             }
         }
         if (entregadorId && valorLiquidoEntregador > 0) {
@@ -222,9 +235,17 @@ exports.processarFinanceiroPedidoOnCreate = functions.firestore
         try {
             const campos = await repasseFinanceiro.calcularCamposFinanceirosPedido(db, d);
 
-            // Incrementa usos_atual do cupom dentro de transação (evita race condition)
+            // Incrementa usos_atual do cupom — REGRA: 1 uso por COMPRA do cliente,
+            // mesmo que a compra envolva várias lojas (multi-sacola). Em pedidos
+            // multi-loja, apenas o pedido-LÍDER do grupo (`checkout_grupo_lider`)
+            // incrementa o contador. Single-store (sem `checkout_grupo_id`)
+            // sempre incrementa.
             const cupomCodigo = d.cupom_codigo || campos.cupom_codigo;
-            if (cupomCodigo) {
+            const grupoId = d.checkout_grupo_id ? String(d.checkout_grupo_id) : "";
+            const ehLider = d.checkout_grupo_lider === true;
+            const deveContarUso = !grupoId || ehLider;
+
+            if (cupomCodigo && deveContarUso) {
                 try {
                     const cupomSnap = await db
                         .collection("cupons")
@@ -232,14 +253,41 @@ exports.processarFinanceiroPedidoOnCreate = functions.firestore
                         .limit(1)
                         .get();
                     if (!cupomSnap.empty) {
-                        await db.collection("cupons").doc(cupomSnap.docs[0].id).update({
-                            usos_atual: admin.firestore.FieldValue.increment(1),
+                        const cupomRef = db.collection("cupons").doc(cupomSnap.docs[0].id);
+                        // Idempotência por checkout: se já marcamos esse grupo (ou
+                        // esse próprio pedidoId, no single-store), não incrementa de
+                        // novo. Evita double-count em retries do trigger.
+                        const chaveIdempotencia = grupoId || pedidoId;
+                        await db.runTransaction(async (tx) => {
+                            const cupomDoc = await tx.get(cupomRef);
+                            if (!cupomDoc.exists) return;
+                            const usos = cupomDoc.data().checkouts_contabilizados || {};
+                            if (usos[chaveIdempotencia]) {
+                                console.log(
+                                    `[financeiro] cupom "${cupomCodigo}" já contabilizado para ` +
+                                    `${grupoId ? "grupo" : "pedido"}=${chaveIdempotencia} (skip)`,
+                                );
+                                return;
+                            }
+                            tx.update(cupomRef, {
+                                usos_atual: admin.firestore.FieldValue.increment(1),
+                                [`checkouts_contabilizados.${chaveIdempotencia}`]:
+                                    admin.firestore.FieldValue.serverTimestamp(),
+                            });
                         });
-                        console.log(`[financeiro] cupom "${cupomCodigo}" usos +1`);
+                        console.log(
+                            `[financeiro] cupom "${cupomCodigo}" usos +1 ` +
+                            `(${grupoId ? `grupo=${grupoId}` : `pedido=${pedidoId}`})`,
+                        );
                     }
                 } catch (cupomErr) {
                     console.error(`[financeiro] Erro incrementar cupom: ${cupomErr.message}`);
                 }
+            } else if (cupomCodigo && grupoId && !ehLider) {
+                console.log(
+                    `[financeiro] cupom "${cupomCodigo}" não conta ` +
+                    `(pedido ${pedidoId} é membro do grupo ${grupoId}, não líder)`,
+                );
             }
 
             await snap.ref.update({
@@ -352,12 +400,28 @@ async function suporteEnviarFcmParaUsuario(userId, payload) {
     }
 }
 
-/** Cliente abre novo chamado (botão Novo Atendimento). */
-exports.notificarSuporteTicketCriado = functions.firestore
+/**
+ * "Novo atendimento iniciado" — disparada APENAS depois que o cliente
+ * escolhe a categoria (campo `categoria_suporte` passa a ser preenchido).
+ *
+ * Motivo: o ticket é criado como `waiting` antes mesmo da primeira mensagem.
+ * Enviar push no `onCreate` gerava notificação prematura. Agora seguimos o
+ * fluxo real do cliente: primeira mensagem → escolha de categoria → aviso.
+ */
+exports.notificarSuporteCategoriaEscolhida = functions.firestore
     .document('support_tickets/{ticketId}')
-    .onCreate(async (snap, context) => {
-        const d = snap.data();
-        const userId = d.user_id;
+    .onUpdate(async (change, context) => {
+        const antes = change.before.data() || {};
+        const depois = change.after.data() || {};
+        const catAntes = (antes.categoria_suporte || '').toString().trim();
+        const catDepois = (depois.categoria_suporte || '').toString().trim();
+
+        // Só dispara quando a categoria passa de vazia → preenchida.
+        if (catDepois === '' || catAntes !== '') return null;
+        // E apenas em chamados que ainda estão na fila.
+        if (depois.status !== 'waiting') return null;
+
+        const userId = depois.user_id;
         const ticketId = context.params.ticketId;
         if (!userId) return null;
 
@@ -427,17 +491,19 @@ exports.notificarSuporteMensagemAgente = functions.firestore
     });
 
 /**
- * Painel: botão "Iniciar Atendimento" (waiting → in_progress).
+ * Painel: "Iniciar Atendimento" (waiting → in_progress) ou
+ * "Reabrir atendimento" (closed/finished/cancelled → in_progress).
  * Usa fcm_token do cliente em users/{user_id}.
  */
 exports.notificarSuporteAtendimentoIniciadoPeloPainel = functions.firestore
     .document('support_tickets/{ticketId}')
     .onUpdate(async (change, context) => {
-        const antes = change.before.data();
-        const depois = change.after.data();
-        if (antes.status !== 'waiting' || depois.status !== 'in_progress') {
-            return null;
-        }
+        const antes = change.before.data() || {};
+        const depois = change.after.data() || {};
+        if (depois.status !== 'in_progress') return null;
+        if (antes.status === 'in_progress') return null;
+
+        const ehReabertura = ['closed', 'finished', 'cancelled'].includes(antes.status);
 
         const userId = depois.user_id;
         const ticketId = context.params.ticketId;
@@ -446,18 +512,22 @@ exports.notificarSuporteAtendimentoIniciadoPeloPainel = functions.firestore
             : 'Atendente';
         nomeAtendente = suporteTruncar(nomeAtendente, 80);
 
+        const titulo = ehReabertura ? 'Atendimento reaberto' : 'Atendimento iniciado';
+        const corpo = ehReabertura
+            ? `${nomeAtendente} reabriu seu atendimento. Volte ao chat para continuar.`
+            : `Seu atendimento foi iniciado por ${nomeAtendente}`;
+
         await suporteEnviarFcmParaUsuario(userId, {
-            notification: {
-                title: 'Atendimento iniciado',
-                body: `Seu atendimento foi iniciado por ${nomeAtendente}`,
-            },
+            notification: { title: titulo, body: corpo },
             android: {
                 ...SUPORTE_FCM_ANDROID,
                 collapseKey: `suporte_${ticketId}`,
             },
             apns: SUPORTE_FCM_APNS,
             data: {
-                tipo: 'atendimento_iniciado',
+                tipo: ehReabertura
+                    ? 'atendimento_reaberto'
+                    : 'atendimento_iniciado',
                 atendimento_id: String(ticketId),
             },
         });
@@ -493,6 +563,18 @@ exports.notificarSuporteEncerradoPeloPainel = functions.firestore
         });
         return null;
     });
+
+// ==========================================
+// CHAT DO PEDIDO — push FCM para cliente ↔ loja (subcoleção `mensagens`)
+// ==========================================
+const chatPedidoNotificacao = require("./chat_pedido_notificacao");
+exports.notificarChatMensagemPedido = chatPedidoNotificacao.notificarChatMensagemPedido;
+
+// ==========================================
+// EXCLUSÃO DE CLIENTE PELO MASTER (hard delete imediato)
+// ==========================================
+const excluirClienteAdmin = require("./excluir_cliente_admin");
+exports.excluirClienteAdminMaster = excluirClienteAdmin.excluirClienteAdminMaster;
 
 // ==========================================
 // EXCLUSÃO DE CONTA — soft delete com retenção de 30 dias (servidor)
@@ -581,6 +663,17 @@ exports.recuperacaoSenhaPosAlteracao = recuperacaoSenha.recuperacaoSenhaPosAlter
 const boasVindas = require("./boas_vindas");
 exports.onUsuarioCriadoBoasVindas = boasVindas.onUsuarioCriadoBoasVindas;
 
+// AdminCity — CRUD de usuários master_city a partir do painel master
+const admincityUsuarios = require("./admincity_usuarios");
+exports.adminCityCadastrarUsuario = admincityUsuarios.adminCityCadastrarUsuario;
+exports.adminCityAtualizarUsuario = admincityUsuarios.adminCityAtualizarUsuario;
+exports.adminCityBloquearUsuario = admincityUsuarios.adminCityBloquearUsuario;
+exports.adminCityExcluirUsuario = admincityUsuarios.adminCityExcluirUsuario;
+
+// AdminCity — importação em massa de cidades do IBGE
+const admincityCidadesIbge = require("./admincity_cidades_ibge");
+exports.adminCityImportarCidadesIbge = admincityCidadesIbge.adminCityImportarCidadesIbge;
+
 // Contato do site institucional (SMTP)
 const contatoSite = require("./contato_site");
 exports.enviarContatoSite = contatoSite.enviarContatoSite;
@@ -599,6 +692,36 @@ exports.solicitarSaque = saqueSolicitar.solicitarSaque;
 
 const saqueNotificacaoPago = require("./saque_notificacao_pago");
 exports.onSaqueSolicitacaoAtualizado = saqueNotificacaoPago.onSaqueSolicitacaoAtualizado;
+
+const lojistaStatusNotificacao = require("./lojista_status_notificacao");
+exports.onLojistaStatusCadastroAtualizado =
+    lojistaStatusNotificacao.onLojistaStatusCadastroAtualizado;
+
+const entregadorStatusNotificacao = require("./entregador_status_notificacao");
+exports.onEntregadorStatusCadastroAtualizado =
+    entregadorStatusNotificacao.onEntregadorStatusCadastroAtualizado;
+
+// Fase 3G.1 — mirror público de lojas (coleção `lojas_public` alimentada por
+// allowlist). Ver docs e allowlist em `sincronizar_lojas_public.js`.
+const sincronizarLojasPublic = require("./sincronizar_lojas_public");
+exports.sincronizarLojaPublicOnWrite =
+    sincronizarLojasPublic.sincronizarLojaPublicOnWrite;
+
+// Fase 3G.3 — sincroniza nome + foto do cliente/loja nos pedidos ativos
+// quando o usuário altera perfil. Permite que a rule de `users` fique fechada
+// sem quebrar a exibição nas telas de lojista/entregador.
+const sincronizarIdentidadePedidos = require(
+    "./sincronizar_identidade_pedidos",
+);
+exports.sincronizarIdentidadePedidosOnUpdate =
+    sincronizarIdentidadePedidos.sincronizarIdentidadePedidosOnUpdate;
+
+// Fase 3G.3 — estorno de frete quando cliente retira na loja. Substitui o
+// `users.saldo` que o app do lojista fazia direto; isso permite fechar a rule
+// de `users` contra escritas cruzadas entre autenticados.
+const lojistaEstornoFrete = require("./lojista_estorno_frete");
+exports.lojistaConfirmarRetiradaNaLojaComEstorno =
+    lojistaEstornoFrete.lojistaConfirmarRetiradaNaLojaComEstorno;
 
 // Mercado Pago — webhook + callable vínculo PIX
 const mercadopago = require("./mercadopago_webhook");
@@ -683,6 +806,7 @@ exports.validarLojistaOperacional = functions.https.onCall(async (data, context)
 });
 
 // Colaboradores do painel web (lojista): dono ou nível III cadastram e-mail/senha via Admin SDK.
+// TODO: reativar enforceAppCheck após corrigir Secret Key do reCAPTCHA no console.
 exports.cadastrarColaboradorPainelLojista = functions.https.onCall(async (data, context) => {
     if (!context.auth) {
         throw new functions.https.HttpsError(
@@ -1013,8 +1137,14 @@ exports.removerColaboradorPainelLojista = functions.https.onCall(async (data, co
 // CAMPANHA DE NOTIFICAÇÕES PUSH (painel web)
 // Dispara quando uma campanha é criada em notificacoes_campanhas/{campanhaId}
 // Envia FCM para todos os tokens dos usuários com o role/cidade selecionados.
+//
+// Paginação + streaming: carrega users em páginas e já envia os batches FCM
+// de cada página, sem acumular todos os tokens em memória. Isso evita OOM
+// na Cloud Function e reduz uso de memória para campanhas em bases grandes.
 // ==========================================
-exports.enviarCampanhaNotificacao = functions.firestore
+exports.enviarCampanhaNotificacao = functions
+    .runWith({ timeoutSeconds: 540, memory: '512MB' })
+    .firestore
     .document('notificacoes_campanhas/{campanhaId}')
     .onCreate(async (snap, context) => {
         const campanha = snap.data();
@@ -1028,73 +1158,221 @@ exports.enviarCampanhaNotificacao = functions.firestore
         const publicoAlvo = campanha.publico_alvo || 'todos';
         const cidade = (campanha.cidade || 'todas').toLowerCase().trim();
 
+        /** Tamanho da página ao varrer users (lido do Firestore por vez). */
+        const PAGE_SIZE = 1000;
+        /** Limite FCM multicast por chamada. */
+        const FCM_BATCH_SIZE = 500;
+        /** Trava de segurança: máximo de docs processados por campanha. */
+        const MAX_USERS_PROCESSADOS = 200000;
+
+        const notificationPayload = {
+            notification: { title: titulo, body: mensagem },
+            android: {
+                priority: 'high',
+                notification: {
+                    channelId: 'high_importance_channel',
+                    sound: 'default',
+                    priority: 'max',
+                    visibility: 'public',
+                    defaultSound: false,
+                    defaultVibrateTimings: true,
+                    notificationCount: 1,
+                },
+            },
+            apns: {
+                headers: { 'apns-priority': '10' },
+                payload: { aps: { sound: 'default' } },
+            },
+            data: {
+                tipoNotificacao: 'campanha_marketing',
+                campanhaId: String(campanhaId),
+            },
+        };
+
+        // Tokens inválidos detectados durante o envio. Removidos do Firestore
+        // ao final para não acumular lixo e parar de "enviar pra ninguém".
+        const tokensInvalidos = new Set();
+        // tokenUidMap: lookup reverso pra apagar o `fcm_token` certo do user.
+        const tokenUidMap = new Map();
+
+        const ERROS_TOKEN_INVALIDO = new Set([
+            'messaging/registration-token-not-registered',
+            'messaging/invalid-registration-token',
+            'messaging/invalid-argument',
+            'messaging/mismatched-credential',
+        ]);
+
+        async function enviarLoteFcm(tokens) {
+            if (tokens.length === 0) return { sucesso: 0, falhas: 0 };
+            const response = await admin.messaging().sendEachForMulticast({
+                ...notificationPayload,
+                tokens,
+            });
+            // Inspeciona individualmente — successCount sozinho engana
+            // (FCM "aceita" tokens stale e o device nunca recebe).
+            response.responses.forEach((resp, idx) => {
+                if (!resp.success) {
+                    const code = resp.error?.code || 'unknown';
+                    const tok = tokens[idx];
+                    if (ERROS_TOKEN_INVALIDO.has(code)) {
+                        tokensInvalidos.add(tok);
+                    } else {
+                        console.warn(
+                            `[campanha] Falha FCM token=${String(tok).slice(0, 12)}... code=${code} msg=${resp.error?.message || ''}`,
+                        );
+                    }
+                }
+            });
+            return {
+                sucesso: response.successCount,
+                falhas: response.failureCount,
+            };
+        }
+
         try {
-            // Marca como processando para evitar re-execução
             await snap.ref.update({ status: 'processando' });
 
-            // Monta a query de usuários
-            let query = db.collection('users');
+            // Query base de users com filtro server-side de role quando possível.
+            // (filtro de cidade segue em memória porque a cidade no Firestore
+            // pode estar em formatos variados — ex.: "Toledo - PR" vs "Toledo".)
+            let query = db.collection('users')
+                .orderBy(admin.firestore.FieldPath.documentId())
+                .limit(PAGE_SIZE);
             if (publicoAlvo !== 'todos') {
-                query = query.where('role', '==', publicoAlvo);
+                query = db.collection('users')
+                    .where('role', '==', publicoAlvo)
+                    .orderBy(admin.firestore.FieldPath.documentId())
+                    .limit(PAGE_SIZE);
             }
-            const usersSnap = await query.get();
 
-            // Filtra por cidade (se não for "todas") e coleta tokens
-            const tokens = [];
-            for (const userDoc of usersSnap.docs) {
-                const u = userDoc.data();
-                if (!u.fcm_token) continue;
-                if (cidade !== 'todas') {
-                    const userCidade = (u.cidade || '').toLowerCase().trim();
-                    if (userCidade !== cidade) continue;
+            let totalEnviado = 0;
+            let totalFalhas = 0;
+            let totalLidos = 0;
+            let totalComToken = 0;
+            let lastDoc = null;
+            const tokensBuffer = [];
+            // tokens_pendentes_lote: paralelo ao buffer, mantém uid pra remoção
+            // quando o token falhar com código de "não registrado".
+            const uidsBuffer = [];
+
+            while (true) {
+                let pageQuery = query;
+                if (lastDoc) pageQuery = pageQuery.startAfter(lastDoc);
+                const pageSnap = await pageQuery.get();
+                if (pageSnap.empty) break;
+
+                for (const userDoc of pageSnap.docs) {
+                    totalLidos++;
+                    const u = userDoc.data();
+                    if (!u.fcm_token) continue;
+                    if (cidade !== 'todas') {
+                        const userCidade = (u.cidade || '').toLowerCase().trim();
+                        if (userCidade !== cidade) continue;
+                    }
+                    const tok = String(u.fcm_token);
+                    totalComToken++;
+                    tokensBuffer.push(tok);
+                    uidsBuffer.push(userDoc.id);
+                    tokenUidMap.set(tok, userDoc.id);
+
+                    // Drena o buffer em lotes de 500 conforme vai enchendo
+                    // — não acumula mais que FCM_BATCH_SIZE em memória.
+                    if (tokensBuffer.length >= FCM_BATCH_SIZE) {
+                        const batch = tokensBuffer.splice(0, FCM_BATCH_SIZE);
+                        uidsBuffer.splice(0, FCM_BATCH_SIZE);
+                        const r = await enviarLoteFcm(batch);
+                        totalEnviado += r.sucesso;
+                        totalFalhas += r.falhas;
+                    }
                 }
-                tokens.push(u.fcm_token);
+
+                lastDoc = pageSnap.docs[pageSnap.docs.length - 1];
+                if (pageSnap.docs.length < PAGE_SIZE) break;
+                if (totalLidos >= MAX_USERS_PROCESSADOS) {
+                    console.warn(`[campanha] Limite de segurança ${MAX_USERS_PROCESSADOS} atingido em ${campanhaId}.`);
+                    break;
+                }
             }
 
-            if (tokens.length === 0) {
+            // Envia o resto do buffer que ficou abaixo do lote completo.
+            if (tokensBuffer.length > 0) {
+                const r = await enviarLoteFcm(tokensBuffer);
+                totalEnviado += r.sucesso;
+                totalFalhas += r.falhas;
+                tokensBuffer.length = 0;
+                uidsBuffer.length = 0;
+            }
+
+            // Limpa tokens inválidos do Firestore — evita ficar "enviando" pra
+            // instalações apagadas/reinstaladas que nunca recebem.
+            let tokensRemovidos = 0;
+            if (tokensInvalidos.size > 0) {
+                const uidsParaLimpar = new Set();
+                tokensInvalidos.forEach((t) => {
+                    const uid = tokenUidMap.get(t);
+                    if (uid) uidsParaLimpar.add(uid);
+                });
+                // Batch de até 500 writes; se houver mais, divide em chunks.
+                const uidsArr = Array.from(uidsParaLimpar);
+                for (let i = 0; i < uidsArr.length; i += 450) {
+                    const chunk = uidsArr.slice(i, i + 450);
+                    const batch = db.batch();
+                    chunk.forEach((uid) => {
+                        batch.update(db.collection('users').doc(uid), {
+                            fcm_token: admin.firestore.FieldValue.delete(),
+                            fcm_token_invalidado_em:
+                                admin.firestore.FieldValue.serverTimestamp(),
+                        });
+                    });
+                    try {
+                        await batch.commit();
+                        tokensRemovidos += chunk.length;
+                    } catch (errLimpeza) {
+                        console.error(
+                            `[campanha] Falha limpando tokens inválidos: ${errLimpeza.message}`,
+                        );
+                    }
+                }
+                console.warn(
+                    `[campanha] ${campanhaId}: ${tokensRemovidos} tokens inválidos removidos do Firestore`,
+                );
+            }
+
+            if (totalComToken === 0) {
                 await snap.ref.update({
                     status: 'enviado',
                     total_enviado: 0,
+                    total_falhas: 0,
+                    total_users_lidos: totalLidos,
+                    total_users_com_token: 0,
+                    tokens_invalidos_removidos: 0,
                     enviado_em: admin.firestore.FieldValue.serverTimestamp(),
                     observacao: 'Nenhum usuário com FCM token encontrado para os filtros.',
                 });
                 return null;
             }
 
-            // Envia em lotes de 500 (limite FCM multicast)
-            const BATCH_SIZE = 500;
-            let totalEnviado = 0;
-            for (let i = 0; i < tokens.length; i += BATCH_SIZE) {
-                const batch = tokens.slice(i, i + BATCH_SIZE);
-                const response = await admin.messaging().sendEachForMulticast({
-                    tokens: batch,
-                    notification: { title: titulo, body: mensagem },
-                    android: {
-                        priority: 'high',
-                        notification: {
-                            channelId: 'high_importance_channel',
-                            sound: 'default',
-                        },
-                    },
-                    apns: {
-                        headers: { 'apns-priority': '10' },
-                        payload: { aps: { sound: 'default' } },
-                    },
-                    data: {
-                        tipoNotificacao: 'campanha_marketing',
-                        campanhaId: String(campanhaId),
-                    },
-                });
-                totalEnviado += response.successCount;
-                console.log(`[campanha] Lote ${Math.floor(i / BATCH_SIZE) + 1}: ${response.successCount}/${batch.length} enviados`);
-            }
+            const observacao = totalEnviado === 0
+                ? `Nenhuma notificação aceita pelo FCM (${totalFalhas} falhas, ${tokensRemovidos} tokens inválidos removidos). Provável causa: tokens stale.`
+                : tokensRemovidos > 0
+                    ? `${tokensRemovidos} tokens inválidos foram removidos. Próximas campanhas terão melhor entrega.`
+                    : null;
 
             await snap.ref.update({
                 status: 'enviado',
                 total_enviado: totalEnviado,
+                total_falhas: totalFalhas,
+                total_users_lidos: totalLidos,
+                total_users_com_token: totalComToken,
+                tokens_invalidos_removidos: tokensRemovidos,
                 enviado_em: admin.firestore.FieldValue.serverTimestamp(),
+                ...(observacao ? { observacao } : {}),
             });
-            console.log(`[campanha] ${campanhaId} concluída: ${totalEnviado} notificações enviadas.`);
+            console.log(
+                `[campanha] ${campanhaId}: enviado=${totalEnviado}/${totalComToken} ` +
+                `falhas=${totalFalhas} tokens_removidos=${tokensRemovidos} ` +
+                `users_lidos=${totalLidos}`,
+            );
         } catch (error) {
             console.error(`[campanha] Erro campanha ${campanhaId}:`, error);
             await snap.ref.update({

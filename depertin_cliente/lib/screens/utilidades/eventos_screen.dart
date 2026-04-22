@@ -1,11 +1,13 @@
 // Arquivo: lib/screens/utilidades/eventos_screen.dart
 
 import 'package:flutter/material.dart';
+import 'package:provider/provider.dart';
 import 'package:url_launcher/url_launcher.dart';
 import 'package:cloud_firestore/cloud_firestore.dart';
 import 'package:firebase_auth/firebase_auth.dart';
 import 'package:depertin_cliente/screens/auth/login_screen.dart';
 import 'package:depertin_cliente/screens/cliente/chat_suporte_screen.dart';
+import 'package:depertin_cliente/services/location_service.dart';
 
 const Color diPertinRoxo = Color(0xFF6A1B9A);
 const Color diPertinLaranja = Color(0xFFFF8F00);
@@ -42,6 +44,12 @@ class _EventosScreenState extends State<EventosScreen> {
 
   @override
   Widget build(BuildContext context) {
+    // Reage a mudanças na cidade detectada do usuário para refiltrar.
+    context.watch<LocationService>();
+    final loc = context.read<LocationService>();
+    final cidadeNorm = loc.cidadeNormalizada;
+    final ufNorm = loc.ufNormalizado;
+
     return Scaffold(
       backgroundColor: Colors.grey[100],
       appBar: AppBar(
@@ -93,6 +101,19 @@ class _EventosScreenState extends State<EventosScreen> {
           final limite3Dias = agora.subtract(const Duration(days: 3));
           var eventos = snapshot.data!.docs.where((doc) {
             final data = doc.data() as Map<String, dynamic>;
+
+            // Filtro por cidade: se o campo estiver vazio, trata como
+            // anúncio global (aparece em qualquer cidade). Se houver cidade,
+            // exibe apenas para usuários daquela cidade/UF.
+            final passaCidade = LocationService.anuncioCidadeCorrespondeUsuario(
+              cidadeNormalizada: data['cidade_normalizada']?.toString(),
+              cidade: data['cidade']?.toString(),
+              cidadeNormUsuario: cidadeNorm,
+              ufNormUsuario: ufNorm,
+              globalSeVazio: true,
+            );
+            if (!passaCidade) return false;
+
             final tsFim = data['data_fim'] as Timestamp?;
             final tsVenc = data['data_vencimento'] as Timestamp?;
             final venc = tsFim?.toDate() ?? tsVenc?.toDate();

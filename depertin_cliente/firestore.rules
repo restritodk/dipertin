@@ -158,6 +158,28 @@ service cloud.firestore {
         && userData().get('painel_colaborador_nivel', 0) >= 3;
     }
 
+    // Fase 3G.3 — colaborador (app/painel) pode LER o doc do dono da loja
+    // em que trabalha. Uso: `profile_screen.dart` busca `status_loja` e
+    // `loja_nome` do dono. Diferente de `colaboradorPainelNivel3EditaDono`,
+    // este helper não exige nível 3 — basta o colaborador estar vinculado
+    // (qualquer nível I/II/III) ao dono, porque leitura é menos sensível que
+    // escrita. A rule de escrita continua exigindo nível 3.
+    function colaboradorLeDono(userId) {
+      return userExists()
+        && isLojistaRoleDoc(userData())
+        && userData().get('lojista_owner_uid', '') == userId;
+    }
+
+    // Fase 3G.3 — dono da loja pode LER os docs dos seus colaboradores.
+    // Uso: `colaboradores_lojista_painel_card.dart` faz
+    // `users.where('lojista_owner_uid', isEqualTo: uid)` pra listar quem
+    // trabalha na loja. Firestore exige que a rule aceite CADA documento
+    // retornado, então avaliamos contra `resource.data.lojista_owner_uid`.
+    function donoLeColaborador() {
+      return signedIn()
+        && resource.data.get('lojista_owner_uid', '') == request.auth.uid;
+    }
+
     function colaboradorNaoAlteraPrivilegiosNaDono() {
       return !request.resource.data.diff(resource.data).affectedKeys().hasAny([
         'role', 'tipoUsuario', 'tipo', 'saldo', 'lojista_owner_uid',
@@ -165,11 +187,31 @@ service cloud.firestore {
       ]);
     }
 
+    // Fase 3G.3 — rule final fechada.
+    //
+    // Antes: `read: if signedIn() || role==lojista` permitia que qualquer
+    // autenticado baixasse TODOS os docs de `users` (scraping de CPF, email,
+    // telefone, saldo, fcm_token). Agora:
+    //   - Dono (self-read) sempre pode.
+    //   - Staff (master / master_city) sempre pode.
+    //   - Colaborador (painel lojista nível 3) pode ler o doc do dono da
+    //     loja em que ele trabalha (`lojista_owner_uid` aponta pra userId).
+    //   - Vitrine/busca/perfil da loja/carrinho passam a ler de `lojas_public`
+    //     (fase 3G.1/3G.2).
+    //   - Telas que antes liam `users/{cliente_id}` pra mostrar foto+nome
+    //     (lojista_pedidos, futuro "entregador indo pro cliente") agora leem
+    //     de `pedidos` (denormalizado via `cliente_nome` + `cliente_foto_perfil`,
+    //     fase 3G.3).
+    //
+    // Bloqueio efetivo:
+    //   - Anônimo não lê mais nada.
+    //   - Cliente/lojista/entregador não consegue baixar docs de outros users.
     match /users/{userId} {
-      allow read: if signedIn() || (
-        fieldStr(resource.data, 'role') == 'lojista'
-        || fieldStr(resource.data, 'tipoUsuario') == 'lojista'
-        || fieldStr(resource.data, 'tipo') == 'lojista'
+      allow read: if signedIn() && (
+        request.auth.uid == userId
+        || isStaff()
+        || colaboradorLeDono(userId)
+        || donoLeColaborador()
       );
       allow create: if signedIn() && request.auth.uid == userId;
       allow update: if signedIn() && (
@@ -190,7 +232,26 @@ service cloud.firestore {
     // Lista de endereços do cliente (Configurações → Meus endereços).
     // Caminho explícito: evita falha de permissão em queries na subcoleção.
     match /users/{userId}/enderecos/{enderecoId} {
-      allow read, write: if signedIn() && request.auth.uid == userId;
+      // Dono lê e escreve. Staff (master/master_city) lê para Central de Clientes.
+      allow read: if signedIn() && (request.auth.uid == userId || isStaff());
+      allow write: if signedIn() && request.auth.uid == userId;
+    }
+
+    // Fase 3G.1 — mirror público de lojistas.
+    //
+    // Alimentado exclusivamente pelo trigger `sincronizarLojaPublicOnWrite`
+    // (Admin SDK bypassa rules). Cliente, lojista e entregador apenas LEEM.
+    // Conteúdo: allowlist de campos "de fachada" (nome loja, foto, cidade,
+    // endereço textual, horários, rating) — ver sincronizar_lojas_public.js.
+    //
+    // Objetivo: permitir que a vitrine do app exiba lojas sem precisar ler
+    // `users` (onde moram CPF, email, telefone pessoal, saldo). A rule
+    // `users/{id}` continua permitindo leitura anônima de lojistas até que
+    // as queries do app sejam migradas (fase 3G.2) — depois a rule pode
+    // fechar em `signedIn() && (dono || staff || relacionamento)`.
+    match /lojas_public/{lojaId} {
+      allow read: if true;
+      allow write: if false;
     }
 
     // Chaves PIX salvas pelo próprio usuário (carteira — reutilizar em transferências).
@@ -429,6 +490,9 @@ service cloud.firestore {
           && !exists(/databases/$(database)/documents/avaliacoes/$(pedidoId));
       }
 
+      // Marketplace público: avaliações são visíveis sem login (vitrine,
+      // perfil de loja e site institucional). Quem quiser CRIAR avaliação
+      // precisa estar logado E ter pedido entregue (regra de create abaixo).
       allow read: if true;
       allow create: if criacaoAvaliacaoPedidoEntregue() || isStaff();
       allow update: if isStaff() || avaliacaoLojaPodeResponder();
@@ -657,6 +721,17 @@ service cloud.firestore {
       allow read, write: if isStaff();
     }
 
+    // Histórico local de notificações (escrito pelo próprio app ao receber FCM).
+    // Cada usuário só enxerga e mexe nas próprias notificações.
+    match /notificacoes_usuario/{uid} {
+      allow read, write: if signedIn() && request.auth.uid == uid;
+
+      match /items/{itemId} {
+        allow read, create, update, delete:
+          if signedIn() && request.auth.uid == uid;
+      }
+    }
+
     // Cupons criados no painel administrativo.
     match /cupons/{id} {
       allow read, write: if isStaff();
@@ -680,6 +755,14 @@ service cloud.firestore {
     }
     match /password_reset_rate_ip/{id} {
       allow read, write: if false;
+    }
+
+    // Cidades atendidas — CMS operado pelo master no painel AdminCity.
+    // Leitura liberada a qualquer usuário autenticado (app precisa mostrar cidades suportadas);
+    // escrita apenas para staff (master / master_city) via painel web.
+    match /cidades_atendidas/{id} {
+      allow read: if signedIn();
+      allow write: if isStaff();
     }
 
     match /{document=**} {

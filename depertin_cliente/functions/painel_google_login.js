@@ -152,6 +152,7 @@ const CAMPOS_PARA_VINCULAR = [
     "status_conta",
 ];
 
+// TODO: reativar enforceAppCheck após corrigir Secret Key do reCAPTCHA no console.
 exports.painelValidarPosLoginGoogle = functions.https.onCall(async (data, context) => {
     if (!context.auth) {
         throw new functions.https.HttpsError(

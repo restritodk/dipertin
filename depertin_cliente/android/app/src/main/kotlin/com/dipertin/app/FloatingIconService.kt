@@ -1,4 +1,4 @@
-package com.example.depertin_cliente
+package com.dipertin.app
 
 import android.annotation.SuppressLint
 import android.app.Notification
@@ -96,7 +96,8 @@ class FloatingIconService : Service() {
         return NotificationCompat.Builder(this, CHANNEL_ID)
             .setContentTitle("DiPertin")
             .setContentText("Você está disponível para corridas")
-            .setSmallIcon(R.mipmap.ic_launcher)
+            .setSmallIcon(R.drawable.ic_stat_notify)
+            .setColor(getColor(R.color.notification_color))
             .setOngoing(true)
             .setSilent(true)
             .setContentIntent(pendingIntent)

@@ -60,8 +60,9 @@ class _LojaPerfilScreenState extends State<LojaPerfilScreen> {
     _timerReavaliaPausa = Timer.periodic(const Duration(seconds: 45), (_) {
       if (mounted) setState(() {});
     });
+    // Fase 3G.2 — perfil da loja lê `lojas_public` (só dados de fachada).
     _subLoja = FirebaseFirestore.instance
-        .collection('users')
+        .collection('lojas_public')
         .doc(widget.lojistaId)
         .snapshots()
         .listen((snap) {
@@ -424,8 +425,9 @@ class _LojaPerfilScreenState extends State<LojaPerfilScreen> {
                   ),
                   const SizedBox(height: 10),
                   StreamBuilder<DocumentSnapshot>(
+                    // Fase 3G.2 — lê `lojas_public`.
                     stream: FirebaseFirestore.instance
-                        .collection('users')
+                        .collection('lojas_public')
                         .doc(widget.lojistaId)
                         .snapshots(),
                     builder: (context, snapshot) {
@@ -829,8 +831,9 @@ class _LojaPerfilScreenState extends State<LojaPerfilScreen> {
 
   Widget _chipStatusLoja() {
     return StreamBuilder<DocumentSnapshot>(
+      // Fase 3G.2 — lê `lojas_public`.
       stream: FirebaseFirestore.instance
-          .collection('users')
+          .collection('lojas_public')
           .doc(widget.lojistaId)
           .snapshots(),
       builder: (context, snapshot) {

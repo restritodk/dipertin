@@ -21,7 +21,9 @@ const Color _diPertinLaranja = Color(0xFFFF8F00);
 const Color _fundoTela = Color(0xFFF5F4F8);
 
 class LoginScreen extends StatefulWidget {
-  const LoginScreen({super.key});
+  const LoginScreen({super.key, this.emailPreenchido});
+
+  final String? emailPreenchido;
 
   @override
   State<LoginScreen> createState() => _LoginScreenState();
@@ -32,6 +34,15 @@ class _LoginScreenState extends State<LoginScreen> {
   final _senhaController = TextEditingController();
   bool _isLoading = false;
   bool _senhaOculta = true;
+
+  @override
+  void initState() {
+    super.initState();
+    final email = (widget.emailPreenchido ?? '').trim();
+    if (email.isNotEmpty) {
+      _emailController.text = email;
+    }
+  }
 
   InputDecoration _decorCampo(String label, IconData icon) {
     return InputDecoration(

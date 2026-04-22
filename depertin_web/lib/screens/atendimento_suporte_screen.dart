@@ -2,8 +2,11 @@
 
 import 'package:cloud_firestore/cloud_firestore.dart';
 import 'package:depertin_web/utils/admin_perfil.dart';
+import 'package:file_picker/file_picker.dart';
 import 'package:firebase_auth/firebase_auth.dart';
+import 'package:firebase_storage/firebase_storage.dart';
 import 'package:flutter/material.dart';
+import 'package:url_launcher/url_launcher.dart';
 
 const _kWaiting = 'waiting';
 const _kInProgress = 'in_progress';
@@ -25,6 +28,15 @@ String statusLegivelSuporte(String st) {
     default:
       return st.isEmpty ? '—' : st;
   }
+}
+
+/// Sufixo nos cards da fila/lista: categoria já escolhida ou pendente.
+String _legendaCategoriaNaLista(Map<String, dynamic> m) {
+  final lab = (m['categoria_label'] ?? '').toString().trim();
+  if (lab.isNotEmpty) return ' · $lab';
+  final prev = (m['first_message_preview'] ?? '').toString().trim();
+  if (prev.isNotEmpty) return ' · categoria pendente';
+  return '';
 }
 
 String iniciaisNomeSuporte(String nome) {
@@ -56,6 +68,7 @@ class _AtendimentoSuporteScreenState extends State<AtendimentoSuporteScreen> {
   String? _selecionadoId;
   String? _selecionadoNome;
   final TextEditingController _mensagemController = TextEditingController();
+  bool _enviandoAnexo = false;
 
   String _tipoUsuarioLogado = 'master';
   String _cidadeLogado = '';
@@ -169,6 +182,13 @@ class _AtendimentoSuporteScreenState extends State<AtendimentoSuporteScreen> {
         if (d['agent_id'] != null) {
           throw Exception('Outro atendente já iniciou este chamado.');
         }
+        final cat = (d['categoria_suporte'] ?? '').toString().trim();
+        final prev = (d['first_message_preview'] ?? '').toString().trim();
+        if (cat.isEmpty && prev.isNotEmpty) {
+          throw Exception(
+            'Aguarde o cliente escolher a categoria do atendimento no app.',
+          );
+        }
         tx.update(ref, {
           'status': _kInProgress,
           'agent_id': user.uid,
@@ -244,6 +264,481 @@ class _AtendimentoSuporteScreenState extends State<AtendimentoSuporteScreen> {
     } catch (e) {
       if (mounted) {
         mostrarSnackPainel(context, mensagem: 'Erro ao enviar: $e', erro: true);
+      }
+    }
+  }
+
+  /// Upload de anexo pelo atendente. Abre o FilePicker, sobe em
+  /// `suporte_anexos/{ticketId}` e cria a mensagem com os campos `anexo_*`.
+  Future<void> _enviarAnexo() async {
+    final id = _selecionadoId;
+    if (id == null || _enviandoAnexo) return;
+
+    final uid = FirebaseAuth.instance.currentUser?.uid;
+    if (uid == null) return;
+
+    final ticketRef =
+        FirebaseFirestore.instance.collection('support_tickets').doc(id);
+    final snap = await ticketRef.get();
+    if (!snap.exists) return;
+    final d = snap.data()!;
+    if (d['status'] != _kInProgress || d['agent_id'] != uid) {
+      if (mounted) {
+        mostrarSnackPainel(
+          context,
+          mensagem:
+              'Só o atendente responsável pode enviar anexos neste chamado.',
+          erro: true,
+        );
+      }
+      return;
+    }
+
+    FilePickerResult? result;
+    try {
+      result = await FilePicker.platform.pickFiles(
+        withData: true,
+        allowMultiple: false,
+      );
+    } catch (e) {
+      if (mounted) {
+        mostrarSnackPainel(
+          context,
+          mensagem: 'Erro ao abrir seletor de arquivos: $e',
+          erro: true,
+        );
+      }
+      return;
+    }
+    if (result == null || result.files.isEmpty) return;
+    final picked = result.files.single;
+    final bytes = picked.bytes;
+    if (bytes == null) {
+      if (mounted) {
+        mostrarSnackPainel(
+          context,
+          mensagem: 'Não foi possível ler o arquivo.',
+          erro: true,
+        );
+      }
+      return;
+    }
+    if (picked.size > 20 * 1024 * 1024) {
+      if (mounted) {
+        mostrarSnackPainel(
+          context,
+          mensagem: 'Arquivo maior que 20 MB não é permitido.',
+          erro: true,
+        );
+      }
+      return;
+    }
+
+    final mime = _inferirMimeSuporte(picked.name);
+    final tipoAnexo = mime.startsWith('image/') ? 'image' : 'arquivo';
+    final safeNome = _sanitizarNomeSuporte(picked.name);
+    final ts = DateTime.now().millisecondsSinceEpoch;
+    final path = 'suporte_anexos/$id/${uid}_${ts}_$safeNome';
+
+    setState(() => _enviandoAnexo = true);
+    try {
+      final ref = FirebaseStorage.instance.ref(path);
+      await ref.putData(bytes, SettableMetadata(contentType: mime));
+      final url = await ref.getDownloadURL();
+
+      await ticketRef.collection('mensagens').add({
+        'mensagem': '',
+        'sender_id': uid,
+        'sender_type': 'agent',
+        'is_read': false,
+        'created_at': FieldValue.serverTimestamp(),
+        'anexo_url': url,
+        'anexo_nome': picked.name,
+        'anexo_tipo': tipoAnexo,
+        'anexo_mime': mime,
+        'anexo_tamanho': picked.size,
+      });
+      await ticketRef.update({
+        'updated_at': FieldValue.serverTimestamp(),
+      });
+    } catch (e) {
+      if (mounted) {
+        mostrarSnackPainel(
+          context,
+          mensagem: 'Erro ao enviar anexo: $e',
+          erro: true,
+        );
+      }
+    } finally {
+      if (mounted) setState(() => _enviandoAnexo = false);
+    }
+  }
+
+  String _inferirMimeSuporte(String nome) {
+    final n = nome.toLowerCase();
+    if (n.endsWith('.png')) return 'image/png';
+    if (n.endsWith('.jpg') || n.endsWith('.jpeg')) return 'image/jpeg';
+    if (n.endsWith('.webp')) return 'image/webp';
+    if (n.endsWith('.gif')) return 'image/gif';
+    if (n.endsWith('.pdf')) return 'application/pdf';
+    if (n.endsWith('.doc')) return 'application/msword';
+    if (n.endsWith('.docx')) {
+      return 'application/vnd.openxmlformats-officedocument.wordprocessingml.document';
+    }
+    if (n.endsWith('.xls')) return 'application/vnd.ms-excel';
+    if (n.endsWith('.xlsx')) {
+      return 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet';
+    }
+    if (n.endsWith('.txt')) return 'text/plain';
+    if (n.endsWith('.zip')) return 'application/zip';
+    return 'application/octet-stream';
+  }
+
+  String _sanitizarNomeSuporte(String nome) {
+    final limpo = nome.replaceAll(RegExp(r'[^A-Za-z0-9._-]'), '_');
+    if (limpo.length <= 80) return limpo;
+    final ext = limpo.contains('.') ? limpo.substring(limpo.lastIndexOf('.')) : '';
+    return '${limpo.substring(0, 80 - ext.length)}$ext';
+  }
+
+  String _formatarTamanhoSuporte(int bytes) {
+    if (bytes < 1024) return '$bytes B';
+    if (bytes < 1024 * 1024) return '${(bytes / 1024).toStringAsFixed(1)} KB';
+    return '${(bytes / (1024 * 1024)).toStringAsFixed(1)} MB';
+  }
+
+  Widget _bolhaConteudoSuporte(
+    Map<String, dynamic> msg,
+    String texto,
+    Color fg,
+  ) {
+    final url = (msg['anexo_url'] ?? '').toString();
+    if (url.isEmpty) {
+      return Padding(
+        padding: const EdgeInsets.all(4),
+        child: Text(texto, style: TextStyle(color: fg, fontSize: 15)),
+      );
+    }
+    final tipo = (msg['anexo_tipo'] ?? '').toString();
+    final nome = (msg['anexo_nome'] ?? 'arquivo').toString();
+    final tamanho = (msg['anexo_tamanho'] is num)
+        ? (msg['anexo_tamanho'] as num).toInt()
+        : 0;
+
+    Widget anexoWidget;
+    if (tipo == 'image') {
+      anexoWidget = GestureDetector(
+        onTap: () => _abrirAnexoSuporte(url),
+        child: ClipRRect(
+          borderRadius: BorderRadius.circular(10),
+          child: ConstrainedBox(
+            constraints: const BoxConstraints(
+              maxHeight: 260,
+              minWidth: 200,
+            ),
+            child: Image.network(
+              url,
+              fit: BoxFit.cover,
+              loadingBuilder: (ctx, child, progress) {
+                if (progress == null) return child;
+                return Container(
+                  height: 180,
+                  width: 200,
+                  color: Colors.black.withValues(alpha: 0.08),
+                  alignment: Alignment.center,
+                  child: const CircularProgressIndicator(strokeWidth: 2),
+                );
+              },
+              errorBuilder: (_, __, ___) => Container(
+                height: 140,
+                width: 200,
+                color: Colors.black.withValues(alpha: 0.15),
+                alignment: Alignment.center,
+                child: Icon(Icons.broken_image_outlined, color: fg),
+              ),
+            ),
+          ),
+        ),
+      );
+    } else {
+      final corFundo =
+          fg == Colors.white ? Colors.white.withValues(alpha: 0.18) : Colors.grey[300]!;
+      anexoWidget = InkWell(
+        onTap: () => _abrirAnexoSuporte(url),
+        borderRadius: BorderRadius.circular(10),
+        child: Container(
+          padding: const EdgeInsets.all(10),
+          decoration: BoxDecoration(
+            color: corFundo,
+            borderRadius: BorderRadius.circular(10),
+          ),
+          child: Row(
+            mainAxisSize: MainAxisSize.min,
+            children: [
+              Icon(Icons.insert_drive_file_outlined, color: fg, size: 30),
+              const SizedBox(width: 10),
+              Flexible(
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  mainAxisSize: MainAxisSize.min,
+                  children: [
+                    Text(
+                      nome,
+                      maxLines: 2,
+                      overflow: TextOverflow.ellipsis,
+                      style: TextStyle(
+                        color: fg,
+                        fontWeight: FontWeight.w600,
+                      ),
+                    ),
+                    const SizedBox(height: 2),
+                    Text(
+                      tamanho > 0
+                          ? '${_formatarTamanhoSuporte(tamanho)} • clique para abrir'
+                          : 'Clique para abrir',
+                      style: TextStyle(
+                        color: fg.withValues(alpha: 0.75),
+                        fontSize: 11,
+                      ),
+                    ),
+                  ],
+                ),
+              ),
+            ],
+          ),
+        ),
+      );
+    }
+
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.start,
+      mainAxisSize: MainAxisSize.min,
+      children: [
+        anexoWidget,
+        if (texto.trim().isNotEmpty) ...[
+          const SizedBox(height: 6),
+          Padding(
+            padding: const EdgeInsets.symmetric(horizontal: 4),
+            child: Text(texto, style: TextStyle(color: fg, fontSize: 15)),
+          ),
+        ],
+      ],
+    );
+  }
+
+  /// Banner exibido ao atendente (somente quando o ticket está encerrado)
+  /// com a avaliação que o cliente deixou em `support_ratings`. Caso o
+  /// cliente ainda não tenha avaliado, mostra um aviso discreto "Aguardando
+  /// avaliação do cliente".
+  Widget _bannerAvaliacaoCliente(String ticketId) {
+    return StreamBuilder<QuerySnapshot<Map<String, dynamic>>>(
+      stream: FirebaseFirestore.instance
+          .collection('support_ratings')
+          .where('ticket_id', isEqualTo: ticketId)
+          .limit(1)
+          .snapshots(),
+      builder: (context, snap) {
+        final temAvaliacao = snap.hasData && snap.data!.docs.isNotEmpty;
+        if (!temAvaliacao) {
+          return Container(
+            width: double.infinity,
+            padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 8),
+            color: Colors.amber.shade50,
+            child: Row(
+              children: [
+                Icon(Icons.hourglass_bottom,
+                    size: 16, color: Colors.amber[800]),
+                const SizedBox(width: 8),
+                Text(
+                  'Aguardando avaliação do cliente…',
+                  style: TextStyle(
+                    fontSize: 12,
+                    color: Colors.amber[900],
+                    fontWeight: FontWeight.w600,
+                  ),
+                ),
+              ],
+            ),
+          );
+        }
+        final dados = snap.data!.docs.first.data();
+        final rating = (dados['rating'] is num)
+            ? (dados['rating'] as num).toInt()
+            : 0;
+        final comentario = (dados['comment'] ?? '').toString().trim();
+        final criadoEm = dados['created_at'];
+        final quando = criadoEm is Timestamp ? _fmtHora(criadoEm) : '';
+        return Container(
+          width: double.infinity,
+          padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 10),
+          decoration: BoxDecoration(
+            color: const Color(0xFFF6F0FB),
+            border: Border(
+              bottom: BorderSide(color: diPertinRoxo.withOpacity(0.15)),
+            ),
+          ),
+          child: Row(
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              Icon(Icons.reviews, size: 18, color: diPertinRoxo),
+              const SizedBox(width: 10),
+              Expanded(
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  mainAxisSize: MainAxisSize.min,
+                  children: [
+                    Row(
+                      children: [
+                        Text(
+                          'Avaliação do cliente',
+                          style: TextStyle(
+                            fontWeight: FontWeight.w700,
+                            fontSize: 13,
+                            color: diPertinRoxo,
+                          ),
+                        ),
+                        const SizedBox(width: 10),
+                        Row(
+                          children: List.generate(5, (i) {
+                            final ativa = i < rating;
+                            return Icon(
+                              ativa ? Icons.star_rounded : Icons.star_border_rounded,
+                              color: diPertinLaranja,
+                              size: 18,
+                            );
+                          }),
+                        ),
+                        const SizedBox(width: 6),
+                        Text(
+                          '$rating/5',
+                          style: const TextStyle(
+                            fontSize: 12,
+                            color: Colors.black87,
+                            fontWeight: FontWeight.w600,
+                          ),
+                        ),
+                        if (quando.isNotEmpty) ...[
+                          const SizedBox(width: 10),
+                          Text(
+                            '· $quando',
+                            style: TextStyle(
+                              fontSize: 11,
+                              color: Colors.grey[600],
+                            ),
+                          ),
+                        ],
+                      ],
+                    ),
+                    if (comentario.isNotEmpty) ...[
+                      const SizedBox(height: 4),
+                      Text(
+                        '"$comentario"',
+                        style: TextStyle(
+                          fontSize: 12.5,
+                          fontStyle: FontStyle.italic,
+                          color: Colors.grey[800],
+                        ),
+                      ),
+                    ],
+                  ],
+                ),
+              ),
+            ],
+          ),
+        );
+      },
+    );
+  }
+
+  Future<void> _abrirAnexoSuporte(String url) async {
+    final uri = Uri.tryParse(url);
+    if (uri == null) return;
+    try {
+      await launchUrl(uri, mode: LaunchMode.externalApplication);
+    } catch (e) {
+      if (mounted) {
+        mostrarSnackPainel(
+          context,
+          mensagem: 'Não foi possível abrir o anexo.',
+          erro: true,
+        );
+      }
+    }
+  }
+
+  Future<void> _reabrirChamado() async {
+    final id = _selecionadoId;
+    if (id == null) return;
+    final uid = FirebaseAuth.instance.currentUser?.uid;
+    if (uid == null) return;
+
+    final confirma = await showDialog<bool>(
+      context: context,
+      builder: (ctx) => AlertDialog(
+        title: const Text('Reabrir atendimento'),
+        content: const Text(
+          'Deseja reabrir este chamado? O cliente voltará a receber '
+          'mensagens suas neste atendimento.',
+        ),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.pop(ctx, false),
+            child: const Text('Cancelar'),
+          ),
+          ElevatedButton.icon(
+            onPressed: () => Navigator.pop(ctx, true),
+            icon: const Icon(Icons.replay),
+            label: const Text('Reabrir'),
+          ),
+        ],
+      ),
+    );
+    if (confirma != true) return;
+
+    final ref =
+        FirebaseFirestore.instance.collection('support_tickets').doc(id);
+
+    try {
+      // 1) Assume a titularidade como atendente e muda status para in_progress.
+      //    (faz isso antes para que a regra de criação de mensagem system/agent
+      //    com `status == in_progress && agent_id == request.auth.uid` passe).
+      final meuDoc = await FirebaseFirestore.instance
+          .collection('users')
+          .doc(uid)
+          .get();
+      final meuNome = (meuDoc.data()?['nome'] ?? '').toString().trim();
+
+      await ref.update({
+        'status': _kInProgress,
+        'agent_id': uid,
+        'agent_nome': meuNome.isEmpty ? 'Atendente' : meuNome,
+        'finished_at': null,
+        'closed_by': null,
+        'reabertura_count': FieldValue.increment(1),
+        'reaberto_em': FieldValue.serverTimestamp(),
+        'updated_at': FieldValue.serverTimestamp(),
+      });
+
+      // 2) Registra a mensagem de sistema sinalizando a reabertura.
+      await ref.collection('mensagens').add({
+        'mensagem': '--- Atendimento reaberto pelo suporte ---',
+        'sender_id': uid,
+        'sender_type': 'system',
+        'is_read': false,
+        'created_at': FieldValue.serverTimestamp(),
+      });
+
+      setState(() => _selecionadoId = id);
+      if (mounted) {
+        mostrarSnackPainel(context, mensagem: 'Atendimento reaberto.');
+      }
+    } catch (e) {
+      if (mounted) {
+        mostrarSnackPainel(
+          context,
+          mensagem: 'Erro ao reabrir: $e',
+          erro: true,
+        );
       }
     }
   }
@@ -607,6 +1102,31 @@ class _AtendimentoSuporteScreenState extends State<AtendimentoSuporteScreen> {
                           maxLines: 2,
                           overflow: TextOverflow.ellipsis,
                         ),
+                        if ((d['categoria_label'] ?? '')
+                            .toString()
+                            .trim()
+                            .isNotEmpty) ...[
+                          const SizedBox(height: 4),
+                          Text(
+                            'Categoria: ${d['categoria_label']}',
+                            style: TextStyle(
+                              fontSize: 12,
+                              fontWeight: FontWeight.w600,
+                              color: Colors.deepPurple.shade800,
+                            ),
+                          ),
+                        ] else if (aguardando &&
+                            preview != '(sem prévia)') ...[
+                          const SizedBox(height: 4),
+                          Text(
+                            'Categoria: pendente — aguardando escolha do cliente.',
+                            style: TextStyle(
+                              fontSize: 11,
+                              color: Colors.orange.shade900,
+                              fontWeight: FontWeight.w500,
+                            ),
+                          ),
+                        ],
                       ],
                     ),
                   ),
@@ -621,14 +1141,29 @@ class _AtendimentoSuporteScreenState extends State<AtendimentoSuporteScreen> {
                     ),
                   const SizedBox(width: 8),
                   if (aguardando)
-                    ElevatedButton.icon(
-                      onPressed: _iniciarAtendimentoPainel,
-                      style: ElevatedButton.styleFrom(
-                        backgroundColor: diPertinLaranja,
-                        foregroundColor: Colors.white,
+                    Tooltip(
+                      message: (d['categoria_suporte'] ?? '')
+                              .toString()
+                              .trim()
+                              .isEmpty &&
+                          preview != '(sem prévia)'
+                          ? 'O cliente precisa escolher a categoria no app antes de você iniciar.'
+                          : '',
+                      child: ElevatedButton.icon(
+                        onPressed: (d['categoria_suporte'] ?? '')
+                                    .toString()
+                                    .trim()
+                                    .isEmpty &&
+                                preview != '(sem prévia)'
+                            ? null
+                            : _iniciarAtendimentoPainel,
+                        style: ElevatedButton.styleFrom(
+                          backgroundColor: diPertinLaranja,
+                          foregroundColor: Colors.white,
+                        ),
+                        icon: const Icon(Icons.play_arrow),
+                        label: const Text('Iniciar atendimento'),
                       ),
-                      icon: const Icon(Icons.play_arrow),
-                      label: const Text('Iniciar atendimento'),
                     ),
                   if (emAndamento) ...[
                     const SizedBox(width: 8),
@@ -642,9 +1177,22 @@ class _AtendimentoSuporteScreenState extends State<AtendimentoSuporteScreen> {
                       label: const Text('Finalizar atendimento'),
                     ),
                   ],
+                  if (encerrado) ...[
+                    const SizedBox(width: 8),
+                    ElevatedButton.icon(
+                      onPressed: _reabrirChamado,
+                      style: ElevatedButton.styleFrom(
+                        backgroundColor: diPertinLaranja,
+                        foregroundColor: Colors.white,
+                      ),
+                      icon: const Icon(Icons.replay),
+                      label: const Text('Reabrir atendimento'),
+                    ),
+                  ],
                 ],
               ),
             ),
+            if (encerrado) _bannerAvaliacaoCliente(_selecionadoId!),
             Expanded(
               child: StreamBuilder<QuerySnapshot<Map<String, dynamic>>>(
                 stream: FirebaseFirestore.instance
@@ -666,22 +1214,67 @@ class _AtendimentoSuporteScreenState extends State<AtendimentoSuporteScreen> {
                       final msg = msgs[index].data();
                       final tipo = msg['sender_type']?.toString() ?? '';
                       final texto = msg['mensagem']?.toString() ?? '';
-                      if (tipo == 'system') {
+                      final suporteAuto = msg['suporte_auto'] == true;
+                      if (tipo == 'system' || suporteAuto) {
                         return Center(
                           child: Container(
                             margin: const EdgeInsets.symmetric(vertical: 10),
-                            padding: const EdgeInsets.all(8),
-                            decoration: BoxDecoration(
-                              color: Colors.grey[300],
-                              borderRadius: BorderRadius.circular(10),
+                            padding: const EdgeInsets.symmetric(
+                              horizontal: 12,
+                              vertical: 10,
                             ),
-                            child: Text(
-                              texto,
-                              style: const TextStyle(
-                                fontSize: 12,
-                                fontWeight: FontWeight.bold,
-                                color: Colors.black54,
-                              ),
+                            constraints: const BoxConstraints(maxWidth: 520),
+                            decoration: BoxDecoration(
+                              color: suporteAuto
+                                  ? diPertinLaranja.withOpacity(0.12)
+                                  : Colors.grey[300],
+                              borderRadius: BorderRadius.circular(10),
+                              border: suporteAuto
+                                  ? Border.all(
+                                      color: diPertinLaranja.withOpacity(0.5),
+                                    )
+                                  : null,
+                            ),
+                            child: Column(
+                              crossAxisAlignment: CrossAxisAlignment.start,
+                              mainAxisSize: MainAxisSize.min,
+                              children: [
+                                if (suporteAuto)
+                                  Padding(
+                                    padding: const EdgeInsets.only(bottom: 6),
+                                    child: Row(
+                                      mainAxisSize: MainAxisSize.min,
+                                      children: [
+                                        Icon(
+                                          Icons.support_agent,
+                                          size: 14,
+                                          color: diPertinLaranja,
+                                        ),
+                                        const SizedBox(width: 6),
+                                        Text(
+                                          'Mensagem automática · Central de Ajuda',
+                                          style: TextStyle(
+                                            color: diPertinLaranja,
+                                            fontSize: 11,
+                                            fontWeight: FontWeight.w700,
+                                          ),
+                                        ),
+                                      ],
+                                    ),
+                                  ),
+                                Text(
+                                  texto,
+                                  style: TextStyle(
+                                    fontSize: suporteAuto ? 13 : 12,
+                                    fontWeight: suporteAuto
+                                        ? FontWeight.w500
+                                        : FontWeight.bold,
+                                    color: suporteAuto
+                                        ? Colors.black87
+                                        : Colors.black54,
+                                  ),
+                                ),
+                              ],
                             ),
                           ),
                         );
@@ -696,7 +1289,7 @@ class _AtendimentoSuporteScreenState extends State<AtendimentoSuporteScreen> {
                         alignment: alinhamento,
                         child: Container(
                           margin: const EdgeInsets.only(bottom: 10),
-                          padding: const EdgeInsets.all(14),
+                          padding: const EdgeInsets.all(10),
                           constraints: const BoxConstraints(maxWidth: 420),
                           decoration: BoxDecoration(
                             color: bg,
@@ -705,10 +1298,7 @@ class _AtendimentoSuporteScreenState extends State<AtendimentoSuporteScreen> {
                               BoxShadow(color: Colors.black12, blurRadius: 4),
                             ],
                           ),
-                          child: Text(
-                            texto,
-                            style: TextStyle(color: fg, fontSize: 15),
-                          ),
+                          child: _bolhaConteudoSuporte(msg, texto, fg),
                         ),
                       );
                     },
@@ -721,10 +1311,29 @@ class _AtendimentoSuporteScreenState extends State<AtendimentoSuporteScreen> {
               color: Colors.white,
               child: Row(
                 children: [
+                  IconButton(
+                    tooltip: 'Anexar arquivo',
+                    icon: _enviandoAnexo
+                        ? SizedBox(
+                            width: 22,
+                            height: 22,
+                            child: CircularProgressIndicator(
+                              strokeWidth: 2,
+                              color: diPertinRoxo,
+                            ),
+                          )
+                        : Icon(
+                            Icons.attach_file,
+                            color: possoResponder ? diPertinRoxo : Colors.grey,
+                          ),
+                    onPressed: possoResponder && !_enviandoAnexo
+                        ? _enviarAnexo
+                        : null,
+                  ),
                   Expanded(
                     child: TextField(
                       controller: _mensagemController,
-                      enabled: possoResponder,
+                      enabled: possoResponder && !_enviandoAnexo,
                       decoration: InputDecoration(
                         hintText: encerrado
                             ? 'Chamado encerrado (somente leitura).'
@@ -1189,7 +1798,7 @@ class _ColunaFilaSuporteState extends State<ColunaFilaSuporte> {
                                 .toString()
                                 .padLeft(8, '0'),
                             subtitulo:
-                                '${widget.fmtHora(m['created_at'])} · espera ${widget.tempoEspera(m['created_at'])} · #$pos na fila',
+                                '${widget.fmtHora(m['created_at'])} · espera ${widget.tempoEspera(m['created_at'])} · #$pos na fila${_legendaCategoriaNaLista(m)}',
                             preview: (m['first_message_preview'] ?? '')
                                 .toString(),
                             selecionado: sel,
@@ -1227,7 +1836,8 @@ class _ColunaFilaSuporteState extends State<ColunaFilaSuporte> {
                             protocolo: (m['protocol_number'] ?? '')
                                 .toString()
                                 .padLeft(8, '0'),
-                            subtitulo: 'Atendente: $agente',
+                            subtitulo:
+                                'Atendente: $agente${_legendaCategoriaNaLista(m)}',
                             preview: (m['first_message_preview'] ?? '')
                                 .toString(),
                             selecionado: sel,
@@ -1274,7 +1884,7 @@ class _ColunaFilaSuporteState extends State<ColunaFilaSuporte> {
                                 .toString()
                                 .padLeft(8, '0'),
                             subtitulo:
-                                '${widget.fmtHora(m['created_at'])} · ${statusLegivelSuporte(st)}',
+                                '${widget.fmtHora(m['created_at'])} · ${statusLegivelSuporte(st)}${_legendaCategoriaNaLista(m)}',
                             preview: (m['first_message_preview'] ?? '')
                                 .toString(),
                             selecionado: sel,

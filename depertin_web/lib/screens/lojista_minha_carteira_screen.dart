@@ -163,22 +163,6 @@ class _LojistaMinhaCarteiraScreenState
   // ── helpers ──────────────────────────────────────────────────────────────
   static double _num(dynamic v) => CarteiraLojistaExtrato.numDyn(v);
 
-  /// Telefone no doc `users` (cadastros antigos usam chaves diferentes).
-  static String _telefoneDePerfilUsuario(Map<String, dynamic>? u) {
-    if (u == null) return '';
-    for (final k in [
-      'telefone',
-      'celular',
-      'phone',
-      'telefone_completo',
-      'whatsapp',
-    ]) {
-      final t = u[k]?.toString().trim() ?? '';
-      if (t.isNotEmpty) return t;
-    }
-    return '';
-  }
-
   /// Mesmo arredondamento que [saque_solicitar.js] `roundMoney`.
   static double _roundMoney(double v) => (v * 100).round() / 100.0;
 
@@ -2247,38 +2231,20 @@ class _LojistaMinhaCarteiraScreenState
           return;
         }
         final p = doc.data()!;
+        // Fase 3G.3 — `cliente_nome` e `entregador_nome`/`entregador_telefone`
+        // são denormalizados no pedido. A rule de `users` agora bloqueia o
+        // lojista de ler `users/{cliente_id}` ou `users/{entregador_id}`, então
+        // confiamos nos campos do próprio pedido (backfill + triggers mantêm
+        // atualizados). Para pedidos legados sem denormalização, mostramos
+        // placeholder em vez de falhar.
         var nomeCliente = p['cliente_nome']?.toString().trim() ?? '';
         if (nomeCliente.isEmpty) {
-          final cid = p['cliente_id']?.toString();
-          if (cid != null && cid.isNotEmpty) {
-            final u = await db.collection('users').doc(cid).get();
-            if (!context.mounted) return;
-            nomeCliente = u.data()?['nome']?.toString().trim() ?? 'Cliente';
-          } else {
-            nomeCliente = '—';
-          }
+          nomeCliente = '—';
         }
         final fp = p['forma_pagamento']?.toString() ?? '—';
         var entNome = p['entregador_nome']?.toString().trim() ?? '';
         final entId = p['entregador_id']?.toString().trim() ?? '';
         var entTel = p['entregador_telefone']?.toString().trim() ?? '';
-        if (entId.isNotEmpty) {
-          final eu = await db.collection('users').doc(entId).get();
-          if (!context.mounted) return;
-          final ud = eu.data();
-          if (entTel.isEmpty) {
-            entTel = _telefoneDePerfilUsuario(ud);
-          }
-          if (entNome.isEmpty) {
-            for (final k in ['nome', 'nome_completo', 'display_name']) {
-              final x = ud?[k]?.toString().trim() ?? '';
-              if (x.isNotEmpty) {
-                entNome = x;
-                break;
-              }
-            }
-          }
-        }
         final dp = p['data_pedido'];
         var dPed = l.data;
         if (dp is Timestamp) dPed = dp.toDate();
@@ -2547,15 +2513,10 @@ class _LojistaMinhaCarteiraScreenState
           if (!context.mounted) return;
           if (pSnap.exists) {
             final p = pSnap.data()!;
+            // Fase 3G.3 — lê do próprio pedido (denormalizado); a rule
+            // bloqueia leitura cruzada em `users`.
             var nomeCliente = p['cliente_nome']?.toString().trim() ?? '';
-            if (nomeCliente.isEmpty) {
-              final cid = p['cliente_id']?.toString();
-              if (cid != null && cid.isNotEmpty) {
-                final u = await db.collection('users').doc(cid).get();
-                if (!context.mounted) return;
-                nomeCliente = u.data()?['nome']?.toString().trim() ?? '—';
-              }
-            }
+            if (nomeCliente.isEmpty) nomeCliente = '—';
             children.add(const Divider(height: 20));
             children.add(
               const Text(

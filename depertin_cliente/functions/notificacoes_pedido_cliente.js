@@ -103,7 +103,7 @@ exports.notificarClienteStatusPedido = functions.firestore
                     pedidoId,
                     "preparing",
                     `A ${nomeLoja} aceitou seu pedido`,
-                    "Em breve seu pedido entra em preparo.",
+                    "Em breve seu pedido entrará em preparo, aguarde.",
                 );
                 return null;
             }

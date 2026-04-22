@@ -550,13 +550,36 @@ async function enviarFcmChamadaEntregador(db, token, pedidoId, pedido, entregado
         tempo_estimado_min: tempoMin,
     });
 
+    // Tag única por pedido — usada tanto pelo bloco notification (sistema)
+    // quanto pelo NotificationCompat custom no Kotlin para que o segundo
+    // SUBSTITUA a notif do sistema (mesma tag) em vez de duplicar.
+    const sysTag = `corrida_${pedidoId}`;
+
     const mensagem = {
-        // Android: data-first para garantir processamento pelo app
-        // mesmo em segundo plano/encerrado (full-screen nativo).
-        // Sem ttl curto: 15s fazia o FCM descartar a mensagem antes de chegar ao aparelho.
+        // Android: payload HÍBRIDO (notification + data).
+        // - Em foreground/processo vivo: onMessageReceived processa data e
+        //   o IncomingDeliveryFirebaseService cancela a notif do sistema e
+        //   exibe a UI de chamada custom (full-screen intent).
+        // - Em Doze profundo / OEM agressiva (Xiaomi/Oppo/Realme), quando o
+        //   serviço pode não acordar a tempo, o SO ainda desenha a notif do
+        //   sistema no canal `corrida_chamada` (importance HIGH + som), o
+        //   que garante que o entregador é avisado mesmo com tela bloqueada.
+        // Sem ttl curto: 15s fazia o FCM descartar a mensagem antes de chegar.
         android: {
             priority: "high",
-            collapseKey: `corrida_${pedidoId}`,
+            collapseKey: sysTag,
+            notification: {
+                title: "Nova corrida DiPertin",
+                body: "Toque para ver detalhes e aceitar em até 15 segundos.",
+                channelId: "corrida_chamada",
+                sound: "chamada_entregador",
+                priority: "max",
+                visibility: "public",
+                defaultSound: false,
+                defaultVibrateTimings: true,
+                tag: sysTag,
+                notificationCount: 1,
+            },
         },
         data,
         token,

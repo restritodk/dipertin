@@ -1,4 +1,4 @@
-package com.example.depertin_cliente
+package com.dipertin.app
 
 import com.google.firebase.auth.FirebaseAuth
 import com.google.firebase.functions.FirebaseFunctions

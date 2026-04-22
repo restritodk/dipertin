@@ -40,9 +40,13 @@ class DefaultFirebaseOptions {
     }
   }
 
+  // NOTA: unificado com `windows` — o app Firebase Web `34d7b12...` foi
+  // excluído (ficou em "apps com exclusão pendente"). O único app Web vivo
+  // no projeto é `860bc782...` (apelido "depertin_web (windows)" no console).
+  // Manter dois appIds diferentes quebraria App Check (só esse está registrado).
   static const FirebaseOptions web = FirebaseOptions(
     apiKey: 'AIzaSyBVK7SbAzU9QR1SG4uMoas-hGgJSa4Q8zw',
-    appId: '1:939151024179:web:34d7b12fcb80c46fd3c346',
+    appId: '1:939151024179:web:860bc78282fec308d3c346',
     messagingSenderId: '939151024179',
     projectId: 'depertin-f940f',
     authDomain: 'depertin-f940f.firebaseapp.com',

@@ -8,6 +8,8 @@ import 'package:flutter_multi_formatter/flutter_multi_formatter.dart';
 import 'package:provider/provider.dart';
 import '../../services/cidades_brasil_service.dart';
 import '../../services/location_service.dart';
+import '../../utils/cpf_perfil_usuario.dart';
+import 'login_screen.dart';
 import 'widgets/termos_aceite_cadastro.dart';
 
 const Color _diPertinRoxo = Color(0xFF6A1B9A);
@@ -133,6 +135,19 @@ class _RegisterScreenState extends State<RegisterScreen> {
       return;
     }
 
+    if (!CpfPerfilUsuario.cpfValido(_cpfController.text)) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(
+          content: Text(
+            'CPF inválido. Confira os 11 dígitos e tente novamente.',
+          ),
+          backgroundColor: Colors.red,
+          behavior: SnackBarBehavior.floating,
+        ),
+      );
+      return;
+    }
+
     if (_senhaController.text.length < 6) {
       ScaffoldMessenger.of(context).showSnackBar(
         const SnackBar(
@@ -239,7 +254,17 @@ class _RegisterScreenState extends State<RegisterScreen> {
             behavior: SnackBarBehavior.floating,
           ),
         );
-        Navigator.pop(context);
+        // createUserWithEmailAndPassword autentica automaticamente.
+        // Para manter o fluxo pedido, voltamos explicitamente para Login.
+        await FirebaseAuth.instance.signOut();
+        if (!mounted) return;
+        final emailCadastrado = _emailController.text.trim();
+        Navigator.of(context).pushAndRemoveUntil(
+          MaterialPageRoute<void>(
+            builder: (_) => LoginScreen(emailPreenchido: emailCadastrado),
+          ),
+          (route) => false,
+        );
       }
     } on FirebaseAuthException catch (e) {
       String mensagemErro = 'Ocorreu um erro no cadastro.';

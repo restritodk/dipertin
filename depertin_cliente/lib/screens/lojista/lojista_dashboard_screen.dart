@@ -8,9 +8,11 @@ import 'package:flutter/foundation.dart';
 import 'package:flutter/material.dart';
 
 import 'package:depertin_cliente/constants/pedido_status.dart';
+import 'package:depertin_cliente/constants/lojista_motivo_recusa.dart';
 import 'package:depertin_cliente/services/conta_bloqueio_lojista_service.dart';
 import 'package:depertin_cliente/utils/lojista_acesso_app.dart';
 import 'package:geolocator/geolocator.dart';
+import 'package:intl/intl.dart';
 import 'package:depertin_cliente/screens/lojista/lojista_avaliacoes_screen.dart';
 import 'lojista_pedidos_screen.dart';
 import 'lojista_produtos_screen.dart';
@@ -257,6 +259,11 @@ class _LojistaDashboardScreenState extends State<LojistaDashboardScreen> {
 
     final dados = _dadosUsuario!;
     final String status = dados['status_loja'] ?? 'pendente';
+
+    final bloqueioAte = LojistaMotivoRecusa.bloqueioCadastroAte(dados);
+    if (bloqueioAte != null) {
+      return _construirRecusaComBloqueio(dados, bloqueioAte);
+    }
 
     if (ContaBloqueioLojistaService.lojaRecusadaSomenteCorrecaoCadastro(dados)) {
       return Center(
@@ -530,6 +537,184 @@ class _LojistaDashboardScreenState extends State<LojistaDashboardScreen> {
     }
 
     return itens;
+  }
+
+  /// Tela exibida quando o lojista foi recusado por motivo de bloqueio
+  /// (`DESINTERESSE_COMERCIAL` ou `OUTROS`) e ainda não cumpriu os 30 dias.
+  Widget _construirRecusaComBloqueio(
+    Map<String, dynamic> dados,
+    DateTime bloqueioAte,
+  ) {
+    final formato = DateFormat("dd 'de' MMMM 'de' y", 'pt_BR');
+    final dataFormatada = formato.format(bloqueioAte);
+    final codigo = LojistaMotivoRecusa.codigoDoDocumento(dados);
+    final rotulo = codigo != null ? LojistaMotivoRecusa.rotulo(codigo) : null;
+    final mensagem = (dados['motivo_recusa'] ?? '').toString().trim();
+    final descricao = (dados['motivo_recusa_descricao'] ?? '').toString().trim();
+
+    return SingleChildScrollView(
+      padding: const EdgeInsets.all(24),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.stretch,
+        children: [
+          const SizedBox(height: 16),
+          Center(
+            child: Container(
+              padding: const EdgeInsets.all(22),
+              decoration: BoxDecoration(
+                color: diPertinRoxo.withValues(alpha: 0.08),
+                shape: BoxShape.circle,
+              ),
+              child: const Icon(
+                Icons.lock_clock_rounded,
+                size: 64,
+                color: diPertinRoxo,
+              ),
+            ),
+          ),
+          const SizedBox(height: 22),
+          const Text(
+            'Cadastro não aprovado',
+            textAlign: TextAlign.center,
+            style: TextStyle(
+              fontSize: 22,
+              fontWeight: FontWeight.w800,
+              color: diPertinRoxo,
+            ),
+          ),
+          const SizedBox(height: 12),
+          Text(
+            'Após a análise das informações enviadas, seu cadastro não foi '
+            'aprovado neste momento.',
+            textAlign: TextAlign.center,
+            style: TextStyle(
+              fontSize: 14.5,
+              color: Colors.grey.shade800,
+              height: 1.5,
+            ),
+          ),
+          const SizedBox(height: 20),
+          Container(
+            padding: const EdgeInsets.all(16),
+            decoration: BoxDecoration(
+              color: Colors.red.shade50,
+              border: Border.all(color: Colors.red.shade200),
+              borderRadius: BorderRadius.circular(12),
+            ),
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                Row(
+                  children: [
+                    Icon(Icons.info_outline,
+                        color: Colors.red.shade700, size: 20),
+                    const SizedBox(width: 8),
+                    Text(
+                      'Motivo da recusa',
+                      style: TextStyle(
+                        fontWeight: FontWeight.w800,
+                        color: Colors.red.shade700,
+                        fontSize: 14,
+                      ),
+                    ),
+                  ],
+                ),
+                if (rotulo != null) ...[
+                  const SizedBox(height: 10),
+                  Text(
+                    'Classificação: $rotulo',
+                    style: TextStyle(
+                      color: Colors.red.shade900,
+                      fontSize: 13.5,
+                      fontWeight: FontWeight.w700,
+                      height: 1.4,
+                    ),
+                  ),
+                ],
+                if (descricao.isNotEmpty &&
+                    codigo == LojistaMotivoRecusa.outros) ...[
+                  const SizedBox(height: 6),
+                  Text(
+                    'Detalhe: $descricao',
+                    style: TextStyle(
+                      color: Colors.red.shade900,
+                      fontSize: 13.5,
+                      height: 1.5,
+                    ),
+                  ),
+                ],
+                if (mensagem.isNotEmpty) ...[
+                  const SizedBox(height: 10),
+                  Text(
+                    mensagem,
+                    style: TextStyle(
+                      color: Colors.red.shade900,
+                      fontSize: 13.5,
+                      height: 1.5,
+                    ),
+                  ),
+                ],
+              ],
+            ),
+          ),
+          const SizedBox(height: 16),
+          Container(
+            padding: const EdgeInsets.all(16),
+            decoration: BoxDecoration(
+              color: diPertinRoxo.withValues(alpha: 0.06),
+              border: Border.all(
+                color: diPertinRoxo.withValues(alpha: 0.25),
+              ),
+              borderRadius: BorderRadius.circular(12),
+            ),
+            child: Row(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                const Icon(Icons.event_available_outlined,
+                    color: diPertinRoxo, size: 22),
+                const SizedBox(width: 10),
+                Expanded(
+                  child: RichText(
+                    text: TextSpan(
+                      style: TextStyle(
+                        fontSize: 13.5,
+                        color: Colors.grey.shade800,
+                        height: 1.5,
+                      ),
+                      children: [
+                        const TextSpan(
+                          text:
+                              'Você poderá solicitar uma nova análise a partir de ',
+                        ),
+                        TextSpan(
+                          text: dataFormatada,
+                          style: const TextStyle(
+                            fontWeight: FontWeight.w800,
+                            color: diPertinRoxo,
+                          ),
+                        ),
+                        const TextSpan(text: '.'),
+                      ],
+                    ),
+                  ),
+                ),
+              ],
+            ),
+          ),
+          const SizedBox(height: 24),
+          Text(
+            'Em caso de dúvida, entre em contato com o suporte.',
+            textAlign: TextAlign.center,
+            style: TextStyle(
+              fontSize: 12.5,
+              color: Colors.grey.shade600,
+              fontStyle: FontStyle.italic,
+            ),
+          ),
+          const SizedBox(height: 16),
+        ],
+      ),
+    );
   }
 
   Widget _chipStatusLoja(bool aberta) {

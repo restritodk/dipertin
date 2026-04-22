@@ -73,6 +73,13 @@ class CidadesBrasilService {
     await _garantirCache();
   }
 
+  /// Retorna todas as cidades já carregadas no cache (pode ser usado para
+  /// autocomplete local). Chama [precarregar] primeiro se necessário.
+  static Future<List<CidadeSugestao>> todasCidades() async {
+    await _garantirCache();
+    return List.unmodifiable(_cache ?? const []);
+  }
+
   static Future<List<CidadeSugestao>> _garantirCache() async {
     if (_cache != null) return _cache!;
     _carregando ??= _baixarEProcessar();

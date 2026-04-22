@@ -764,40 +764,10 @@ class _FormularioProdutoModalState extends State<FormularioProdutoModal> {
   }
 
   Future<void> _sugerirCategoria() async {
-    final TextEditingController sugController = TextEditingController();
     final String? nomeSugestao = await showDialog<String>(
       context: context,
-      builder: (context) => AlertDialog(
-        shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(16)),
-        title: const Text(
-          'Sugerir categoria',
-          style: TextStyle(color: diPertinLaranja),
-        ),
-        content: TextField(
-          controller: sugController,
-          textCapitalization: TextCapitalization.words,
-          decoration: const InputDecoration(
-            hintText: 'Ex.: Veganos, doces…',
-            border: OutlineInputBorder(),
-          ),
-        ),
-        actions: [
-          TextButton(
-            onPressed: () => Navigator.pop(context),
-            child: const Text('Cancelar'),
-          ),
-          FilledButton(
-            onPressed: () {
-              final t = sugController.text.trim();
-              if (t.isEmpty) return;
-              Navigator.pop(context, t);
-            },
-            child: const Text('Enviar'),
-          ),
-        ],
-      ),
+      builder: (ctx) => const _SugerirCategoriaDialog(),
     );
-    sugController.dispose();
     if (nomeSugestao == null || nomeSugestao.isEmpty) return;
 
     await FirebaseFirestore.instance.collection('sugestoes_categorias').add({
@@ -1221,6 +1191,64 @@ class _FormularioProdutoModalState extends State<FormularioProdutoModal> {
           ),
         ],
       ),
+    );
+  }
+}
+
+// Dialog interno com ciclo de vida próprio para o TextEditingController,
+// evitando o `_dependents.isEmpty` assertion que acontecia ao dar dispose
+// no controller logo após Navigator.pop.
+class _SugerirCategoriaDialog extends StatefulWidget {
+  const _SugerirCategoriaDialog();
+
+  @override
+  State<_SugerirCategoriaDialog> createState() =>
+      _SugerirCategoriaDialogState();
+}
+
+class _SugerirCategoriaDialogState extends State<_SugerirCategoriaDialog> {
+  final TextEditingController _controller = TextEditingController();
+
+  @override
+  void dispose() {
+    _controller.dispose();
+    super.dispose();
+  }
+
+  void _enviar() {
+    final texto = _controller.text.trim();
+    if (texto.isEmpty) return;
+    Navigator.pop(context, texto);
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    return AlertDialog(
+      shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(16)),
+      title: const Text(
+        'Sugerir categoria',
+        style: TextStyle(color: diPertinLaranja),
+      ),
+      content: TextField(
+        controller: _controller,
+        textCapitalization: TextCapitalization.words,
+        autofocus: true,
+        onSubmitted: (_) => _enviar(),
+        decoration: const InputDecoration(
+          hintText: 'Ex.: Veganos, doces…',
+          border: OutlineInputBorder(),
+        ),
+      ),
+      actions: [
+        TextButton(
+          onPressed: () => Navigator.pop(context),
+          child: const Text('Cancelar'),
+        ),
+        FilledButton(
+          onPressed: _enviar,
+          child: const Text('Enviar'),
+        ),
+      ],
     );
   }
 }

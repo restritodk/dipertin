@@ -618,11 +618,12 @@ class _SearchScreenState extends State<SearchScreen> {
                 final inicio = (data['data_inicio'] as Timestamp).toDate();
                 final vencimento = (data['data_fim'] as Timestamp).toDate();
 
-                final passaCidade = LocationService.cidadeCampoCorrespondeUsuario(
-                  campoCidade:
-                      (data['cidade_normalizada'] ?? data['cidade'])?.toString(),
+                final passaCidade = LocationService.anuncioCidadeCorrespondeUsuario(
+                  cidadeNormalizada: data['cidade_normalizada']?.toString(),
+                  cidade: data['cidade']?.toString(),
                   cidadeNormUsuario: cidadeNorm,
                   ufNormUsuario: ufNorm,
+                  globalSeVazio: true,
                 );
 
                 return agora.isAfter(inicio) &&
@@ -674,6 +675,7 @@ class _SearchScreenState extends State<SearchScreen> {
                     final cidadeCard = _formatarNomeCidade(
                       ad['cidade']?.toString(),
                     );
+                    final imagemUrl = (ad['imagem_url'] ?? '').toString();
 
                     return Container(
                       width: 185,
@@ -698,15 +700,36 @@ class _SearchScreenState extends State<SearchScreen> {
                             child: Column(
                               crossAxisAlignment: CrossAxisAlignment.start,
                               children: [
-                                Text(
-                                  ad['titulo'] ?? 'Profissional',
-                                  style: const TextStyle(
-                                    fontWeight: FontWeight.w700,
-                                    fontSize: 14,
-                                    color: Color(0xFF1E1B4B),
-                                  ),
-                                  maxLines: 1,
-                                  overflow: TextOverflow.ellipsis,
+                                Row(
+                                  crossAxisAlignment: CrossAxisAlignment.start,
+                                  children: [
+                                    if (imagemUrl.isNotEmpty) ...[
+                                      ClipRRect(
+                                        borderRadius: BorderRadius.circular(8),
+                                        child: Image.network(
+                                          imagemUrl,
+                                          width: 36,
+                                          height: 36,
+                                          fit: BoxFit.cover,
+                                          errorBuilder: (_, __, ___) =>
+                                              const SizedBox.shrink(),
+                                        ),
+                                      ),
+                                      const SizedBox(width: 8),
+                                    ],
+                                    Expanded(
+                                      child: Text(
+                                        ad['titulo'] ?? 'Profissional',
+                                        style: const TextStyle(
+                                          fontWeight: FontWeight.w700,
+                                          fontSize: 14,
+                                          color: Color(0xFF1E1B4B),
+                                        ),
+                                        maxLines: 2,
+                                        overflow: TextOverflow.ellipsis,
+                                      ),
+                                    ),
+                                  ],
                                 ),
                                 const SizedBox(height: 4),
                                 Container(
@@ -856,11 +879,12 @@ class _SearchScreenState extends State<SearchScreen> {
                 DateTime vencimento = (data['data_vencimento'] as Timestamp)
                     .toDate();
 
-                bool passaCidade = LocationService.cidadeCampoCorrespondeUsuario(
-                  campoCidade:
-                      (data['cidade_normalizada'] ?? data['cidade'])?.toString(),
+                bool passaCidade = LocationService.anuncioCidadeCorrespondeUsuario(
+                  cidadeNormalizada: data['cidade_normalizada']?.toString(),
+                  cidade: data['cidade']?.toString(),
                   cidadeNormUsuario: cidadeNorm,
                   ufNormUsuario: ufNorm,
+                  globalSeVazio: true,
                 );
 
                 return agora.isAfter(inicio) &&
@@ -892,6 +916,7 @@ class _SearchScreenState extends State<SearchScreen> {
                   }
 
                   var tel = telefonesValidos[i].data() as Map<String, dynamic>;
+                  final telImg = (tel['imagem_url'] ?? '').toString();
                   return Material(
                     color: Colors.white,
                     shape: RoundedRectangleBorder(
@@ -909,15 +934,34 @@ class _SearchScreenState extends State<SearchScreen> {
                         padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 10),
                         child: Row(
                           children: [
-                            Container(
-                              width: 32,
-                              height: 32,
-                              decoration: BoxDecoration(
-                                color: diPertinRoxo.withValues(alpha: 0.08),
-                                borderRadius: BorderRadius.circular(8),
-                              ),
-                              child: const Icon(Icons.phone_forwarded_rounded, color: diPertinRoxo, size: 16),
-                            ),
+                            telImg.isNotEmpty
+                                ? ClipRRect(
+                                    borderRadius: BorderRadius.circular(8),
+                                    child: Image.network(
+                                      telImg,
+                                      width: 32,
+                                      height: 32,
+                                      fit: BoxFit.cover,
+                                      errorBuilder: (_, __, ___) => Container(
+                                        width: 32,
+                                        height: 32,
+                                        decoration: BoxDecoration(
+                                          color: diPertinRoxo.withValues(alpha: 0.08),
+                                          borderRadius: BorderRadius.circular(8),
+                                        ),
+                                        child: const Icon(Icons.phone_forwarded_rounded, color: diPertinRoxo, size: 16),
+                                      ),
+                                    ),
+                                  )
+                                : Container(
+                                    width: 32,
+                                    height: 32,
+                                    decoration: BoxDecoration(
+                                      color: diPertinRoxo.withValues(alpha: 0.08),
+                                      borderRadius: BorderRadius.circular(8),
+                                    ),
+                                    child: const Icon(Icons.phone_forwarded_rounded, color: diPertinRoxo, size: 16),
+                                  ),
                             const SizedBox(width: 10),
                             Expanded(
                               child: Column(
@@ -1365,9 +1409,9 @@ class _SearchScreenState extends State<SearchScreen> {
         children: [
           // Envolvemos tudo no StreamBuilder de Lojas primeiro para pegar os IDs
           StreamBuilder<QuerySnapshot>(
+            // Fase 3G.2 — busca lê `lojas_public` (ver vitrine_screen.dart).
             stream: FirebaseFirestore.instance
-                .collection('users')
-                .where('role', isEqualTo: 'lojista')
+                .collection('lojas_public')
                 .snapshots(),
             builder: (context, snapshotLojas) {
               List<String> lojasIdsEncontradas = [];

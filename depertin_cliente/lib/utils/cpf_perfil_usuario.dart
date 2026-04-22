@@ -25,6 +25,31 @@ class CpfPerfilUsuario {
     return true;
   }
 
+  /// Validação completa de CPF (Mod 11) a partir de entrada livre (com ou sem máscara).
+  /// Retorna `true` apenas quando os 11 dígitos passam no cálculo dos dígitos verificadores.
+  static bool cpfValido(String entrada) {
+    final d = somenteDigitos(entrada);
+    if (!digitosCpfValidos(d)) return false;
+
+    int soma = 0;
+    for (int i = 0; i < 9; i++) {
+      soma += int.parse(d[i]) * (10 - i);
+    }
+    int resto = (soma * 10) % 11;
+    if (resto == 10) resto = 0;
+    if (resto != int.parse(d[9])) return false;
+
+    soma = 0;
+    for (int i = 0; i < 10; i++) {
+      soma += int.parse(d[i]) * (11 - i);
+    }
+    resto = (soma * 10) % 11;
+    if (resto == 10) resto = 0;
+    if (resto != int.parse(d[10])) return false;
+
+    return true;
+  }
+
   static String comMascara11(String onzeDigitos) {
     final d = somenteDigitos(onzeDigitos);
     if (d.length != 11) return onzeDigitos;

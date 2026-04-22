@@ -50,3 +50,10 @@ criar_repo_e_push.ps1
 # OAuth / segredos do Google (nunca no frontend; apenas client_id pode ir no código)
 **/client_secret*.json
 **/web/client_secret*.json
+
+# Keystore de release Android (NUNCA commitar — perder = perder o app na Play Store)
+**/android/key.properties
+**/android/*.jks
+**/android/**/*.keystore
+# Exceção: o google-services.json É commitado (contém apenas IDs públicos)
+!**/android/app/google-services.json

@@ -296,6 +296,25 @@ class _CheckoutPagamentoScreenState extends State<CheckoutPagamentoScreen> {
 
   String _somenteDigitos(String valor) => valor.replaceAll(RegExp(r'\D'), '');
 
+  /// Valida CPF pelo algoritmo oficial (dois dígitos verificadores).
+  /// O Mercado Pago rejeita pagamentos com CPFs que não passam nessa conferência
+  /// retornando "Invalid user identification number".
+  bool _cpfValido(String cpf) {
+    final digitos = _somenteDigitos(cpf);
+    if (digitos.length != 11) return false;
+    if (RegExp(r'^(\d)\1{10}$').hasMatch(digitos)) return false;
+    int calcDigito(int ate) {
+      int soma = 0;
+      for (int i = 0; i < ate; i++) {
+        soma += int.parse(digitos[i]) * ((ate + 1) - i);
+      }
+      final resto = (soma * 10) % 11;
+      return resto == 10 ? 0 : resto;
+    }
+    return calcDigito(9) == int.parse(digitos[9]) &&
+        calcDigito(10) == int.parse(digitos[10]);
+  }
+
   ({int mes, int ano})? _parseValidadeCartao(String valor) {
     final partes = valor.split('/');
     if (partes.length != 2) return null;
@@ -303,6 +322,9 @@ class _CheckoutPagamentoScreenState extends State<CheckoutPagamentoScreen> {
     final anoRaw = int.tryParse(_somenteDigitos(partes[1])) ?? 0;
     if (mes < 1 || mes > 12 || anoRaw <= 0) return null;
     final ano = anoRaw < 100 ? 2000 + anoRaw : anoRaw;
+    final agora = DateTime.now();
+    final fimDoMesCartao = DateTime(ano, mes + 1, 0, 23, 59, 59);
+    if (fimDoMesCartao.isBefore(agora)) return null;
     return (mes: mes, ano: ano);
   }
 
@@ -442,6 +464,36 @@ class _CheckoutPagamentoScreenState extends State<CheckoutPagamentoScreen> {
     );
   }
 
+  Future<void> _mostrarPopupPagamentoEmAnalise() async {
+    if (!mounted) return;
+    await showDialog<void>(
+      context: context,
+      barrierDismissible: false,
+      builder: (ctx) => AlertDialog(
+        shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(16)),
+        title: Row(
+          children: const [
+            Icon(Icons.hourglass_top, color: Colors.orange, size: 28),
+            SizedBox(width: 10),
+            Expanded(child: Text('Pagamento em análise')),
+          ],
+        ),
+        content: const Text(
+          'O Mercado Pago está analisando seu pagamento. Isso pode levar alguns '
+          'minutos. Acompanhe o status em Meus Pedidos — você será notificado '
+          'assim que for aprovado.',
+        ),
+        actions: [
+          FilledButton(
+            style: FilledButton.styleFrom(backgroundColor: diPertinRoxo),
+            onPressed: () => Navigator.of(ctx).pop(),
+            child: const Text('Ver meus pedidos'),
+          ),
+        ],
+      ),
+    );
+  }
+
   Future<void> _processarPagamentoCartao() async {
     final pedidoId = widget.pedidoFirestoreId?.trim();
     if (pedidoId == null || pedidoId.isEmpty) {
@@ -461,14 +513,28 @@ class _CheckoutPagamentoScreenState extends State<CheckoutPagamentoScreen> {
     final validade = _parseValidadeCartao(_validadeC.text);
     final paymentMethodId = _resolverPaymentMethodIdCartao(numeroCartao);
 
-    if (numeroCartao.length < 13 ||
-        nomeTitular.isEmpty ||
-        cvv.length < 3 ||
-        validade == null ||
-        cpf.length != 11) {
+    if (numeroCartao.length < 13 || nomeTitular.isEmpty || cvv.length < 3) {
       ScaffoldMessenger.of(context).showSnackBar(
         const SnackBar(
-          content: Text('Preencha corretamente os dados do cartão e CPF.'),
+          content: Text('Preencha corretamente os dados do cartão.'),
+          backgroundColor: Colors.red,
+        ),
+      );
+      return;
+    }
+    if (!_cpfValido(cpf)) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(
+          content: Text('CPF do titular inválido. Verifique os números digitados.'),
+          backgroundColor: Colors.red,
+        ),
+      );
+      return;
+    }
+    if (validade == null) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(
+          content: Text('Validade do cartão inválida ou expirada. Use o formato MM/AA.'),
           backgroundColor: Colors.red,
         ),
       );
@@ -530,9 +596,17 @@ class _CheckoutPagamentoScreenState extends State<CheckoutPagamentoScreen> {
         await _mostrarPopupPagamentoRecusado(msg);
         _irParaMeusPedidosTodos();
       } else {
-        await _cancelarPedidoCartaoNaoConcluido(pedidoId);
-        final msg = await _mensagemRecusaDoPedido(pedidoId);
-        await _mostrarPopupPagamentoRecusado(msg);
+        // Timeout: pagamento ainda em análise no Mercado Pago.
+        // NÃO cancela o pedido — o webhook do MP atualizará quando decidir.
+        // Se o MP decidir rejeitar, o pedido é cancelado automaticamente lá.
+        final statusPedido = statusMp.isNotEmpty ? statusMp : 'in_process';
+        final emAnalise = statusPedido == 'in_process' || statusPedido == 'pending';
+        if (emAnalise) {
+          await _mostrarPopupPagamentoEmAnalise();
+        } else {
+          final msg = await _mensagemRecusaDoPedido(pedidoId);
+          await _mostrarPopupPagamentoRecusado(msg);
+        }
         _irParaMeusPedidosTodos();
       }
     } on FirebaseFunctionsException catch (e) {

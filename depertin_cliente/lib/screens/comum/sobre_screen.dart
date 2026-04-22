@@ -2,6 +2,7 @@
 
 import 'package:flutter/material.dart';
 import 'package:package_info_plus/package_info_plus.dart';
+import 'package:url_launcher/url_launcher.dart';
 
 const Color _diPertinRoxo = Color(0xFF6A1B9A);
 const Color _diPertinLaranja = Color(0xFFFF8F00);
@@ -119,11 +120,39 @@ class _SobreScreenState extends State<SobreScreen> {
             ),
             const SizedBox(height: 16),
             _card(
+              child: Column(
+                children: [
+                  _linhaInfo(
+                    icon: Icons.badge_rounded,
+                    titulo: 'CNPJ',
+                    valor: '66.040.998/0001-66',
+                  ),
+                  const Divider(height: 22, color: Color(0xFFEDEAF2)),
+                  _linhaInfo(
+                    icon: Icons.phone_rounded,
+                    titulo: 'Telefone',
+                    valor: '(66) 3180-0107',
+                    onTap: _abrirTelefone,
+                    destaque: true,
+                  ),
+                  const Divider(height: 22, color: Color(0xFFEDEAF2)),
+                  _linhaInfo(
+                    icon: Icons.language_rounded,
+                    titulo: 'Site',
+                    valor: 'www.dipertin.com.br',
+                    onTap: _abrirSite,
+                    destaque: true,
+                  ),
+                ],
+              ),
+            ),
+            const SizedBox(height: 16),
+            _card(
               child: Text(
-                'O DiPertin é uma plataforma de marketplace e delivery local '
-                'que conecta clientes, lojas parceiras e entregadores. Compre, '
-                'acompanhe pedidos, converse com o suporte e gerencie seu perfil '
-                'em um só lugar.',
+                'O DiPertin é um marketplace local que conecta clientes, '
+                'lojas parceiras e entregadores. Compre em diversas lojas da '
+                'sua cidade, acompanhe seus pedidos, converse com o suporte '
+                'e gerencie seu perfil em um só lugar.',
                 style: TextStyle(
                   fontSize: 14.5,
                   height: 1.55,
@@ -188,8 +217,24 @@ class _SobreScreenState extends State<SobreScreen> {
     required IconData icon,
     required String titulo,
     required String valor,
+    VoidCallback? onTap,
+    bool destaque = false,
   }) {
-    return Row(
+    final Color corValor = destaque
+        ? _diPertinRoxo
+        : const Color(0xFF1A1A2E);
+    final valorWidget = Text(
+      valor,
+      style: TextStyle(
+        fontSize: 16,
+        fontWeight: FontWeight.w700,
+        color: corValor,
+        decoration: onTap != null ? TextDecoration.underline : null,
+        decorationColor: corValor.withValues(alpha: 0.35),
+      ),
+    );
+
+    final conteudo = Row(
       crossAxisAlignment: CrossAxisAlignment.start,
       children: [
         Icon(icon, color: _diPertinLaranja, size: 22),
@@ -207,18 +252,69 @@ class _SobreScreenState extends State<SobreScreen> {
                 ),
               ),
               const SizedBox(height: 4),
-              SelectableText(
-                valor,
-                style: const TextStyle(
-                  fontSize: 16,
-                  fontWeight: FontWeight.w700,
-                  color: Color(0xFF1A1A2E),
-                ),
-              ),
+              onTap != null
+                  ? valorWidget
+                  : SelectableText(
+                      valor,
+                      style: const TextStyle(
+                        fontSize: 16,
+                        fontWeight: FontWeight.w700,
+                        color: Color(0xFF1A1A2E),
+                      ),
+                    ),
             ],
           ),
         ),
+        if (onTap != null)
+          Icon(
+            Icons.open_in_new_rounded,
+            size: 18,
+            color: _diPertinRoxo.withValues(alpha: 0.7),
+          ),
       ],
+    );
+
+    if (onTap == null) return conteudo;
+
+    return InkWell(
+      onTap: onTap,
+      borderRadius: BorderRadius.circular(10),
+      child: Padding(
+        padding: const EdgeInsets.symmetric(vertical: 2),
+        child: conteudo,
+      ),
+    );
+  }
+
+  Future<void> _abrirTelefone() async {
+    final uri = Uri(scheme: 'tel', path: '6631800107');
+    try {
+      if (await canLaunchUrl(uri)) {
+        await launchUrl(uri);
+        return;
+      }
+    } catch (_) {}
+    _mostrarErroLink('Não foi possível abrir o discador.');
+  }
+
+  Future<void> _abrirSite() async {
+    final uri = Uri.parse('https://www.dipertin.com.br');
+    try {
+      if (await canLaunchUrl(uri)) {
+        await launchUrl(uri, mode: LaunchMode.externalApplication);
+        return;
+      }
+    } catch (_) {}
+    _mostrarErroLink('Não foi possível abrir o site.');
+  }
+
+  void _mostrarErroLink(String mensagem) {
+    if (!mounted) return;
+    ScaffoldMessenger.of(context).showSnackBar(
+      SnackBar(
+        content: Text(mensagem),
+        backgroundColor: Colors.red,
+      ),
     );
   }
 }

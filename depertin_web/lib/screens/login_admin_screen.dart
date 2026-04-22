@@ -265,16 +265,22 @@ class _LoginAdminScreenState extends State<LoginAdminScreen> {
 
       await _aplicarRegrasPosLoginFirestore(uid, safeWebDocData(docSnap));
     } on FirebaseAuthException catch (e) {
-      String mensagem = 'Erro ao conectar. Tente novamente.';
+      String mensagem = 'Erro ao conectar (${e.code}). Tente novamente.';
       if (e.code == 'user-not-found' ||
           e.code == 'invalid-credential' ||
           e.code == 'wrong-password') {
         mensagem = 'E-mail ou senha incorretos.';
+      } else if (e.code == 'network-request-failed') {
+        mensagem = 'Sem conexão com a internet. Verifique sua rede.';
+      } else if (e.code == 'too-many-requests') {
+        mensagem = 'Muitas tentativas. Aguarde alguns minutos e tente novamente.';
+      } else if (e.code == 'user-disabled') {
+        mensagem = 'Conta desativada. Entre em contato com o suporte.';
       }
       _mostrarErro(mensagem);
       setState(() => _isLoading = false);
     } catch (e) {
-      _mostrarErro('Erro interno no servidor.');
+      _mostrarErro('Erro interno: $e');
       setState(() => _isLoading = false);
     }
   }

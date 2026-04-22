@@ -90,6 +90,73 @@ class _CartScreenState extends State<CartScreen> {
     return null;
   }
 
+  /// Fase 3G.3 — lê nome + foto_perfil do cliente uma única vez pra gravar
+  /// denormalizado no pedido (`cliente_nome`, `cliente_foto_perfil`). Assim
+  /// lojista e entregador mostram a identificação sem precisar ler `users/{cliente_id}`,
+  /// o que permite fechar a rule de `users` pra proteger CPF/email/telefone/saldo.
+  static Future<Map<String, String>> _lerIdentidadeClienteParaPedido(
+    String clienteId,
+  ) async {
+    if (clienteId.trim().isEmpty) {
+      return const {'nome': '', 'foto': '', 'telefone': ''};
+    }
+    try {
+      final snap = await FirebaseFirestore.instance
+          .collection('users')
+          .doc(clienteId)
+          .get();
+      final data = snap.data() ?? const <String, dynamic>{};
+      final nome = (data['nome'] ??
+              data['nomeCompleto'] ??
+              data['nome_completo'] ??
+              data['displayName'] ??
+              '')
+          .toString()
+          .trim();
+      final foto = (data['foto_perfil'] ?? data['foto'] ?? '')
+          .toString()
+          .trim();
+      final telefone = (data['telefone'] ??
+              data['whatsapp'] ??
+              data['celular'] ??
+              data['telefone_contato'] ??
+              '')
+          .toString()
+          .trim();
+      return {'nome': nome, 'foto': foto, 'telefone': telefone};
+    } catch (_) {
+      return const {'nome': '', 'foto': '', 'telefone': ''};
+    }
+  }
+
+  /// Extrai o telefone comercial da loja do mirror público (`lojas_public`).
+  static String _telefoneLoja(Map<String, dynamic>? ld) {
+    if (ld == null) return '';
+    for (final k in const ['telefone', 'whatsapp', 'celular']) {
+      final v = (ld[k] ?? '').toString().trim();
+      if (v.isNotEmpty) return v;
+    }
+    return '';
+  }
+
+  /// Extrai a melhor imagem da loja disponível em `lojas_public` pra gravar
+  /// como `loja_foto` no pedido. Prioriza `foto_perfil` → `foto` → `foto_logo`
+  /// → `foto_capa` → `imagem`.
+  static String _melhorFotoLoja(Map<String, dynamic>? ld) {
+    if (ld == null) return '';
+    for (final k in const [
+      'foto_perfil',
+      'foto',
+      'foto_logo',
+      'foto_capa',
+      'imagem',
+    ]) {
+      final v = (ld[k] ?? '').toString().trim();
+      if (v.isNotEmpty) return v;
+    }
+    return '';
+  }
+
   static double? _parseMoedaDigitada(String valor) {
     var texto = valor.trim();
     if (texto.isEmpty) return null;
@@ -309,8 +376,10 @@ class _CartScreenState extends State<CartScreen> {
     required String lojaId,
     required String enderecoTexto,
   }) async {
+    // Fase 3G.2 — carrinho lê dados da loja em `lojas_public` (cidade + coords
+    // para calcular frete). Dados sensíveis do lojista ficam em `users`.
     final lojaDoc = await FirebaseFirestore.instance
-        .collection('users')
+        .collection('lojas_public')
         .doc(lojaId)
         .get();
     final ld = lojaDoc.data() ?? const <String, dynamic>{};
@@ -385,11 +454,18 @@ class _CartScreenState extends State<CartScreen> {
 
     if (mounted) setState(() => _calculandoTaxaEntrega = true);
 
-    try {
-      final taxas = <String, double>{};
-      var soma = 0.0;
-      String? primeiroDetalheKm;
-      for (final lojaId in lojaIds) {
+    final taxas = <String, double>{};
+    var soma = 0.0;
+    String? primeiroDetalheKm;
+    var qtdFalhas = 0;
+
+    // Multi-loja: cada loja é resolvida ISOLADAMENTE. Se UMA falhar
+    // (timeout, geocoding, etc.), aplicamos fallback _taxaBaseFallback
+    // SÓ pra essa loja e continuamos calculando as demais. Antes, qualquer
+    // exceção zerava o mapa inteiro (`_taxaEntregaPorLoja = {}`), o que
+    // cascateava em frete=0 para todas no batch.
+    for (final lojaId in lojaIds) {
+      try {
         final r = await _resolverTaxaEntregaParaLoja(
           clienteId: user.uid,
           lojaId: lojaId,
@@ -398,31 +474,33 @@ class _CartScreenState extends State<CartScreen> {
         taxas[lojaId] = r.taxa;
         soma += r.taxa;
         primeiroDetalheKm ??= r.detalheKm;
+      } catch (e) {
+        qtdFalhas++;
+        taxas[lojaId] = _taxaBaseFallback;
+        soma += _taxaBaseFallback;
+        debugPrint(
+          'Erro ao calcular taxa para loja $lojaId (usando fallback R\$ $_taxaBaseFallback): $e',
+        );
       }
-      if (mounted) {
-        setState(() {
-          _taxaEntregaPorLoja = taxas;
-          _taxaEntregaCalculada = _round2(soma);
-          if (lojaIds.length > 1) {
-            _detalheTaxaEntrega =
-                '${lojaIds.length} lojas — total frete R\$ ${_taxaEntregaCalculada.toStringAsFixed(2)}';
-          } else {
-            _detalheTaxaEntrega =
-                primeiroDetalheKm ?? 'Frete calculado';
-          }
-          _calculandoTaxaEntrega = false;
-        });
-      }
-    } catch (e) {
-      if (!mounted) return;
-      setState(() {
-        _taxaEntregaCalculada = _taxaBaseFallback;
-        _taxaEntregaPorLoja = {};
-        _detalheTaxaEntrega = 'Frete padrão (erro ao calcular)';
-        _calculandoTaxaEntrega = false;
-      });
-      debugPrint('Erro ao recalcular taxa de entrega: $e');
     }
+
+    if (!mounted) return;
+    setState(() {
+      _taxaEntregaPorLoja = taxas;
+      _taxaEntregaCalculada = _round2(soma);
+      if (lojaIds.length > 1) {
+        final sufixo = qtdFalhas > 0
+            ? ' (frete padrão em $qtdFalhas)'
+            : '';
+        _detalheTaxaEntrega =
+            '${lojaIds.length} lojas — total frete R\$ ${_taxaEntregaCalculada.toStringAsFixed(2)}$sufixo';
+      } else {
+        _detalheTaxaEntrega = qtdFalhas > 0
+            ? 'Frete padrão (erro ao calcular)'
+            : (primeiroDetalheKm ?? 'Frete calculado');
+      }
+      _calculandoTaxaEntrega = false;
+    });
   }
 
   @override
@@ -494,13 +572,24 @@ class _CartScreenState extends State<CartScreen> {
     });
 
     try {
-      final lojaId = cart.items.isNotEmpty ? cart.items.first.lojaId : '';
+      // Envia TODAS as lojas únicas do carrinho. A function rejeita
+      // cupom restrito a 1 loja se o carrinho tem itens de outras lojas
+      // (cupom de loja específica não pode ser dividido entre lojas).
+      // `loja_id` continua sendo enviado (compat retroativa) com a primeira.
+      final lojaIds = cart.items
+          .map((e) => e.lojaId.trim())
+          .where((id) => id.isNotEmpty)
+          .toSet()
+          .toList()
+        ..sort();
+      final lojaIdPrincipal = lojaIds.isNotEmpty ? lojaIds.first : '';
       final result = await appFirebaseFunctions
           .httpsCallable('validarCupom')
           .call<Map<String, dynamic>>({
             'codigo': codigo,
             'subtotal_produtos': cart.totalAmount,
-            'loja_id': lojaId,
+            'loja_id': lojaIdPrincipal,
+            'loja_ids': lojaIds,
           });
 
       final data = result.data;
@@ -553,8 +642,9 @@ class _CartScreenState extends State<CartScreen> {
     final lojas = cart.items.map((e) => e.lojaId.trim()).where((id) => id.isNotEmpty).toSet();
     for (final lojaId in lojas) {
       try {
+        // Fase 3G.2 — verifica se a loja está aberta via `lojas_public`.
         final lojaDoc = await FirebaseFirestore.instance
-            .collection('users')
+            .collection('lojas_public')
             .doc(lojaId)
             .get();
         if (lojaDoc.exists) {
@@ -690,6 +780,7 @@ class _CartScreenState extends State<CartScreen> {
             metodoPreSelecionado: 'PIX',
             pedidoFirestoreId: pedidoId,
             onPagamentoAprovado: () {
+              cart.clearCart();
               Navigator.pop(context);
               Navigator.pop(context);
               Navigator.pushReplacementNamed(context, '/meus-pedidos');
@@ -697,6 +788,10 @@ class _CartScreenState extends State<CartScreen> {
           ),
         ),
       );
+      // Se o cliente voltou sem concluir, cancela o pedido em
+      // `aguardando_pagamento` para não deixar pedido fantasma. O
+      // carrinho permanece preservado, permitindo nova tentativa.
+      await _cancelarPedidoAguardandoPagamentoSePendente(pedidoId);
       return;
     }
 
@@ -720,6 +815,7 @@ class _CartScreenState extends State<CartScreen> {
             metodoPreSelecionado: 'Cartão',
             pedidoFirestoreId: pedidoId,
             onPagamentoAprovado: () {
+              cart.clearCart();
               Navigator.pop(context);
               Navigator.pop(context);
               Navigator.pushReplacementNamed(context, '/meus-pedidos');
@@ -727,7 +823,61 @@ class _CartScreenState extends State<CartScreen> {
           ),
         ),
       );
+      // Se o cliente voltou sem concluir, cancela o pedido em
+      // `aguardando_pagamento` para não deixar pedido fantasma. O
+      // carrinho permanece preservado, permitindo nova tentativa.
+      await _cancelarPedidoAguardandoPagamentoSePendente(pedidoId);
       return;
+    }
+  }
+
+  /// Cancela o pedido `aguardando_pagamento` (e demais do mesmo grupo
+  /// multi-loja) quando o cliente sai do checkout sem concluir o pagamento.
+  /// Mantém o carrinho intocado para que o usuário possa revisar e tentar
+  /// novamente.
+  Future<void> _cancelarPedidoAguardandoPagamentoSePendente(
+    String pedidoId,
+  ) async {
+    try {
+      final ref = FirebaseFirestore.instance
+          .collection('pedidos')
+          .doc(pedidoId);
+      final snap = await ref.get();
+      if (!snap.exists) return;
+      final data = snap.data() ?? {};
+      final status = (data['status'] ?? '').toString();
+      if (status != 'aguardando_pagamento') {
+        // Já foi pago, cancelado por outro fluxo ou avançou de status.
+        return;
+      }
+
+      // Coleta IDs do grupo (checkout multi-loja) para cancelar todos juntos.
+      final rawGrupo = data['checkout_grupo_pedido_ids'];
+      final ids = <String>[];
+      if (rawGrupo is List) {
+        for (final e in rawGrupo) {
+          final s = e.toString().trim();
+          if (s.isNotEmpty) ids.add(s);
+        }
+      }
+      final alvos = ids.length > 1 ? ids.toSet().toList() : [pedidoId];
+      final batch = FirebaseFirestore.instance.batch();
+      for (final id in alvos) {
+        final r = FirebaseFirestore.instance.collection('pedidos').doc(id);
+        final s = id == pedidoId ? snap : await r.get();
+        if (!s.exists) continue;
+        final st = (s.data()?['status'] ?? '').toString();
+        if (st == 'aguardando_pagamento') {
+          batch.update(r, {
+            'status': 'cancelado',
+            'cancelado_motivo': 'cliente_voltou_sem_pagar',
+            'cancelado_em': FieldValue.serverTimestamp(),
+          });
+        }
+      }
+      await batch.commit();
+    } catch (_) {
+      // Não bloquear UX caso o cancelamento falhe.
     }
   }
 
@@ -785,17 +935,22 @@ class _CartScreenState extends State<CartScreen> {
       String lojaNome = listaItens.isNotEmpty ? listaItens.first.lojaNome : '';
 
       String enderecoDaLoja = 'Endereço não cadastrado';
+      String lojaFoto = '';
       double? lojaLat;
       double? lojaLng;
       double? entregaLat;
       double? entregaLng;
+      String lojaTelefone = '';
       if (lojaId.isNotEmpty) {
+        // Fase 3G.2 — copia dados públicos da loja pro pedido via `lojas_public`.
         var lojaDoc = await FirebaseFirestore.instance
-            .collection('users')
+            .collection('lojas_public')
             .doc(lojaId)
             .get();
         if (lojaDoc.exists) {
           final ld = lojaDoc.data();
+          lojaFoto = _melhorFotoLoja(ld);
+          lojaTelefone = _telefoneLoja(ld);
           bool aberta = ld?['loja_aberta'] ?? true;
           if (ld != null && LojaPausa.lojaEfetivamentePausada(ld)) {
             aberta = false;
@@ -858,11 +1013,20 @@ class _CartScreenState extends State<CartScreen> {
           ? trocoPara - totalFinal
           : 0.0;
 
+      // Fase 3G.3 — denormaliza identidade do cliente no pedido pra que lojista e
+      // entregador não precisem mais ler `users/{cliente_id}` (permite fechar rule).
+      final identidadeCliente = await _lerIdentidadeClienteParaPedido(clienteId);
+
       final docRef = await FirebaseFirestore.instance.collection('pedidos').add(
         {
           'cliente_id': clienteId,
+          'cliente_nome': identidadeCliente['nome'] ?? '',
+          'cliente_foto_perfil': identidadeCliente['foto'] ?? '',
+          'cliente_telefone': identidadeCliente['telefone'] ?? '',
           'loja_id': lojaId,
           'loja_nome': lojaNome,
+          'loja_foto': lojaFoto,
+          'loja_telefone': lojaTelefone,
           'loja_endereco': enderecoDaLoja,
           if (lojaLat != null && lojaLng != null) ...{
             'loja_latitude': lojaLat,
@@ -893,6 +1057,7 @@ class _CartScreenState extends State<CartScreen> {
               : _formaPagamento,
           if (pagamentoDinheiro) ...{
             'pagamento_dinheiro_precisa_troco': _precisaTrocoDinheiro,
+            'troco_responsavel': 'entregador',
             if (_precisaTrocoDinheiro && trocoPara != null)
               'pagamento_dinheiro_troco_para': double.parse(
                 trocoPara.toStringAsFixed(2),
@@ -916,7 +1081,14 @@ class _CartScreenState extends State<CartScreen> {
       }
 
       _qtdPedidosUltimoCheckout = 1;
-      cart.clearCart();
+
+      // Só limpa o carrinho quando o pedido é imediatamente finalizado
+      // (Dinheiro / saldo). Para PIX e Cartão, o status é
+      // `aguardando_pagamento` e o carrinho só é limpo após aprovação,
+      // permitindo que o cliente volte para esta tela e ajuste a compra.
+      if (fecharCarrinhoEExibirDialogo) {
+        cart.clearCart();
+      }
 
       if (mounted) {
         if (fecharCarrinhoEExibirDialogo) {
@@ -1022,9 +1194,12 @@ class _CartScreenState extends State<CartScreen> {
       totais[n - 1] = _round2(totais[n - 1] + (totalFinal - sumT));
     }
 
+    // Fase 3G.2 — múltiplas lojas no mesmo checkout (múltiplos carrinhos) leem
+    // `lojas_public`. Cada doc contém só dados de fachada (cidade, endereço,
+    // coords, pausa), suficiente para o pedido.
     final lojaSnapshots = await Future.wait(
       lojaKeys.map(
-        (id) => FirebaseFirestore.instance.collection('users').doc(id).get(),
+        (id) => FirebaseFirestore.instance.collection('lojas_public').doc(id).get(),
       ),
     );
     final lojaPorId = <String, Map<String, dynamic>>{
@@ -1062,6 +1237,9 @@ class _CartScreenState extends State<CartScreen> {
       entregaLng = coords.lng;
     }
 
+    // Fase 3G.3 — lê identidade do cliente uma vez só pra gravar em todos os pedidos do batch.
+    final identidadeCliente = await _lerIdentidadeClienteParaPedido(clienteId);
+
     if (!_retirarNaLoja) {
       await FirebaseFirestore.instance.collection('users').doc(clienteId).set(
         {'endereco': _enderecoController.text.trim()},
@@ -1077,16 +1255,21 @@ class _CartScreenState extends State<CartScreen> {
     final trocoParaPorLoja = List<double?>.filled(n, null);
     final trocoValorPorLoja = List<double>.filled(n, 0);
     if (trocoParaGlobal != null) {
-      final totaisProdutos = List<double>.generate(
+      // Cada pedido (loja) tem o seu próprio entregador, que é o
+      // responsável pelo dinheiro/troco daquela parcela. A base correta
+      // para o troco é o total que o cliente paga POR PEDIDO (produtos +
+      // frete da loja, descontos já aplicados). Antes usava só subtotal de
+      // produtos, gerando incoerência com o single-store que usa totalFinal.
+      final totaisPorPedido = List<double>.generate(
         n,
-        (i) => _round2(_subtotalItensLista(grupos[lojaKeys[i]]!)),
+        (i) => _round2(totais[i]),
       );
-      final somaProdutos = totaisProdutos.fold(0.0, (a, b) => a + b);
-      if (somaProdutos > 0) {
+      final somaTotais = totaisPorPedido.fold(0.0, (a, b) => a + b);
+      if (somaTotais > 0) {
         var accTrocoPara = 0.0;
         for (var i = 0; i < n; i++) {
           if (i < n - 1) {
-            final proporcao = totaisProdutos[i] / somaProdutos;
+            final proporcao = totaisPorPedido[i] / somaTotais;
             final tp = _round2(trocoParaGlobal * proporcao);
             trocoParaPorLoja[i] = tp;
             accTrocoPara += tp;
@@ -1094,8 +1277,8 @@ class _CartScreenState extends State<CartScreen> {
             trocoParaPorLoja[i] = _round2(trocoParaGlobal - accTrocoPara);
           }
           final tp = trocoParaPorLoja[i]!;
-          trocoValorPorLoja[i] = tp > totaisProdutos[i]
-              ? _round2(tp - totaisProdutos[i])
+          trocoValorPorLoja[i] = tp > totaisPorPedido[i]
+              ? _round2(tp - totaisPorPedido[i])
               : 0;
         }
       }
@@ -1148,8 +1331,13 @@ class _CartScreenState extends State<CartScreen> {
 
       final docPayload = <String, dynamic>{
         'cliente_id': clienteId,
+        'cliente_nome': identidadeCliente['nome'] ?? '',
+        'cliente_foto_perfil': identidadeCliente['foto'] ?? '',
+        'cliente_telefone': identidadeCliente['telefone'] ?? '',
         'loja_id': lojaId,
         'loja_nome': lojaNome.isNotEmpty ? lojaNome : listaItens.first.lojaNome,
+        'loja_foto': _melhorFotoLoja(ld),
+        'loja_telefone': _telefoneLoja(ld),
         'loja_endereco': enderecoDaLoja,
         if (lojaLat != null && lojaLng != null) ...{
           'loja_latitude': lojaLat,
@@ -1180,6 +1368,7 @@ class _CartScreenState extends State<CartScreen> {
             : _formaPagamento,
         if (pagamentoDinheiro) ...{
           'pagamento_dinheiro_precisa_troco': _precisaTrocoDinheiro,
+          'troco_responsavel': 'entregador',
           if (_precisaTrocoDinheiro && trocoParaPorLoja[i] != null)
             'pagamento_dinheiro_troco_para': double.parse(
               trocoParaPorLoja[i]!.toStringAsFixed(2),
@@ -1223,7 +1412,14 @@ class _CartScreenState extends State<CartScreen> {
     }
 
     _qtdPedidosUltimoCheckout = n;
-    cart.clearCart();
+
+    // Só limpa o carrinho quando o pedido é imediatamente finalizado
+    // (Dinheiro / saldo). Para PIX e Cartão, o status é
+    // `aguardando_pagamento` e o carrinho só é limpo após aprovação,
+    // permitindo que o cliente volte para esta tela e ajuste a compra.
+    if (fecharCarrinhoEExibirDialogo) {
+      cart.clearCart();
+    }
 
     if (mounted) {
       if (fecharCarrinhoEExibirDialogo) {
@@ -2451,7 +2647,8 @@ class _CartScreenState extends State<CartScreen> {
                           _pagamentoOpcao(
                             value: 'Dinheiro',
                             titulo: 'Dinheiro na entrega',
-                            subtitulo: 'Pague em espécie ao receber o pedido.',
+                            subtitulo:
+                                'Pague em espécie ao entregador ao receber o pedido.',
                             icon: Icons.payments_outlined,
                             corIcone: diPertinLaranja,
                           ),

@@ -11,7 +11,7 @@
       "android": {
         "default": {
           "projectId": "depertin-f940f",
-          "appId": "1:939151024179:android:452e0377da80e47bd3c346",
+          "appId": "1:939151024179:android:d9108d8925fbd8e7d3c346",
           "fileOutput": "android/app/google-services.json"
         }
       },
@@ -19,7 +19,7 @@
         "lib/firebase_options.dart": {
           "projectId": "depertin-f940f",
           "configurations": {
-            "android": "1:939151024179:android:452e0377da80e47bd3c346"
+            "android": "1:939151024179:android:d9108d8925fbd8e7d3c346"
           }
         }
       }

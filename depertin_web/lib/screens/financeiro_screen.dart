@@ -883,6 +883,7 @@ class _FinanceiroScreenState extends State<FinanceiroScreen> {
     double totalEventos = 0;
     double totalPremium = 0;
     double totalDestaques = 0;
+    double totalVagas = 0;
 
     final historico = <Map<String, dynamic>>[];
     double totalSaidas = 0;
@@ -998,6 +999,21 @@ class _FinanceiroScreenState extends State<FinanceiroScreen> {
       totalEventos += v;
     }
 
+    // ── 5b. Vagas — coleção vagas (ativos com valor) ──
+    final vagasSnap = await FirebaseFirestore.instance
+        .collection('vagas')
+        .where('ativo', isEqualTo: true)
+        .get();
+
+    for (final doc in vagasSnap.docs) {
+      final d = doc.data();
+      final v = _extrairValorDoc(d);
+      if (v <= 0) continue;
+      final tsI = (d['data_inicio'] ?? d['data_criacao']) as Timestamp?;
+      if (tsI != null && !_dentroFiltro(tsI.toDate())) continue;
+      totalVagas += v;
+    }
+
     // ── 6. Despesas — coleção despesas_app ──
     try {
       final despesasSnap = await FirebaseFirestore.instance
@@ -1032,7 +1048,7 @@ class _FinanceiroScreenState extends State<FinanceiroScreen> {
     );
 
     final totalGeral =
-        totalComissoes + totalTaxasEntrega + totalDestaques + totalPremium + totalEventos;
+        totalComissoes + totalTaxasEntrega + totalDestaques + totalPremium + totalEventos + totalVagas;
 
     return {
       'totalGeral': totalGeral,
@@ -1042,6 +1058,7 @@ class _FinanceiroScreenState extends State<FinanceiroScreen> {
       'totalEventos': totalEventos,
       'totalPremium': totalPremium,
       'totalDestaques': totalDestaques,
+      'totalVagas': totalVagas,
       'historico': historico,
     };
   }
@@ -1588,6 +1605,12 @@ class _FinanceiroScreenState extends State<FinanceiroScreen> {
         dados['totalEventos'] as double,
         PainelAdminTheme.roxoEscuro,
         Icons.celebration_outlined,
+      ),
+      _KpiItem(
+        'Vagas',
+        (dados['totalVagas'] as double?) ?? 0,
+        const Color(0xFF059669),
+        Icons.work_outline_rounded,
       ),
     ];
 

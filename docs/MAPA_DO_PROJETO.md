@@ -123,8 +123,8 @@ Backend:
 - **Segredo OAuth no repositório (crítico)**: existe um arquivo `depertin_web/web/client_secret_*.json` contendo `client_secret`.
   - Ação recomendada: **rotacionar** o segredo no Google Cloud Console e remover do repo; no frontend deve ficar apenas `client_id`.
 - **Regras do Firestore potencialmente permissivas (crítico)**:
-  - `users/{userId}` com `allow read: if true` expõe dados de usuário para qualquer pessoa.
-  - Coleção `gateways_pagamento` aparenta estar legível por qualquer autenticado; se armazena tokens (ex.: Mercado Pago), isso é vazamento grave.
+  - ~~`users/{userId}` com `allow read: if true` expõe dados de usuário~~ **Resolvido (Fase 3G, abr/2026)**: agora `read: if signedIn() && (dono || staff || colaboradorLeDono || donoLeColaborador)`. Vitrine pública migrada para `lojas_public`; identidade do cliente/loja denormalizada em `pedidos`; estorno via callable `lojistaConfirmarRetiradaNaLojaComEstorno`.
+  - ~~Coleção `gateways_pagamento` aparenta estar legível por qualquer autenticado~~ **Resolvido (Fase 3H, abr/2026)**: agora `read/write: if isStaff()`.
 - **`.env` em Functions**: `depertin_cliente/functions/.env` aparece modificado no git status — cuidado para nunca versionar segredos.
 
 ## Onde procurar “o que mexe em quê”

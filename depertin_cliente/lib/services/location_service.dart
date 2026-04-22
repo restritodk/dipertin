@@ -203,11 +203,13 @@ class LocationService extends ChangeNotifier {
     required String? campoCidade,
     required String cidadeNormUsuario,
     required String ufNormUsuario,
+    bool globalSeVazio = false,
   }) {
     final raw = (campoCidade ?? '').toString().trim();
-    if (raw.isEmpty) return false;
+    if (raw.isEmpty) return globalSeVazio;
     final nome = nomeCidadeParaFiltroAnuncio(raw);
-    if (nome.isEmpty || nome != cidadeNormUsuario) return false;
+    if (nome.isEmpty) return globalSeVazio;
+    if (nome != cidadeNormUsuario) return false;
     final ufAd = ufAnuncioOpcional(raw);
     if (ufAd != null &&
         ufAd.isNotEmpty &&
@@ -215,6 +217,36 @@ class LocationService extends ChangeNotifier {
       return ufAd == ufNormUsuario;
     }
     return true;
+  }
+
+  /// Versão que recebe os campos brutos (`cidade` e `cidade_normalizada`) do
+  /// documento e escolhe o que contém UF (formato `"Município — UF"`) para
+  /// evitar matches de cidades homônimas (ex.: Toledo-PR ≠ Toledo-SC).
+  ///
+  /// Regras:
+  /// - Se ambos estiverem vazios → depende de [globalSeVazio].
+  /// - Se apenas um contém UF → usa esse.
+  /// - Caso contrário, prefere `cidade_normalizada`.
+  static bool anuncioCidadeCorrespondeUsuario({
+    required String? cidadeNormalizada,
+    required String? cidade,
+    required String cidadeNormUsuario,
+    required String ufNormUsuario,
+    bool globalSeVazio = false,
+  }) {
+    final norm = (cidadeNormalizada ?? '').toString().trim();
+    final raw = (cidade ?? '').toString().trim();
+    final hasUfNorm = ufAnuncioOpcional(norm) != null;
+    final hasUfRaw = ufAnuncioOpcional(raw) != null;
+    final escolhido = hasUfRaw && !hasUfNorm
+        ? raw
+        : (norm.isNotEmpty ? norm : raw);
+    return cidadeCampoCorrespondeUsuario(
+      campoCidade: escolhido,
+      cidadeNormUsuario: cidadeNormUsuario,
+      ufNormUsuario: ufNormUsuario,
+      globalSeVazio: globalSeVazio,
+    );
   }
 
   LocationService() {

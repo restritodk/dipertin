@@ -36,6 +36,22 @@
 
   <title>DiPertin</title>
   <link rel="manifest" href="manifest.json">
+
+  <!--
+    Firebase App Check: em localhost, habilita debug token (o SDK imprime
+    um UUID no console do navegador; cadastre-o em Firebase Console →
+    App Check → apps → depertin_web → "Gerenciar tokens de debug").
+    Em produção (dipertin.com.br/sistema/) NÃO executa — o SDK usa
+    reCAPTCHA v3 normalmente.
+  -->
+  <script>
+    (function () {
+      var h = (self.location && self.location.hostname) || '';
+      if (h === 'localhost' || h === '127.0.0.1' || h === '[::1]') {
+        self.FIREBASE_APPCHECK_DEBUG_TOKEN = true;
+      }
+    })();
+  </script>
 </head>
 <body>
   <!--

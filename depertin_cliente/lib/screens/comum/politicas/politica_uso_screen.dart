@@ -8,12 +8,20 @@ class PoliticaUsoScreen extends StatelessWidget {
 
   static const List<PolicySection> _secoes = [
     PolicySection(
+      titulo: 'Identificação da empresa',
+      corpo:
+          'DiPertin\n'
+          'CNPJ: 66.040.998/0001-66\n'
+          'Telefone: (66) 3180-0107\n'
+          'E-mail: contato@dipertin.com.br',
+    ),
+    PolicySection(
       titulo: 'I — Objeto, natureza jurídica e aceitação',
       corpo:
           'O presente instrumento constitui a Política de Uso (doravante apenas '
           '"Política") do ecossistema digital DiPertin, compreendendo aplicativo '
           'móvel e serviços associados, caracterizado como plataforma de '
-          'intermediação de marketplace e delivery local, mediante tecnologia '
+          'intermediação de marketplace local, mediante tecnologia '
           'própria ou de terceiros integrados.\n\n'
           'O cadastro, o acesso ou o uso continuado implicam ciência e '
           'concordância tácita ou expressa com esta Política, com a Política de '

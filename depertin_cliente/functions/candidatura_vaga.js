@@ -132,7 +132,15 @@ function urlCurriculoValida(url) {
 }
 
 exports.enviarCandidaturaVaga = functions
-    .runWith({ timeoutSeconds: 60, memory: "256MB" })
+    .runWith({
+        timeoutSeconds: 60,
+        memory: "256MB",
+        // App Check: impede que um atacante com o token Firebase Auth de algum
+        // usuário legítimo (ex.: copiado por MITM/phishing) faça flood de emails
+        // via essa callable fora do app oficial. Somente chamadas do app com
+        // Play Integrity válido (ou debug token cadastrado) são aceitas.
+        enforceAppCheck: true,
+    })
     .https.onCall(async (data, context) => {
         if (!context.auth?.uid) {
             throw new functions.https.HttpsError("unauthenticated", "Login necessário para enviar candidatura.");

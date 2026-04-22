@@ -1,4 +1,4 @@
-package com.example.depertin_cliente
+package com.dipertin.app
 
 import android.app.NotificationManager
 import android.content.ActivityNotFoundException

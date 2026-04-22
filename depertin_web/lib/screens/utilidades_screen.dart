@@ -17,6 +17,148 @@ class _UtilidadesScreenState extends State<UtilidadesScreen> {
   final Color diPertinRoxo = const Color(0xFF6A1B9A);
   final Color diPertinLaranja = const Color(0xFFFF8F00);
 
+  /// Normaliza o par "município — UF" mantendo o mesmo formato que o app
+  /// espera em `LocationService.cidadeCampoCorrespondeUsuario`.
+  /// Exemplos:
+  ///  - `"Toledo — PR"` => `"toledo — pr"`
+  ///  - `"Rondonópolis - MT"` => `"rondonopolis — mt"`
+  ///  - `"Toledo"` (sem UF) => `"toledo"` (fallback, mas salva sem UF —
+  ///    caso raro pois o campo exige seleção do autocomplete IBGE).
+  String _normalizarCidade(String? raw) {
+    if (raw == null) return '';
+    final t = raw.trim();
+    if (t.isEmpty) return '';
+    final partes = t.split(RegExp(r'\s*[—–\-]\s*'));
+    final nome = partes.isNotEmpty ? partes.first.trim() : t;
+    final nomeNorm = _removerAcentos(
+      nome.toLowerCase().replaceAll(RegExp(r'\s+'), ' '),
+    );
+    if (partes.length >= 2) {
+      final uf = partes.last.trim();
+      if (uf.length == 2 && RegExp(r'^[a-zA-Z]{2}$').hasMatch(uf)) {
+        return '$nomeNorm — ${uf.toLowerCase()}';
+      }
+    }
+    return nomeNorm;
+  }
+
+  /// Remove acentos para bater com `LocationService.normalizar` do app
+  /// (que usa o mesmo padrão de normalização).
+  String _removerAcentos(String s) {
+    const com = 'áàâãäéèêëíìîïóòôõöúùûüçñÁÀÂÃÄÉÈÊËÍÌÎÏÓÒÔÕÖÚÙÛÜÇÑ';
+    const sem = 'aaaaaeeeeiiiiooooouuuucnAAAAAEEEEIIIIOOOOOUUUUCN';
+    final buf = StringBuffer();
+    for (final ch in s.split('')) {
+      final i = com.indexOf(ch);
+      buf.write(i >= 0 ? sem[i] : ch);
+    }
+    return buf.toString();
+  }
+
+  /// Valida se o campo cidade está em formato válido para salvar um anúncio.
+  /// Regra:
+  /// - Vazio → OK (anúncio global)
+  /// - Com "Município — UF" (ex.: "Toledo — PR") → OK
+  /// - Qualquer outra coisa (texto digitado sem selecionar do autocomplete
+  ///   IBGE) → inválido, para evitar que o app mostre o anúncio em várias
+  ///   cidades homônimas pelo Brasil.
+  bool _cidadeAnuncioValida(String raw) {
+    final t = raw.trim();
+    if (t.isEmpty) return true;
+    final partes = t.split(RegExp(r'\s*[—–\-]\s*'));
+    if (partes.length < 2) return false;
+    final uf = partes.last.trim();
+    return uf.length == 2 && RegExp(r'^[a-zA-Z]{2}$').hasMatch(uf);
+  }
+
+  void _alertaCidadeInvalida(BuildContext ctx) {
+    ScaffoldMessenger.of(ctx).showSnackBar(
+      const SnackBar(
+        backgroundColor: Colors.red,
+        content: Text(
+          'Selecione a cidade pela lista do autocomplete (ex.: "Toledo — PR"). '
+          'Para anúncio em todo o Brasil, deixe o campo em branco.',
+        ),
+      ),
+    );
+  }
+
+  /// Faz upload do arquivo no Storage e retorna a URL pública.
+  Future<String> _uploadImagemUtilidade(Uint8List bytes) async {
+    final ref = FirebaseStorage.instance.ref().child(
+      'utilidades/${DateTime.now().millisecondsSinceEpoch}.jpg',
+    );
+    await ref.putData(bytes);
+    return ref.getDownloadURL();
+  }
+
+  /// Widget reutilizável para seleção de foto nos dialogs de criar/editar.
+  /// Mostra preview da imagem atual (bytes novos OU URL existente).
+  Widget _buildCampoFotoUtilidade({
+    required Uint8List? imagemBytes,
+    required String? imagemUrlAtual,
+    required VoidCallback onEscolher,
+    VoidCallback? onRemover,
+  }) {
+    final temNova = imagemBytes != null;
+    final temExistente =
+        imagemUrlAtual != null && imagemUrlAtual.trim().isNotEmpty;
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.start,
+      children: [
+        const Divider(),
+        const Text(
+          "Foto (opcional):",
+          style: TextStyle(fontWeight: FontWeight.bold),
+        ),
+        const SizedBox(height: 8),
+        InkWell(
+          onTap: onEscolher,
+          child: Container(
+            height: 150,
+            width: double.infinity,
+            decoration: BoxDecoration(
+              color: Colors.grey[200],
+              borderRadius: BorderRadius.circular(10),
+              border: Border.all(color: Colors.grey),
+            ),
+            child: temNova
+                ? ClipRRect(
+                    borderRadius: BorderRadius.circular(10),
+                    child: Image.memory(imagemBytes, fit: BoxFit.cover),
+                  )
+                : temExistente
+                    ? ClipRRect(
+                        borderRadius: BorderRadius.circular(10),
+                        child: Image.network(imagemUrlAtual,
+                            fit: BoxFit.cover),
+                      )
+                    : const Column(
+                        mainAxisAlignment: MainAxisAlignment.center,
+                        children: [
+                          Icon(Icons.add_a_photo,
+                              size: 40, color: Colors.grey),
+                          SizedBox(height: 5),
+                          Text("Clique para anexar foto",
+                              style: TextStyle(color: Colors.grey)),
+                        ],
+                      ),
+          ),
+        ),
+        if ((temNova || temExistente) && onRemover != null)
+          Align(
+            alignment: Alignment.centerRight,
+            child: TextButton.icon(
+              onPressed: onRemover,
+              icon: const Icon(Icons.delete_outline, color: Colors.red),
+              label: const Text('Remover foto',
+                  style: TextStyle(color: Colors.red)),
+            ),
+          ),
+      ],
+    );
+  }
+
   // --- FUNÇÕES DE AÇÃO RÁPIDA ---
 
   Future<void> _toggleAtivo(String colecao, String id, bool estadoAtual) async {
@@ -383,11 +525,25 @@ class _UtilidadesScreenState extends State<UtilidadesScreen> {
     String modalidade = dados['modalidade_valor']?.toString() ?? 'diario';
     DateTime dtInicio = dados['data_inicio'] != null ? (dados['data_inicio'] as Timestamp).toDate() : DateTime.now();
     DateTime dtFim = dados['data_fim'] != null ? (dados['data_fim'] as Timestamp).toDate() : (dados['data_vencimento'] != null ? (dados['data_vencimento'] as Timestamp).toDate() : DateTime.now().add(const Duration(days: 7)));
+    Uint8List? imagemBytes;
+    String? imagemUrlAtual = dados['imagem_url']?.toString();
+    bool removerImagem = false;
 
     showDialog(
       context: context,
       builder: (context) => StatefulBuilder(
-        builder: (context, setDlg) => AlertDialog(
+        builder: (context, setDlg) {
+          Future<void> escolherFoto() async {
+            final result = await FilePicker.platform.pickFiles(type: FileType.image);
+            if (result != null && result.files.first.bytes != null) {
+              setDlg(() {
+                imagemBytes = result.files.first.bytes;
+                removerImagem = false;
+              });
+            }
+          }
+
+          return AlertDialog(
           title: Text("Editar Vaga", style: TextStyle(color: diPertinRoxo, fontWeight: FontWeight.bold)),
           content: SizedBox(
             width: 500,
@@ -399,13 +555,24 @@ class _UtilidadesScreenState extends State<UtilidadesScreen> {
                   const SizedBox(height: 12),
                   TextField(controller: empresaC, decoration: const InputDecoration(labelText: "Nome da Empresa", border: OutlineInputBorder())),
                   const SizedBox(height: 12),
-                  CampoCidadeBrasilField(controller: cidadeC, decoration: const InputDecoration(labelText: "Cidade", hintText: "Digite para buscar", border: OutlineInputBorder())),
+                  CampoCidadeBrasilField(controller: cidadeC, decoration: const InputDecoration(labelText: "Cidade (deixe vazio para todo o Brasil)", hintText: "Digite e selecione da lista (ex.: Toledo — PR)", helperText: "Selecione pela lista para salvar com UF.", border: OutlineInputBorder())),
                   const SizedBox(height: 12),
                   TextField(controller: descC, maxLines: 3, decoration: const InputDecoration(labelText: "Descrição Completa", border: OutlineInputBorder())),
                   const SizedBox(height: 12),
                   TextField(controller: contatoC, decoration: const InputDecoration(labelText: "Telefone / Contato", border: OutlineInputBorder())),
                   const SizedBox(height: 12),
                   TextField(controller: emailC, keyboardType: TextInputType.emailAddress, decoration: const InputDecoration(labelText: "E-mail", prefixIcon: Icon(Icons.email_outlined), border: OutlineInputBorder())),
+                  const SizedBox(height: 12),
+                  _buildCampoFotoUtilidade(
+                    imagemBytes: imagemBytes,
+                    imagemUrlAtual: removerImagem ? null : imagemUrlAtual,
+                    onEscolher: escolherFoto,
+                    onRemover: () => setDlg(() {
+                      imagemBytes = null;
+                      imagemUrlAtual = null;
+                      removerImagem = true;
+                    }),
+                  ),
                   const Divider(height: 24),
                   _buildSecaoFinanceira(valorC: valorC, modalidade: modalidade, dtInicio: dtInicio, dtFim: dtFim, onModalidade: (v) => setDlg(() => modalidade = v), onInicio: (d) => setDlg(() => dtInicio = d), onFim: (d) => setDlg(() => dtFim = d)),
                 ],
@@ -416,11 +583,25 @@ class _UtilidadesScreenState extends State<UtilidadesScreen> {
             TextButton(onPressed: () => Navigator.pop(context), child: const Text("Cancelar")),
             ElevatedButton(
               onPressed: () async {
+                final cidadeRaw = cidadeC.text.trim();
+                if (!_cidadeAnuncioValida(cidadeRaw)) {
+                  _alertaCidadeInvalida(context);
+                  return;
+                }
                 final upd = <String, dynamic>{
-                  'cargo': cargoC.text.trim(), 'empresa': empresaC.text.trim(), 'cidade': cidadeC.text.trim(),
-                  'descricao': descC.text.trim(), 'contato': contatoC.text.trim(),
+                  'cargo': cargoC.text.trim(),
+                  'empresa': empresaC.text.trim(),
+                  'cidade': cidadeRaw,
+                  'cidade_normalizada': _normalizarCidade(cidadeRaw),
+                  'descricao': descC.text.trim(),
+                  'contato': contatoC.text.trim(),
                 };
                 if (emailC.text.trim().isNotEmpty) upd['email'] = emailC.text.trim();
+                if (imagemBytes != null) {
+                  upd['imagem_url'] = await _uploadImagemUtilidade(imagemBytes!);
+                } else if (removerImagem) {
+                  upd['imagem_url'] = '';
+                }
                 _aplicarFinanceiro(upd, valorC, modalidade, dtInicio, dtFim);
                 await FirebaseFirestore.instance.collection('vagas').doc(id).update(upd);
                 await _registrarReceitaSeValor(valorC, modalidade, dtInicio, dtFim, 'Vagas', cargoC.text, dados['nome_dono'] ?? '');
@@ -430,7 +611,8 @@ class _UtilidadesScreenState extends State<UtilidadesScreen> {
               child: const Text("Salvar"),
             ),
           ],
-        ),
+        );
+        },
       ),
     );
   }
@@ -450,11 +632,25 @@ class _UtilidadesScreenState extends State<UtilidadesScreen> {
     DateTime dtFim = dados['data_fim'] != null
         ? (dados['data_fim'] as Timestamp).toDate()
         : DateTime.now().add(const Duration(days: 30));
+    Uint8List? imagemBytes;
+    String? imagemUrlAtual = dados['imagem_url']?.toString();
+    bool removerImagem = false;
 
     showDialog(
       context: context,
       builder: (context) => StatefulBuilder(
-        builder: (context, setDlg) => AlertDialog(
+        builder: (context, setDlg) {
+          Future<void> escolherFoto() async {
+            final result = await FilePicker.platform.pickFiles(type: FileType.image);
+            if (result != null && result.files.first.bytes != null) {
+              setDlg(() {
+                imagemBytes = result.files.first.bytes;
+                removerImagem = false;
+              });
+            }
+          }
+
+          return AlertDialog(
           title: Text(
             "Editar Destaque",
             style: TextStyle(color: diPertinRoxo, fontWeight: FontWeight.bold),
@@ -469,11 +665,22 @@ class _UtilidadesScreenState extends State<UtilidadesScreen> {
                   const SizedBox(height: 12),
                   TextField(controller: categoriaC, decoration: const InputDecoration(labelText: "Categoria Profissional", border: OutlineInputBorder())),
                   const SizedBox(height: 12),
-                  CampoCidadeBrasilField(controller: cidadeC, decoration: const InputDecoration(labelText: "Cidade", hintText: "Digite para buscar", border: OutlineInputBorder())),
+                  CampoCidadeBrasilField(controller: cidadeC, decoration: const InputDecoration(labelText: "Cidade (deixe vazio para todo o Brasil)", hintText: "Digite e selecione da lista (ex.: Toledo — PR)", helperText: "Selecione pela lista para salvar com UF.", border: OutlineInputBorder())),
                   const SizedBox(height: 12),
                   TextField(controller: telefoneC, decoration: const InputDecoration(labelText: "Telefone / Contato", border: OutlineInputBorder())),
                   const SizedBox(height: 12),
                   TextField(controller: emailC, keyboardType: TextInputType.emailAddress, decoration: const InputDecoration(labelText: "E-mail", prefixIcon: Icon(Icons.email_outlined), border: OutlineInputBorder())),
+                  const SizedBox(height: 12),
+                  _buildCampoFotoUtilidade(
+                    imagemBytes: imagemBytes,
+                    imagemUrlAtual: removerImagem ? null : imagemUrlAtual,
+                    onEscolher: escolherFoto,
+                    onRemover: () => setDlg(() {
+                      imagemBytes = null;
+                      imagemUrlAtual = null;
+                      removerImagem = true;
+                    }),
+                  ),
                   const Divider(height: 24),
                   _buildSecaoFinanceira(valorC: valorC, modalidade: modalidade, dtInicio: dtInicio, dtFim: dtFim, onModalidade: (v) => setDlg(() => modalidade = v), onInicio: (d) => setDlg(() => dtInicio = d), onFim: (d) => setDlg(() => dtFim = d)),
                 ],
@@ -484,13 +691,24 @@ class _UtilidadesScreenState extends State<UtilidadesScreen> {
             TextButton(onPressed: () => Navigator.pop(context), child: const Text("Cancelar")),
             ElevatedButton(
               onPressed: () async {
+                final cidadeRaw = cidadeC.text.trim();
+                if (!_cidadeAnuncioValida(cidadeRaw)) {
+                  _alertaCidadeInvalida(context);
+                  return;
+                }
                 final upd = <String, dynamic>{
                   'titulo': tituloC.text.trim(),
                   'categoria': categoriaC.text.trim(),
-                  'cidade': cidadeC.text.trim(),
+                  'cidade': cidadeRaw,
+                  'cidade_normalizada': _normalizarCidade(cidadeRaw),
                   'telefone': telefoneC.text.trim(),
                 };
                 if (emailC.text.trim().isNotEmpty) upd['email'] = emailC.text.trim();
+                if (imagemBytes != null) {
+                  upd['imagem_url'] = await _uploadImagemUtilidade(imagemBytes!);
+                } else if (removerImagem) {
+                  upd['imagem_url'] = '';
+                }
                 _aplicarFinanceiro(upd, valorC, modalidade, dtInicio, dtFim);
                 await FirebaseFirestore.instance.collection('servicos_destaque').doc(id).update(upd);
                 await _registrarReceitaSeValor(valorC, modalidade, dtInicio, dtFim, 'Destaques', tituloC.text, dados['nome_dono'] ?? '');
@@ -500,7 +718,8 @@ class _UtilidadesScreenState extends State<UtilidadesScreen> {
               child: const Text("Salvar"),
             ),
           ],
-        ),
+        );
+        },
       ),
     );
   }
@@ -514,11 +733,25 @@ class _UtilidadesScreenState extends State<UtilidadesScreen> {
     String modalidade = dados['modalidade_valor']?.toString() ?? 'diario';
     DateTime dtInicio = dados['data_inicio'] != null ? (dados['data_inicio'] as Timestamp).toDate() : DateTime.now();
     DateTime dtFim = dados['data_fim'] != null ? (dados['data_fim'] as Timestamp).toDate() : (dados['data_vencimento'] != null ? (dados['data_vencimento'] as Timestamp).toDate() : DateTime.now().add(const Duration(days: 30)));
+    Uint8List? imagemBytes;
+    String? imagemUrlAtual = dados['imagem_url']?.toString();
+    bool removerImagem = false;
 
     showDialog(
       context: context,
       builder: (context) => StatefulBuilder(
-        builder: (context, setDlg) => AlertDialog(
+        builder: (context, setDlg) {
+          Future<void> escolherFoto() async {
+            final result = await FilePicker.platform.pickFiles(type: FileType.image);
+            if (result != null && result.files.first.bytes != null) {
+              setDlg(() {
+                imagemBytes = result.files.first.bytes;
+                removerImagem = false;
+              });
+            }
+          }
+
+          return AlertDialog(
           title: Text("Editar Premium", style: TextStyle(color: diPertinRoxo, fontWeight: FontWeight.bold)),
           content: SizedBox(
             width: 500,
@@ -530,9 +763,20 @@ class _UtilidadesScreenState extends State<UtilidadesScreen> {
                   const SizedBox(height: 12),
                   TextField(controller: telefoneC, decoration: const InputDecoration(labelText: "Telefone / WhatsApp", border: OutlineInputBorder())),
                   const SizedBox(height: 12),
-                  CampoCidadeBrasilField(controller: cidadeC, decoration: const InputDecoration(labelText: "Cidade", hintText: "Digite para buscar", border: OutlineInputBorder())),
+                  CampoCidadeBrasilField(controller: cidadeC, decoration: const InputDecoration(labelText: "Cidade (deixe vazio para todo o Brasil)", hintText: "Digite e selecione da lista (ex.: Toledo — PR)", helperText: "Selecione pela lista para salvar com UF.", border: OutlineInputBorder())),
                   const SizedBox(height: 12),
                   TextField(controller: emailC, keyboardType: TextInputType.emailAddress, decoration: const InputDecoration(labelText: "E-mail", prefixIcon: Icon(Icons.email_outlined), border: OutlineInputBorder())),
+                  const SizedBox(height: 12),
+                  _buildCampoFotoUtilidade(
+                    imagemBytes: imagemBytes,
+                    imagemUrlAtual: removerImagem ? null : imagemUrlAtual,
+                    onEscolher: escolherFoto,
+                    onRemover: () => setDlg(() {
+                      imagemBytes = null;
+                      imagemUrlAtual = null;
+                      removerImagem = true;
+                    }),
+                  ),
                   const Divider(height: 24),
                   _buildSecaoFinanceira(valorC: valorC, modalidade: modalidade, dtInicio: dtInicio, dtFim: dtFim, onModalidade: (v) => setDlg(() => modalidade = v), onInicio: (d) => setDlg(() => dtInicio = d), onFim: (d) => setDlg(() => dtFim = d)),
                 ],
@@ -543,8 +787,23 @@ class _UtilidadesScreenState extends State<UtilidadesScreen> {
             TextButton(onPressed: () => Navigator.pop(context), child: const Text("Cancelar")),
             ElevatedButton(
               onPressed: () async {
-                final upd = <String, dynamic>{'titulo': tituloC.text.trim(), 'telefone': telefoneC.text.trim(), 'cidade': cidadeC.text.trim()};
+                final cidadeRaw = cidadeC.text.trim();
+                if (!_cidadeAnuncioValida(cidadeRaw)) {
+                  _alertaCidadeInvalida(context);
+                  return;
+                }
+                final upd = <String, dynamic>{
+                  'titulo': tituloC.text.trim(),
+                  'telefone': telefoneC.text.trim(),
+                  'cidade': cidadeRaw,
+                  'cidade_normalizada': _normalizarCidade(cidadeRaw),
+                };
                 if (emailC.text.trim().isNotEmpty) upd['email'] = emailC.text.trim();
+                if (imagemBytes != null) {
+                  upd['imagem_url'] = await _uploadImagemUtilidade(imagemBytes!);
+                } else if (removerImagem) {
+                  upd['imagem_url'] = '';
+                }
                 _aplicarFinanceiro(upd, valorC, modalidade, dtInicio, dtFim);
                 await FirebaseFirestore.instance.collection('telefones_premium').doc(id).update(upd);
                 await _registrarReceitaSeValor(valorC, modalidade, dtInicio, dtFim, 'Premium', tituloC.text, dados['nome_dono'] ?? '');
@@ -554,7 +813,8 @@ class _UtilidadesScreenState extends State<UtilidadesScreen> {
               child: const Text("Salvar"),
             ),
           ],
-        ),
+        );
+        },
       ),
     );
   }
@@ -562,6 +822,7 @@ class _UtilidadesScreenState extends State<UtilidadesScreen> {
   void _editarEvento(String id, Map<String, dynamic> dados) {
     final tituloC = TextEditingController(text: dados['titulo'] ?? '');
     final localC = TextEditingController(text: dados['local'] ?? '');
+    final cidadeC = TextEditingController(text: dados['cidade'] ?? '');
     final dataEventoC = TextEditingController(text: dados['data_evento'] ?? '');
     final descC = TextEditingController(text: dados['descricao'] ?? '');
     final linkC = TextEditingController(text: dados['link_ingresso'] ?? '');
@@ -570,11 +831,25 @@ class _UtilidadesScreenState extends State<UtilidadesScreen> {
     String modalidade = dados['modalidade_valor']?.toString() ?? 'diario';
     DateTime dtInicio = dados['data_inicio'] != null ? (dados['data_inicio'] as Timestamp).toDate() : DateTime.now();
     DateTime dtFim = dados['data_fim'] != null ? (dados['data_fim'] as Timestamp).toDate() : DateTime.now().add(const Duration(days: 7));
+    Uint8List? imagemBytes;
+    String? imagemUrlAtual = dados['imagem_url']?.toString();
+    bool removerImagem = false;
 
     showDialog(
       context: context,
       builder: (context) => StatefulBuilder(
-        builder: (context, setDlg) => AlertDialog(
+        builder: (context, setDlg) {
+          Future<void> escolherFoto() async {
+            final result = await FilePicker.platform.pickFiles(type: FileType.image);
+            if (result != null && result.files.first.bytes != null) {
+              setDlg(() {
+                imagemBytes = result.files.first.bytes;
+                removerImagem = false;
+              });
+            }
+          }
+
+          return AlertDialog(
           title: Text("Editar Evento", style: TextStyle(color: diPertinRoxo, fontWeight: FontWeight.bold)),
           content: SizedBox(
             width: 500,
@@ -586,6 +861,8 @@ class _UtilidadesScreenState extends State<UtilidadesScreen> {
                   const SizedBox(height: 12),
                   TextField(controller: localC, decoration: const InputDecoration(labelText: "Local", border: OutlineInputBorder())),
                   const SizedBox(height: 12),
+                  CampoCidadeBrasilField(controller: cidadeC, decoration: const InputDecoration(labelText: "Cidade (deixe vazio para todo o Brasil)", hintText: "Digite e selecione da lista (ex.: Toledo — PR)", helperText: "Selecione pela lista para salvar com UF.", border: OutlineInputBorder())),
+                  const SizedBox(height: 12),
                   TextField(controller: dataEventoC, decoration: const InputDecoration(labelText: "Data do Evento (Ex: 25/Dez às 20h)", border: OutlineInputBorder())),
                   const SizedBox(height: 12),
                   TextField(controller: descC, maxLines: 3, decoration: const InputDecoration(labelText: "Descrição Completa", border: OutlineInputBorder())),
@@ -593,6 +870,17 @@ class _UtilidadesScreenState extends State<UtilidadesScreen> {
                   TextField(controller: linkC, decoration: const InputDecoration(labelText: "Link do Ingresso (Opcional)", border: OutlineInputBorder())),
                   const SizedBox(height: 12),
                   TextField(controller: emailC, keyboardType: TextInputType.emailAddress, decoration: const InputDecoration(labelText: "E-mail", prefixIcon: Icon(Icons.email_outlined), border: OutlineInputBorder())),
+                  const SizedBox(height: 12),
+                  _buildCampoFotoUtilidade(
+                    imagemBytes: imagemBytes,
+                    imagemUrlAtual: removerImagem ? null : imagemUrlAtual,
+                    onEscolher: escolherFoto,
+                    onRemover: () => setDlg(() {
+                      imagemBytes = null;
+                      imagemUrlAtual = null;
+                      removerImagem = true;
+                    }),
+                  ),
                   const Divider(height: 24),
                   _buildSecaoFinanceira(valorC: valorC, modalidade: modalidade, dtInicio: dtInicio, dtFim: dtFim, onModalidade: (v) => setDlg(() => modalidade = v), onInicio: (d) => setDlg(() => dtInicio = d), onFim: (d) => setDlg(() => dtFim = d)),
                 ],
@@ -603,11 +891,26 @@ class _UtilidadesScreenState extends State<UtilidadesScreen> {
             TextButton(onPressed: () => Navigator.pop(context), child: const Text("Cancelar")),
             ElevatedButton(
               onPressed: () async {
+                final cidadeRaw = cidadeC.text.trim();
+                if (!_cidadeAnuncioValida(cidadeRaw)) {
+                  _alertaCidadeInvalida(context);
+                  return;
+                }
                 final upd = <String, dynamic>{
-                  'titulo': tituloC.text.trim(), 'local': localC.text.trim(), 'data_evento': dataEventoC.text.trim(),
-                  'descricao': descC.text.trim(), 'link_ingresso': linkC.text.trim(),
+                  'titulo': tituloC.text.trim(),
+                  'local': localC.text.trim(),
+                  'cidade': cidadeRaw,
+                  'cidade_normalizada': _normalizarCidade(cidadeRaw),
+                  'data_evento': dataEventoC.text.trim(),
+                  'descricao': descC.text.trim(),
+                  'link_ingresso': linkC.text.trim(),
                 };
                 if (emailC.text.trim().isNotEmpty) upd['email'] = emailC.text.trim();
+                if (imagemBytes != null) {
+                  upd['imagem_url'] = await _uploadImagemUtilidade(imagemBytes!);
+                } else if (removerImagem) {
+                  upd['imagem_url'] = '';
+                }
                 _aplicarFinanceiro(upd, valorC, modalidade, dtInicio, dtFim);
                 await FirebaseFirestore.instance.collection('eventos').doc(id).update(upd);
                 await _registrarReceitaSeValor(valorC, modalidade, dtInicio, dtFim, 'Eventos', tituloC.text, dados['nome_dono'] ?? '');
@@ -617,7 +920,8 @@ class _UtilidadesScreenState extends State<UtilidadesScreen> {
               child: const Text("Salvar"),
             ),
           ],
-        ),
+        );
+        },
       ),
     );
   }
@@ -634,11 +938,25 @@ class _UtilidadesScreenState extends State<UtilidadesScreen> {
     String modalidade = dados['modalidade_valor']?.toString() ?? 'diario';
     DateTime dtInicio = dados['data_inicio'] != null ? (dados['data_inicio'] as Timestamp).toDate() : DateTime.now();
     DateTime dtFim = dados['data_fim'] != null ? (dados['data_fim'] as Timestamp).toDate() : (dados['data_vencimento'] != null ? (dados['data_vencimento'] as Timestamp).toDate() : DateTime.now().add(const Duration(days: 3)));
+    Uint8List? imagemBytes;
+    String? imagemUrlAtual = dados['imagem_url']?.toString();
+    bool removerImagem = false;
 
     showDialog(
       context: context,
       builder: (context) => StatefulBuilder(
-        builder: (context, setDlg) => AlertDialog(
+        builder: (context, setDlg) {
+          Future<void> escolherFoto() async {
+            final result = await FilePicker.platform.pickFiles(type: FileType.image);
+            if (result != null && result.files.first.bytes != null) {
+              setDlg(() {
+                imagemBytes = result.files.first.bytes;
+                removerImagem = false;
+              });
+            }
+          }
+
+          return AlertDialog(
           title: Text("Editar Achado", style: TextStyle(color: diPertinRoxo, fontWeight: FontWeight.bold)),
           content: SizedBox(
             width: 500,
@@ -655,13 +973,24 @@ class _UtilidadesScreenState extends State<UtilidadesScreen> {
                   const SizedBox(height: 12),
                   TextField(controller: localC, decoration: const InputDecoration(labelText: "Local", border: OutlineInputBorder())),
                   const SizedBox(height: 12),
-                  CampoCidadeBrasilField(controller: cidadeC, decoration: const InputDecoration(labelText: "Cidade", hintText: "Digite para buscar", border: OutlineInputBorder())),
+                  CampoCidadeBrasilField(controller: cidadeC, decoration: const InputDecoration(labelText: "Cidade (deixe vazio para todo o Brasil)", hintText: "Digite e selecione da lista (ex.: Toledo — PR)", helperText: "Selecione pela lista para salvar com UF.", border: OutlineInputBorder())),
                   const SizedBox(height: 12),
                   TextField(controller: descC, maxLines: 3, decoration: const InputDecoration(labelText: "Descrição", border: OutlineInputBorder())),
                   const SizedBox(height: 12),
                   TextField(controller: contatoC, decoration: const InputDecoration(labelText: "Telefone / Contato", border: OutlineInputBorder())),
                   const SizedBox(height: 12),
                   TextField(controller: emailC, keyboardType: TextInputType.emailAddress, decoration: const InputDecoration(labelText: "E-mail", prefixIcon: Icon(Icons.email_outlined), border: OutlineInputBorder())),
+                  const SizedBox(height: 12),
+                  _buildCampoFotoUtilidade(
+                    imagemBytes: imagemBytes,
+                    imagemUrlAtual: removerImagem ? null : imagemUrlAtual,
+                    onEscolher: escolherFoto,
+                    onRemover: () => setDlg(() {
+                      imagemBytes = null;
+                      imagemUrlAtual = null;
+                      removerImagem = true;
+                    }),
+                  ),
                   const Divider(height: 24),
                   _buildSecaoFinanceira(valorC: valorC, modalidade: modalidade, dtInicio: dtInicio, dtFim: dtFim, onModalidade: (v) => setDlg(() => modalidade = v), onInicio: (d) => setDlg(() => dtInicio = d), onFim: (d) => setDlg(() => dtFim = d)),
                 ],
@@ -672,12 +1001,26 @@ class _UtilidadesScreenState extends State<UtilidadesScreen> {
             TextButton(onPressed: () => Navigator.pop(context), child: const Text("Cancelar")),
             ElevatedButton(
               onPressed: () async {
+                final cidadeRaw = cidadeC.text.trim();
+                if (!_cidadeAnuncioValida(cidadeRaw)) {
+                  _alertaCidadeInvalida(context);
+                  return;
+                }
                 final upd = <String, dynamic>{
-                  'titulo': tituloC.text.trim(), 'tipo': isPerdido ? 'perdido' : 'encontrado',
-                  'local': localC.text.trim(), 'cidade': cidadeC.text.trim(),
-                  'descricao': descC.text.trim(), 'contato': contatoC.text.trim(),
+                  'titulo': tituloC.text.trim(),
+                  'tipo': isPerdido ? 'perdido' : 'encontrado',
+                  'local': localC.text.trim(),
+                  'cidade': cidadeRaw,
+                  'cidade_normalizada': _normalizarCidade(cidadeRaw),
+                  'descricao': descC.text.trim(),
+                  'contato': contatoC.text.trim(),
                 };
                 if (emailC.text.trim().isNotEmpty) upd['email'] = emailC.text.trim();
+                if (imagemBytes != null) {
+                  upd['imagem_url'] = await _uploadImagemUtilidade(imagemBytes!);
+                } else if (removerImagem) {
+                  upd['imagem_url'] = '';
+                }
                 _aplicarFinanceiro(upd, valorC, modalidade, dtInicio, dtFim);
                 await FirebaseFirestore.instance.collection('achados').doc(id).update(upd);
                 await _registrarReceitaSeValor(valorC, modalidade, dtInicio, dtFim, 'Achados', tituloC.text, dados['nome_dono'] ?? '');
@@ -687,7 +1030,8 @@ class _UtilidadesScreenState extends State<UtilidadesScreen> {
               child: const Text("Salvar"),
             ),
           ],
-        ),
+        );
+        },
       ),
     );
   }
@@ -747,6 +1091,13 @@ class _UtilidadesScreenState extends State<UtilidadesScreen> {
                 );
                 return;
               }
+              // Garante que a cidade foi selecionada do autocomplete IBGE
+              // (ou está vazia para anúncio global). Sem UF, o filtro do
+              // app não consegue distinguir cidades homônimas.
+              if (!_cidadeAnuncioValida(cidadeC.text)) {
+                _alertaCidadeInvalida(context);
+                return;
+              }
               setState(() => isLoading = true);
 
               try {
@@ -767,14 +1118,16 @@ class _UtilidadesScreenState extends State<UtilidadesScreen> {
                 Map<String, dynamic> dados = {
                   'ativo': true,
                   'data_criacao': FieldValue.serverTimestamp(),
+                  // Garante que todo anúncio tenha janela de publicação,
+                  // mesmo quando gratuito (exigido pelo filtro do app).
+                  'data_inicio': Timestamp.fromDate(dataInicio),
+                  'data_fim': Timestamp.fromDate(dataFim),
                 };
 
                 if (valorCobrado > 0) {
                   dados['nome_dono'] = donoC.text.trim();
                   dados['gera_receita'] = true;
                   dados['modalidade_valor'] = modalidadeValor;
-                  dados['data_inicio'] = Timestamp.fromDate(dataInicio);
-                  dados['data_fim'] = Timestamp.fromDate(dataFim);
 
                   double valorTotalGerado;
                   if (modalidadeValor == 'mensal') {
@@ -808,13 +1161,18 @@ class _UtilidadesScreenState extends State<UtilidadesScreen> {
                   dados['email'] = emailC.text.trim();
                 }
 
+                final cidadeRaw = cidadeC.text.trim();
+                final cidadeNorm = _normalizarCidade(cidadeRaw);
+
                 if (tipoSelecionado == 'Vagas') {
                   dados.addAll({
                     'cargo': tituloC.text,
                     'empresa': empresaLocalC.text,
-                    'cidade': cidadeC.text,
+                    'cidade': cidadeRaw,
+                    'cidade_normalizada': cidadeNorm,
                     'descricao': descC.text,
                     'contato': contatoC.text,
+                    'imagem_url': urlImagem,
                     'data_vencimento': Timestamp.fromDate(
                       DateTime.now().add(const Duration(days: 7)),
                     ),
@@ -826,6 +1184,8 @@ class _UtilidadesScreenState extends State<UtilidadesScreen> {
                   dados.addAll({
                     'titulo': tituloC.text,
                     'local': empresaLocalC.text,
+                    'cidade': cidadeRaw,
+                    'cidade_normalizada': cidadeNorm,
                     'data_evento': dataLinkC.text,
                     'descricao': descC.text,
                     'link_ingresso': contatoC.text,
@@ -845,7 +1205,8 @@ class _UtilidadesScreenState extends State<UtilidadesScreen> {
                     'titulo': tituloC.text,
                     'tipo': isPerdido ? 'perdido' : 'encontrado',
                     'local': empresaLocalC.text,
-                    'cidade': cidadeC.text,
+                    'cidade': cidadeRaw,
+                    'cidade_normalizada': cidadeNorm,
                     'descricao': descC.text,
                     'contato': contatoC.text,
                     'imagem_url': urlImagem,
@@ -861,7 +1222,9 @@ class _UtilidadesScreenState extends State<UtilidadesScreen> {
                   dados.addAll({
                     'titulo': tituloC.text,
                     'telefone': contatoC.text,
-                    'cidade': cidadeC.text,
+                    'cidade': cidadeRaw,
+                    'cidade_normalizada': cidadeNorm,
+                    'imagem_url': urlImagem,
                     'tipo_contato': 'whatsapp',
                   });
                   dados['data_vencimento'] ??= Timestamp.fromDate(dataFim);
@@ -872,8 +1235,10 @@ class _UtilidadesScreenState extends State<UtilidadesScreen> {
                   dados.addAll({
                     'titulo': tituloC.text,
                     'categoria': empresaLocalC.text,
-                    'cidade': cidadeC.text,
+                    'cidade': cidadeRaw,
+                    'cidade_normalizada': cidadeNorm,
                     'telefone': contatoC.text,
+                    'imagem_url': urlImagem,
                   });
                   await FirebaseFirestore.instance
                       .collection('servicos_destaque')
@@ -1011,8 +1376,11 @@ class _UtilidadesScreenState extends State<UtilidadesScreen> {
                         CampoCidadeBrasilField(
                           controller: cidadeC,
                           decoration: const InputDecoration(
-                            labelText: "Cidade",
-                            hintText: "Digite para buscar o município",
+                            labelText: "Cidade (deixe vazio para todo o Brasil)",
+                            hintText:
+                                "Digite e selecione da lista (ex.: Toledo — PR)",
+                            helperText:
+                                "Selecione pela lista para salvar com UF.",
                             border: OutlineInputBorder(),
                           ),
                         ),
@@ -1205,50 +1573,16 @@ class _UtilidadesScreenState extends State<UtilidadesScreen> {
                       ),
                       const SizedBox(height: 15),
 
-                      // BOTÃO DE UPLOAD DE FOTO (Apenas para Eventos e Achados)
-                      if (['Eventos', 'Achados'].contains(tipoSelecionado)) ...[
-                        const Divider(),
-                        const Text(
-                          "Foto Principal:",
-                          style: TextStyle(fontWeight: FontWeight.bold),
-                        ),
-                        const SizedBox(height: 10),
-                        InkWell(
-                          onTap: escolherFoto,
-                          child: Container(
-                            height: 150,
-                            width: double.infinity,
-                            decoration: BoxDecoration(
-                              color: Colors.grey[200],
-                              borderRadius: BorderRadius.circular(10),
-                              border: Border.all(color: Colors.grey),
-                            ),
-                            child: imagemBytes != null
-                                ? ClipRRect(
-                                    borderRadius: BorderRadius.circular(10),
-                                    child: Image.memory(
-                                      imagemBytes!,
-                                      fit: BoxFit.cover,
-                                    ),
-                                  )
-                                : const Column(
-                                    mainAxisAlignment: MainAxisAlignment.center,
-                                    children: [
-                                      Icon(
-                                        Icons.add_a_photo,
-                                        size: 40,
-                                        color: Colors.grey,
-                                      ),
-                                      SizedBox(height: 5),
-                                      Text(
-                                        "Clique para anexar foto",
-                                        style: TextStyle(color: Colors.grey),
-                                      ),
-                                    ],
-                                  ),
-                          ),
-                        ),
-                      ],
+                      // BOTÃO DE UPLOAD DE FOTO (disponível para todas as
+                      // categorias: Destaques, Premium, Vagas, Eventos, Achados)
+                      _buildCampoFotoUtilidade(
+                        imagemBytes: imagemBytes,
+                        imagemUrlAtual: null,
+                        onEscolher: escolherFoto,
+                        onRemover: imagemBytes != null
+                            ? () => setState(() => imagemBytes = null)
+                            : null,
+                      ),
                     ],
                   ),
                 ),

@@ -73,8 +73,11 @@ async function obterTokenValidado(db, uid, segmentoEsperado) {
     if (esperado) {
         let okRole = false;
         if (segmentoEsperado === "cliente") {
-            const r = String(role || "").toLowerCase();
-            okRole = !r || r === ROLES.CLIENTE;
+            // Notificações de pedido ao cliente_id do próprio pedido: o dono
+            // do pedido pode ser, no resto do sistema, também lojista ou
+            // entregador (ex.: lojista comprando em outra loja). Ainda assim
+            // precisa receber o push do pedido dele.
+            okRole = true;
         } else if (segmentoEsperado === "loja") {
             okRole = docIndicaLojista(d);
         } else if (segmentoEsperado === "entregador") {
@@ -366,7 +369,7 @@ async function enviarClienteConfirmacaoCancelamentoReembolso(
 
     const titulo = "Pedido cancelado";
     const corpo = comPagamentoMp
-        ? "Cancelamento efetuado com sucesso: Seu reembolso está disponível em breve."
+        ? "Cancelamento efetuado com sucesso: Seu reembolso estará disponível em breve."
         : "Cancelamento efetuado com sucesso.";
 
     const data = dataSoStrings({

@@ -33,33 +33,29 @@ class _LojistaMeusPedidosScreenState extends State<LojistaMeusPedidosScreen> {
     super.dispose();
   }
 
+  // Fase 3G.3 — lê `cliente_nome` denormalizado no próprio pedido. A rule de
+  // `users` agora bloqueia leitura cruzada entre autenticados, então o
+  // painel do lojista não consegue mais ler `users/{cliente_id}`. O nome é
+  // gravado na criação do pedido (ver `cart_screen.dart` mobile) e mantido
+  // em dia pelo trigger `sincronizarIdentidadePedidosOnUpdate`.
   Future<void> _resolverNomesCliente(
     Iterable<QueryDocumentSnapshot<Map<String, dynamic>>> docs,
   ) async {
-    final ids = <String>{};
+    var mudou = false;
     for (final d in docs) {
-      final id = d.data()['cliente_id']?.toString().trim();
-      if (id != null && id.isNotEmpty && !_nomesCliente.containsKey(id)) {
-        ids.add(id);
+      final data = d.data();
+      final id = data['cliente_id']?.toString().trim();
+      if (id == null || id.isEmpty) continue;
+      final nomeAtual = _nomesCliente[id];
+      final nomeNoPedido =
+          (data['cliente_nome'] ?? '').toString().trim();
+      final nomeFinal = nomeNoPedido.isNotEmpty ? nomeNoPedido : 'Cliente';
+      if (nomeAtual != nomeFinal) {
+        _nomesCliente[id] = nomeFinal;
+        mudou = true;
       }
     }
-    if (ids.isEmpty) return;
-    for (final uid in ids) {
-      try {
-        final u = await FirebaseFirestore.instance
-            .collection('users')
-            .doc(uid)
-            .get();
-        if (!mounted) return;
-        final n = u.data()?['nome']?.toString().trim() ??
-            u.data()?['nome_completo']?.toString().trim() ??
-            '';
-        _nomesCliente[uid] = n.isNotEmpty ? n : 'Cliente';
-      } catch (_) {
-        if (mounted) _nomesCliente[uid] = 'Cliente';
-      }
-    }
-    if (mounted) setState(() {});
+    if (mudou && mounted) setState(() {});
   }
 
   static String _labelStatus(String s) {
@@ -705,26 +701,23 @@ class _LojistaPedidoDetalheDialogState extends State<_LojistaPedidoDetalheDialog
     _carregarNomeCliente();
   }
 
+  // Fase 3G.3 — lê `cliente_nome` direto do pedido (denormalizado).
+  // Antes: lookup em `users/{cliente_id}` que a rule fechada bloqueia.
   Future<void> _carregarNomeCliente() async {
     try {
       final doc = await FirebaseFirestore.instance
           .collection('pedidos')
           .doc(widget.pedidoId)
           .get();
-      final cid = doc.data()?['cliente_id']?.toString().trim();
-      if (cid == null || cid.isEmpty) {
-        if (mounted) setState(() => _nomeCliente = widget.nomeClienteFallback);
-        return;
-      }
-      final u = await FirebaseFirestore.instance
-          .collection('users')
-          .doc(cid)
-          .get();
+      final data = doc.data();
+      final nomeNoPedido =
+          (data?['cliente_nome'] ?? '').toString().trim();
       if (!mounted) return;
-      final n = u.data()?['nome']?.toString().trim() ??
-          u.data()?['nome_completo']?.toString().trim() ??
-          '';
-      setState(() => _nomeCliente = n.isNotEmpty ? n : widget.nomeClienteFallback);
+      setState(
+        () => _nomeCliente = nomeNoPedido.isNotEmpty
+            ? nomeNoPedido
+            : widget.nomeClienteFallback,
+      );
     } catch (_) {
       if (mounted) setState(() => _nomeCliente = widget.nomeClienteFallback);
     }

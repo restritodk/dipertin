@@ -9,6 +9,11 @@ import 'package:flutter/material.dart';
 import 'package:image_picker/image_picker.dart';
 
 import 'package:depertin_cliente/auth/google_auth_helper.dart';
+import 'package:depertin_cliente/constants/lojista_motivo_recusa.dart';
+import 'package:depertin_cliente/services/fcm_notification_eventos.dart';
+import 'package:depertin_cliente/services/notificacoes_historico_service.dart';
+import 'package:depertin_cliente/screens/comum/minhas_notificacoes_screen.dart';
+import 'package:intl/intl.dart';
 import 'package:depertin_cliente/screens/cliente/chat_suporte_screen.dart';
 import 'package:depertin_cliente/screens/comum/comunicados_app_screen.dart';
 import 'package:depertin_cliente/screens/comum/configuracoes_screen.dart';
@@ -29,6 +34,23 @@ import '../lojista/lojista_form_screen.dart';
 const Color diPertinRoxo = Color(0xFF6A1B9A);
 const Color diPertinLaranja = Color(0xFFFF8F00);
 
+const String _kTelefonePerfilVazio = 'Adicionar telefone';
+
+/// Legenda amigável para exibir o telefone do usuário no card do perfil.
+String _telefonePerfilLegenda(Map<String, dynamic> userData) {
+  final bruto = (userData['telefone'] ?? '').toString().trim();
+  if (bruto.isEmpty) return _kTelefonePerfilVazio;
+  String d = bruto.replaceAll(RegExp(r'[^0-9]'), '');
+  if (d.startsWith('55') && d.length > 11) d = d.substring(2);
+  if (d.length == 11) {
+    return '(${d.substring(0, 2)}) ${d.substring(2, 7)}-${d.substring(7)}';
+  }
+  if (d.length == 10) {
+    return '(${d.substring(0, 2)}) ${d.substring(2, 6)}-${d.substring(6)}';
+  }
+  return bruto;
+}
+
 String _rotuloTipoPerfil(String role) {
   switch (role) {
     case 'lojista':
@@ -47,6 +69,73 @@ String _rotuloTipoPerfil(String role) {
 /// Firestore: `ativo`, `aprovado` ou `aprovada`.
 bool _statusLojaAprovada(String s) =>
     s == 'aprovado' || s == 'aprovada' || s == 'ativo';
+
+/// Exibe diálogo informando que o lojista precisa aguardar o fim do período de
+/// bloqueio (30 dias) para solicitar uma nova análise do cadastro.
+void _mostrarDialogoBloqueioNovaSolicitacao(
+  BuildContext context,
+  DateTime dataLiberacao, {
+  String? motivo,
+}) {
+  final formato = DateFormat("dd 'de' MMMM 'de' y", 'pt_BR');
+  final dataFormatada = formato.format(dataLiberacao);
+
+  showDialog<void>(
+    context: context,
+    builder: (ctx) => AlertDialog(
+      shape:
+          RoundedRectangleBorder(borderRadius: BorderRadius.circular(16)),
+      title: Row(
+        children: [
+          Icon(Icons.lock_clock_rounded, color: diPertinRoxo),
+          const SizedBox(width: 10),
+          const Expanded(
+            child: Text(
+              'Solicitação indisponível',
+              style: TextStyle(fontWeight: FontWeight.w800),
+            ),
+          ),
+        ],
+      ),
+      content: Column(
+        mainAxisSize: MainAxisSize.min,
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          Text(
+            'Você poderá solicitar uma nova análise após $dataFormatada.',
+            style: const TextStyle(fontSize: 14, height: 1.5),
+          ),
+          if (motivo != null && motivo.trim().isNotEmpty) ...[
+            const SizedBox(height: 12),
+            Container(
+              padding: const EdgeInsets.all(12),
+              decoration: BoxDecoration(
+                color: Colors.grey.shade100,
+                borderRadius: BorderRadius.circular(10),
+              ),
+              child: Text(
+                motivo.trim(),
+                style: TextStyle(
+                  fontSize: 13,
+                  color: Colors.grey.shade800,
+                  height: 1.45,
+                ),
+              ),
+            ),
+          ],
+        ],
+      ),
+      actions: [
+        TextButton(
+          onPressed: () => Navigator.pop(ctx),
+          style: TextButton.styleFrom(foregroundColor: diPertinRoxo),
+          child: const Text('Entendi',
+              style: TextStyle(fontWeight: FontWeight.w700)),
+        ),
+      ],
+    ),
+  );
+}
 
 void _abrirPainelLojistaOuCorrecao(
   BuildContext context,
@@ -74,6 +163,15 @@ void _abrirPainelLojistaOuCorrecao(
     return;
   }
   if (ContaBloqueioLojistaService.lojaRecusadaSomenteCorrecaoCadastro(userData)) {
+    final bloqueioAte = LojistaMotivoRecusa.bloqueioCadastroAte(userData);
+    if (bloqueioAte != null) {
+      _mostrarDialogoBloqueioNovaSolicitacao(
+        context,
+        bloqueioAte,
+        motivo: (userData['motivo_recusa'] ?? '').toString(),
+      );
+      return;
+    }
     Navigator.push(
       context,
       MaterialPageRoute(
@@ -210,6 +308,10 @@ class _ProfileScreenState extends State<ProfileScreen> {
         backgroundColor: diPertinRoxo,
         elevation: 0,
         surfaceTintColor: Colors.transparent,
+        actions: const [
+          _BotaoNotificacoesPerfil(),
+          SizedBox(width: 4),
+        ],
       ),
       body: StreamBuilder<User?>(
         stream: FirebaseAuth.instance.authStateChanges(),
@@ -481,6 +583,8 @@ class _ProfileScreenState extends State<ProfileScreen> {
     final String role = userData['role'] ?? 'cliente';
     final bool cpfBloqueado = CpfPerfilUsuario.edicaoBloqueada(userData);
     final String cpfLegenda = CpfPerfilUsuario.textoListaPerfil(userData);
+    final String telefoneLegenda = _telefonePerfilLegenda(userData);
+    final bool temTelefone = telefoneLegenda != _kTelefonePerfilVazio;
     final String enderecoPadrao = userData['endereco_padrao'] ?? '';
     final String nomeLojaDoc = userData['loja_nome'] ?? userData['nome_loja'] ?? '';
     final String fotoPerfil = userData['foto_perfil'] ?? '';
@@ -805,6 +909,33 @@ class _ProfileScreenState extends State<ProfileScreen> {
           _buildMenuCard(
             children: [
               _buildMenuItem(
+                icon: Icons.phone_android_rounded,
+                color: temTelefone
+                    ? const Color(0xFF25D366)
+                    : diPertinLaranja,
+                title: 'Telefone',
+                subtitle: telefoneLegenda,
+                trailing: const Icon(
+                  Icons.edit_outlined,
+                  size: 18,
+                  color: Colors.grey,
+                ),
+                onTap: () {
+                  Navigator.push(
+                    context,
+                    MaterialPageRoute(
+                      builder: (context) => EditProfileScreen(
+                        nomeAtual: nome,
+                        enderecoAtual: enderecoPadrao,
+                        role: role,
+                        nomeLojaAtual: nomeLojaDoc,
+                      ),
+                    ),
+                  );
+                },
+              ),
+              Divider(height: 1, color: Colors.grey.shade200),
+              _buildMenuItem(
                 icon: Icons.badge_outlined,
                 color: Colors.grey.shade700,
                 title: 'CPF',
@@ -884,14 +1015,58 @@ class _ProfileScreenState extends State<ProfileScreen> {
                   color: diPertinLaranja,
                   title: 'Quero vender',
                   subtitle: 'Cadastro de lojista',
+                  onTap: () {
+                    final bloqueioAte =
+                        LojistaMotivoRecusa.bloqueioCadastroAte(userData);
+                    if (bloqueioAte != null) {
+                      _mostrarDialogoBloqueioNovaSolicitacao(
+                        context,
+                        bloqueioAte,
+                        motivo:
+                            (userData['motivo_recusa'] ?? '').toString(),
+                      );
+                      return;
+                    }
+                    Navigator.push(
+                      context,
+                      MaterialPageRoute(
+                        builder: (context) => const LojistaFormScreen(),
+                      ),
+                    );
+                  },
+                ),
+                Divider(height: 1, color: Colors.grey.shade200),
+                _buildMenuItem(
+                  icon: Icons.delivery_dining_outlined,
+                  color: diPertinLaranja,
+                  title: 'Quero entregar',
+                  subtitle: 'Cadastro de entregador',
                   onTap: () => Navigator.push(
                     context,
                     MaterialPageRoute(
-                      builder: (context) => const LojistaFormScreen(),
+                      builder: (context) => const EntregadorFormScreen(),
                     ),
                   ),
                 ),
-                Divider(height: 1, color: Colors.grey.shade200),
+              ],
+            ),
+            const SizedBox(height: 24),
+          ],
+
+          // Quando o lojista está no bloqueio de 30 dias (Desinteresse
+          // comercial / Outros), oferece o caminho alternativo de entregador.
+          if (role == 'lojista' &&
+              LojistaMotivoRecusa.estaBloqueadoParaNovaSolicitacao(
+                  userData)) ...[
+            _secaoTitulo(
+              'Outra forma de ser parceiro',
+              subtitulo:
+                  'Enquanto aguarda o prazo para uma nova análise da loja, '
+                  'você pode se cadastrar como entregador.',
+            ),
+            const SizedBox(height: 10),
+            _buildMenuCard(
+              children: [
                 _buildMenuItem(
                   icon: Icons.delivery_dining_outlined,
                   color: diPertinLaranja,
@@ -1512,3 +1687,124 @@ class _ProfileScreenState extends State<ProfileScreen> {
     );
   }
 }
+
+/// Sino com badge de notificações não lidas. Navega para [MinhasNotificacoesScreen]
+/// usando o `role` atual lido de `users/{uid}`.
+class _BotaoNotificacoesPerfil extends StatelessWidget {
+  const _BotaoNotificacoesPerfil();
+
+  Future<void> _abrirNotificacoes(BuildContext context) async {
+    final user = FirebaseAuth.instance.currentUser;
+    String role = 'cliente';
+    if (user != null) {
+      try {
+        final doc = await FirebaseFirestore.instance
+            .collection('users')
+            .doc(user.uid)
+            .get();
+        if (doc.exists) {
+          final d = doc.data() ?? {};
+          role = (d['role'] ?? d['tipo'] ?? 'cliente').toString();
+        }
+      } catch (_) {}
+    }
+    if (!context.mounted) return;
+    Navigator.of(context).push(
+      MaterialPageRoute(
+        builder: (_) => MinhasNotificacoesScreen(role: role),
+      ),
+    );
+  }
+
+  /// Mapeia o role do usuário para o segmento correspondente usado em
+  /// `notificacoes_usuario/items.segmento`.
+  String _segmentoParaRole(String role) {
+    switch (role) {
+      case 'lojista':
+        return FcmNotificationEventos.segmentoLoja;
+      case 'entregador':
+        return FcmNotificationEventos.segmentoEntregador;
+      default:
+        return FcmNotificationEventos.segmentoCliente;
+    }
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    return StreamBuilder<User?>(
+      stream: FirebaseAuth.instance.authStateChanges(),
+      builder: (context, authSnap) {
+        final user = authSnap.data;
+        if (user == null) {
+          return const SizedBox.shrink();
+        }
+        return StreamBuilder<DocumentSnapshot<Map<String, dynamic>>>(
+          stream: FirebaseFirestore.instance
+              .collection('users')
+              .doc(user.uid)
+              .snapshots(),
+          builder: (context, userSnap) {
+            final userData = userSnap.data?.data() ?? const <String, dynamic>{};
+            final role =
+                (userData['role'] ?? userData['tipo'] ?? 'cliente').toString();
+            final segmento = _segmentoParaRole(role);
+            return StreamBuilder<int>(
+              stream: NotificacoesHistoricoService.streamContagemNaoLidas(
+                segmentoFiltro: segmento,
+              ),
+              builder: (context, snap) {
+            final qtd = snap.data ?? 0;
+            return Stack(
+              clipBehavior: Clip.none,
+              children: [
+                IconButton(
+                  icon: const Icon(
+                    Icons.notifications_outlined,
+                    color: Colors.white,
+                  ),
+                  tooltip: 'Minhas notificações',
+                  onPressed: () => _abrirNotificacoes(context),
+                ),
+                if (qtd > 0)
+                  Positioned(
+                    right: 6,
+                    top: 6,
+                    child: IgnorePointer(
+                      child: Container(
+                        constraints: const BoxConstraints(
+                          minWidth: 18,
+                          minHeight: 18,
+                        ),
+                        padding: const EdgeInsets.symmetric(
+                          horizontal: 5,
+                          vertical: 1,
+                        ),
+                        decoration: BoxDecoration(
+                          color: diPertinLaranja,
+                          borderRadius: BorderRadius.circular(10),
+                          border: Border.all(color: Colors.white, width: 1.5),
+                        ),
+                        child: Text(
+                          qtd > 99 ? '99+' : '$qtd',
+                          textAlign: TextAlign.center,
+                          style: const TextStyle(
+                            color: Colors.white,
+                            fontSize: 10.5,
+                            fontWeight: FontWeight.w800,
+                            height: 1.1,
+                          ),
+                        ),
+                      ),
+                    ),
+                  ),
+              ],
+            );
+              },
+            );
+          },
+        );
+      },
+    );
+  }
+}
+

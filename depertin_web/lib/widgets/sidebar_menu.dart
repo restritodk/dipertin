@@ -181,6 +181,7 @@ class _SidebarNovo extends StatelessWidget {
   Widget build(BuildContext context) {
     final podeGestao = perfilPodeGestaoLojasEntregadoresBanners(perfil);
     final podeChefe = perfilPodeMenuChefe(perfil);
+    final podeClientes = perfilPodeCentralClientes(perfil);
     final lojista = perfil == 'lojista';
     final n = nivelPainelLojista;
     final showMeuCardapio = n == null || n >= 2;
@@ -222,6 +223,16 @@ class _SidebarNovo extends StatelessWidget {
           onTap: (c) =>
               onTapItem(c, '/entregadores', rotaAtual == '/entregadores'),
         ),
+        if (podeClientes)
+          _NavRow(
+            rota: '/clientes',
+            label: 'Central de clientes',
+            icon: Icons.people_alt_rounded,
+            rotaAtual: rotaAtual,
+            collapsed: collapsed,
+            onTap: (c) =>
+                onTapItem(c, '/clientes', rotaAtual == '/clientes'),
+          ),
         _NavRow(
           rota: '/monitor_pedidos',
           label: 'Monitor de pedidos',
@@ -286,14 +297,10 @@ class _SidebarNovo extends StatelessWidget {
     if (podeChefe) {
       itens.add(_SecaoLabel('Gestão', collapsed: collapsed));
       itens.addAll([
-        _NavRow(
-          rota: '/admincity',
-          label: 'AdminCity',
-          icon: Icons.supervisor_account,
+        _GrupoAdminCity(
           rotaAtual: rotaAtual,
           collapsed: collapsed,
-          onTap: (c) =>
-              onTapItem(c, '/admincity', rotaAtual == '/admincity'),
+          onTapItem: onTapItem,
         ),
         _NavRow(
           rota: '/utilidades',
@@ -1645,6 +1652,284 @@ class _RodapeSair extends StatelessWidget {
                   ),
                 ),
               ],
+            ),
+          ),
+        ),
+      ),
+    );
+  }
+}
+
+// ================================================================
+// Grupo AdminCity (colapsável) — Cadastro de Usuários / Cadastro de Cidades
+// ================================================================
+class _GrupoAdminCity extends StatefulWidget {
+  const _GrupoAdminCity({
+    required this.rotaAtual,
+    required this.collapsed,
+    required this.onTapItem,
+  });
+
+  final String rotaAtual;
+  final bool collapsed;
+  final void Function(BuildContext, String, bool) onTapItem;
+
+  @override
+  State<_GrupoAdminCity> createState() => _GrupoAdminCityState();
+}
+
+class _GrupoAdminCityState extends State<_GrupoAdminCity> {
+  late bool _aberto;
+
+  static const _rotas = ['/admincity', '/admincity_cidades'];
+
+  bool get _qualquerAtivo => _rotas.contains(widget.rotaAtual);
+
+  @override
+  void initState() {
+    super.initState();
+    _aberto = _qualquerAtivo;
+  }
+
+  @override
+  void didUpdateWidget(_GrupoAdminCity old) {
+    super.didUpdateWidget(old);
+    if (_qualquerAtivo && !_aberto) setState(() => _aberto = true);
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    final ativo = _qualquerAtivo;
+
+    if (widget.collapsed) {
+      return Column(
+        mainAxisSize: MainAxisSize.min,
+        children: [
+          _iconColapsado(
+            Icons.person_add_alt_1_rounded,
+            '/admincity',
+            'Cadastro de Usuários',
+          ),
+          _iconColapsado(
+            Icons.map_rounded,
+            '/admincity_cidades',
+            'Cadastro de Cidades',
+          ),
+        ],
+      );
+    }
+
+    return Column(
+      mainAxisSize: MainAxisSize.min,
+      crossAxisAlignment: CrossAxisAlignment.stretch,
+      children: [
+        Padding(
+          padding: const EdgeInsets.only(bottom: 2),
+          child: Material(
+            color: Colors.transparent,
+            child: InkWell(
+              borderRadius: BorderRadius.circular(10),
+              onTap: () {
+                if (!_aberto) {
+                  setState(() => _aberto = true);
+                  widget.onTapItem(context, '/admincity', ativo);
+                } else {
+                  setState(() => _aberto = !_aberto);
+                }
+              },
+              hoverColor: _TemaNav.hover,
+              focusColor: Colors.transparent,
+              highlightColor: Colors.transparent,
+              splashColor: _TemaNav.accent.withValues(alpha: 0.12),
+              child: Ink(
+                decoration: BoxDecoration(
+                  borderRadius: BorderRadius.circular(10),
+                  color: ativo ? _TemaNav.ativoBg : null,
+                  border: Border.all(
+                    color: ativo
+                        ? _TemaNav.accent.withValues(alpha: 0.45)
+                        : Colors.transparent,
+                    width: 1,
+                  ),
+                ),
+                child: Row(
+                  children: [
+                    Container(
+                      width: 3,
+                      height: 44,
+                      margin: const EdgeInsets.only(right: 10),
+                      decoration: BoxDecoration(
+                        color: ativo ? _TemaNav.accent : Colors.transparent,
+                        borderRadius: const BorderRadius.horizontal(
+                          right: Radius.circular(3),
+                        ),
+                      ),
+                    ),
+                    Icon(
+                      Icons.supervisor_account,
+                      size: 22,
+                      color: ativo ? _TemaNav.accent : _TemaNav.textoMuted,
+                    ),
+                    const SizedBox(width: 12),
+                    Expanded(
+                      child: Text(
+                        'AdminCity',
+                        maxLines: 1,
+                        overflow: TextOverflow.ellipsis,
+                        style: TextStyle(
+                          fontSize: 14,
+                          fontWeight:
+                              ativo ? FontWeight.w600 : FontWeight.w500,
+                          color:
+                              ativo ? _TemaNav.texto : _TemaNav.textoMuted,
+                          decoration: TextDecoration.none,
+                        ),
+                      ),
+                    ),
+                    Padding(
+                      padding: const EdgeInsets.only(right: 10),
+                      child: AnimatedRotation(
+                        turns: _aberto ? 0.5 : 0,
+                        duration: const Duration(milliseconds: 200),
+                        child: const Icon(
+                          Icons.expand_more_rounded,
+                          size: 18,
+                          color: _TemaNav.textoMuted,
+                        ),
+                      ),
+                    ),
+                  ],
+                ),
+              ),
+            ),
+          ),
+        ),
+        AnimatedCrossFade(
+          duration: const Duration(milliseconds: 200),
+          crossFadeState: _aberto
+              ? CrossFadeState.showFirst
+              : CrossFadeState.showSecond,
+          firstChild: Padding(
+            padding: const EdgeInsets.only(left: 20),
+            child: Column(
+              mainAxisSize: MainAxisSize.min,
+              children: [
+                _subItemAC(
+                  context,
+                  rota: '/admincity',
+                  icon: Icons.person_add_alt_1_rounded,
+                  label: 'Cadastro de Usuários',
+                ),
+                _subItemAC(
+                  context,
+                  rota: '/admincity_cidades',
+                  icon: Icons.map_rounded,
+                  label: 'Cadastro de Cidades',
+                ),
+              ],
+            ),
+          ),
+          secondChild: const SizedBox.shrink(),
+        ),
+      ],
+    );
+  }
+
+  Widget _subItemAC(
+    BuildContext context, {
+    required String rota,
+    required IconData icon,
+    required String label,
+  }) {
+    final ativo = widget.rotaAtual == rota;
+    return Padding(
+      padding: const EdgeInsets.only(bottom: 2),
+      child: Material(
+        color: Colors.transparent,
+        child: InkWell(
+          borderRadius: BorderRadius.circular(8),
+          onTap: () => widget.onTapItem(context, rota, ativo),
+          hoverColor: _TemaNav.hover,
+          focusColor: Colors.transparent,
+          highlightColor: Colors.transparent,
+          splashColor: _TemaNav.accent.withValues(alpha: 0.1),
+          child: Ink(
+            decoration: BoxDecoration(
+              borderRadius: BorderRadius.circular(8),
+              color: ativo ? _TemaNav.accentSoft : null,
+            ),
+            child: Padding(
+              padding: const EdgeInsets.symmetric(
+                horizontal: 10,
+                vertical: 10,
+              ),
+              child: Row(
+                children: [
+                  Icon(
+                    icon,
+                    size: 18,
+                    color: ativo ? _TemaNav.accent : _TemaNav.textoMuted,
+                  ),
+                  const SizedBox(width: 10),
+                  Expanded(
+                    child: Text(
+                      label,
+                      maxLines: 1,
+                      overflow: TextOverflow.ellipsis,
+                      style: TextStyle(
+                        fontSize: 13,
+                        fontWeight:
+                            ativo ? FontWeight.w600 : FontWeight.w500,
+                        color: ativo ? _TemaNav.texto : _TemaNav.textoMuted,
+                        decoration: TextDecoration.none,
+                      ),
+                    ),
+                  ),
+                  if (ativo)
+                    const Icon(
+                      Icons.circle,
+                      size: 6,
+                      color: _TemaNav.accent,
+                    ),
+                ],
+              ),
+            ),
+          ),
+        ),
+      ),
+    );
+  }
+
+  Widget _iconColapsado(IconData icon, String rota, String tooltip) {
+    final ativo = widget.rotaAtual == rota;
+    return Padding(
+      padding: const EdgeInsets.only(bottom: 4),
+      child: Tooltip(
+        message: tooltip,
+        child: Material(
+          color: Colors.transparent,
+          child: InkWell(
+            borderRadius: BorderRadius.circular(10),
+            onTap: () => widget.onTapItem(context, rota, ativo),
+            hoverColor: _TemaNav.hover,
+            child: Container(
+              width: 48,
+              height: 48,
+              alignment: Alignment.center,
+              decoration: BoxDecoration(
+                borderRadius: BorderRadius.circular(10),
+                color: ativo ? _TemaNav.ativoBg : null,
+                border: Border.all(
+                  color: ativo
+                      ? _TemaNav.accent.withValues(alpha: 0.45)
+                      : Colors.transparent,
+                ),
+              ),
+              child: Icon(
+                icon,
+                size: 22,
+                color: ativo ? _TemaNav.accent : _TemaNav.textoMuted,
+              ),
             ),
           ),
         ),

@@ -17,7 +17,7 @@
   <meta name="twitter:image" content="https://www.dipertin.com.br/assets/og-dipertin.png" />
   <link rel="preconnect" href="https://fonts.googleapis.com" />
   <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
-  <link rel="stylesheet" href="css/styles.css?v=navcta3" />
+  <link rel="stylesheet" href="css/styles.css?v=permcam1" />
   <link rel="preload" as="style" href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800&display=swap" onload="this.onload=null;this.rel='stylesheet'" />
   <noscript><link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800&display=swap" rel="stylesheet" /></noscript>
   <link rel="icon" type="image/png" href="assets/logo.png" />
@@ -58,10 +58,20 @@
         <h1>Política de privacidade</h1>
         <p class="legal__meta">Última atualização: 5 de abril de 2026 · DiPertin</p>
 
+        <aside class="legal__identidade">
+          <h2 class="legal__identidade-title">Identificação do controlador</h2>
+          <ul class="legal__identidade-list">
+            <li><strong>DiPertin</strong></li>
+            <li>CNPJ: <strong>66.040.998/0001-66</strong></li>
+            <li>Telefone: <a href="tel:+556631800107">(66) 3180-0107</a></li>
+            <li>E-mail: <a href="mailto:contato@dipertin.com.br">contato@dipertin.com.br</a></li>
+          </ul>
+        </aside>
+
         <p>O DiPertin (“nós”) respeita sua privacidade e trata dados pessoais em conformidade com a Lei Geral de Proteção de Dados (Lei nº 13.709/2018 — LGPD). Esta política descreve como coletamos, usamos e protegemos informações no site e no aplicativo.</p>
 
         <h2>1. Quem é o controlador</h2>
-        <p>O controlador dos dados pessoais tratados no âmbito do DiPertin é a pessoa jurídica responsável pela plataforma, conforme cadastro empresarial. Para exercer seus direitos ou dúvidas sobre privacidade, utilize o contato: <a href="mailto:juridico@dipertin.com.br">juridico@dipertin.com.br</a>.</p>
+        <p>Controlador: <strong>DiPertin</strong>, inscrita no CNPJ sob o nº <strong>66.040.998/0001-66</strong>. Em matéria de proteção de dados, dúvidas, solicitações de titulares e exercício de direitos previstos na LGPD podem ser enviados para <a href="mailto:contato@dipertin.com.br">contato@dipertin.com.br</a> ou pelo telefone <a href="tel:+556631800107">(66) 3180-0107</a>.</p>
 
         <h2>2. Dados que podemos coletar</h2>
         <ul>
@@ -69,35 +79,50 @@
           <li><strong>Pedidos e entrega:</strong> endereço, localização quando necessário para a entrega, histórico de pedidos.</li>
           <li><strong>Pagamentos:</strong> dados processados por provedores certificados (ex.: Mercado Pago); não armazenamos número completo de cartão em nossos servidores de forma desnecessária.</li>
           <li><strong>Dispositivo e uso:</strong> token de notificação (push), dados de diagnóstico para melhorar estabilidade e segurança.</li>
+          <li><strong>Imagens e mídia:</strong> fotos enviadas voluntariamente pelo usuário (foto de perfil, foto do produto pelo lojista, comprovantes ou documentos quando exigidos).</li>
           <li><strong>Site (formulário de contato):</strong> dados que você enviar voluntariamente para atendimento.</li>
         </ul>
 
-        <h2>3. Finalidades</h2>
+        <h2>3. Permissões do aplicativo Android</h2>
+        <p>Para funcionar corretamente, o aplicativo DiPertin pode solicitar as permissões abaixo. Cada permissão é usada exclusivamente para a finalidade descrita e nenhuma é ativada sem ação do usuário:</p>
+        <ul>
+          <li><strong>Câmera:</strong> permitir que o usuário tire fotos para a foto de perfil, fotos de produtos cadastrados pelo lojista, envio de comprovantes ou documentos de verificação. Nenhuma imagem é capturada sem ação direta do usuário.</li>
+          <li><strong>Galeria/Mídia (READ_MEDIA_IMAGES / READ_EXTERNAL_STORAGE):</strong> selecionar imagens já existentes no dispositivo para os mesmos fins descritos acima.</li>
+          <li><strong>Localização precisa (ACCESS_FINE_LOCATION / ACCESS_COARSE_LOCATION):</strong> calcular endereço de entrega, distância e taxa de frete, e permitir que o entregador seja localizado durante uma corrida ativa. A localização é utilizada apenas com o aplicativo em primeiro plano; não fazemos rastreamento contínuo em segundo plano.</li>
+          <li><strong>Notificações (POST_NOTIFICATIONS):</strong> avisar sobre status do pedido, ofertas de corrida para entregador, mensagens de suporte e comunicados.</li>
+          <li><strong>Notificação em tela cheia (USE_FULL_SCREEN_INTENT) e WAKE_LOCK:</strong> exibir alertas críticos de nova corrida ao entregador mesmo com a tela bloqueada, garantindo que ele não perca a oferta.</li>
+          <li><strong>Sobreposição de outros apps (SYSTEM_ALERT_WINDOW):</strong> exibir um pequeno ícone flutuante para o entregador aceitar corridas com o aplicativo em segundo plano. Concedida pelo entregador apenas se desejar.</li>
+          <li><strong>Serviço em primeiro plano (FOREGROUND_SERVICE_SPECIAL_USE):</strong> manter ativo o ícone flutuante do entregador enquanto ele está disponível para receber chamadas.</li>
+          <li><strong>Ignorar otimização de bateria (REQUEST_IGNORE_BATTERY_OPTIMIZATIONS):</strong> opcional, oferecida ao entregador para evitar que o sistema operacional encerre o app durante o turno de trabalho e atrase notificações de novas corridas.</li>
+          <li><strong>Receber inicialização concluída (RECEIVE_BOOT_COMPLETED):</strong> reativar o serviço de notificações do entregador após reiniciar o aparelho.</li>
+        </ul>
+
+        <h2>4. Finalidades</h2>
         <p>Utilizamos os dados para prestar o serviço (pedidos, entregas, pagamentos), comunicação operacional, suporte, segurança, cumprimento legal e melhoria da plataforma.</p>
 
-        <h2>4. Bases legais (LGPD)</h2>
+        <h2>5. Bases legais (LGPD)</h2>
         <p>Tratamos dados com base em execução de contrato, legítimo interesse (quando aplicável), consentimento quando necessário, e obrigação legal — conforme cada hipótese concreta.</p>
 
-        <h2>5. Compartilhamento</h2>
+        <h2>6. Compartilhamento</h2>
         <p>Podemos compartilhar dados com lojas e entregadores envolvidos no seu pedido, processadores de pagamento, infraestrutura em nuvem e prestadores que nos auxiliam a operar o serviço, sempre no limite do necessário e com contratos ou cláusulas compatíveis com a LGPD.</p>
 
-        <h2>6. Seus direitos</h2>
-        <p>Você pode solicitar confirmação de tratamento, acesso, correção, anonimização, portabilidade, eliminação de dados desnecessários, informação sobre compartilhamentos e revogação de consentimento, quando cabível. Envie o pedido para <a href="mailto:juridico@dipertin.com.br">juridico@dipertin.com.br</a>. Responderemos no prazo legal.</p>
+        <h2>7. Seus direitos</h2>
+        <p>Você pode solicitar confirmação de tratamento, acesso, correção, anonimização, portabilidade, eliminação de dados desnecessários, informação sobre compartilhamentos e revogação de consentimento, quando cabível. Envie o pedido para <a href="mailto:contato@dipertin.com.br">contato@dipertin.com.br</a>. Responderemos no prazo legal.</p>
 
-        <h2>7. Segurança</h2>
+        <h2>8. Segurança</h2>
         <p>Adotamos medidas técnicas e organizacionais razoáveis para proteger dados contra acessos não autorizados, perda ou alteração indevida. Nenhum sistema é 100% invulnerável; em caso de incidente relevante, seguiremos a legislação aplicável.</p>
 
-        <h2>8. Retenção</h2>
+        <h2>9. Retenção</h2>
         <p>Mantemos dados pelo tempo necessário para cumprir finalidades descritas, obrigações legais e resolução de litígios, apagando ou anonimizando quando apropriado.</p>
 
-        <h2>9. Cookies e site</h2>
+        <h2>10. Cookies e site</h2>
         <p>Este site institucional pode usar cookies ou tecnologias similares para funcionamento básico e medição de audiência, conforme configurações do seu navegador e eventuais avisos exibidos.</p>
 
-        <h2>10. Alterações</h2>
+        <h2>11. Alterações</h2>
         <p>Podemos atualizar esta política. A data no topo indica a versão vigente. Recomendamos revisitar periodicamente.</p>
 
-        <h2>11. Contato</h2>
-        <p>Privacidade e proteção de dados: <a href="mailto:juridico@dipertin.com.br">juridico@dipertin.com.br</a>.</p>
+        <h2>12. Contato</h2>
+        <p>Privacidade e proteção de dados: <a href="mailto:contato@dipertin.com.br">contato@dipertin.com.br</a> &middot; Telefone: <a href="tel:+556631800107">(66) 3180-0107</a>.</p>
       </div>
     </article>
   </main>
@@ -114,6 +139,7 @@
           <h4>Legal</h4>
           <a href="termos.html">Termos de uso</a>
           <a href="privacidade.html">Política de privacidade</a>
+          <a href="excluir-conta.html">Excluir conta</a>
         </div>
         <div class="footer__col">
           <h4>Site</h4>

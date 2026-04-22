@@ -82,6 +82,10 @@ class _EntregadorDashboardScreenState extends State<EntregadorDashboardScreen>
   final Map<String, double?> _cacheDistLojaClienteKm = {};
   final Set<String> _resolvendoDistLojaCliente = <String>{};
   final Set<String> _pedidosIndoCliente = <String>{};
+  // Cache de telefones de usuários (loja/cliente) exibidos nos cards de corrida.
+  // Valor `null` significa "usuário não tem telefone cadastrado".
+  final Map<String, String?> _cacheTelefonePorUid = <String, String?>{};
+  final Set<String> _buscandoTelefonePorUid = <String>{};
   final Set<String> _pedidosSolicitarCodigo = <String>{};
   bool _verificandoPermissoesChamada = false;
   int _pendenciasPermissao = 0;
@@ -544,6 +548,171 @@ class _EntregadorDashboardScreenState extends State<EntregadorDashboardScreen>
     return '${km.toStringAsFixed(1)} km';
   }
 
+  /// Mostra ao entregador o aviso de pagamento em dinheiro com valor a
+  /// receber e troco a devolver. Modelo iFood: o entregador é o responsável
+  /// pelo dinheiro físico; o lojista nunca lida com troco. Devolve lista
+  /// vazia se o pedido não for em dinheiro.
+  List<Widget> _blocoPagamentoDinheiro(Map<String, dynamic> pedido) {
+    final formaBruta = (pedido['forma_pagamento'] ?? '').toString().trim();
+    final isDinheiro = formaBruta.toLowerCase() == 'dinheiro';
+    if (!isDinheiro) return const [];
+
+    double parseMoney(dynamic v) {
+      if (v == null) return 0.0;
+      if (v is num) return v.toDouble();
+      return double.tryParse(v.toString().replaceAll(',', '.')) ?? 0.0;
+    }
+
+    final total = parseMoney(pedido['total']);
+    final precisaTroco = pedido['pagamento_dinheiro_precisa_troco'] == true;
+    final trocoPara = parseMoney(
+      pedido['pagamento_dinheiro_troco_para'] ?? pedido['troco_para'],
+    );
+    final trocoDevolverDoc = parseMoney(
+      pedido['pagamento_dinheiro_troco_valor'] ?? pedido['troco_valor'],
+    );
+    final trocoDevolver = trocoDevolverDoc > 0
+        ? trocoDevolverDoc
+        : (precisaTroco && trocoPara > total ? trocoPara - total : 0.0);
+
+    return [
+      const SizedBox(height: 12),
+      Container(
+        width: double.infinity,
+        padding: const EdgeInsets.all(12),
+        decoration: BoxDecoration(
+          color: const Color(0xFFFFF8E1),
+          borderRadius: BorderRadius.circular(12),
+          border: Border.all(color: Colors.orange.shade300),
+        ),
+        child: Column(
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            Row(
+              children: [
+                Icon(
+                  Icons.payments_outlined,
+                  color: Colors.orange.shade800,
+                  size: 20,
+                ),
+                const SizedBox(width: 8),
+                Text(
+                  'Pagamento em DINHEIRO',
+                  style: TextStyle(
+                    fontWeight: FontWeight.w800,
+                    fontSize: 13,
+                    color: Colors.orange.shade900,
+                    letterSpacing: 0.3,
+                  ),
+                ),
+              ],
+            ),
+            const SizedBox(height: 8),
+            Row(
+              mainAxisAlignment: MainAxisAlignment.spaceBetween,
+              children: [
+                const Text(
+                  'Receba do cliente:',
+                  style: TextStyle(fontSize: 13, color: Colors.black87),
+                ),
+                Text(
+                  _moeda.format(total),
+                  style: const TextStyle(
+                    fontSize: 15,
+                    fontWeight: FontWeight.w800,
+                    color: Colors.black,
+                  ),
+                ),
+              ],
+            ),
+            if (precisaTroco && trocoPara > 0) ...[
+              const SizedBox(height: 4),
+              Row(
+                mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                children: [
+                  const Text(
+                    'Cliente vai pagar com:',
+                    style: TextStyle(fontSize: 13, color: Colors.black87),
+                  ),
+                  Text(
+                    _moeda.format(trocoPara),
+                    style: const TextStyle(
+                      fontSize: 14,
+                      fontWeight: FontWeight.w700,
+                    ),
+                  ),
+                ],
+              ),
+              const SizedBox(height: 4),
+              Row(
+                mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                children: [
+                  const Text(
+                    'Devolva de troco:',
+                    style: TextStyle(
+                      fontSize: 13,
+                      color: Colors.black87,
+                      fontWeight: FontWeight.w600,
+                    ),
+                  ),
+                  Text(
+                    _moeda.format(trocoDevolver),
+                    style: TextStyle(
+                      fontSize: 16,
+                      fontWeight: FontWeight.w900,
+                      color: Colors.green.shade800,
+                    ),
+                  ),
+                ],
+              ),
+            ] else ...[
+              const SizedBox(height: 4),
+              Text(
+                'Cliente NÃO precisa de troco — pagará o valor exato.',
+                style: TextStyle(
+                  fontSize: 12,
+                  color: Colors.grey.shade700,
+                  fontStyle: FontStyle.italic,
+                ),
+              ),
+            ],
+            const SizedBox(height: 8),
+            Container(
+              padding: const EdgeInsets.symmetric(
+                horizontal: 8,
+                vertical: 6,
+              ),
+              decoration: BoxDecoration(
+                color: Colors.white.withValues(alpha: 0.7),
+                borderRadius: BorderRadius.circular(6),
+              ),
+              child: Row(
+                children: [
+                  const Icon(
+                    Icons.info_outline,
+                    size: 14,
+                    color: Colors.black54,
+                  ),
+                  const SizedBox(width: 6),
+                  Expanded(
+                    child: Text(
+                      'Você é o responsável pelo dinheiro: receba do cliente e dê o troco. A loja não lida com esse valor.',
+                      style: TextStyle(
+                        fontSize: 11,
+                        color: Colors.grey.shade800,
+                        height: 1.3,
+                      ),
+                    ),
+                  ),
+                ],
+              ),
+            ),
+          ],
+        ),
+      ),
+    ];
+  }
+
   Widget _chipMetrica({
     required IconData icon,
     required String rotulo,
@@ -641,6 +810,252 @@ class _EntregadorDashboardScreenState extends State<EntregadorDashboardScreen>
     } catch (e) {
       debugPrint('Alerta sonoro: $e');
     }
+  }
+
+  /// Busca sob demanda o telefone de `users/{uid}` e guarda em cache, para
+  /// exibir o contato da loja (antes de sair com o pedido) ou do cliente
+  /// (após o botão "Ir para cliente") no card da corrida.
+  void _agendarBuscaTelefoneUsuario(String uid) {
+    if (uid.isEmpty) return;
+    if (_cacheTelefonePorUid.containsKey(uid)) return;
+    if (_buscandoTelefonePorUid.contains(uid)) return;
+    _buscandoTelefonePorUid.add(uid);
+    unawaited(() async {
+      String? telefone;
+      try {
+        final doc = await FirebaseFirestore.instance
+            .collection('users')
+            .doc(uid)
+            .get();
+        final dados = doc.data() ?? <String, dynamic>{};
+        final candidatos = <dynamic>[
+          dados['telefone'],
+          dados['whatsapp'],
+          dados['celular'],
+          dados['telefone_contato'],
+        ];
+        for (final c in candidatos) {
+          final s = (c ?? '').toString().trim();
+          if (s.isNotEmpty) {
+            telefone = s;
+            break;
+          }
+        }
+      } catch (_) {
+        telefone = null;
+      } finally {
+        _buscandoTelefonePorUid.remove(uid);
+        if (mounted) {
+          setState(() {
+            _cacheTelefonePorUid[uid] =
+                (telefone == null || telefone.isEmpty) ? null : telefone;
+          });
+        } else {
+          _cacheTelefonePorUid[uid] =
+              (telefone == null || telefone.isEmpty) ? null : telefone;
+        }
+      }
+    }());
+  }
+
+  Future<void> _abrirWhatsAppContato(String telefone) async {
+    String numero = telefone.replaceAll(RegExp(r'[^0-9]'), '');
+    if (numero.isEmpty) return;
+    if (!numero.startsWith('55') && numero.length >= 10) {
+      numero = '55$numero';
+    }
+    final urls = <Uri>[
+      Uri.parse('https://wa.me/$numero'),
+      Uri.parse('https://api.whatsapp.com/send?phone=$numero'),
+      Uri.parse('tel:$numero'),
+    ];
+    for (final uri in urls) {
+      try {
+        final ok = await launchUrl(
+          uri,
+          mode: LaunchMode.externalApplication,
+        );
+        if (ok) return;
+      } catch (_) {
+        // tenta próximo formato
+      }
+    }
+    if (mounted) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(
+          content: Text('Não foi possível abrir o WhatsApp.'),
+          behavior: SnackBarBehavior.floating,
+        ),
+      );
+    }
+  }
+
+  String _formatarTelefoneBr(String bruto) {
+    final d = bruto.replaceAll(RegExp(r'[^0-9]'), '');
+    String s = d;
+    if (s.startsWith('55') && s.length > 11) {
+      s = s.substring(2);
+    }
+    if (s.length == 11) {
+      return '(${s.substring(0, 2)}) ${s.substring(2, 7)}-${s.substring(7)}';
+    }
+    if (s.length == 10) {
+      return '(${s.substring(0, 2)}) ${s.substring(2, 6)}-${s.substring(6)}';
+    }
+    return bruto.trim();
+  }
+
+  /// Bloco visual de contato (WhatsApp) da loja ou do cliente,
+  /// alternado conforme a etapa da corrida.
+  ///
+  /// Estratégia:
+  /// 1) Usa o telefone denormalizado no próprio `pedido` (gravado no checkout
+  ///    e mantido em dia pelo trigger `sincronizarIdentidadePedidosOnUpdate`).
+  /// 2) Se o campo não existir (pedidos antigos), tenta buscar em
+  ///    `users/{uid}` — funcionará apenas se as rules permitirem.
+  Widget _blocoContatoWhatsApp({
+    required Map<String, dynamic> pedido,
+    required bool etapaCliente,
+  }) {
+    final String uidAlvo = etapaCliente
+        ? (pedido['cliente_id']?.toString() ?? '')
+        : (pedido['loja_id']?.toString() ?? '');
+
+    String? telefoneDoPedido;
+    final dynamic bruto = etapaCliente
+        ? pedido['cliente_telefone']
+        : pedido['loja_telefone'];
+    final tel = (bruto ?? '').toString().trim();
+    if (tel.isNotEmpty) telefoneDoPedido = tel;
+
+    // Sem telefone no pedido e sem uid para fallback → não mostra card.
+    if (telefoneDoPedido == null && uidAlvo.isEmpty) {
+      return const SizedBox.shrink();
+    }
+
+    // Quando o telefone está no próprio pedido, não precisamos buscar users.
+    final bool temTelefoneNoPedido = telefoneDoPedido != null;
+    if (!temTelefoneNoPedido && uidAlvo.isNotEmpty) {
+      _agendarBuscaTelefoneUsuario(uidAlvo);
+    }
+
+    final bool jaCarregou = temTelefoneNoPedido ||
+        _cacheTelefonePorUid.containsKey(uidAlvo);
+    final String? telefone = temTelefoneNoPedido
+        ? telefoneDoPedido
+        : _cacheTelefonePorUid[uidAlvo];
+    final String rotulo = etapaCliente
+        ? 'Contato do cliente'
+        : 'Contato da loja';
+    final IconData icone = etapaCliente
+        ? Icons.person_outline
+        : Icons.storefront_outlined;
+    final Color corAcento = etapaCliente
+        ? const Color(0xFF2E7D32)
+        : diPertinRoxo;
+
+    Widget conteudo;
+    if (!jaCarregou) {
+      conteudo = Row(
+        children: const [
+          SizedBox(
+            width: 14,
+            height: 14,
+            child: CircularProgressIndicator(strokeWidth: 2),
+          ),
+          SizedBox(width: 10),
+          Text(
+            'Carregando contato...',
+            style: TextStyle(fontSize: 13, color: Colors.black54),
+          ),
+        ],
+      );
+    } else if (telefone == null || telefone.isEmpty) {
+      conteudo = Text(
+        etapaCliente
+            ? 'Cliente sem telefone cadastrado'
+            : 'Loja sem telefone cadastrado',
+        style: TextStyle(fontSize: 13, color: Colors.grey[700]),
+      );
+    } else {
+      final String formatado = _formatarTelefoneBr(telefone);
+      conteudo = Row(
+        children: [
+          Expanded(
+            child: Text(
+              formatado,
+              style: const TextStyle(
+                fontSize: 15,
+                fontWeight: FontWeight.w700,
+                color: Color(0xFF25D366),
+              ),
+            ),
+          ),
+          const SizedBox(width: 8),
+          const Icon(
+            Icons.chat_rounded,
+            color: Color(0xFF25D366),
+            size: 20,
+          ),
+          const SizedBox(width: 2),
+          const Text(
+            'WhatsApp',
+            style: TextStyle(
+              fontSize: 11,
+              fontWeight: FontWeight.w700,
+              color: Color(0xFF25D366),
+            ),
+          ),
+        ],
+      );
+    }
+
+    final bool clicavel =
+        jaCarregou && telefone != null && telefone.isNotEmpty;
+    return Padding(
+      padding: const EdgeInsets.only(bottom: 10),
+      child: Material(
+        color: Colors.transparent,
+        child: InkWell(
+          borderRadius: BorderRadius.circular(12),
+          onTap: clicavel ? () => _abrirWhatsAppContato(telefone) : null,
+          child: Container(
+            padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 10),
+            decoration: BoxDecoration(
+              color: corAcento.withValues(alpha: 0.08),
+              borderRadius: BorderRadius.circular(12),
+              border: Border.all(
+                color: corAcento.withValues(alpha: 0.35),
+              ),
+            ),
+            child: Row(
+              children: [
+                Icon(icone, color: corAcento, size: 22),
+                const SizedBox(width: 10),
+                Expanded(
+                  child: Column(
+                    crossAxisAlignment: CrossAxisAlignment.start,
+                    children: [
+                      Text(
+                        rotulo,
+                        style: TextStyle(
+                          fontSize: 11,
+                          fontWeight: FontWeight.w600,
+                          color: corAcento,
+                          letterSpacing: 0.2,
+                        ),
+                      ),
+                      const SizedBox(height: 2),
+                      conteudo,
+                    ],
+                  ),
+                ),
+              ],
+            ),
+          ),
+        ),
+      ),
+    );
   }
 
   void _sincronizarSomChamadaOferta(
@@ -1026,7 +1441,6 @@ class _EntregadorDashboardScreenState extends State<EntregadorDashboardScreen>
     if (mounted) {
       setState(() => _pedidosAbrindoFluxoEntrega.add(pedidoId));
     }
-    final controller = TextEditingController();
     try {
       String? erro;
       bool validando = false;
@@ -1038,11 +1452,10 @@ class _EntregadorDashboardScreenState extends State<EntregadorDashboardScreen>
         builder: (dialogCtx) {
           return StatefulBuilder(
             builder: (ctx, setDialogState) {
-              Future<void> confirmar() async {
-                final codigo = controller.text.trim().toUpperCase();
+              Future<void> confirmar(String codigo) async {
                 if (codigo.length < 6) {
                   setDialogState(() {
-                    erro = 'Informe o código com 6 dígitos.';
+                    erro = 'Informe o código completo com 6 dígitos.';
                   });
                   return;
                 }
@@ -1068,83 +1481,55 @@ class _EntregadorDashboardScreenState extends State<EntregadorDashboardScreen>
                   }
                   resumo = resposta;
                   if (ctx.mounted) {
-                    Navigator.of(ctx).pop();
+                    FocusManager.instance.primaryFocus?.unfocus();
+                    final tinhaTeclado =
+                        MediaQuery.of(ctx).viewInsets.bottom > 0;
+                    if (tinhaTeclado) {
+                      await Future<void>.delayed(
+                        const Duration(milliseconds: 180),
+                      );
+                    }
+                    if (ctx.mounted) Navigator.of(ctx).pop();
                   }
                 } catch (e) {
                   setDialogState(() {
-                    erro = 'Falha ao validar código: $e';
+                    erro = 'Não foi possível validar o código. Tente novamente.';
                     validando = false;
                   });
                 }
               }
 
-              return AlertDialog(
-                title: const Text('Entregar e solicitar código'),
-                content: Column(
-                  mainAxisSize: MainAxisSize.min,
-                  crossAxisAlignment: CrossAxisAlignment.start,
-                  children: [
-                    const Text(
-                      'Digite o código de entrega informado pelo cliente.',
-                    ),
-                    const SizedBox(height: 12),
-                    TextField(
-                      controller: controller,
-                      enabled: !validando,
-                      maxLength: 6,
-                      textCapitalization: TextCapitalization.characters,
-                      keyboardType: TextInputType.number,
-                      inputFormatters: [FilteringTextInputFormatter.digitsOnly],
-                      decoration: InputDecoration(
-                        labelText: 'Código de 6 dígitos',
-                        counterText: '',
-                        errorText: erro,
-                      ),
-                      onSubmitted: (_) {
-                        if (!validando) {
-                          unawaited(confirmar());
-                        }
-                      },
-                    ),
-                  ],
-                ),
-                actions: [
-                  TextButton(
-                    onPressed: validando
-                        ? null
-                        : () => Navigator.of(dialogCtx).pop(),
-                    child: const Text('Voltar'),
-                  ),
-                  FilledButton(
-                    onPressed: validando ? null : confirmar,
-                    child: validando
-                        ? const SizedBox(
-                            height: 18,
-                            width: 18,
-                            child: CircularProgressIndicator(strokeWidth: 2),
-                          )
-                        : const Text('Validar código'),
-                  ),
-                ],
+              return _DialogSolicitarCodigoEntrega(
+                validando: validando,
+                erro: erro,
+                onLimparErro: () {
+                  if (erro != null) {
+                    setDialogState(() => erro = null);
+                  }
+                },
+                onVoltar: validando
+                    ? null
+                    : () => Navigator.of(dialogCtx).pop(),
+                onConfirmar: validando ? null : confirmar,
               );
             },
           );
         },
       );
 
+      // Aguarda a animação de fechamento do dialog terminar antes de
+      // continuar. O Future de showDialog resolve no momento do pop
+      // (antes da animação completa), e widgets internos ainda podem
+      // estar sendo reconciliados.
+      if (!mounted) return;
+      await Future<void>.delayed(const Duration(milliseconds: 220));
       if (!mounted || resumo == null) return;
 
       await showDialog<void>(
         context: context,
-        builder: (ctx) => AlertDialog(
-          title: const Text('Entrega confirmada'),
-          content: const Text('Entrega confirmada com sucesso.'),
-          actions: [
-            FilledButton(
-              onPressed: () => Navigator.of(ctx).pop(),
-              child: const Text('Continuar'),
-            ),
-          ],
+        barrierDismissible: false,
+        builder: (ctx) => _DialogEntregaConfirmada(
+          onContinuar: () => Navigator.of(ctx).pop(),
         ),
       );
       if (!mounted) return;
@@ -1184,7 +1569,6 @@ class _EntregadorDashboardScreenState extends State<EntregadorDashboardScreen>
         ),
       );
     } finally {
-      controller.dispose();
       if (mounted) {
         setState(() => _pedidosAbrindoFluxoEntrega.remove(pedidoId));
       } else {
@@ -2162,6 +2546,9 @@ class _EntregadorDashboardScreenState extends State<EntregadorDashboardScreen>
                                                   ],
                                                 ),
                                               ),
+                                              ..._blocoPagamentoDinheiro(
+                                                pedido,
+                                              ),
                                               const SizedBox(height: 16),
                                               if (isNova)
                                                 Column(
@@ -2243,6 +2630,21 @@ class _EntregadorDashboardScreenState extends State<EntregadorDashboardScreen>
                                               else
                                                 Column(
                                                   children: [
+                                                    // Contato do cliente só é
+                                                    // liberado APÓS o clique
+                                                    // em "Ir para cliente"
+                                                    // (confirma a coleta),
+                                                    // quando `solicitarCodigo`
+                                                    // fica `true`. Antes disso
+                                                    // mostra o telefone da
+                                                    // loja, mesmo que o botão
+                                                    // já tenha mudado para
+                                                    // "Ir para cliente".
+                                                    _blocoContatoWhatsApp(
+                                                      pedido: pedido,
+                                                      etapaCliente:
+                                                          solicitarCodigo,
+                                                    ),
                                                     SizedBox(
                                                       width: double.infinity,
                                                       child: FilledButton.icon(
@@ -2568,6 +2970,503 @@ class _ContadorAceiteOfertaState extends State<_ContadorAceiteOferta> {
             ),
           ),
         ],
+      ),
+    );
+  }
+}
+
+/// Dialog moderno para o entregador digitar o código de entrega informado
+/// pelo cliente. Centraliza o campo em estilo "token" com letterSpacing e
+/// destaca ações primárias/secundárias.
+///
+/// Convertido para StatefulWidget para criar e controlar o
+/// [TextEditingController] e o [FocusNode] internamente. Isso é essencial
+/// porque o `Future` retornado por `showDialog` resolve no momento do
+/// `Navigator.pop`, antes da animação de fechamento terminar. Se o
+/// controller fosse criado e disposed pelo chamador, o `TextField` ainda
+/// montado durante a animação tentaria acessar um notifier disposed,
+/// disparando assertions como `_dependents.isEmpty` e
+/// `TextEditingController was used after being disposed`.
+class _DialogSolicitarCodigoEntrega extends StatefulWidget {
+  const _DialogSolicitarCodigoEntrega({
+    required this.validando,
+    required this.erro,
+    required this.onLimparErro,
+    required this.onVoltar,
+    required this.onConfirmar,
+  });
+
+  final bool validando;
+  final String? erro;
+  final VoidCallback onLimparErro;
+  final VoidCallback? onVoltar;
+  final ValueChanged<String>? onConfirmar;
+
+  @override
+  State<_DialogSolicitarCodigoEntrega> createState() =>
+      _DialogSolicitarCodigoEntregaState();
+}
+
+class _DialogSolicitarCodigoEntregaState
+    extends State<_DialogSolicitarCodigoEntrega> {
+  late final TextEditingController _controller;
+  late final FocusNode _focoCampo;
+
+  @override
+  void initState() {
+    super.initState();
+    _controller = TextEditingController();
+    _focoCampo = FocusNode(debugLabel: 'codigoEntrega');
+    // Pede foco após o primeiro frame para não colidir com a animação de
+    // abertura do dialog.
+    WidgetsBinding.instance.addPostFrameCallback((_) {
+      if (mounted) _focoCampo.requestFocus();
+    });
+  }
+
+  @override
+  void dispose() {
+    _focoCampo.dispose();
+    _controller.dispose();
+    super.dispose();
+  }
+
+  bool _saindo = false;
+
+  /// Fecha o teclado e só depois executa [acao] (o `Navigator.pop`).
+  ///
+  /// Se o teclado estiver aberto, o `unfocus` dispara uma animação do
+  /// sistema que altera `MediaQuery.viewInsets.bottom` ao longo de ~250ms.
+  /// Chamar `Navigator.pop` no mesmo frame provoca colisão entre a
+  /// animação do teclado e a animação de fechamento do dialog, causando
+  /// assertions como `_dependents.isEmpty` e overflow gigantesco do
+  /// RenderFlex. Esperamos o teclado começar a fechar para só então
+  /// fechar o dialog.
+  Future<void> _executarSaindoFoco(VoidCallback? acao) async {
+    if (acao == null || _saindo) return;
+    _saindo = true;
+    final tinhaTeclado =
+        MediaQuery.of(context).viewInsets.bottom > 0 || _focoCampo.hasFocus;
+    _focoCampo.unfocus();
+    FocusManager.instance.primaryFocus?.unfocus();
+    if (tinhaTeclado) {
+      await Future<void>.delayed(const Duration(milliseconds: 180));
+    }
+    if (!mounted) return;
+    acao();
+  }
+
+  void _disparaConfirmar() {
+    final callback = widget.onConfirmar;
+    if (callback == null) return;
+    final codigo = _controller.text.trim().toUpperCase();
+    callback(codigo);
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    final tamanhoTela = MediaQuery.of(context).size;
+    final validando = widget.validando;
+    final erro = widget.erro;
+    return Dialog(
+      backgroundColor: Colors.transparent,
+      insetPadding: const EdgeInsets.symmetric(horizontal: 24, vertical: 24),
+      child: ConstrainedBox(
+        constraints: BoxConstraints(maxWidth: 440, maxHeight: tamanhoTela.height),
+        child: Container(
+          decoration: BoxDecoration(
+            color: Colors.white,
+            borderRadius: BorderRadius.circular(24),
+            boxShadow: [
+              BoxShadow(
+                color: Colors.black.withValues(alpha: 0.12),
+                blurRadius: 24,
+                offset: const Offset(0, 8),
+              ),
+            ],
+          ),
+          clipBehavior: Clip.antiAlias,
+          child: Column(
+            mainAxisSize: MainAxisSize.min,
+            children: [
+              // Cabeçalho com gradiente roxo DiPertin e ícone em destaque.
+              Container(
+                width: double.infinity,
+                padding: const EdgeInsets.fromLTRB(24, 24, 24, 20),
+                decoration: const BoxDecoration(
+                  gradient: LinearGradient(
+                    begin: Alignment.topLeft,
+                    end: Alignment.bottomRight,
+                    colors: [
+                      diPertinRoxo,
+                      Color(0xFF8E24AA),
+                    ],
+                  ),
+                ),
+                child: Column(
+                  children: [
+                    Container(
+                      width: 58,
+                      height: 58,
+                      decoration: BoxDecoration(
+                        color: Colors.white.withValues(alpha: 0.16),
+                        borderRadius: BorderRadius.circular(18),
+                        border: Border.all(
+                          color: Colors.white.withValues(alpha: 0.35),
+                          width: 1,
+                        ),
+                      ),
+                      child: const Icon(
+                        Icons.verified_user_rounded,
+                        color: Colors.white,
+                        size: 30,
+                      ),
+                    ),
+                    const SizedBox(height: 14),
+                    const Text(
+                      'Código de entrega',
+                      style: TextStyle(
+                        color: Colors.white,
+                        fontSize: 19,
+                        fontWeight: FontWeight.w800,
+                        letterSpacing: -0.2,
+                      ),
+                    ),
+                    const SizedBox(height: 6),
+                    Text(
+                      'Peça ao cliente o código de 6 dígitos para confirmar a entrega.',
+                      textAlign: TextAlign.center,
+                      style: TextStyle(
+                        color: Colors.white.withValues(alpha: 0.9),
+                        fontSize: 13.5,
+                        height: 1.4,
+                      ),
+                    ),
+                  ],
+                ),
+              ),
+              // Corpo com campo de código em destaque.
+              Padding(
+                padding: const EdgeInsets.fromLTRB(22, 22, 22, 8),
+                child: Column(
+                  children: [
+                    TextField(
+                      controller: _controller,
+                      focusNode: _focoCampo,
+                      enabled: !validando,
+                      maxLength: 6,
+                      textAlign: TextAlign.center,
+                      textCapitalization: TextCapitalization.characters,
+                      keyboardType: TextInputType.number,
+                      inputFormatters: [
+                        FilteringTextInputFormatter.digitsOnly,
+                      ],
+                      style: const TextStyle(
+                        fontSize: 28,
+                        fontWeight: FontWeight.w800,
+                        letterSpacing: 10,
+                        color: diPertinRoxo,
+                        fontFeatures: [FontFeature.tabularFigures()],
+                      ),
+                      onChanged: (_) => widget.onLimparErro(),
+                      onSubmitted: (_) => _disparaConfirmar(),
+                      decoration: InputDecoration(
+                        counterText: '',
+                        hintText: '— — — — — —',
+                        hintStyle: TextStyle(
+                          color: Colors.grey.shade400,
+                          fontSize: 24,
+                          letterSpacing: 8,
+                          fontWeight: FontWeight.w600,
+                        ),
+                        filled: true,
+                        fillColor: const Color(0xFFF6F2FA),
+                        contentPadding: const EdgeInsets.symmetric(
+                          vertical: 18,
+                          horizontal: 12,
+                        ),
+                        enabledBorder: OutlineInputBorder(
+                          borderRadius: BorderRadius.circular(14),
+                          borderSide: BorderSide(
+                            color: erro != null
+                                ? Colors.red.shade300
+                                : Colors.transparent,
+                            width: 1.4,
+                          ),
+                        ),
+                        focusedBorder: OutlineInputBorder(
+                          borderRadius: BorderRadius.circular(14),
+                          borderSide: BorderSide(
+                            color: erro != null ? Colors.red : diPertinRoxo,
+                            width: 1.8,
+                          ),
+                        ),
+                        disabledBorder: OutlineInputBorder(
+                          borderRadius: BorderRadius.circular(14),
+                          borderSide: BorderSide(color: Colors.grey.shade300),
+                        ),
+                      ),
+                    ),
+                    if (erro != null) ...[
+                      const SizedBox(height: 12),
+                      Container(
+                        padding: const EdgeInsets.symmetric(
+                          horizontal: 12,
+                          vertical: 10,
+                        ),
+                        decoration: BoxDecoration(
+                          color: const Color(0xFFFEECEC),
+                          borderRadius: BorderRadius.circular(12),
+                          border: Border.all(color: const Color(0xFFF8C8C8)),
+                        ),
+                        child: Row(
+                          crossAxisAlignment: CrossAxisAlignment.start,
+                          children: [
+                            const Icon(
+                              Icons.error_outline_rounded,
+                              color: Color(0xFFB91C1C),
+                              size: 20,
+                            ),
+                            const SizedBox(width: 8),
+                            Expanded(
+                              child: Text(
+                                erro,
+                                style: const TextStyle(
+                                  color: Color(0xFF7F1D1D),
+                                  fontSize: 13,
+                                  fontWeight: FontWeight.w600,
+                                  height: 1.35,
+                                ),
+                              ),
+                            ),
+                          ],
+                        ),
+                      ),
+                    ],
+                    const SizedBox(height: 12),
+                    Container(
+                      padding: const EdgeInsets.symmetric(
+                        horizontal: 12,
+                        vertical: 10,
+                      ),
+                      decoration: BoxDecoration(
+                        color: const Color(0xFFF3F0FA),
+                        borderRadius: BorderRadius.circular(12),
+                      ),
+                      child: Row(
+                        crossAxisAlignment: CrossAxisAlignment.start,
+                        children: [
+                          const Icon(
+                            Icons.info_outline_rounded,
+                            color: diPertinRoxo,
+                            size: 18,
+                          ),
+                          const SizedBox(width: 8),
+                          Expanded(
+                            child: Text(
+                              'O cliente recebe o código no pedido. Sem o código correto, a entrega não pode ser concluída.',
+                              style: TextStyle(
+                                color: Colors.grey.shade800,
+                                fontSize: 12.5,
+                                height: 1.4,
+                              ),
+                            ),
+                          ),
+                        ],
+                      ),
+                    ),
+                  ],
+                ),
+              ),
+              // Rodapé com ações.
+              Padding(
+                padding: const EdgeInsets.fromLTRB(18, 8, 18, 18),
+                child: Row(
+                  children: [
+                    Expanded(
+                      child: TextButton(
+                        style: TextButton.styleFrom(
+                          foregroundColor: Colors.grey.shade700,
+                          padding: const EdgeInsets.symmetric(vertical: 14),
+                          shape: RoundedRectangleBorder(
+                            borderRadius: BorderRadius.circular(14),
+                          ),
+                          textStyle: const TextStyle(
+                            fontSize: 15,
+                            fontWeight: FontWeight.w700,
+                          ),
+                        ),
+                        onPressed: widget.onVoltar == null
+                            ? null
+                            : () => _executarSaindoFoco(widget.onVoltar),
+                        child: const Text('Voltar'),
+                      ),
+                    ),
+                    const SizedBox(width: 10),
+                    Expanded(
+                      flex: 2,
+                      child: FilledButton(
+                        style: FilledButton.styleFrom(
+                          backgroundColor: diPertinLaranja,
+                          foregroundColor: Colors.white,
+                          disabledBackgroundColor:
+                              diPertinLaranja.withValues(alpha: 0.55),
+                          padding: const EdgeInsets.symmetric(vertical: 14),
+                          shape: RoundedRectangleBorder(
+                            borderRadius: BorderRadius.circular(14),
+                          ),
+                          textStyle: const TextStyle(
+                            fontSize: 15,
+                            fontWeight: FontWeight.w800,
+                          ),
+                        ),
+                        onPressed:
+                            (widget.onConfirmar == null || validando)
+                                ? null
+                                : _disparaConfirmar,
+                        child: validando
+                            ? const SizedBox(
+                                height: 20,
+                                width: 20,
+                                child: CircularProgressIndicator(
+                                  strokeWidth: 2.2,
+                                  color: Colors.white,
+                                ),
+                              )
+                            : const Row(
+                                mainAxisAlignment: MainAxisAlignment.center,
+                                children: [
+                                  Icon(
+                                    Icons.check_circle_rounded,
+                                    size: 18,
+                                    color: Colors.white,
+                                  ),
+                                  SizedBox(width: 8),
+                                  Text('Validar código'),
+                                ],
+                              ),
+                      ),
+                    ),
+                  ],
+                ),
+              ),
+            ],
+          ),
+        ),
+      ),
+    );
+  }
+}
+
+/// Dialog de sucesso exibido após a validação do código de entrega.
+class _DialogEntregaConfirmada extends StatelessWidget {
+  const _DialogEntregaConfirmada({required this.onContinuar});
+
+  final VoidCallback onContinuar;
+
+  @override
+  Widget build(BuildContext context) {
+    return Dialog(
+      backgroundColor: Colors.transparent,
+      insetPadding: const EdgeInsets.symmetric(horizontal: 28, vertical: 24),
+      child: ConstrainedBox(
+        constraints: const BoxConstraints(maxWidth: 420),
+        child: Container(
+          decoration: BoxDecoration(
+            color: Colors.white,
+            borderRadius: BorderRadius.circular(24),
+            boxShadow: [
+              BoxShadow(
+                color: Colors.black.withValues(alpha: 0.12),
+                blurRadius: 24,
+                offset: const Offset(0, 8),
+              ),
+            ],
+          ),
+          clipBehavior: Clip.antiAlias,
+          child: Column(
+            mainAxisSize: MainAxisSize.min,
+            children: [
+              Container(
+                width: double.infinity,
+                padding: const EdgeInsets.fromLTRB(24, 28, 24, 20),
+                decoration: const BoxDecoration(
+                  gradient: LinearGradient(
+                    begin: Alignment.topLeft,
+                    end: Alignment.bottomRight,
+                    colors: [
+                      Color(0xFF059669),
+                      Color(0xFF10B981),
+                    ],
+                  ),
+                ),
+                child: Column(
+                  children: [
+                    Container(
+                      width: 70,
+                      height: 70,
+                      decoration: BoxDecoration(
+                        color: Colors.white.withValues(alpha: 0.18),
+                        shape: BoxShape.circle,
+                        border: Border.all(
+                          color: Colors.white.withValues(alpha: 0.4),
+                          width: 1.5,
+                        ),
+                      ),
+                      child: const Icon(
+                        Icons.check_rounded,
+                        color: Colors.white,
+                        size: 42,
+                      ),
+                    ),
+                    const SizedBox(height: 14),
+                    const Text(
+                      'Entrega confirmada!',
+                      style: TextStyle(
+                        color: Colors.white,
+                        fontSize: 20,
+                        fontWeight: FontWeight.w800,
+                        letterSpacing: -0.2,
+                      ),
+                    ),
+                    const SizedBox(height: 6),
+                    Text(
+                      'Parabéns, você concluiu mais uma entrega com sucesso.',
+                      textAlign: TextAlign.center,
+                      style: TextStyle(
+                        color: Colors.white.withValues(alpha: 0.92),
+                        fontSize: 13.5,
+                        height: 1.4,
+                      ),
+                    ),
+                  ],
+                ),
+              ),
+              Padding(
+                padding: const EdgeInsets.fromLTRB(22, 20, 22, 22),
+                child: SizedBox(
+                  width: double.infinity,
+                  child: FilledButton(
+                    style: FilledButton.styleFrom(
+                      backgroundColor: diPertinLaranja,
+                      foregroundColor: Colors.white,
+                      padding: const EdgeInsets.symmetric(vertical: 14),
+                      shape: RoundedRectangleBorder(
+                        borderRadius: BorderRadius.circular(14),
+                      ),
+                      textStyle: const TextStyle(
+                        fontSize: 15,
+                        fontWeight: FontWeight.w800,
+                      ),
+                    ),
+                    onPressed: onContinuar,
+                    child: const Text('Continuar'),
+                  ),
+                ),
+              ),
+            ],
+          ),
+        ),
       ),
     );
   }

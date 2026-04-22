@@ -22,10 +22,14 @@ const MP_API = "https://api.mercadopago.com";
 const PIX_PRAZO_MINUTOS = 5;
 const PAYMENT_CALLABLE_OPTIONS = {
     region: "us-central1",
-    // App já ativa App Check (Flutter). Para exigir token nas callables:
-    // 1) Firebase Console → App Check → Android → token de debug (Logcat ao rodar debug)
-    // 2) Aqui: enforceAppCheck: true + firebase deploy --only functions
-    enforceAppCheck: false,
+    // App Check obrigatório: impede que alguém chame essas callables fora do app oficial
+    // (ex.: um atacante usando as credenciais do usuário em um script pra flood de PIX).
+    // - Android release → Play Integrity (automático).
+    // - Android debug   → AndroidDebugProvider + token registrado no Firebase Console.
+    // - iOS release     → DeviceCheck (quando o app for publicado).
+    // Se um dispositivo não apresentar token válido, a callable retorna
+    // `functions/unauthenticated` e NADA é processado.
+    enforceAppCheck: true,
 };
 
 /** Compara valores monetários (evita falha por float Firestore vs MP). */
@@ -261,6 +265,36 @@ function traduzirRecusaMp({
             code: "cc_rejected_other_reason",
             message: "Pagamento recusado pelos controles de segurança do Mercado Pago.",
         },
+        {
+            match: [
+                "invalid user identification number",
+                "invalid identification number",
+                "identification",
+                "bad_filled_identification_number",
+                "cc_rejected_bad_filled_other",
+            ],
+            code: "cc_rejected_bad_filled_identification",
+            message: "CPF do titular do cartão inválido. Confira o número digitado.",
+        },
+        {
+            match: ["cc_rejected_max_attempts"],
+            code: "cc_rejected_max_attempts",
+            message: "Número máximo de tentativas atingido. Tente novamente mais tarde ou use outro cartão.",
+        },
+        {
+            match: ["cc_rejected_invalid_installments"],
+            code: "cc_rejected_invalid_installments",
+            message: "Número de parcelas inválido para este cartão.",
+        },
+        {
+            match: [
+                "diff_param_bins",
+                "bin not found",
+                "card_number_length_different_payment_method",
+            ],
+            code: "cc_rejected_bad_filled_card_number",
+            message: "Número do cartão não confere com a bandeira. Confira os dígitos.",
+        },
     ];
 
     for (const regra of mapa) {
@@ -360,6 +394,66 @@ async function criarCardTokenMp({ publicKey, accessToken, payload }) {
         lastError.body = body;
     }
     throw lastError || new Error("Falha ao tokenizar cartão.");
+}
+
+/**
+ * Consulta o MP pelo BIN (primeiros 6 dígitos) e retorna o `payment_method_id` e
+ * `payment_type_id` corretos que a MP associa ao cartão. Isso elimina o erro
+ * `diff_param_bins` quando a detecção de bandeira feita no cliente diverge da
+ * detecção oficial do Mercado Pago.
+ */
+async function resolverMetodoPagamentoPorBinMp({ accessToken, publicKey, bin, tipoPreferido }) {
+    const binLimpo = String(bin || "").replace(/\D/g, "").slice(0, 8);
+    if (binLimpo.length < 6) return null;
+    const authCandidates = [];
+    if (accessToken) authCandidates.push(accessToken);
+    if (publicKey) authCandidates.push(publicKey);
+    const tipoAlvo = String(tipoPreferido || "").toLowerCase() === "debito"
+        ? "debit_card"
+        : String(tipoPreferido || "").toLowerCase() === "credito"
+          ? "credit_card"
+          : "";
+    for (const credential of authCandidates) {
+        try {
+            const url = `${MP_API}/v1/payment_methods/search?bin=${binLimpo.slice(0, 6)}`;
+            const res = await fetch(url, {
+                method: "GET",
+                headers: {
+                    Authorization: `Bearer ${credential}`,
+                    "Content-Type": "application/json",
+                },
+            });
+            const body = await res.json().catch(() => ({}));
+            if (!res.ok) continue;
+            // A resposta pode vir como array direto ou { results: [...] } dependendo do endpoint.
+            const results = Array.isArray(body)
+                ? body
+                : Array.isArray(body.results)
+                  ? body.results
+                  : [];
+            if (!results.length) continue;
+            // Prioriza o método que bate com o tipo preferido (crédito/débito).
+            let preferido = null;
+            if (tipoAlvo) {
+                preferido = results.find(
+                    (m) => String(m.payment_type_id || "").toLowerCase() === tipoAlvo,
+                );
+            }
+            const escolhido = preferido || results[0];
+            if (!escolhido || !escolhido.id) continue;
+            return {
+                payment_method_id: String(escolhido.id).toLowerCase(),
+                payment_type_id: String(escolhido.payment_type_id || "").toLowerCase() || null,
+                issuer_id:
+                    escolhido.issuer && escolhido.issuer.id != null
+                        ? String(escolhido.issuer.id)
+                        : null,
+            };
+        } catch (e) {
+            // Falha de rede — tenta próxima credencial.
+        }
+    }
+    return null;
 }
 
 async function criarPagamentoMpComCartao(accessToken, payload) {
@@ -569,10 +663,27 @@ async function creditarEntregadorFreteCancelamentoCliente(change, context, antes
 }
 
 /**
- * Valor a reembolsar no MP: total pago menos taxa de entrega (cupom/saldo já refletidos em `total`).
+ * Valor a reembolsar ao cliente no cancelamento.
+ *
+ * Regras de negócio:
+ *  - `freteRetido = false` (padrão): cliente cancelou ANTES do entregador sair
+ *    para entrega (status pendente / em_preparo / aguardando_entregador /
+ *    entregador_aceitou / etc). Nenhuma viagem foi iniciada, então devolvemos
+ *    o VALOR TOTAL pago (produtos + taxa de entrega).
+ *  - `freteRetido = true`: cliente cancelou DEPOIS que o entregador clicou
+ *    "ir para o cliente" (STATUS_CANCEL_PARCIAL_FRETE). A taxa de entrega é
+ *    retida e creditada ao entregador (ver creditarEntregadorFreteCancelamentoCliente).
+ *
+ * `total` já considera cupom e saldo do cliente aplicados no checkout.
  */
-function valorReembolsoClienteCancelamento(antes, depois) {
+function valorReembolsoClienteCancelamento(antes, depois, { freteRetido = false } = {}) {
     const total = roundMoneyMp(depois.total != null ? depois.total : antes.total);
+    if (!(total > 0)) return 0;
+
+    if (!freteRetido) {
+        return total;
+    }
+
     const taxa = roundMoneyMp(
         depois.taxa_entrega != null ? depois.taxa_entrega : antes.taxa_entrega,
     );
@@ -1023,6 +1134,28 @@ exports.mpProcessarPagamentoCartao = onCall(
         if (!numero || !nomeTitular || !mes || !ano || !cvv || !paymentMethodId) {
             throw new HttpsError("invalid-argument", "Dados do cartão incompletos.");
         }
+        // Valida CPF (dígitos verificadores) antes de chamar o MP.
+        // A própria API do MP rejeita CPFs inválidos com "Invalid user identification number",
+        // mas interceptar aqui evita incidentes no motor antifraude e logs desnecessários.
+        const cpfValidoMp = (() => {
+            if (!cpf || cpf.length !== 11) return false;
+            if (/^(\d)\1{10}$/.test(cpf)) return false;
+            const calcDig = (ate) => {
+                let soma = 0;
+                for (let i = 0; i < ate; i++) {
+                    soma += Number(cpf[i]) * ((ate + 1) - i);
+                }
+                const r = (soma * 10) % 11;
+                return r === 10 ? 0 : r;
+            };
+            return calcDig(9) === Number(cpf[9]) && calcDig(10) === Number(cpf[10]);
+        })();
+        if (!cpfValidoMp) {
+            throw new HttpsError(
+                "invalid-argument",
+                "CPF do titular do cartão inválido. Confira os dígitos.",
+            );
+        }
 
         const uid = request.auth.uid;
         const db = admin.firestore();
@@ -1077,6 +1210,29 @@ exports.mpProcessarPagamentoCartao = onCall(
             (data.email != null ? String(data.email).trim() : "") ||
             (usuarioAuth.email ? String(usuarioAuth.email).trim() : "") ||
             "cliente@depertin.com";
+
+        // Resolve bandeira oficial pelo BIN no MP. Evita `diff_param_bins` quando
+        // a detecção local (regex de BIN) diverge do cadastro da Mercado Pago.
+        let metodoPagamentoResolvido = null;
+        try {
+            metodoPagamentoResolvido = await resolverMetodoPagamentoPorBinMp({
+                accessToken: gateway.accessToken,
+                publicKey: gateway.publicKey,
+                bin: numero,
+                tipoPreferido: isDebito ? "debito" : "credito",
+            });
+        } catch (e) {
+            console.warn("[mp] resolver bandeira por BIN falhou:", e.message || e);
+        }
+        const paymentMethodIdFinal = (
+            metodoPagamentoResolvido && metodoPagamentoResolvido.payment_method_id
+        ) || paymentMethodId;
+        const paymentTypeIdFinal = (
+            metodoPagamentoResolvido && metodoPagamentoResolvido.payment_type_id
+        ) || (isDebito ? "debit_card" : "credit_card");
+        const issuerIdResolvido = metodoPagamentoResolvido
+            ? metodoPagamentoResolvido.issuer_id
+            : null;
 
         let cardToken;
         try {
@@ -1152,24 +1308,45 @@ exports.mpProcessarPagamentoCartao = onCall(
 
         let payment;
         try {
+            // Precedência da bandeira: BIN do MP > token tokenizado > app > fallback.
             const paymentMethodFromToken = String(
-                cardToken?.payment_method_id || paymentMethodId || "",
+                cardToken?.payment_method_id || "",
             ).trim().toLowerCase();
-            const issuerIdRaw = cardToken?.issuer?.id;
+            const paymentMethodEnviar = (
+                paymentMethodIdFinal ||
+                paymentMethodFromToken ||
+                paymentMethodId
+            );
+            const issuerIdRaw = issuerIdResolvido || cardToken?.issuer?.id;
             const issuerId = issuerIdRaw != null ? String(issuerIdRaw).trim() : "";
             const parcelasFinal = isDebito ? 1 : (Number.isFinite(parcelas) && parcelas > 0 ? parcelas : 1);
+            // Quebra o nome do titular em primeiro + sobrenome para o payer.
+            // O MP tem regras antifraude que conferem o nome do titular; enviar
+            // `first_name` e `last_name` melhora a taxa de aprovação.
+            const partesNome = nomeTitular.trim().split(/\s+/).filter(Boolean);
+            const primeiroNome = partesNome[0] || nomeTitular;
+            const sobrenome = partesNome.length > 1
+                ? partesNome.slice(1).join(" ")
+                : "";
             payment = await criarPagamentoMpComCartao(gateway.accessToken, {
                 transaction_amount: valorMercadoPagoEsperadoNoPedido(ped),
                 token: cardToken.id,
                 installments: parcelasFinal,
-                payment_method_id: paymentMethodFromToken || paymentMethodId,
-                payment_type_id: isDebito ? "debit_card" : "credit_card",
-                binary_mode: true,
+                payment_method_id: paymentMethodEnviar,
+                payment_type_id: paymentTypeIdFinal,
+                // `binary_mode` desabilitado: permite que o MP faça a análise
+                // antifraude normal e aprove transações que antes eram recusadas
+                // imediatamente. O webhook trata o status final (approved/rejected)
+                // e o polling abaixo aguarda até 30s para resposta síncrona.
+                capture: true,
                 description: `Pedido DiPertin ${pedidoId}`,
+                statement_descriptor: "DIPERTIN",
                 external_reference: pedidoId,
                 ...(issuerId ? { issuer_id: issuerId } : {}),
                 payer: {
                     email: emailPayer,
+                    first_name: primeiroNome,
+                    ...(sobrenome ? { last_name: sobrenome } : {}),
                     ...(cpf
                         ? {
                             identification: {
@@ -1184,8 +1361,11 @@ exports.mpProcessarPagamentoCartao = onCall(
                 pagamento_tentativa_etapa: "criacao_pagamento",
                 pagamento_tentativa_status: "ok",
                 pagamento_tentativa_payment_id: payment.id || null,
-                pagamento_tentativa_payment_method: paymentMethodFromToken || paymentMethodId,
+                pagamento_tentativa_payment_method: paymentMethodEnviar,
                 pagamento_tentativa_issuer_id: issuerId || null,
+                pagamento_cartao_bin_resolvido: metodoPagamentoResolvido
+                    ? metodoPagamentoResolvido.payment_method_id
+                    : null,
             });
         } catch (e) {
             console.error("[mp] cartão pagamento:", e.message || e);
@@ -1233,7 +1413,22 @@ exports.mpProcessarPagamentoCartao = onCall(
 
         const paymentId = payment.id;
         if (paymentId) {
-            payment = await aguardarConclusaoPagamentoMp(gateway.accessToken, paymentId, 8, 2500);
+            // 12 tentativas x 2500ms = até 30s esperando resposta síncrona.
+            // Se ainda não decidir, o webhook do MP atualizará o pedido em background.
+            payment = await aguardarConclusaoPagamentoMp(gateway.accessToken, paymentId, 12, 2500);
+        }
+
+        // Log completo do resultado final — inclui casos em que o MP retorna
+        // HTTP 200 com status "rejected" (ex: cc_rejected_*) sem lançar exceção.
+        try {
+            console.info(
+                `[mp] cartão resultado: pedidoId=${pedidoId} paymentId=${payment?.id || "null"} ` +
+                `status=${payment?.status || "null"} status_detail=${payment?.status_detail || "null"} ` +
+                `payment_method=${payment?.payment_method_id || "null"} ` +
+                `payment_type=${payment?.payment_type_id || "null"}`,
+            );
+        } catch (_) {
+            // Log best effort
         }
         const result = await processarPagamentoMercadoPago(payment);
         const statusFinal = String(payment.status || "");
@@ -1289,7 +1484,12 @@ exports.mpProcessarPagamentoCartao = onCall(
             pagamento_tentativa_mp_detail: statusDetailFinal || null,
         });
 
-        if (!(statusFinal === "approved" || statusFinal === "authorized")) {
+        const statusAprovado = statusFinal === "approved" || statusFinal === "authorized";
+        const statusEmAnalise = statusFinal === "in_process" || statusFinal === "pending";
+        if (!statusAprovado && !statusEmAnalise) {
+            // Só cancela se REALMENTE foi rejeitado/cancelled/refunded.
+            // Em `in_process`/`pending`, mantém o pedido aguardando e deixa o
+            // webhook do Mercado Pago confirmar em background.
             const snapAtual = await pedRef.get();
             const pedidoAtual = snapAtual.data() || {};
             if (pedidoAtual.status === "aguardando_pagamento") {
@@ -1390,6 +1590,10 @@ exports.estornarPagamentoPedidoCancelado = functions.firestore
             const taxaEntrega = roundMoneyMp(
                 depois.taxa_entrega != null ? depois.taxa_entrega : antes.taxa_entrega,
             );
+            // Fonte única de verdade: o frete só é retido do cliente (e creditado
+            // ao entregador) quando o cancelamento acontece DEPOIS do entregador
+            // ter clicado em "ir para o cliente" (saiu_entrega / em_rota / a_caminho).
+            // Em qualquer outro estado anterior, o reembolso deve ser INTEGRAL.
             const parcialFreteRetido =
                 STATUS_CANCEL_PARCIAL_FRETE.has(statusAnteriorPedido) && taxaEntrega > 0;
 
@@ -1406,7 +1610,9 @@ exports.estornarPagamentoPedidoCancelado = functions.firestore
                 return null;
             }
 
-            let valorReembolsoCalc = valorReembolsoClienteCancelamento(antes, depois);
+            let valorReembolsoCalc = valorReembolsoClienteCancelamento(antes, depois, {
+                freteRetido: parcialFreteRetido,
+            });
             if (valorReembolsoCalc > maxReembolsavel) {
                 valorReembolsoCalc = maxReembolsavel;
             }
@@ -1416,8 +1622,6 @@ exports.estornarPagamentoPedidoCancelado = functions.firestore
             const EPS = 0.03;
             const refundViaTotalApi =
                 valorReembolsoCalc > 0 && valorReembolsoCalc >= maxReembolsavel - EPS;
-            const usouApiParcial = valorReembolsoCalc > 0 && !refundViaTotalApi;
-            const mpRefundParcialFreteRetidoUi = parcialFreteRetido && usouApiParcial;
 
             let refund;
             if (valorReembolsoCalc <= 0) {
@@ -1446,14 +1650,15 @@ exports.estornarPagamentoPedidoCancelado = functions.firestore
                     mp_refund_raw_status: refund.status || null,
                     mp_refund_at: admin.firestore.FieldValue.serverTimestamp(),
                     mp_refund_atualizado_em: admin.firestore.FieldValue.serverTimestamp(),
-                    mp_refund_parcial_frete_retido: mpRefundParcialFreteRetidoUi,
+                    mp_refund_parcial_frete_retido: parcialFreteRetido,
                     mp_refund_valor_calculado: valorReembolsoCalc,
-                    mp_refund_taxa_entrega_retida: mpRefundParcialFreteRetidoUi ? taxaEntrega : null,
+                    mp_refund_taxa_entrega_retida: parcialFreteRetido ? taxaEntrega : null,
+                    mp_refund_status_origem_cliente: statusAnteriorPedido || null,
                 },
                 { merge: true },
             );
 
-            if (mpRefundParcialFreteRetidoUi) {
+            if (parcialFreteRetido) {
                 try {
                     await creditarEntregadorFreteCancelamentoCliente(
                         change,
@@ -1569,6 +1774,8 @@ exports.cancelarPedidoPixExpirado = onCall(
  * Faz refund via API Mercado Pago + debita saldo da loja + notifica cliente.
  */
 exports.processarEstornoPainel = onCall(
+    // TODO: voltar para `enforceAppCheck: true` após corrigir a Secret Key do
+    // reCAPTCHA v3 no Firebase Console → App Check → depertin_web.
     { region: "us-central1", enforceAppCheck: false },
     async (request) => {
         const db = admin.firestore();

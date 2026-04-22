@@ -10,8 +10,10 @@ import 'sidebar_menu.dart';
 import '../screens/dashboard_screen.dart';
 import '../screens/lojas_screen.dart';
 import '../screens/entregadores_screen.dart';
+import '../screens/central_clientes_screen.dart';
 import '../screens/banners_screen.dart';
-import '../screens/admin_city_screen.dart';
+import '../screens/admincity_cidades_screen.dart';
+import '../screens/admincity_usuarios_screen.dart';
 import '../screens/utilidades_screen.dart';
 import '../screens/financeiro_screen.dart';
 import '../screens/solicitacoes_saques_painel_screen.dart';
@@ -88,63 +90,69 @@ class _PainelShellScreenState extends State<PainelShellScreen> {
         _tabs[i] = EntregadoresScreen();
         break;
       case 3:
-        _tabs[i] = BannersScreen();
+        _tabs[i] = const CentralClientesScreen();
         break;
       case 4:
-        _tabs[i] = AdminCityScreen();
+        _tabs[i] = BannersScreen();
         break;
       case 5:
-        _tabs[i] = UtilidadesScreen();
+        _tabs[i] = const AdminCityUsuariosScreen();
         break;
       case 6:
-        _tabs[i] = FinanceiroScreen();
+        _tabs[i] = const AdminCityCidadesScreen();
         break;
       case 7:
-        _tabs[i] = const SolicitacoesSaquesPainelScreen();
+        _tabs[i] = UtilidadesScreen();
         break;
       case 8:
-        _tabs[i] = const ConfiguracoesPainelSlot();
+        _tabs[i] = FinanceiroScreen();
         break;
       case 9:
-        _tabs[i] = const CadastroAcessoColaboradoresScreen();
+        _tabs[i] = const SolicitacoesSaquesPainelScreen();
         break;
       case 10:
-        _tabs[i] = AtendimentoSuporteScreen();
+        _tabs[i] = const ConfiguracoesPainelSlot();
         break;
       case 11:
-        _tabs[i] = const NotificacoesScreen();
+        _tabs[i] = const CadastroAcessoColaboradoresScreen();
         break;
       case 12:
-        _tabs[i] = const CuponsScreen();
+        _tabs[i] = AtendimentoSuporteScreen();
         break;
       case 13:
-        _tabs[i] = const MonitorPedidosScreen();
+        _tabs[i] = const NotificacoesScreen();
         break;
       case 14:
-        _tabs[i] = const AvaliacoesPainelScreen();
+        _tabs[i] = const CuponsScreen();
         break;
       case 15:
-        _tabs[i] = const ComunicadosScreen();
+        _tabs[i] = const MonitorPedidosScreen();
         break;
       case 16:
-        _tabs[i] = const ConteudoLegalScreen();
+        _tabs[i] = const AvaliacoesPainelScreen();
         break;
       case 17:
-        _tabs[i] = const LojistaMeusPedidosScreen();
+        _tabs[i] = const ComunicadosScreen();
         break;
       case 18:
-        _tabs[i] = const LojistaMeuCardapioScreen();
+        _tabs[i] = const ConteudoLegalScreen();
         break;
       case 19:
-        _tabs[i] = const LojistaMinhaCarteiraScreen();
+        _tabs[i] = const LojistaMeusPedidosScreen();
         break;
       case 20:
-        _tabs[i] = const LojistaCarteiraFinanceiroScreen();
+        _tabs[i] = const LojistaMeuCardapioScreen();
         break;
       case 21:
-        _tabs[i] = const LojistaCarteiraRelatorioScreen();
+        _tabs[i] = const LojistaMinhaCarteiraScreen();
         break;
       case 22:
+        _tabs[i] = const LojistaCarteiraFinanceiroScreen();
+        break;
+      case 23:
+        _tabs[i] = const LojistaCarteiraRelatorioScreen();
+        break;
+      case 24:
         _tabs[i] = const LojistaCarteiraConfiguracaoScreen();
         break;
       default:

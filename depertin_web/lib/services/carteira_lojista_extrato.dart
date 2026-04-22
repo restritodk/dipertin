@@ -43,14 +43,22 @@ abstract final class CarteiraLojistaExtrato {
   }
 
   /// Crédito que entra na carteira do lojista quando o pedido está entregue.
+  /// Modelo iFood: o lojista recebe APENAS o valor dos produtos menos a
+  /// taxa da plataforma sobre os produtos. Frete pertence ao entregador,
+  /// não entra no crédito do lojista.
   static double creditoLoja(Map<String, dynamic> d) {
     final vl = d['valor_liquido_lojista'];
     if (vl != null) return math.max(0, numDyn(vl));
-    final taxa = numDyn(d['taxa_entrega']);
-    final tp = numDyn(d['total_produtos']);
-    final total = numDyn(d['total']);
-    final base = tp > 0 ? tp : total;
-    return math.max(0, base - taxa);
+    // Fallback para pedidos antigos sem campos calculados pelo servidor:
+    // usa total_produtos / subtotal (sem frete) e desconta taxa_plataforma
+    // se o doc tiver. NÃO subtrai taxa_entrega de total porque produtos já
+    // não devem incluir frete.
+    final taxaPlataforma = numDyn(d['taxa_plataforma']);
+    final produtos = valorProdutosPedido(d);
+    if (produtos > 0) return math.max(0, produtos - taxaPlataforma);
+    // Último recurso: pedido antigo só com `total` (provavelmente já é só
+    // produtos em cenários antigos sem frete).
+    return math.max(0, numDyn(d['total']) - taxaPlataforma);
   }
 
   static List<String> nomesProdutosDoPedido(Map<String, dynamic> d) {
@@ -167,10 +175,12 @@ abstract final class CarteiraLojistaExtrato {
       if (ignorar) continue;
       final ts = d['data_pedido'];
       final dt = ts is Timestamp ? ts.toDate() : DateTime.now();
-      final total = numDyn(d['total']);
       final creditoEntregue =
           st == 'entregue' || st == 'concluido' || st == 'finalizado';
-      final valor = creditoEntregue ? creditoLoja(d) : total;
+      // Tanto pendente quanto entregue exibem o LÍQUIDO do lojista (somente
+      // produtos − taxa plataforma), não o total do pedido. Isso evita
+      // confundir o lojista achando que vai receber também o valor do frete.
+      final valor = creditoLoja(d);
       if (valor <= 0) continue;
       list.add(
         CarteiraLancamento(

@@ -34,6 +34,47 @@ function primeiroNomeSeguro(nome) {
   return escapeHtml(p);
 }
 
+function primeiroNomeTextoSeguro(nome) {
+  if (!nome || typeof nome !== "string") return "Olá";
+  const t = nome.trim();
+  if (!t) return "Olá";
+  const p = t.split(/\s+/)[0] || "Olá";
+  if (p.length > 48) return "Olá";
+  const pl = p.toLowerCase();
+  if (pl === "me" || pl === "eu" || pl === "eu mesmo" || pl === "usuario" || pl === "usuário") {
+    return "Olá";
+  }
+  return p.replace(/[\r\n]/g, " ");
+}
+
+function nomeDoEmail(email) {
+  const e = String(email || "").trim().toLowerCase();
+  const at = e.indexOf("@");
+  if (at <= 0) return "";
+  const local = e.slice(0, at).replace(/[._-]+/g, " ").trim();
+  if (!local) return "";
+  return local
+    .split(/\s+/)
+    .filter(Boolean)
+    .map((s) => s[0].toUpperCase() + s.slice(1))
+    .join(" ");
+}
+
+function resolverNomeExibicao(data, email) {
+  const candidatos = [
+    data && data.nome,
+    data && data.nome_completo,
+    data && data.displayName,
+    data && data.display_name,
+    nomeDoEmail(email),
+  ];
+  for (const c of candidatos) {
+    const p = primeiroNomeTextoSeguro(String(c || ""));
+    if (p !== "Olá") return p;
+  }
+  return "Cliente";
+}
+
 function textoPlanoBoasVindas(nomeExibicao) {
   return [
     `Olá, ${nomeExibicao}!`,
@@ -153,16 +194,9 @@ exports.onUsuarioCriadoBoasVindas = functions.firestore
       return null;
     }
 
-    const nomeBruto =
-      data.nome && String(data.nome).trim()
-        ? String(data.nome).trim()
-        : "Olá";
-    const nomeHtml = primeiroNomeSeguro(nomeBruto);
-    let nomeTexto = nomeBruto.split(/\s+/)[0] || "Olá";
-    if (nomeTexto.length > 48) nomeTexto = "Olá";
-    const ntLower = nomeTexto.toLowerCase();
-    if (ntLower === "me" || ntLower === "eu") nomeTexto = "Olá";
-    const nomeTextoLimpo = nomeTexto.replace(/[\r\n]/g, " ");
+    const nomeResolvido = resolverNomeExibicao(data, email);
+    const nomeHtml = primeiroNomeSeguro(nomeResolvido);
+    const nomeTextoLimpo = primeiroNomeTextoSeguro(nomeResolvido);
 
     try {
       await transporter.sendMail({

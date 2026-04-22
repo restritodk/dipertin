@@ -1,0 +1,8 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <!--
+        Cor do badge/halo das notificações FCM.
+        Roxo DiPertin (#6A1B9A) — alinhado ao tema do app.
+    -->
+    <color name="notification_color">#6A1B9A</color>
+</resources>

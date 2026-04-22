@@ -53,6 +53,12 @@ bool perfilPodeMenuChefe(String perfil) {
   return p == 'master' || p == 'superadmin' || p == 'super_admin';
 }
 
+/// Acesso à Central de Clientes (lista, financeiro, edição, exclusão).
+/// Restrito ao perfil `master` por decisão de produto.
+bool perfilPodeCentralClientes(String perfil) {
+  return perfil.trim().toLowerCase() == 'master';
+}
+
 /// Fila de saques PIX — mesmo critério que [perfilPodeMenuChefe] (não inclui `master_city`).
 bool perfilPodeVerSolicitacoesSaque(String perfil) {
   return perfilPodeMenuChefe(perfil);

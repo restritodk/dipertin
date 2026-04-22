@@ -1,4 +1,4 @@
-package com.example.depertin_cliente
+package com.dipertin.app
 
 object IncomingDeliveryContract {
     const val CHANNEL_ID = "corrida_chamada"
@@ -12,9 +12,9 @@ object IncomingDeliveryContract {
     const val EXTRA_EVENTO = "evento"
     const val EXTRA_TIPO = "tipoNotificacao"
 
-    const val ACTION_ACCEPT = "com.example.depertin_cliente.ACTION_ACCEPT_DELIVERY"
-    const val ACTION_REJECT = "com.example.depertin_cliente.ACTION_REJECT_DELIVERY"
-    const val ACTION_OPEN = "com.example.depertin_cliente.ACTION_OPEN_DELIVERY"
+    const val ACTION_ACCEPT = "com.dipertin.app.ACTION_ACCEPT_DELIVERY"
+    const val ACTION_REJECT = "com.dipertin.app.ACTION_REJECT_DELIVERY"
+    const val ACTION_OPEN = "com.dipertin.app.ACTION_OPEN_DELIVERY"
 
     fun requestId(orderId: String, offerSeq: String?): String {
         val oid = orderId.trim()

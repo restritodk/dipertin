@@ -6,7 +6,9 @@ import 'package:cloud_firestore/cloud_firestore.dart';
 import 'package:firebase_auth/firebase_auth.dart';
 import 'package:firebase_storage/firebase_storage.dart';
 import 'package:file_picker/file_picker.dart';
+import 'package:intl/intl.dart';
 
+import '../../constants/lojista_motivo_recusa.dart';
 import '../../services/permissoes_app_service.dart';
 
 const Color diPertinRoxo = Color(0xFF6A1B9A);
@@ -37,6 +39,8 @@ class _LojistaFormScreenState extends State<LojistaFormScreen> {
   bool _carregandoInicial = true;
   String? _statusAtual;
   String? _motivoRecusa;
+  String? _motivoRecusaCodigo;
+  DateTime? _bloqueioCadastroAte;
 
   @override
   void initState() {
@@ -59,6 +63,10 @@ class _LojistaFormScreenState extends State<LojistaFormScreen> {
             setState(() {
               _statusAtual = dados['status_loja'];
               _motivoRecusa = dados['motivo_recusa'];
+              _motivoRecusaCodigo =
+                  LojistaMotivoRecusa.codigoDoDocumento(dados);
+              _bloqueioCadastroAte =
+                  LojistaMotivoRecusa.bloqueioCadastroAte(dados);
 
               // Se ele já tinha preenchido antes, carrega os textos para facilitar a correção!
               if (dados['loja_nome'] != null) {
@@ -222,8 +230,13 @@ class _LojistaFormScreenState extends State<LojistaFormScreen> {
               'loja_url_endereco': urlEndereco,
               'loja_url_cnpj': urlCNPJ,
               'loja_url_vitrine': urlVitrine,
-              'motivo_recusa':
-                  FieldValue.delete(), // Apaga o motivo da recusa antiga!
+              'motivo_recusa': FieldValue.delete(),
+              'motivo_recusa_codigo': FieldValue.delete(),
+              'motivo_recusa_descricao': FieldValue.delete(),
+              'recusa_cadastro': FieldValue.delete(),
+              'data_recusa': FieldValue.delete(),
+              'bloqueio_cadastro_ate': FieldValue.delete(),
+              'status_documentacao': FieldValue.delete(),
               'data_solicitacao_loja': FieldValue.serverTimestamp(),
             });
 
@@ -303,8 +316,118 @@ class _LojistaFormScreenState extends State<LojistaFormScreen> {
     );
   }
 
+  Widget _buildBloqueioNovaSolicitacao(DateTime dataLiberacao) {
+    final formato = DateFormat("dd 'de' MMMM 'de' y", 'pt_BR');
+    final dataFormatada = formato.format(dataLiberacao);
+    final motivo = (_motivoRecusa ?? '').trim();
+
+    return SingleChildScrollView(
+      padding: const EdgeInsets.all(24),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.stretch,
+        children: [
+          const SizedBox(height: 24),
+          Center(
+            child: Container(
+              padding: const EdgeInsets.all(22),
+              decoration: BoxDecoration(
+                color: diPertinRoxo.withValues(alpha: 0.08),
+                shape: BoxShape.circle,
+              ),
+              child: const Icon(
+                Icons.lock_clock_rounded,
+                size: 64,
+                color: diPertinRoxo,
+              ),
+            ),
+          ),
+          const SizedBox(height: 22),
+          const Text(
+            'Solicitação temporariamente indisponível',
+            textAlign: TextAlign.center,
+            style: TextStyle(
+              fontSize: 20,
+              fontWeight: FontWeight.w800,
+              color: diPertinRoxo,
+            ),
+          ),
+          const SizedBox(height: 14),
+          Text(
+            'Você poderá solicitar uma nova análise a partir de '
+            '$dataFormatada.',
+            textAlign: TextAlign.center,
+            style: TextStyle(
+              fontSize: 15,
+              color: Colors.grey.shade700,
+              height: 1.5,
+            ),
+          ),
+          if (motivo.isNotEmpty) ...[
+            const SizedBox(height: 22),
+            Container(
+              padding: const EdgeInsets.all(16),
+              decoration: BoxDecoration(
+                color: Colors.red.shade50,
+                border: Border.all(color: Colors.red.shade200),
+                borderRadius: BorderRadius.circular(12),
+              ),
+              child: Column(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  Row(
+                    children: [
+                      Icon(Icons.info_outline,
+                          color: Colors.red.shade700, size: 20),
+                      const SizedBox(width: 8),
+                      Text(
+                        'Motivo informado',
+                        style: TextStyle(
+                          fontWeight: FontWeight.w700,
+                          color: Colors.red.shade700,
+                          fontSize: 14,
+                        ),
+                      ),
+                    ],
+                  ),
+                  const SizedBox(height: 8),
+                  Text(
+                    motivo,
+                    style: TextStyle(
+                      color: Colors.red.shade900,
+                      fontSize: 13.5,
+                      height: 1.5,
+                    ),
+                  ),
+                ],
+              ),
+            ),
+          ],
+          const SizedBox(height: 28),
+          OutlinedButton(
+            onPressed: () => Navigator.pop(context),
+            style: OutlinedButton.styleFrom(
+              foregroundColor: diPertinRoxo,
+              side: const BorderSide(color: diPertinRoxo),
+              padding: const EdgeInsets.symmetric(vertical: 14),
+              shape: RoundedRectangleBorder(
+                borderRadius: BorderRadius.circular(12),
+              ),
+            ),
+            child: const Text(
+              'Voltar',
+              style: TextStyle(fontSize: 15, fontWeight: FontWeight.w700),
+            ),
+          ),
+        ],
+      ),
+    );
+  }
+
   @override
   Widget build(BuildContext context) {
+    final bloqueioAte = _bloqueioCadastroAte;
+    final bloqueado = bloqueioAte != null && bloqueioAte.isAfter(DateTime.now());
+
     return Scaffold(
       backgroundColor: Colors.white,
       appBar: AppBar(
@@ -319,7 +442,9 @@ class _LojistaFormScreenState extends State<LojistaFormScreen> {
           ? const Center(
               child: CircularProgressIndicator(color: diPertinLaranja),
             )
-          : SingleChildScrollView(
+          : bloqueado
+              ? _buildBloqueioNovaSolicitacao(bloqueioAte)
+              : SingleChildScrollView(
               padding: const EdgeInsets.all(20.0),
               child: Column(
                 crossAxisAlignment: CrossAxisAlignment.stretch,
@@ -356,6 +481,18 @@ class _LojistaFormScreenState extends State<LojistaFormScreen> {
                             ],
                           ),
                           Divider(color: Colors.red.shade200),
+                          if (_motivoRecusaCodigo != null)
+                            Padding(
+                              padding: const EdgeInsets.only(bottom: 6),
+                              child: Text(
+                                "Classificação: ${LojistaMotivoRecusa.rotulo(_motivoRecusaCodigo!)}",
+                                style: TextStyle(
+                                  color: Colors.red.shade900,
+                                  fontWeight: FontWeight.w700,
+                                  fontSize: 13,
+                                ),
+                              ),
+                            ),
                           Text(
                             "Motivo: $_motivoRecusa",
                             style: TextStyle(color: Colors.red.shade900),

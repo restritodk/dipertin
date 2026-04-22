@@ -130,22 +130,66 @@
   var destEmail = typeof cfg.emailContato === "string" ? cfg.emailContato.trim() : "";
   var formEndpoint = typeof cfg.formEndpoint === "string" ? cfg.formEndpoint.trim() : "";
 
-  var emailDisplay = document.querySelector("[data-contact-email-display]");
-  if (emailDisplay && destEmail) emailDisplay.textContent = destEmail;
+  // Atualiza apenas o display do e-mail principal vindo do config (não sobrescreve telefone)
+  var emailDisplay = document.querySelector("[data-copy-email] [data-contact-email-display]");
+  if (emailDisplay && destEmail) {
+    emailDisplay.textContent = destEmail;
+    var emailBtn = emailDisplay.closest("[data-copy-email]");
+    if (emailBtn) emailBtn.setAttribute("data-copy-text", destEmail);
+  }
 
-  var copyBtn = document.querySelector("[data-copy-email]");
-  var copyFeedback = document.querySelector("[data-copy-feedback]");
-
-  if (copyBtn && destEmail) {
-    copyBtn.addEventListener("click", function () {
-      function done() {
-        if (copyFeedback) { copyFeedback.hidden = false; setTimeout(function () { copyFeedback.hidden = true; }, 3000); }
-      }
-      if (navigator.clipboard && navigator.clipboard.writeText) {
-        navigator.clipboard.writeText(destEmail).then(done).catch(function () { window.prompt("Copie:", destEmail); });
-      } else { window.prompt("Copie:", destEmail); }
+  /* Suporta N botões de copiar: cada botão usa seu próprio data-copy-text
+     e exibe feedback no <p data-copy-feedback> irmão (mesmo wrap). */
+  function copiarTexto(texto) {
+    if (!texto) return Promise.reject(new Error("vazio"));
+    if (navigator.clipboard && navigator.clipboard.writeText && window.isSecureContext) {
+      return navigator.clipboard.writeText(texto);
+    }
+    return new Promise(function (resolve, reject) {
+      try {
+        var ta = document.createElement("textarea");
+        ta.value = texto;
+        ta.setAttribute("readonly", "");
+        ta.style.position = "fixed";
+        ta.style.left = "-9999px";
+        ta.style.top = "0";
+        document.body.appendChild(ta);
+        ta.focus();
+        ta.select();
+        ta.setSelectionRange(0, ta.value.length);
+        var ok = document.execCommand && document.execCommand("copy");
+        document.body.removeChild(ta);
+        ok ? resolve() : reject(new Error("execCommand falhou"));
+      } catch (e) { reject(e); }
     });
   }
+
+  function bindCopyBtn(btn) {
+    btn.addEventListener("click", function () {
+      var texto = btn.getAttribute("data-copy-text");
+      if (!texto) {
+        var span = btn.querySelector("span:not(.contact__copy-hint):not(.contact__copy-ok)");
+        if (span) texto = (span.textContent || "").trim();
+      }
+      if (!texto) return;
+
+      var wrap = btn.closest(".contact__email-wrap") || btn.parentElement;
+      var feedback = wrap ? wrap.querySelector("[data-copy-feedback]") : null;
+
+      copiarTexto(texto).then(function () {
+        if (feedback) {
+          feedback.hidden = false;
+          clearTimeout(btn.__copyTimer);
+          btn.__copyTimer = setTimeout(function () { feedback.hidden = true; }, 2500);
+        }
+      }).catch(function () {
+        try { window.prompt("Copie manualmente:", texto); } catch (_) {}
+      });
+    });
+  }
+
+  var copyButtons = document.querySelectorAll("[data-copy-text], [data-copy-email]");
+  Array.prototype.forEach.call(copyButtons, bindCopyBtn);
 
   var form = document.querySelector("[data-contact-form]");
   if (form && (destEmail || formEndpoint)) {

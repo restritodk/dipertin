@@ -292,24 +292,24 @@ class _VitrineScreenState extends State<VitrineScreen> {
             child: Column(
               crossAxisAlignment: CrossAxisAlignment.start,
               children: [
-                Text(
-                  'Destaques da sua região — $cidadeExibicao',
-                  style: const TextStyle(
-                    fontSize: 18,
-                    fontWeight: FontWeight.bold,
-                    color: Colors.black87,
-                  ),
-                ),
+                // Text(
+                //   'Destaques da sua região — $cidadeExibicao',
+                //   style: const TextStyle(
+                //     fontSize: 18,
+                //     fontWeight: FontWeight.bold,
+                //     color: Colors.black87,
+                //   ),
+                // ),
                 const SizedBox(height: 4),
-                Text(
-                  'Lojas abertas no horário aparecem primeiro. Toque no produto '
-                  'para ver detalhes ou na loja para ver o cardápio.',
-                  style: TextStyle(
-                    fontSize: 13,
-                    height: 1.35,
-                    color: Colors.grey[700],
-                  ),
-                ),
+                // Text(
+                //   'Lojas abertas no horário aparecem primeiro. Toque no produto '
+                //   'para ver detalhes ou na loja para ver o cardápio.',
+                //   style: TextStyle(
+                //     fontSize: 13,
+                //     height: 1.35,
+                //     color: Colors.grey[700],
+                //   ),
+                // ),
               ],
             ),
           ),
@@ -317,9 +317,11 @@ class _VitrineScreenState extends State<VitrineScreen> {
           // 2. VITRINE DE PRODUTOS
           Expanded(
             child: StreamBuilder<QuerySnapshot>(
+              // Fase 3G.2 — vitrine lê `lojas_public` (mirror só com dados de
+              // fachada) em vez de `users`. CPF/email/telefone pessoal/saldo
+              // do lojista não são mais expostos na vitrine pública.
               stream: FirebaseFirestore.instance
-                  .collection('users')
-                  .where('role', isEqualTo: 'lojista')
+                  .collection('lojas_public')
                   .snapshots(),
               builder: (context, snapshotLojas) {
                 if (snapshotLojas.connectionState == ConnectionState.waiting &&

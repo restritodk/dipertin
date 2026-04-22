@@ -8,6 +8,14 @@ class PoliticaCompraScreen extends StatelessWidget {
 
   static const List<PolicySection> _secoes = [
     PolicySection(
+      titulo: 'Identificação da empresa',
+      corpo:
+          'DiPertin\n'
+          'CNPJ: 66.040.998/0001-66\n'
+          'Telefone: (66) 3180-0107\n'
+          'E-mail: contato@dipertin.com.br',
+    ),
+    PolicySection(
       titulo: 'I — Âmbito de aplicação e integração normativa',
       corpo:
           'A presente Política de Compra disciplina as condições essenciais '

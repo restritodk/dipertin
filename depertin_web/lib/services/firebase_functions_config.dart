@@ -1,8 +1,9 @@
 import 'dart:convert';
 
 import 'package:cloud_functions/cloud_functions.dart';
+import 'package:firebase_app_check/firebase_app_check.dart';
 import 'package:firebase_auth/firebase_auth.dart';
-import 'package:flutter/foundation.dart' show kIsWeb;
+import 'package:flutter/foundation.dart' show kIsWeb, debugPrint;
 import 'package:http/http.dart' as http;
 
 /// Exceção lançada pelo [callFirebaseFunctionSafe] quando a Cloud Function
@@ -67,6 +68,20 @@ Future<Map<String, dynamic>> callFirebaseFunctionSafe(
         headers['Authorization'] = 'Bearer $token';
       }
     } catch (_) {}
+  }
+
+  // App Check: o SDK httpsCallable envia automaticamente em mobile/desktop,
+  // mas aqui (Web HTTP direto) precisamos anexar manualmente o header
+  // X-Firebase-AppCheck pra que callables com enforceAppCheck: true aceitem.
+  // Falha silenciosa: se não vier token, a function vai retornar 401 e o
+  // erro é tratado pelo bloco de resposta abaixo como CallableHttpException.
+  try {
+    final appCheckToken = await FirebaseAppCheck.instance.getToken();
+    if (appCheckToken != null && appCheckToken.isNotEmpty) {
+      headers['X-Firebase-AppCheck'] = appCheckToken;
+    }
+  } catch (e) {
+    debugPrint('callFirebaseFunctionSafe: getToken App Check falhou: $e');
   }
 
   final body = jsonEncode({'data': parameters ?? {}});

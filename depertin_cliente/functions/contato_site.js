@@ -292,17 +292,29 @@ exports.enviarContatoSite = functions
 
         try {
             const transporter = criarTransporter();
-            const destino = process.env.SMTP_SITE_DEST || process.env.SMTP_USER;
+
+            // Roteamento de destino:
+            //  - "Solicitação de exclusão de conta" → SMTP_DELETE_ACCOUNT_DEST (caixa LGPD)
+            //  - demais assuntos                    → SMTP_SITE_DEST (caixa geral do site)
+            const ehSolicitacaoExclusao = /^Solicita(ç|c)(ã|a)o de exclus(ã|a)o de conta/i.test(assunto);
+            const destino = ehSolicitacaoExclusao
+                ? (process.env.SMTP_DELETE_ACCOUNT_DEST
+                    || process.env.SMTP_SITE_DEST
+                    || process.env.SMTP_USER)
+                : (process.env.SMTP_SITE_DEST || process.env.SMTP_USER);
+
+            const subjectPrefix = ehSolicitacaoExclusao ? "[DiPertin LGPD]" : "[DiPertin Site]";
+
             await transporter.sendMail({
                 from: smtp.from("padrao"),
                 to: destino,
                 replyTo: email,
-                subject: `[DiPertin Site] ${assunto} — ${nome}`,
+                subject: `${subjectPrefix} ${assunto} — ${nome}`,
                 html: htmlBody,
                 text: textBody,
             });
 
-            console.log(`[contato-site] E-mail enviado — de=${email} ip=${ip} assunto="${assunto}"`);
+            console.log(`[contato-site] E-mail enviado — de=${email} para=${destino} ip=${ip} assunto="${assunto}"`);
             return res.status(200).json({ ok: true });
         } catch (err) {
             console.error("[contato-site] Erro SMTP:", err.message);

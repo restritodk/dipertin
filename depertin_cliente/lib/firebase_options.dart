@@ -61,7 +61,7 @@ class DefaultFirebaseOptions {
 
   static const FirebaseOptions android = FirebaseOptions(
     apiKey: 'AIzaSyCoi6_SF_oisaTPq4EJ7KUTRxlje1Sxg58',
-    appId: '1:939151024179:android:452e0377da80e47bd3c346',
+    appId: '1:939151024179:android:d9108d8925fbd8e7d3c346',
     messagingSenderId: '939151024179',
     projectId: 'depertin-f940f',
     storageBucket: 'depertin-f940f.firebasestorage.app',

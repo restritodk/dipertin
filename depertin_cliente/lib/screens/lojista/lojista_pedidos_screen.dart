@@ -11,6 +11,7 @@ import 'package:flutter/material.dart';
 
 import 'package:depertin_cliente/constants/pedido_status.dart';
 import 'package:depertin_cliente/services/firebase_functions_config.dart';
+import 'package:depertin_cliente/widgets/chat_pedido_botao.dart';
 
 const Color diPertinRoxo = Color(0xFF6A1B9A);
 const Color diPertinLaranja = Color(0xFFFF8F00);
@@ -57,66 +58,55 @@ class _LojistaPedidosScreenState extends State<LojistaPedidosScreen> {
     super.dispose();
   }
 
-  /// Foto + nome do cliente (users/{cliente_id}) para identificação nos cards.
-  Widget _cabecalhoClientePedido(String clienteId) {
-    final id = clienteId.trim();
-    if (id.isEmpty) {
-      return const SizedBox.shrink();
-    }
-    return StreamBuilder<DocumentSnapshot>(
-      stream: FirebaseFirestore.instance.collection('users').doc(id).snapshots(),
-      builder: (context, snap) {
-        String nome = 'Cliente';
-        String foto = '';
-        if (snap.hasData && snap.data!.exists) {
-          final u = (snap.data!.data() as Map<String, dynamic>?) ?? {};
-          final n = (u['nome'] ?? u['nomeCompleto'] ?? '').toString().trim();
-          if (n.isNotEmpty) nome = n;
-          foto = (u['foto_perfil'] ?? '').toString().trim();
-        }
-        return Padding(
-          padding: const EdgeInsets.only(bottom: 10),
-          child: Row(
-            children: [
-              CircleAvatar(
-                radius: 22,
-                backgroundColor: Colors.grey.shade300,
-                backgroundImage:
-                    foto.isNotEmpty ? NetworkImage(foto) : null,
-                child: foto.isEmpty
-                    ? const Icon(Icons.person, color: diPertinRoxo, size: 26)
-                    : null,
-              ),
-              const SizedBox(width: 12),
-              Expanded(
-                child: Column(
-                  crossAxisAlignment: CrossAxisAlignment.start,
-                  children: [
-                    Text(
-                      'Cliente',
-                      style: TextStyle(
-                        fontSize: 11,
-                        fontWeight: FontWeight.w600,
-                        color: Colors.grey[600],
-                        letterSpacing: 0.3,
-                      ),
-                    ),
-                    Text(
-                      nome,
-                      style: const TextStyle(
-                        fontWeight: FontWeight.bold,
-                        fontSize: 15,
-                      ),
-                      maxLines: 2,
-                      overflow: TextOverflow.ellipsis,
-                    ),
-                  ],
-                ),
-              ),
-            ],
+  /// Foto + nome do cliente denormalizados no pedido (`cliente_nome` e
+  /// `cliente_foto_perfil`, Fase 3G.3). Evita ler `users/{cliente_id}` —
+  /// necessário porque a rule de `users` agora bloqueia leitura cruzada entre
+  /// autenticados para proteger CPF/email/telefone/saldo de quem não é lojista.
+  Widget _cabecalhoClientePedido(Map<String, dynamic> pedido) {
+    final nomeGravado = (pedido['cliente_nome'] ?? '').toString().trim();
+    final foto = (pedido['cliente_foto_perfil'] ?? '').toString().trim();
+    final nome = nomeGravado.isNotEmpty ? nomeGravado : 'Cliente';
+
+    return Padding(
+      padding: const EdgeInsets.only(bottom: 10),
+      child: Row(
+        children: [
+          CircleAvatar(
+            radius: 22,
+            backgroundColor: Colors.grey.shade300,
+            backgroundImage: foto.isNotEmpty ? NetworkImage(foto) : null,
+            child: foto.isEmpty
+                ? const Icon(Icons.person, color: diPertinRoxo, size: 26)
+                : null,
           ),
-        );
-      },
+          const SizedBox(width: 12),
+          Expanded(
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                Text(
+                  'Cliente',
+                  style: TextStyle(
+                    fontSize: 11,
+                    fontWeight: FontWeight.w600,
+                    color: Colors.grey[600],
+                    letterSpacing: 0.3,
+                  ),
+                ),
+                Text(
+                  nome,
+                  style: const TextStyle(
+                    fontWeight: FontWeight.bold,
+                    fontSize: 15,
+                  ),
+                  maxLines: 2,
+                  overflow: TextOverflow.ellipsis,
+                ),
+              ],
+            ),
+          ),
+        ],
+      ),
     );
   }
 
@@ -724,30 +714,30 @@ class _LojistaPedidosScreenState extends State<LojistaPedidosScreen> {
 
     if (!confirmacao) return;
 
+    // Fase 3G.3 — estorno via callable (Admin SDK). Antes o lojista fazia
+    // `update users/{cliente_id}.saldo` direto, o que forçava a rule de
+    // `users` a permitir escritas cruzadas. Agora a função valida que o
+    // caller é a loja do pedido antes de creditar o saldo.
     try {
-      if (taxaEntrega > 0) {
-        await FirebaseFirestore.instance
-            .collection('users')
-            .doc(clienteId)
-            .update({'saldo': FieldValue.increment(taxaEntrega)});
-      }
-
-      await FirebaseFirestore.instance
-          .collection('pedidos')
-          .doc(pedidoId)
-          .update({
-            'status': 'entregue',
-            'frete_estornado': true,
-            'data_entregue': FieldValue.serverTimestamp(),
-            'observacao_loja':
-                'Cliente retirou na loja. Frete estornado para a carteira.',
-          });
+      final callable = appFirebaseFunctions.httpsCallable(
+        'lojistaConfirmarRetiradaNaLojaComEstorno',
+      );
+      await callable.call(<String, dynamic>{'pedidoId': pedidoId});
 
       if (mounted) {
         ScaffoldMessenger.of(context).showSnackBar(
           const SnackBar(
             content: Text('Pedido finalizado e frete devolvido ao cliente.'),
             backgroundColor: Colors.green,
+          ),
+        );
+      }
+    } on FirebaseFunctionsException catch (e) {
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(
+            content: Text(e.message ?? 'Erro ao estornar o frete.'),
+            backgroundColor: Colors.red,
           ),
         );
       }
@@ -1082,7 +1072,7 @@ class _LojistaPedidosScreenState extends State<LojistaPedidosScreen> {
                   ],
                 ),
                 const Divider(),
-                _cabecalhoClientePedido(clienteId),
+                _cabecalhoClientePedido(pedido),
                 Row(
                   children: [
                     Icon(
@@ -1149,25 +1139,11 @@ class _LojistaPedidosScreenState extends State<LojistaPedidosScreen> {
                         : formaPagamentoNormalizada == 'pix'
                         ? 'PIX'
                         : formaPagamentoBruto;
-                    final bool dinheiroComTroco =
-                        pedido['pagamento_dinheiro_precisa_troco'] == true ||
-                        _precoItem(pedido['pagamento_dinheiro_troco_para']) >
-                            0 ||
-                        _precoItem(pedido['troco_para']) > 0;
-                    final double trocoPara = _precoItem(
-                      pedido['pagamento_dinheiro_troco_para'] ??
-                          pedido['troco_para'],
-                    );
-                    final double trocoValor = _precoItem(
-                      pedido['pagamento_dinheiro_troco_valor'] ??
-                          pedido['troco_valor'],
-                    );
-                    final double totalPedido = _precoItem(pedido['total']);
-                    final double trocoCalculado = trocoValor > 0
-                        ? trocoValor
-                        : (trocoPara > totalPedido
-                              ? trocoPara - totalPedido
-                              : 0);
+                    // Modelo iFood: o entregador é o responsável pelo dinheiro
+                    // e pelo troco. O lojista não vê mais "Troco para R$ X" —
+                    // apenas o aviso de que o cliente vai pagar em dinheiro
+                    // direto ao entregador. Isso evita confusão com o líquido
+                    // que o lojista realmente recebe.
                     final double taxaPlataforma =
                         (pedido['taxa_plataforma'] ?? 0.0).toDouble();
                     final double? liquidoSrv =
@@ -1219,31 +1195,41 @@ class _LojistaPedidosScreenState extends State<LojistaPedidosScreen> {
                               ],
                             ),
                           ),
-                        if (formaPagamentoNormalizada == 'dinheiro' &&
-                            dinheiroComTroco &&
-                            trocoPara > 0)
+                        if (formaPagamentoNormalizada == 'dinheiro')
                           Padding(
-                            padding: const EdgeInsets.only(top: 4),
-                            child: Row(
-                              mainAxisAlignment: MainAxisAlignment.spaceBetween,
-                              children: [
-                                const Text(
-                                  'Troco:',
-                                  style: TextStyle(
-                                    color: Colors.deepPurple,
-                                    fontSize: 12,
-                                    fontWeight: FontWeight.w700,
-                                  ),
+                            padding: const EdgeInsets.only(top: 6),
+                            child: Container(
+                              padding: const EdgeInsets.symmetric(
+                                horizontal: 10,
+                                vertical: 8,
+                              ),
+                              decoration: BoxDecoration(
+                                color: Colors.amber.withValues(alpha: 0.12),
+                                borderRadius: BorderRadius.circular(8),
+                                border: Border.all(
+                                  color: Colors.amber.withValues(alpha: 0.5),
                                 ),
-                                Text(
-                                  'Para R\$ ${trocoPara.toStringAsFixed(2)} (troco R\$ ${trocoCalculado.toStringAsFixed(2)})',
-                                  style: const TextStyle(
-                                    color: Colors.deepPurple,
-                                    fontSize: 12,
-                                    fontWeight: FontWeight.w700,
+                              ),
+                              child: const Row(
+                                children: [
+                                  Icon(
+                                    Icons.payments_outlined,
+                                    color: Colors.orange,
+                                    size: 18,
                                   ),
-                                ),
-                              ],
+                                  SizedBox(width: 8),
+                                  Expanded(
+                                    child: Text(
+                                      'Cliente vai pagar em dinheiro ao entregador. Você não precisa preparar troco — quem leva o dinheiro e devolve o troco é o entregador.',
+                                      style: TextStyle(
+                                        fontSize: 12,
+                                        color: Colors.black87,
+                                        fontWeight: FontWeight.w500,
+                                      ),
+                                    ),
+                                  ),
+                                ],
+                              ),
                             ),
                           ),
                         if (taxaPlataforma > 0)
@@ -1317,6 +1303,26 @@ class _LojistaPedidosScreenState extends State<LojistaPedidosScreen> {
                   const SizedBox(height: 10),
                   painelMotivoCliente,
                 ],
+                const SizedBox(height: 12),
+
+                // Chat com o cliente (ou histórico da conversa quando o
+                // pedido está encerrado). Fica sempre visível para facilitar
+                // o acesso durante o preparo/entrega e permitir revisita
+                // pós-entrega.
+                ChatPedidoBotao(
+                  pedidoId: id,
+                  lojaId: _uid,
+                  lojaNome: (pedido['loja_nome'] ?? '').toString(),
+                  tituloOverride: () {
+                    final n = (pedido['cliente_nome'] ?? '').toString().trim();
+                    return n.isNotEmpty ? n : 'Cliente';
+                  }(),
+                  subtituloOverride: 'Pedido ${_rotuloPedido(id)}',
+                  rotuloAtivo: 'Chat com o cliente',
+                  rotuloEncerrado: 'Ver conversa do pedido',
+                  encerrado: status == PedidoStatus.entregue ||
+                      status == PedidoStatus.cancelado,
+                ),
                 const SizedBox(height: 12),
 
                 if (pedido['entregador_id'] != null &&

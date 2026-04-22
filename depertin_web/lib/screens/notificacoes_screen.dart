@@ -686,6 +686,10 @@ class _NotificacoesScreenState extends State<NotificacoesScreen>
                           ? DateFormat('dd/MM/yyyy HH:mm').format(ts.toDate())
                           : '—';
                       final total = d['total_enviado'] ?? 0;
+                      final totalFalhas = d['total_falhas'] ?? 0;
+                      final tokensRemovidos = d['tokens_invalidos_removidos'] ?? 0;
+                      final usersComToken = d['total_users_com_token'] ?? 0;
+                      final observacao = (d['observacao'] ?? '').toString();
                       final publico =
                           _labelPublico(d['publico_alvo'] ?? 'todos');
                       final cidadeRaw =
@@ -798,12 +802,62 @@ class _NotificacoesScreenState extends State<NotificacoesScreen>
                                           if (status == 'enviado')
                                             _chip(
                                                 Icons.send_rounded,
-                                                '$total enviados',
+                                                usersComToken > 0
+                                                    ? '$total/$usersComToken aceitos'
+                                                    : '$total enviados',
                                                 const Color(0xFF15803D)),
+                                          if (status == 'enviado' &&
+                                              totalFalhas is num &&
+                                              totalFalhas > 0)
+                                            _chip(
+                                                Icons.warning_amber_rounded,
+                                                '$totalFalhas falhas',
+                                                const Color(0xFFB45309)),
+                                          if (status == 'enviado' &&
+                                              tokensRemovidos is num &&
+                                              tokensRemovidos > 0)
+                                            _chip(
+                                                Icons.cleaning_services_rounded,
+                                                '$tokensRemovidos tokens limpos',
+                                                Colors.grey.shade700),
                                           _chip(Icons.schedule_rounded, data,
                                               Colors.grey.shade500),
                                         ],
                                       ),
+                                      if (observacao.isNotEmpty) ...[
+                                        const SizedBox(height: 8),
+                                        Container(
+                                          padding: const EdgeInsets.symmetric(
+                                              horizontal: 10, vertical: 8),
+                                          decoration: BoxDecoration(
+                                            color: const Color(0xFFFEF3C7),
+                                            borderRadius:
+                                                BorderRadius.circular(8),
+                                            border: Border.all(
+                                                color: const Color(0xFFFDE68A)),
+                                          ),
+                                          child: Row(
+                                            children: [
+                                              const Icon(
+                                                Icons.info_outline_rounded,
+                                                size: 14,
+                                                color: Color(0xFF92400E),
+                                              ),
+                                              const SizedBox(width: 6),
+                                              Expanded(
+                                                child: Text(
+                                                  observacao,
+                                                  style: const TextStyle(
+                                                    fontSize: 11.5,
+                                                    color: Color(0xFF92400E),
+                                                    height: 1.35,
+                                                  ),
+                                                ),
+                                              ),
+                                            ],
+                                          ),
+                                        ),
+                                      ],
                                     ],
                                   ),
                                 ),

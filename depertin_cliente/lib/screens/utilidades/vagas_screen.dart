@@ -3,10 +3,12 @@ import 'dart:typed_data';
 import 'package:cloud_firestore/cloud_firestore.dart';
 import 'package:cloud_functions/cloud_functions.dart';
 import 'package:depertin_cliente/services/firebase_functions_config.dart';
+import 'package:depertin_cliente/services/location_service.dart';
 import 'package:file_picker/file_picker.dart';
 import 'package:firebase_auth/firebase_auth.dart';
 import 'package:firebase_storage/firebase_storage.dart';
 import 'package:flutter/material.dart';
+import 'package:provider/provider.dart';
 
 const Color _roxo = Color(0xFF6A1B9A);
 const Color _laranja = Color(0xFFFF8F00);
@@ -32,6 +34,12 @@ class _VagasScreenState extends State<VagasScreen> {
   List<QueryDocumentSnapshot> _filtrar(List<QueryDocumentSnapshot> docs) {
     final agora = DateTime.now();
     final limite3Dias = agora.subtract(const Duration(days: 3));
+
+    // Cidade do usuário usada para o filtro por cidade/UF.
+    final loc = context.read<LocationService>();
+    final cidadeNorm = loc.cidadeNormalizada;
+    final ufNorm = loc.ufNormalizado;
+
     var validas = docs.where((d) {
       final data = d.data() as Map<String, dynamic>;
       if (data['ativo'] != true) return false;
@@ -39,6 +47,17 @@ class _VagasScreenState extends State<VagasScreen> {
       final tsVenc = data['data_vencimento'] as Timestamp?;
       final venc = tsFim?.toDate() ?? tsVenc?.toDate();
       if (venc != null && venc.isBefore(limite3Dias)) return false;
+
+      // Filtro por cidade: vazio => global; preenchido => apenas a cidade/UF.
+      if (!LocationService.anuncioCidadeCorrespondeUsuario(
+        cidadeNormalizada: data['cidade_normalizada']?.toString(),
+        cidade: data['cidade']?.toString(),
+        cidadeNormUsuario: cidadeNorm,
+        ufNormUsuario: ufNorm,
+        globalSeVazio: true,
+      )) {
+        return false;
+      }
       return true;
     }).toList();
 
@@ -59,6 +78,8 @@ class _VagasScreenState extends State<VagasScreen> {
 
   @override
   Widget build(BuildContext context) {
+    // Reage a mudanças na cidade detectada do usuário para refiltrar.
+    context.watch<LocationService>();
     return Scaffold(
       backgroundColor: const Color(0xFFF5F5F7),
       body: NestedScrollView(
@@ -305,6 +326,7 @@ class _VagaCard extends StatelessWidget {
     final empresa = dados['empresa'] ?? '';
     final cidade = dados['cidade'] ?? '';
     final descricao = dados['descricao'] ?? '';
+    final imagemUrl = (dados['imagem_url'] ?? '').toString();
 
     return Padding(
       padding: const EdgeInsets.only(bottom: 12),
@@ -326,18 +348,17 @@ class _VagaCard extends StatelessWidget {
               children: [
                 Row(
                   children: [
-                    Container(
-                      width: 48,
-                      height: 48,
-                      decoration: BoxDecoration(
-                        color: _verdeVaga.withValues(alpha: 0.08),
-                        borderRadius: BorderRadius.circular(12),
-                      ),
-                      child: Icon(
-                        Icons.work_rounded,
-                        color: _verdeVaga.withValues(alpha: 0.7),
-                        size: 24,
-                      ),
+                    ClipRRect(
+                      borderRadius: BorderRadius.circular(12),
+                      child: imagemUrl.isNotEmpty
+                          ? Image.network(
+                              imagemUrl,
+                              width: 48,
+                              height: 48,
+                              fit: BoxFit.cover,
+                              errorBuilder: (_, __, ___) => _iconePadraoVaga(),
+                            )
+                          : _iconePadraoVaga(),
                     ),
                     const SizedBox(width: 14),
                     Expanded(
@@ -424,6 +445,22 @@ class _VagaCard extends StatelessWidget {
       ),
     );
   }
+
+  Widget _iconePadraoVaga() {
+    return Container(
+      width: 48,
+      height: 48,
+      decoration: BoxDecoration(
+        color: _verdeVaga.withValues(alpha: 0.08),
+        borderRadius: BorderRadius.circular(12),
+      ),
+      child: Icon(
+        Icons.work_rounded,
+        color: _verdeVaga.withValues(alpha: 0.7),
+        size: 24,
+      ),
+    );
+  }
 }
 
 // ---------------------------------------------------------------------------
@@ -442,6 +479,7 @@ class _VagaDetalhesSheet extends StatelessWidget {
     final cidade = dados['cidade'] ?? '';
     final descricao = dados['descricao'] ?? 'Sem descrição disponível.';
     final contato = dados['contato'] ?? '';
+    final imagemUrl = (dados['imagem_url'] ?? '').toString();
 
     return DraggableScrollableSheet(
       initialChildSize: 0.85,
@@ -468,19 +506,34 @@ class _VagaDetalhesSheet extends StatelessWidget {
                 controller: controller,
                 padding: const EdgeInsets.fromLTRB(24, 20, 24, 24),
                 children: [
-                  Container(
-                    width: 60,
-                    height: 60,
-                    decoration: BoxDecoration(
-                      color: _verdeVaga.withValues(alpha: 0.08),
+                  if (imagemUrl.isNotEmpty)
+                    ClipRRect(
                       borderRadius: BorderRadius.circular(16),
-                    ),
-                    child: Icon(
-                      Icons.work_rounded,
-                      color: _verdeVaga.withValues(alpha: 0.7),
-                      size: 30,
-                    ),
-                  ),
+                      child: Image.network(
+                        imagemUrl,
+                        width: double.infinity,
+                        height: 200,
+                        fit: BoxFit.cover,
+                        loadingBuilder: (c, child, progress) {
+                          if (progress == null) return child;
+                          return Container(
+                            height: 200,
+                            color: Colors.grey.shade100,
+                            alignment: Alignment.center,
+                            child: CircularProgressIndicator(
+                              color: _verdeVaga,
+                              value: progress.expectedTotalBytes != null
+                                  ? progress.cumulativeBytesLoaded /
+                                      progress.expectedTotalBytes!
+                                  : null,
+                            ),
+                          );
+                        },
+                        errorBuilder: (_, __, ___) => _cabecalhoIconePadrao(),
+                      ),
+                    )
+                  else
+                    _cabecalhoIconePadrao(),
                   const SizedBox(height: 18),
                   Text(
                     cargo,
@@ -608,6 +661,21 @@ class _VagaDetalhesSheet extends StatelessWidget {
     );
   }
 
+  Widget _cabecalhoIconePadrao() {
+    return Container(
+      width: 60,
+      height: 60,
+      decoration: BoxDecoration(
+        color: _verdeVaga.withValues(alpha: 0.08),
+        borderRadius: BorderRadius.circular(16),
+      ),
+      child: Icon(
+        Icons.work_rounded,
+        color: _verdeVaga.withValues(alpha: 0.7),
+        size: 30,
+      ),
+    );
+  }
 }
 
 // ---------------------------------------------------------------------------

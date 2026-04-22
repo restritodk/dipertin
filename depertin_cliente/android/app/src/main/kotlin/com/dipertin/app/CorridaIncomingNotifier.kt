@@ -1,4 +1,4 @@
-package com.example.depertin_cliente
+package com.dipertin.app
 
 import android.Manifest
 import android.app.NotificationChannel
@@ -150,7 +150,10 @@ object CorridaIncomingNotifier {
         logOemDiagnostics()
 
         val builder = NotificationCompat.Builder(appCtx, IncomingDeliveryContract.CHANNEL_ID)
-            .setSmallIcon(R.mipmap.ic_launcher)
+            // Ícone monocromático branco — exigência Android 5+ na status bar.
+            // ic_launcher (colorido) renderiza como quadrado vazio.
+            .setSmallIcon(R.drawable.ic_stat_notify)
+            .setColor(appCtx.getColor(R.color.notification_color))
             .setContentTitle(title)
             .setContentText(text)
             .setStyle(NotificationCompat.BigTextStyle().bigText(text))
@@ -176,9 +179,15 @@ object CorridaIncomingNotifier {
         }
         val notification = builder.build()
         tryWakeScreen(appCtx)
-        nm.notify(NotificationUtils.notificationIdForOrder(orderId), notification)
+        // TAG previsível alinhada à enviada pelo backend (`corrida_${pedidoId}`).
+        // Quando o SO já desenhou a notif do sistema (caso Doze/OEM agressiva
+        // em que o serviço não acordou a tempo), nm.notify(tag, id, ...)
+        // SUBSTITUI a notif do sistema em vez de duplicar.
+        val sysTag = "corrida_$orderId"
+        val notifId = NotificationUtils.notificationIdForOrder(orderId)
+        nm.notify(sysTag, notifId, notification)
         IncomingDeliveryFlowState.markNotificationShown(requestId)
-        Log.i(TAG, "Notificação de corrida publicada orderId=$orderId canal=${IncomingDeliveryContract.CHANNEL_ID}")
+        Log.i(TAG, "Notificação de corrida publicada orderId=$orderId tag=$sysTag canal=${IncomingDeliveryContract.CHANNEL_ID}")
     }
 
     private fun ensureChannel(context: Context) {

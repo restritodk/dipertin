@@ -8,6 +8,17 @@ class PoliticaPrivacidadeScreen extends StatelessWidget {
 
   static const List<PolicySection> _secoes = [
     PolicySection(
+      titulo: 'Identificação do controlador',
+      corpo:
+          'DiPertin\n'
+          'CNPJ: 66.040.998/0001-66\n'
+          'Telefone: (66) 3180-0107\n'
+          'E-mail: contato@dipertin.com.br\n\n'
+          'Em matéria de proteção de dados pessoais, dúvidas, solicitações de '
+          'titulares e exercício de direitos previstos na LGPD podem ser '
+          'enviados para o e-mail acima.',
+    ),
+    PolicySection(
       titulo: 'I — Controlador, escopo e base legal',
       corpo:
           'O presente documento constitui a Política de Privacidade do DiPertin, '

@@ -60,8 +60,9 @@ class _ProductDetailsScreenState extends State<ProductDetailsScreen> {
         widget.produto['loja_id']?.toString();
     if (lojistaId != null && lojistaId.isNotEmpty) {
       try {
+        // Fase 3G.2 — detalhe do produto lê `lojas_public` p/ status/pausa da loja.
         final DocumentSnapshot doc = await FirebaseFirestore.instance
-            .collection('users')
+            .collection('lojas_public')
             .doc(lojistaId)
             .get();
         if (doc.exists && mounted) {
@@ -813,8 +814,9 @@ class _ProductDetailsScreenState extends State<ProductDetailsScreen> {
   /// Prioriza `rating_media` / `total_avaliacoes` no doc da loja; fallback: média on-demand.
   Widget _buildResumoAvaliacoesLoja(String lojaId) {
     return StreamBuilder<DocumentSnapshot<Map<String, dynamic>>>(
+      // Fase 3G.2 — lê `lojas_public` (rating_media/total_avaliacoes públicos).
       stream: FirebaseFirestore.instance
-          .collection('users')
+          .collection('lojas_public')
           .doc(lojaId)
           .snapshots(),
       builder: (context, snapUser) {

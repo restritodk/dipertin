@@ -4,6 +4,8 @@ import 'dart:convert';
 import 'package:audioplayers/audioplayers.dart';
 import 'package:depertin_cliente/screens/cliente/chat_suporte_screen.dart';
 import 'package:depertin_cliente/screens/cliente/orders_screen.dart';
+import 'package:depertin_cliente/screens/entregador/entregador_form_screen.dart';
+import 'package:depertin_cliente/screens/lojista/lojista_form_screen.dart';
 import 'package:depertin_cliente/screens/lojista/lojista_pedidos_screen.dart';
 import 'package:depertin_cliente/services/fcm_notification_eventos.dart';
 import 'package:depertin_cliente/services/fcm_rota.dart';
@@ -19,6 +21,7 @@ import 'package:firebase_messaging/firebase_messaging.dart';
 import 'package:flutter_local_notifications/flutter_local_notifications.dart';
 import 'package:provider/provider.dart';
 import 'package:shared_preferences/shared_preferences.dart';
+import 'package:intl/date_symbol_data_local.dart';
 import 'package:depertin_cliente/app_navigator_key.dart';
 import 'package:depertin_cliente/screens/entregador/entregador_home_screen.dart';
 import 'firebase_options.dart';
@@ -31,6 +34,7 @@ import 'services/app_atualizacao_obrigatoria_service.dart';
 import 'services/android_nav_intent.dart';
 import 'services/corrida_chamada_entregador_audio.dart';
 import 'services/corrida_foreground_notificacao.dart';
+import 'services/notificacoes_historico_service.dart';
 import 'package:url_launcher/url_launcher.dart';
 import 'screens/guards/app_guard.dart';
 import 'screens/cliente/vitrine_screen.dart';
@@ -77,6 +81,11 @@ Future<void> _firebaseMessagingBackgroundHandler(RemoteMessage message) async {
   WidgetsFlutterBinding.ensureInitialized();
   await Firebase.initializeApp(options: DefaultFirebaseOptions.currentPlatform);
   await _ativarFirebaseAppCheckNoIsolate();
+  // Histórico (paralelo — best-effort no isolate de background).
+  await NotificacoesHistoricoService.salvarDePush(
+    message,
+    origem: NotificacoesHistoricoService.origemLocal,
+  );
 }
 
 /// Android: esconde a barra de navegação (voltar/home/recentes). O usuário pode
@@ -109,6 +118,7 @@ Future<void> ativarFirebaseAppCheck() async {
 
 void main() async {
   WidgetsFlutterBinding.ensureInitialized();
+  await initializeDateFormatting('pt_BR', null);
   await configurarBarraNavegacaoAndroidOculta();
   await Firebase.initializeApp(options: DefaultFirebaseOptions.currentPlatform);
   await ativarFirebaseAppCheck();
@@ -116,7 +126,7 @@ void main() async {
   FirebaseMessaging.onBackgroundMessage(_firebaseMessagingBackgroundHandler);
 
   const AndroidInitializationSettings initializationSettingsAndroid =
-      AndroidInitializationSettings('@mipmap/ic_launcher');
+      AndroidInitializationSettings('@drawable/ic_stat_notify');
   const DarwinInitializationSettings initializationSettingsDarwin =
       DarwinInitializationSettings(
         requestAlertPermission: false,
@@ -253,6 +263,9 @@ class _DiPertinAppState extends State<DiPertinApp> with WidgetsBindingObserver {
         '/entregador': (context) => const EntregadorHomeScreen(),
         '/entregador-pos-entrega': (context) => const EntregadorHomeScreen(),
         '/suporte': (context) => const ChatSuporteScreen(),
+        // Rotas abertas a partir do push de "conta aprovada/recusada".
+        '/lojista-cadastro': (context) => const LojistaFormScreen(),
+        '/entregador-cadastro': (context) => const EntregadorFormScreen(),
       },
     );
   }
@@ -365,6 +378,11 @@ class _SplashScreenState extends State<SplashScreen> {
     if (initialMessage != null) {
       unawaited(CorridaChamadaEntregadorAudio.parar());
       unawaited(_resolverCidadeParaVitrine());
+      // Histórico (paralelo — cold-start a partir de um push).
+      unawaited(NotificacoesHistoricoService.salvarDePush(
+        initialMessage,
+        origem: NotificacoesHistoricoService.origemInitial,
+      ));
       await _aplicarDelayMinimoSplash(splashInicio);
       if (!mounted) return;
 
@@ -434,12 +452,22 @@ class _SplashScreenState extends State<SplashScreen> {
         'type=${message.data['type']} title=${message.notification?.title}',
       );
       unawaited(_mostrarNotificacaoForegroundSePermitido(message));
+      // Histórico (paralelo — não interfere no pipeline FCM).
+      unawaited(NotificacoesHistoricoService.salvarDePush(
+        message,
+        origem: NotificacoesHistoricoService.origemOnMessage,
+      ));
     });
 
     FirebaseMessaging.onMessageOpenedApp.listen((RemoteMessage message) {
       debugPrint('[FCM] onMessageOpenedApp — ${message.data}');
       unawaited(pararSomCorridaForeground());
       navigatorKey.currentState?.pushNamed(rotaPorPayloadFcm(message.data));
+      // Histórico (paralelo — push aberto pelo usuário).
+      unawaited(NotificacoesHistoricoService.salvarDePush(
+        message,
+        origem: NotificacoesHistoricoService.origemOnOpen,
+      ));
     });
 
     // 2) Permissão Android 13+ (POST_NOTIFICATIONS).
@@ -587,6 +615,11 @@ class _SplashScreenState extends State<SplashScreen> {
 
     final bool isAndroid =
         !kIsWeb && defaultTargetPlatform == TargetPlatform.android;
+    // LargeIcon colorido (logo do app) para aparecer ao lado do texto da
+    // notificação no Android em foreground. O smallIcon (status bar) é
+    // mantido como a silhueta monocromática exigida pelo Android 5+.
+    const AndroidBitmap<Object> largeIconApp =
+        DrawableResourceAndroidBitmap('@mipmap/ic_launcher');
     final AndroidNotificationDetails androidDetails;
     if (isAndroid && isCorrida) {
       androidDetails = AndroidNotificationDetails(
@@ -595,7 +628,8 @@ class _SplashScreenState extends State<SplashScreen> {
         channelDescription: 'Alerta sonoro de nova entrega para entregadores',
         importance: Importance.max,
         priority: Priority.high,
-        icon: '@mipmap/ic_launcher',
+        icon: '@drawable/ic_stat_notify',
+        largeIcon: largeIconApp,
         sound: RawResourceAndroidNotificationSound('chamada_entregador'),
         playSound: true,
         fullScreenIntent: true,
@@ -608,7 +642,8 @@ class _SplashScreenState extends State<SplashScreen> {
             'Alerta sonoro exclusivo para novos pedidos (lojista)',
         importance: Importance.max,
         priority: Priority.high,
-        icon: '@mipmap/ic_launcher',
+        icon: '@drawable/ic_stat_notify',
+        largeIcon: largeIconApp,
         sound: RawResourceAndroidNotificationSound('pedido'),
         playSound: true,
       );
@@ -619,7 +654,8 @@ class _SplashScreenState extends State<SplashScreen> {
         channelDescription: 'Pedidos, entregas e central de ajuda',
         importance: Importance.max,
         priority: Priority.high,
-        icon: '@mipmap/ic_launcher',
+        icon: '@drawable/ic_stat_notify',
+        largeIcon: largeIconApp,
       );
     } else {
       androidDetails = const AndroidNotificationDetails(
@@ -628,7 +664,8 @@ class _SplashScreenState extends State<SplashScreen> {
         channelDescription: 'Pedidos, entregas e central de ajuda',
         importance: Importance.max,
         priority: Priority.high,
-        icon: '@mipmap/ic_launcher',
+        icon: '@drawable/ic_stat_notify',
+        largeIcon: largeIconApp,
       );
     }
 

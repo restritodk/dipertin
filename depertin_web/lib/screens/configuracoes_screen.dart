@@ -1545,15 +1545,26 @@ class _GatewayConfigCardState extends State<_GatewayConfigCard> {
   late TextEditingController _publicKey;
   late TextEditingController _accessToken;
 
+  /// Mostra/oculta o valor digitado no campo access_token (toggle do olho).
+  /// Começa oculto pra reduzir exposição em screenshots / screen sharing.
+  bool _accessTokenVisivel = false;
+
+  String get _tokenSalvoNoFirestore =>
+      (widget.dadosIniciais['access_token'] ?? '').toString();
+
+  bool get _temTokenSalvo => _tokenSalvoNoFirestore.isNotEmpty;
+
   @override
   void initState() {
     super.initState();
     _publicKey = TextEditingController(
       text: (widget.dadosIniciais['public_key'] ?? '').toString(),
     );
-    _accessToken = TextEditingController(
-      text: (widget.dadosIniciais['access_token'] ?? '').toString(),
-    );
+    // Hardening (Fase 3H): o controller do access_token começa VAZIO mesmo que
+    // já exista valor no Firestore, pra evitar carregar o segredo em texto
+    // claro no DOM / memória da aba. Pra alterar, o master redigita; pra só
+    // confirmar que existe, observa o label "(salvo)" abaixo.
+    _accessToken = TextEditingController();
   }
 
   @override
@@ -1561,14 +1572,11 @@ class _GatewayConfigCardState extends State<_GatewayConfigCard> {
     super.didUpdateWidget(oldWidget);
     final nk = (widget.dadosIniciais['public_key'] ?? '').toString();
     final ok = (oldWidget.dadosIniciais['public_key'] ?? '').toString();
-    final nt = (widget.dadosIniciais['access_token'] ?? '').toString();
-    final ot = (oldWidget.dadosIniciais['access_token'] ?? '').toString();
     if (nk != ok && _publicKey.text != nk) {
       _publicKey.text = nk;
     }
-    if (nt != ot && _accessToken.text != nt) {
-      _accessToken.text = nt;
-    }
+    // NÃO sincronizamos access_token com o Firestore — campo permanece com o
+    // que o master digitou (ou vazio) até ele clicar em salvar.
   }
 
   @override
@@ -1579,10 +1587,24 @@ class _GatewayConfigCardState extends State<_GatewayConfigCard> {
   }
 
   Future<void> _salvarEAtivar() async {
-    if (_publicKey.text.trim().isEmpty || _accessToken.text.trim().isEmpty) {
+    final publicKey = _publicKey.text.trim();
+    final tokenNovo = _accessToken.text.trim();
+
+    if (publicKey.isEmpty) {
       ScaffoldMessenger.of(context).showSnackBar(
         SnackBar(
-          content: const Text("Preencha a chave pública e o access token."),
+          content: const Text("Preencha a chave pública."),
+          backgroundColor: widget.roxo,
+        ),
+      );
+      return;
+    }
+    if (tokenNovo.isEmpty && !_temTokenSalvo) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(
+          content: const Text(
+            "Preencha o access token na primeira configuração.",
+          ),
           backgroundColor: widget.roxo,
         ),
       );
@@ -1613,16 +1635,27 @@ class _GatewayConfigCardState extends State<_GatewayConfigCard> {
       }
       await batch.commit();
 
+      // Só envia access_token se o master digitou um valor novo; caso contrário
+      // usamos merge:true pra preservar o token atual no Firestore.
+      final dadosParaGravar = <String, dynamic>{
+        'nome': widget.gateway['nome'],
+        'public_key': publicKey,
+        'ativo': true,
+        'data_atualizacao': FieldValue.serverTimestamp(),
+      };
+      if (tokenNovo.isNotEmpty) {
+        dadosParaGravar['access_token'] = tokenNovo;
+      }
+
       await FirebaseFirestore.instance
           .collection('gateways_pagamento')
           .doc(widget.gateway['id'])
-          .set({
-            'nome': widget.gateway['nome'],
-            'public_key': _publicKey.text.trim(),
-            'access_token': _accessToken.text.trim(),
-            'ativo': true,
-            'data_atualizacao': FieldValue.serverTimestamp(),
-          });
+          .set(dadosParaGravar, SetOptions(merge: true));
+
+      if (mounted) {
+        _accessToken.clear();
+        setState(() => _accessTokenVisivel = false);
+      }
 
       if (!mounted) return;
       Navigator.of(context).pop();
@@ -1752,11 +1785,38 @@ class _GatewayConfigCardState extends State<_GatewayConfigCard> {
                   ),
                   TextField(
                     controller: _accessToken,
-                    obscureText: true,
+                    obscureText: !_accessTokenVisivel,
+                    autocorrect: false,
+                    enableSuggestions: false,
                     decoration: InputDecoration(
-                      labelText: "Access token",
+                      labelText: _temTokenSalvo
+                          ? "Access token (salvo)"
+                          : "Access token",
+                      hintText: _temTokenSalvo
+                          ? "Deixe em branco para manter o token atual"
+                          : null,
+                      helperText: _temTokenSalvo
+                          ? "Credencial protegida. Digite um novo valor só se quiser trocar."
+                          : null,
                       border: const OutlineInputBorder(),
-                      prefixIcon: Icon(Icons.lock_outline_rounded, color: widget.roxo),
+                      prefixIcon: Icon(
+                        Icons.lock_outline_rounded,
+                        color: widget.roxo,
+                      ),
+                      suffixIcon: IconButton(
+                        tooltip: _accessTokenVisivel
+                            ? "Ocultar token digitado"
+                            : "Mostrar token digitado",
+                        icon: Icon(
+                          _accessTokenVisivel
+                              ? Icons.visibility_off_outlined
+                              : Icons.visibility_outlined,
+                          color: Colors.grey.shade700,
+                        ),
+                        onPressed: () => setState(
+                          () => _accessTokenVisivel = !_accessTokenVisivel,
+                        ),
+                      ),
                     ),
                   ),
                 ];

@@ -7,6 +7,66 @@
   "client": [
     {
       "client_info": {
+        "mobilesdk_app_id": "1:939151024179:android:d9108d8925fbd8e7d3c346",
+        "android_client_info": {
+          "package_name": "com.dipertin.app"
+        }
+      },
+      "oauth_client": [
+        {
+          "client_id": "939151024179-j1sh1ithotb31jd83ttc8u3r0hochglm.apps.googleusercontent.com",
+          "client_type": 1,
+          "android_info": {
+            "package_name": "com.dipertin.app",
+            "certificate_hash": "e9684dbce8c678b9261a533173863ed23f366a69"
+          }
+        },
+        {
+          "client_id": "939151024179-tekq6lua124gsviqu14ruakpiqoh8lh7.apps.googleusercontent.com",
+          "client_type": 1,
+          "android_info": {
+            "package_name": "com.dipertin.app",
+            "certificate_hash": "c3e777708c72ea801b876bdb9afcec78a877a293"
+          }
+        },
+        {
+          "client_id": "939151024179-vhogdo26mon60226ct1tf51ili998as8.apps.googleusercontent.com",
+          "client_type": 1,
+          "android_info": {
+            "package_name": "com.dipertin.app",
+            "certificate_hash": "0ff71428bbe59c119ea9b0a4596797fd866d7133"
+          }
+        },
+        {
+          "client_id": "939151024179-1aibtpudtpmvtki6g6du878i0j2012mj.apps.googleusercontent.com",
+          "client_type": 3
+        }
+      ],
+      "api_key": [
+        {
+          "current_key": "AIzaSyCoi6_SF_oisaTPq4EJ7KUTRxlje1Sxg58"
+        }
+      ],
+      "services": {
+        "appinvite_service": {
+          "other_platform_oauth_client": [
+            {
+              "client_id": "939151024179-1aibtpudtpmvtki6g6du878i0j2012mj.apps.googleusercontent.com",
+              "client_type": 3
+            },
+            {
+              "client_id": "939151024179-22snja8ca4920uiejsgc1eohbqd1n3p6.apps.googleusercontent.com",
+              "client_type": 2,
+              "ios_info": {
+                "bundle_id": "com.example.depertinWeb"
+              }
+            }
+          ]
+        }
+      }
+    },
+    {
+      "client_info": {
         "mobilesdk_app_id": "1:939151024179:android:452e0377da80e47bd3c346",
         "android_client_info": {
           "package_name": "com.example.depertin_cliente"

@@ -39,6 +39,7 @@ class EditProfileScreen extends StatefulWidget {
 class _EditProfileScreenState extends State<EditProfileScreen> {
   late TextEditingController _nomeController;
   final TextEditingController _cpfController = TextEditingController();
+  final TextEditingController _telefoneController = TextEditingController();
   final TextEditingController _ruaC = TextEditingController();
   final TextEditingController _numeroC = TextEditingController();
   final TextEditingController _bairroC = TextEditingController();
@@ -99,6 +100,14 @@ class _EditProfileScreenState extends State<EditProfileScreen> {
               _cpfController.text = CpfPerfilUsuario.comMascara11(dCpf);
             } else if (cpfSalvo.isNotEmpty) {
               _cpfController.text = cpfSalvo;
+            }
+
+            final telefoneSalvo = (dados['telefone'] ?? '').toString();
+            final dTel = telefoneSalvo.replaceAll(RegExp(r'[^0-9]'), '');
+            if (dTel.isNotEmpty) {
+              _telefoneController.text = _mascararTelefoneBr(dTel);
+            } else if (telefoneSalvo.isNotEmpty) {
+              _telefoneController.text = telefoneSalvo;
             }
           });
         }
@@ -310,6 +319,19 @@ class _EditProfileScreenState extends State<EditProfileScreen> {
       }
     }
 
+    final telefoneBruto = _telefoneController.text.trim();
+    if (telefoneBruto.isNotEmpty && !_telefoneValido(telefoneBruto)) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(
+          content: Text(
+            'Telefone inválido. Informe DDD + número com 10 ou 11 dígitos.',
+          ),
+          backgroundColor: Colors.red,
+        ),
+      );
+      return;
+    }
+
     setState(() => _salvando = true);
     try {
       final user = FirebaseAuth.instance.currentUser;
@@ -338,11 +360,18 @@ class _EditProfileScreenState extends State<EditProfileScreen> {
           'complemento': _complementoC.text.trim(),
         };
 
+        final telefoneDigitos =
+            _telefoneController.text.replaceAll(RegExp(r'[^0-9]'), '');
+        final String telefoneParaSalvar = telefoneDigitos.isEmpty
+            ? ''
+            : _mascararTelefoneBr(telefoneDigitos);
+
         Map<String, dynamic> dadosParaSalvar = {
           'nome': _nomeController.text.trim(),
           'endereco_entrega_padrao': enderecoCompleto,
           'cidade': cidadeFinal,
           'foto_perfil': linkDaFoto,
+          'telefone': telefoneParaSalvar,
           'role': widget.role ?? 'cliente',
           'perfil_completo': true,
         };
@@ -395,6 +424,28 @@ class _EditProfileScreenState extends State<EditProfileScreen> {
     } finally {
       if (mounted) setState(() => _salvando = false);
     }
+  }
+
+  /// Aplica máscara `(00) 0000-0000` ou `(00) 00000-0000` sobre um texto
+  /// contendo apenas dígitos.
+  String _mascararTelefoneBr(String digitosBrutos) {
+    String d = digitosBrutos.replaceAll(RegExp(r'[^0-9]'), '');
+    if (d.startsWith('55') && d.length > 11) {
+      d = d.substring(2);
+    }
+    if (d.length > 11) d = d.substring(0, 11);
+    if (d.length == 11) {
+      return '(${d.substring(0, 2)}) ${d.substring(2, 7)}-${d.substring(7)}';
+    }
+    if (d.length == 10) {
+      return '(${d.substring(0, 2)}) ${d.substring(2, 6)}-${d.substring(6)}';
+    }
+    return d;
+  }
+
+  bool _telefoneValido(String bruto) {
+    final d = bruto.replaceAll(RegExp(r'[^0-9]'), '');
+    return d.length == 10 || d.length == 11;
   }
 
   Widget _tituloSecao(String titulo, String subtitulo) {
@@ -605,6 +656,32 @@ class _EditProfileScreenState extends State<EditProfileScreen> {
                             ),
                           ),
                         ],
+                        const SizedBox(height: 14),
+                        _buildTextField(
+                          controller: _telefoneController,
+                          label: 'Telefone / WhatsApp',
+                          icon: Icons.phone_android_rounded,
+                          keyboardType: TextInputType.phone,
+                          textCapitalization: TextCapitalization.none,
+                          inputFormatters: [
+                            MaskedInputFormatter('(00) 00000-0000'),
+                          ],
+                        ),
+                        Padding(
+                          padding: const EdgeInsets.only(
+                            left: 2,
+                            top: 8,
+                            bottom: 2,
+                          ),
+                          child: Text(
+                            'Usado pelo entregador para entrar em contato durante a entrega.',
+                            style: TextStyle(
+                              fontSize: 12,
+                              color: Colors.grey.shade700,
+                              height: 1.35,
+                            ),
+                          ),
+                        ),
                       ],
                     ),
                   ),

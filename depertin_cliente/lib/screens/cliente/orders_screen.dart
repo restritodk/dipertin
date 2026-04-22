@@ -2,7 +2,7 @@
 
 import 'package:depertin_cliente/constants/pedido_status.dart';
 import 'package:depertin_cliente/screens/cliente/avaliar_pedido_sheet.dart';
-import 'package:depertin_cliente/screens/cliente/chat_pedido_screen.dart';
+import 'package:depertin_cliente/widgets/chat_pedido_botao.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:cloud_firestore/cloud_firestore.dart';
@@ -993,55 +993,324 @@ class _OrdersScreenState extends State<OrdersScreen> {
                           child: _buildEmptyFiltro(context),
                         )
                       else
-                        SliverPadding(
-                          padding: const EdgeInsets.fromLTRB(12, 8, 12, 24),
-                          sliver: SliverList(
-                            delegate: SliverChildBuilderDelegate((
-                              context,
-                              index,
-                            ) {
-                              final doc = filtrados[index];
-                              final pedidoId = doc.id;
-                              final pedidoFallback =
-                                  doc.data() as Map<String, dynamic>;
-
-                              return Padding(
-                                padding: const EdgeInsets.only(bottom: 12),
-                                child: StreamBuilder<
-                                    DocumentSnapshot<Map<String, dynamic>>>(
-                                  stream: FirebaseFirestore.instance
-                                      .collection('pedidos')
-                                      .doc(pedidoId)
-                                      .snapshots(
-                                        includeMetadataChanges: true,
-                                      ),
-                                  builder: (context, docSnap) {
-                                    final pedido =
-                                        (docSnap.hasData &&
-                                                docSnap.data!.exists &&
-                                                docSnap.data!.data() != null)
-                                            ? docSnap.data!.data()!
-                                            : pedidoFallback;
-                                    final statusAtual = _normalizarStatus(
-                                      pedido['status'],
-                                    );
-                                    return _construirCardPedido(
-                                      context: context,
-                                      pedidoId: pedidoId,
-                                      pedido: pedido,
-                                      statusAtual: statusAtual,
-                                    );
-                                  },
-                                ),
-                              );
-                            }, childCount: filtrados.length),
-                          ),
-                        ),
+                        ..._buildSliversAgrupados(filtrados),
                     ],
                   ),
                 );
               },
             ),
+    );
+  }
+
+  /// Agrupa pedidos por `checkout_grupo_id` (multi-loja). Pedidos sem grupo
+  /// são tratados como grupo de 1 (single-store, comportamento legado).
+  /// Retorna a lista de slivers já com headers de grupo + cards.
+  List<Widget> _buildSliversAgrupados(
+    List<QueryDocumentSnapshot> docs,
+  ) {
+    final ordemGrupos = <String>[];
+    final grupos = <String, List<QueryDocumentSnapshot>>{};
+
+    for (final doc in docs) {
+      final data = doc.data() as Map<String, dynamic>;
+      final grupoId = (data['checkout_grupo_id'] ?? '').toString().trim();
+      final chave = grupoId.isNotEmpty ? 'g:$grupoId' : 'p:${doc.id}';
+      if (!grupos.containsKey(chave)) {
+        grupos[chave] = [];
+        ordemGrupos.add(chave);
+      }
+      grupos[chave]!.add(doc);
+    }
+
+    return [
+      SliverPadding(
+        padding: const EdgeInsets.fromLTRB(12, 8, 12, 24),
+        sliver: SliverList(
+          delegate: SliverChildBuilderDelegate(
+            (context, index) {
+              final chave = ordemGrupos[index];
+              final docsGrupo = grupos[chave]!;
+              final ehMultiLoja = docsGrupo.length > 1;
+
+              if (!ehMultiLoja) {
+                final doc = docsGrupo.first;
+                return Padding(
+                  padding: const EdgeInsets.only(bottom: 12),
+                  child: _streamCardPedido(doc),
+                );
+              }
+
+              return Padding(
+                padding: const EdgeInsets.only(bottom: 16),
+                child: _construirEnvelopeMultiLoja(
+                  docsGrupo: docsGrupo,
+                ),
+              );
+            },
+            childCount: ordemGrupos.length,
+          ),
+        ),
+      ),
+    ];
+  }
+
+  /// Card individual com stream realtime do documento. Reutilizado por
+  /// pedidos single-store e por cada loja dentro do envelope multi-loja.
+  Widget _streamCardPedido(QueryDocumentSnapshot doc) {
+    final pedidoId = doc.id;
+    final pedidoFallback = doc.data() as Map<String, dynamic>;
+    return StreamBuilder<DocumentSnapshot<Map<String, dynamic>>>(
+      stream: FirebaseFirestore.instance
+          .collection('pedidos')
+          .doc(pedidoId)
+          .snapshots(includeMetadataChanges: true),
+      builder: (context, docSnap) {
+        final pedido = (docSnap.hasData &&
+                docSnap.data!.exists &&
+                docSnap.data!.data() != null)
+            ? docSnap.data!.data()!
+            : pedidoFallback;
+        final statusAtual = _normalizarStatus(pedido['status']);
+        return _construirCardPedido(
+          context: context,
+          pedidoId: pedidoId,
+          pedido: pedido,
+          statusAtual: statusAtual,
+        );
+      },
+    );
+  }
+
+  /// Envelope visual para checkout multi-loja. Mostra cabeçalho com
+  /// resumo do pagamento único + cards de cada loja agrupados.
+  Widget _construirEnvelopeMultiLoja({
+    required List<QueryDocumentSnapshot> docsGrupo,
+  }) {
+    var totalGrupo = 0.0;
+    var qtdAtivos = 0;
+    var qtdCancelados = 0;
+    var qtdEntregues = 0;
+    String? formaPag;
+    DateTime? dataMaisRecente;
+
+    for (final d in docsGrupo) {
+      final data = d.data() as Map<String, dynamic>;
+      final st = _normalizarStatus(data['status']);
+      totalGrupo += _toDouble(data['total']);
+      if (st == 'cancelado') {
+        qtdCancelados++;
+      } else if (st == 'entregue') {
+        qtdEntregues++;
+      } else {
+        qtdAtivos++;
+      }
+      formaPag ??= data['forma_pagamento']?.toString();
+      final ts = data['data_pedido'];
+      if (ts is Timestamp) {
+        final dt = ts.toDate();
+        if (dataMaisRecente == null || dt.isAfter(dataMaisRecente)) {
+          dataMaisRecente = dt;
+        }
+      }
+    }
+
+    final qtdLojas = docsGrupo.length;
+    final dataStr = dataMaisRecente != null
+        ? DateFormat("dd/MM/yyyy 'às' HH:mm").format(dataMaisRecente)
+        : '—';
+
+    String statusResumo;
+    Color corStatus;
+    if (qtdCancelados == qtdLojas) {
+      statusResumo = 'Todas canceladas';
+      corStatus = Colors.red.shade700;
+    } else if (qtdEntregues == qtdLojas) {
+      statusResumo = 'Todas entregues';
+      corStatus = Colors.green.shade700;
+    } else if (qtdAtivos > 0) {
+      statusResumo = '$qtdAtivos em andamento';
+      corStatus = diPertinLaranja;
+    } else {
+      statusResumo = 'Concluído';
+      corStatus = Colors.green.shade700;
+    }
+
+    return Container(
+      decoration: BoxDecoration(
+        color: diPertinRoxo.withValues(alpha: 0.04),
+        borderRadius: BorderRadius.circular(20),
+        border: Border.all(
+          color: diPertinRoxo.withValues(alpha: 0.18),
+          width: 1.2,
+        ),
+      ),
+      padding: const EdgeInsets.fromLTRB(12, 12, 12, 12),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.stretch,
+        children: [
+          Container(
+            padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 10),
+            decoration: BoxDecoration(
+              color: Colors.white,
+              borderRadius: BorderRadius.circular(14),
+              border: Border.all(color: diPertinRoxo.withValues(alpha: 0.25)),
+            ),
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                Row(
+                  children: [
+                    Container(
+                      padding: const EdgeInsets.all(6),
+                      decoration: BoxDecoration(
+                        color: diPertinRoxo,
+                        borderRadius: BorderRadius.circular(8),
+                      ),
+                      child: const Icon(
+                        Icons.shopping_bag,
+                        color: Colors.white,
+                        size: 18,
+                      ),
+                    ),
+                    const SizedBox(width: 10),
+                    Expanded(
+                      child: Column(
+                        crossAxisAlignment: CrossAxisAlignment.start,
+                        children: [
+                          Text(
+                            'Compra de $qtdLojas lojas',
+                            style: const TextStyle(
+                              fontSize: 15,
+                              fontWeight: FontWeight.w800,
+                              color: diPertinRoxo,
+                            ),
+                          ),
+                          const SizedBox(height: 2),
+                          Text(
+                            'Pagamento único · $dataStr',
+                            style: TextStyle(
+                              fontSize: 11.5,
+                              color: Colors.grey[700],
+                              fontWeight: FontWeight.w500,
+                            ),
+                          ),
+                        ],
+                      ),
+                    ),
+                    Container(
+                      padding: const EdgeInsets.symmetric(
+                        horizontal: 8,
+                        vertical: 4,
+                      ),
+                      decoration: BoxDecoration(
+                        color: corStatus.withValues(alpha: 0.12),
+                        borderRadius: BorderRadius.circular(8),
+                        border: Border.all(
+                          color: corStatus.withValues(alpha: 0.5),
+                        ),
+                      ),
+                      child: Text(
+                        statusResumo,
+                        style: TextStyle(
+                          color: corStatus,
+                          fontSize: 11,
+                          fontWeight: FontWeight.w700,
+                        ),
+                      ),
+                    ),
+                  ],
+                ),
+                const SizedBox(height: 10),
+                Row(
+                  mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                  children: [
+                    Column(
+                      crossAxisAlignment: CrossAxisAlignment.start,
+                      children: [
+                        Text(
+                          'Total pago',
+                          style: TextStyle(
+                            fontSize: 11.5,
+                            color: Colors.grey[600],
+                            fontWeight: FontWeight.w500,
+                          ),
+                        ),
+                        Text(
+                          _moeda.format(totalGrupo),
+                          style: const TextStyle(
+                            fontSize: 18,
+                            fontWeight: FontWeight.w800,
+                            color: diPertinLaranja,
+                          ),
+                        ),
+                      ],
+                    ),
+                    if (formaPag != null && formaPag.isNotEmpty)
+                      Padding(
+                        padding: const EdgeInsets.only(left: 12),
+                        child: Container(
+                          padding: const EdgeInsets.symmetric(
+                            horizontal: 8,
+                            vertical: 4,
+                          ),
+                          decoration: BoxDecoration(
+                            color: Colors.grey[100],
+                            borderRadius: BorderRadius.circular(6),
+                          ),
+                          child: Text(
+                            formaPag,
+                            style: TextStyle(
+                              fontSize: 11,
+                              color: Colors.grey[800],
+                              fontWeight: FontWeight.w600,
+                            ),
+                          ),
+                        ),
+                      ),
+                  ],
+                ),
+                const SizedBox(height: 8),
+                Container(
+                  padding: const EdgeInsets.symmetric(
+                    horizontal: 8,
+                    vertical: 6,
+                  ),
+                  decoration: BoxDecoration(
+                    color: Colors.blue.withValues(alpha: 0.06),
+                    borderRadius: BorderRadius.circular(6),
+                  ),
+                  child: Row(
+                    children: [
+                      Icon(
+                        Icons.info_outline,
+                        size: 14,
+                        color: Colors.blue.shade700,
+                      ),
+                      const SizedBox(width: 6),
+                      Expanded(
+                        child: Text(
+                          'Cada loja prepara e entrega seu pedido separadamente. '
+                          'Acompanhe abaixo.',
+                          style: TextStyle(
+                            fontSize: 11,
+                            color: Colors.grey[800],
+                            height: 1.3,
+                          ),
+                        ),
+                      ),
+                    ],
+                  ),
+                ),
+              ],
+            ),
+          ),
+          const SizedBox(height: 12),
+          for (var i = 0; i < docsGrupo.length; i++) ...[
+            _streamCardPedido(docsGrupo[i]),
+            if (i < docsGrupo.length - 1) const SizedBox(height: 10),
+          ],
+        ],
+      ),
     );
   }
 
@@ -1485,37 +1754,38 @@ class _OrdersScreenState extends State<OrdersScreen> {
     );
   }
 
-  /// Chat ativo até a entrega; após entregue → avaliar (uma vez) ou ver avaliação enviada.
+  /// Ações na base do card do pedido:
+  /// - **Em andamento**: botão de chat com a loja (badge de mensagens novas).
+  /// - **Entregue**: avaliar/mostrar avaliação + "Ver conversa" (histórico).
+  /// - **Cancelado**: apenas "Ver conversa" (histórico), se houver.
   Widget _buildAcaoChatOuAvaliacao({
     required BuildContext context,
     required String pedidoId,
     required Map<String, dynamic> pedido,
     required String statusAtual,
   }) {
+    final lojaId = pedido['loja_id']?.toString() ?? '';
+    final lojaNome = pedido['loja_nome']?.toString() ?? 'Loja';
+
+    final botaoHistorico = ChatPedidoBotao(
+      pedidoId: pedidoId,
+      lojaId: lojaId,
+      lojaNome: lojaNome,
+      rotuloAtivo: 'Ver conversa',
+      rotuloEncerrado: 'Ver conversa',
+      encerrado: true,
+    );
+
     if (statusAtual == PedidoStatus.cancelado) {
-      return const SizedBox.shrink();
+      return botaoHistorico;
     }
 
     if (statusAtual != PedidoStatus.entregue) {
-      return SizedBox(
-        height: 48,
-        width: double.infinity,
-        child: OutlinedButton.icon(
-          onPressed: () {
-            Navigator.push(
-              context,
-              MaterialPageRoute(
-                builder: (context) => ChatPedidoScreen(
-                  pedidoId: pedidoId,
-                  lojaId: pedido['loja_id']?.toString() ?? '',
-                  lojaNome: pedido['loja_nome']?.toString() ?? 'Loja',
-                ),
-              ),
-            );
-          },
-          icon: const Icon(Icons.chat_outlined, color: diPertinRoxo),
-          label: const Text('Chat com a loja'),
-        ),
+      return ChatPedidoBotao(
+        pedidoId: pedidoId,
+        lojaId: lojaId,
+        lojaNome: lojaNome,
+        rotuloAtivo: 'Chat com a loja',
       );
     }
 
@@ -1527,23 +1797,30 @@ class _OrdersScreenState extends State<OrdersScreen> {
       builder: (context, snap) {
         final jaAvaliou = snap.hasData && snap.data!.exists;
         if (!jaAvaliou) {
-          return SizedBox(
-            height: 48,
-            width: double.infinity,
-            child: FilledButton.icon(
-              style: FilledButton.styleFrom(
-                backgroundColor: diPertinLaranja,
-                foregroundColor: Colors.white,
+          return Column(
+            crossAxisAlignment: CrossAxisAlignment.stretch,
+            children: [
+              SizedBox(
+                height: 48,
+                width: double.infinity,
+                child: FilledButton.icon(
+                  style: FilledButton.styleFrom(
+                    backgroundColor: diPertinLaranja,
+                    foregroundColor: Colors.white,
+                  ),
+                  onPressed: () => mostrarAvaliarPedidoSheet(
+                    context,
+                    pedidoId: pedidoId,
+                    lojaId: lojaId,
+                    lojaNome: lojaNome,
+                  ),
+                  icon: const Icon(Icons.star_rate_rounded),
+                  label: const Text('Avaliar pedido'),
+                ),
               ),
-              onPressed: () => mostrarAvaliarPedidoSheet(
-                context,
-                pedidoId: pedidoId,
-                lojaId: pedido['loja_id']?.toString() ?? '',
-                lojaNome: pedido['loja_nome']?.toString() ?? 'Loja',
-              ),
-              icon: const Icon(Icons.star_rate_rounded),
-              label: const Text('Avaliar pedido'),
-            ),
+              const SizedBox(height: 8),
+              botaoHistorico,
+            ],
           );
         }
 
@@ -1594,6 +1871,8 @@ class _OrdersScreenState extends State<OrdersScreen> {
               ),
             ),
             const SizedBox(height: 8),
+            botaoHistorico,
+            const SizedBox(height: 6),
             Text(
               'O chat foi encerrado após a entrega.',
               textAlign: TextAlign.center,
@@ -2038,7 +2317,13 @@ class _LinhaTempoPedido extends StatelessWidget {
           shape: BoxShape.circle,
           border: Border.all(color: Colors.blue, width: 2.5),
         ),
-        child: const Icon(Icons.restaurant, size: 13, color: Colors.blue),
+        // Pacote/caixa em vez de talheres — DiPertin é marketplace de
+        // lojas (vestuário, acessórios etc.), não delivery de comida.
+        child: const Icon(
+          Icons.inventory_2_rounded,
+          size: 13,
+          color: Colors.blue,
+        ),
       );
     }
 
