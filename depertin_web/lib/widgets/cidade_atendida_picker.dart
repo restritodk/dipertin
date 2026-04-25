@@ -31,6 +31,24 @@ class CidadeAtendidaPicker extends StatelessWidget {
   final String label;
   final String placeholder;
 
+  /// Texto opcional exibido no cabeçalho do diálogo (ex.: "5.570 cidades disponíveis").
+  /// Se null, usa "${todas.length} cidades ativas disponíveis".
+  final String? descricaoDialog;
+
+  /// Título opcional do diálogo de seleção.
+  final String tituloDialog;
+
+  /// Quando `true`, adiciona um botão "Limpar seleção" no diálogo, útil quando
+  /// a ausência de cidade tem semântica válida (ex.: anúncio em todo o Brasil).
+  final bool permitirLimpar;
+
+  /// Callback chamado quando o usuário toca em "Limpar seleção".
+  final VoidCallback? onLimpar;
+
+  /// Mensagem opcional exibida abaixo do campo quando nenhuma cidade está
+  /// selecionada (ex.: "Em branco = anúncio em todo o Brasil").
+  final String? helperQuandoVazio;
+
   const CidadeAtendidaPicker({
     super.key,
     required this.selecionada,
@@ -38,39 +56,74 @@ class CidadeAtendidaPicker extends StatelessWidget {
     required this.onSelecionada,
     this.label = 'Cidade atendida',
     this.placeholder = 'Selecione uma cidade',
+    this.descricaoDialog,
+    this.tituloDialog = 'Selecionar cidade atendida',
+    this.permitirLimpar = false,
+    this.onLimpar,
+    this.helperQuandoVazio,
   });
 
   @override
   Widget build(BuildContext context) {
-    return InkWell(
-      borderRadius: BorderRadius.circular(10),
-      onTap: todas.isEmpty
-          ? null
-          : () async {
-              final sel = await _abrirSeletor(context);
-              if (sel != null) onSelecionada(sel);
-            },
-      child: InputDecorator(
-        decoration: InputDecoration(
-          labelText: label,
-          // hintText aparece só quando o label está flutuado (comportamento Material);
-          // com isEmpty=true o próprio label desce e faz papel de placeholder —
-          // por isso não definimos child duplicado aqui quando está vazio.
-          hintText: placeholder,
-          prefixIcon: const Icon(Icons.location_city_outlined),
-          suffixIcon: const Icon(Icons.arrow_drop_down_rounded),
-          border: OutlineInputBorder(
-            borderRadius: BorderRadius.circular(10),
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.stretch,
+      mainAxisSize: MainAxisSize.min,
+      children: [
+        InkWell(
+          borderRadius: BorderRadius.circular(10),
+          onTap: todas.isEmpty
+              ? null
+              : () async {
+                  final sel = await _abrirSeletor(context);
+                  if (sel == null) return;
+                  if (sel.nomeNorm.isEmpty && sel.ufNorm.isEmpty) {
+                    onLimpar?.call();
+                  } else {
+                    onSelecionada(sel);
+                  }
+                },
+          child: InputDecorator(
+            decoration: InputDecoration(
+              labelText: label,
+              hintText: placeholder,
+              prefixIcon: const Icon(Icons.location_city_outlined),
+              suffixIcon: selecionada != null && permitirLimpar
+                  ? IconButton(
+                      icon: const Icon(Icons.close_rounded, size: 18),
+                      tooltip: 'Limpar seleção',
+                      onPressed: onLimpar,
+                    )
+                  : const Icon(Icons.arrow_drop_down_rounded),
+              border: OutlineInputBorder(
+                borderRadius: BorderRadius.circular(10),
+              ),
+            ),
+            isEmpty: selecionada == null,
+            child: selecionada == null
+                ? null
+                : Text(
+                    selecionada!.label,
+                    style: const TextStyle(color: Colors.black87),
+                  ),
           ),
         ),
-        isEmpty: selecionada == null,
-        child: selecionada == null
-            ? null
-            : Text(
-                selecionada!.label,
-                style: const TextStyle(color: Colors.black87),
+        if (selecionada == null &&
+            helperQuandoVazio != null &&
+            helperQuandoVazio!.isNotEmpty) ...[
+          const SizedBox(height: 6),
+          Padding(
+            padding: const EdgeInsets.only(left: 12),
+            child: Text(
+              helperQuandoVazio!,
+              style: GoogleFonts.plusJakartaSans(
+                fontSize: 11.5,
+                color: Colors.grey.shade600,
+                fontStyle: FontStyle.italic,
               ),
-      ),
+            ),
+          ),
+        ],
+      ],
     );
   }
 
@@ -81,6 +134,9 @@ class CidadeAtendidaPicker extends StatelessWidget {
       builder: (ctx) => _SeletorCidadeDialog(
         todas: todas,
         selecionadaAtual: selecionada,
+        descricao: descricaoDialog,
+        titulo: tituloDialog,
+        permitirLimpar: permitirLimpar,
       ),
     );
   }
@@ -89,10 +145,16 @@ class CidadeAtendidaPicker extends StatelessWidget {
 class _SeletorCidadeDialog extends StatefulWidget {
   final List<CidadePickerItem> todas;
   final CidadePickerItem? selecionadaAtual;
+  final String? descricao;
+  final String titulo;
+  final bool permitirLimpar;
 
   const _SeletorCidadeDialog({
     required this.todas,
     required this.selecionadaAtual,
+    required this.titulo,
+    this.descricao,
+    this.permitirLimpar = false,
   });
 
   @override
@@ -202,13 +264,13 @@ class _SeletorCidadeDialogState extends State<_SeletorCidadeDialog> {
                 color: Colors.white, size: 22),
           ),
           const SizedBox(width: 12),
-          Expanded(
+            Expanded(
             child: Column(
               crossAxisAlignment: CrossAxisAlignment.start,
               mainAxisSize: MainAxisSize.min,
               children: [
                 Text(
-                  'Selecionar cidade atendida',
+                  widget.titulo,
                   style: GoogleFonts.plusJakartaSans(
                     fontSize: 16.5,
                     fontWeight: FontWeight.w800,
@@ -216,7 +278,8 @@ class _SeletorCidadeDialogState extends State<_SeletorCidadeDialog> {
                   ),
                 ),
                 Text(
-                  '${widget.todas.length} cidades ativas disponíveis',
+                  widget.descricao ??
+                      '${widget.todas.length} cidades ativas disponíveis',
                   style: GoogleFonts.plusJakartaSans(
                     fontSize: 12,
                     color: Colors.white.withOpacity(0.82),
@@ -394,6 +457,30 @@ class _SeletorCidadeDialogState extends State<_SeletorCidadeDialog> {
               ),
             ),
           ),
+          if (widget.permitirLimpar)
+            TextButton.icon(
+              onPressed: () {
+                // Retorna um item "vazio" que sinaliza limpeza ao chamador.
+                Navigator.pop(
+                  context,
+                  const CidadePickerItem(
+                    label: '',
+                    nome: '',
+                    uf: '',
+                    nomeNorm: '',
+                    ufNorm: '',
+                  ),
+                );
+              },
+              icon: Icon(Icons.public_rounded, size: 16, color: _laranja),
+              label: Text(
+                'Todo o Brasil',
+                style: GoogleFonts.plusJakartaSans(
+                  fontWeight: FontWeight.w700,
+                  color: _laranja,
+                ),
+              ),
+            ),
           TextButton(
             onPressed: () => Navigator.pop(context),
             child: Text(

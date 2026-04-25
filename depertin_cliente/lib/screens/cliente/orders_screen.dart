@@ -27,6 +27,10 @@ class _OrdersScreenState extends State<OrdersScreen> {
   String? _cancelandoPedidoId;
   bool _filtroInicializadoPorRota = false;
   bool _mostrarVoltarVitrine = false;
+  // Grupos multi-loja expandidos pelo usuário. Chave: `checkout_grupo_id`.
+  // Vazio = colapsado (só o card-pai). Usuário toca para abrir e ver cada
+  // loja com seu próprio código de entrega.
+  final Set<String> _gruposExpandidos = <String>{};
 
   static final NumberFormat _moeda = NumberFormat.currency(
     locale: 'pt_BR',
@@ -1011,6 +1015,7 @@ class _OrdersScreenState extends State<OrdersScreen> {
   ) {
     final ordemGrupos = <String>[];
     final grupos = <String, List<QueryDocumentSnapshot>>{};
+    final grupoIdPorChave = <String, String>{};
 
     for (final doc in docs) {
       final data = doc.data() as Map<String, dynamic>;
@@ -1019,6 +1024,7 @@ class _OrdersScreenState extends State<OrdersScreen> {
       if (!grupos.containsKey(chave)) {
         grupos[chave] = [];
         ordemGrupos.add(chave);
+        grupoIdPorChave[chave] = grupoId;
       }
       grupos[chave]!.add(doc);
     }
@@ -1044,6 +1050,7 @@ class _OrdersScreenState extends State<OrdersScreen> {
               return Padding(
                 padding: const EdgeInsets.only(bottom: 16),
                 child: _construirEnvelopeMultiLoja(
+                  grupoId: grupoIdPorChave[chave] ?? '',
                   docsGrupo: docsGrupo,
                 ),
               );
@@ -1085,6 +1092,7 @@ class _OrdersScreenState extends State<OrdersScreen> {
   /// Envelope visual para checkout multi-loja. Mostra cabeçalho com
   /// resumo do pagamento único + cards de cada loja agrupados.
   Widget _construirEnvelopeMultiLoja({
+    required String grupoId,
     required List<QueryDocumentSnapshot> docsGrupo,
   }) {
     var totalGrupo = 0.0;
@@ -1135,6 +1143,9 @@ class _OrdersScreenState extends State<OrdersScreen> {
       statusResumo = 'Concluído';
       corStatus = Colors.green.shade700;
     }
+
+    final chaveExpansao = grupoId.isNotEmpty ? grupoId : docsGrupo.first.id;
+    final expandido = _gruposExpandidos.contains(chaveExpansao);
 
     return Container(
       decoration: BoxDecoration(
@@ -1291,7 +1302,7 @@ class _OrdersScreenState extends State<OrdersScreen> {
                       Expanded(
                         child: Text(
                           'Cada loja prepara e entrega seu pedido separadamente. '
-                          'Acompanhe abaixo.',
+                          'O código de confirmação é exclusivo por loja.',
                           style: TextStyle(
                             fontSize: 11,
                             color: Colors.grey[800],
@@ -1302,17 +1313,187 @@ class _OrdersScreenState extends State<OrdersScreen> {
                     ],
                   ),
                 ),
+                const SizedBox(height: 10),
+                if (!expandido) _resumoLojasDoGrupo(docsGrupo),
+                const SizedBox(height: 4),
+                InkWell(
+                  borderRadius: BorderRadius.circular(8),
+                  onTap: () {
+                    setState(() {
+                      if (expandido) {
+                        _gruposExpandidos.remove(chaveExpansao);
+                      } else {
+                        _gruposExpandidos.add(chaveExpansao);
+                      }
+                    });
+                  },
+                  child: Padding(
+                    padding: const EdgeInsets.symmetric(
+                      vertical: 8,
+                      horizontal: 6,
+                    ),
+                    child: Row(
+                      mainAxisAlignment: MainAxisAlignment.center,
+                      children: [
+                        Icon(
+                          expandido
+                              ? Icons.keyboard_arrow_up_rounded
+                              : Icons.keyboard_arrow_down_rounded,
+                          color: diPertinRoxo,
+                          size: 22,
+                        ),
+                        const SizedBox(width: 6),
+                        Text(
+                          expandido
+                              ? 'Ocultar detalhes de cada loja'
+                              : 'Ver pedido de cada loja (com código de entrega)',
+                          style: const TextStyle(
+                            color: diPertinRoxo,
+                            fontWeight: FontWeight.w800,
+                            fontSize: 12.5,
+                          ),
+                        ),
+                      ],
+                    ),
+                  ),
+                ),
               ],
             ),
           ),
-          const SizedBox(height: 12),
-          for (var i = 0; i < docsGrupo.length; i++) ...[
-            _streamCardPedido(docsGrupo[i]),
-            if (i < docsGrupo.length - 1) const SizedBox(height: 10),
+          if (expandido) ...[
+            const SizedBox(height: 12),
+            for (var i = 0; i < docsGrupo.length; i++) ...[
+              _streamCardPedido(docsGrupo[i]),
+              if (i < docsGrupo.length - 1) const SizedBox(height: 10),
+            ],
           ],
         ],
       ),
     );
+  }
+
+  /// Lista compacta das lojas no estado colapsado do envelope multi-loja.
+  /// Mostra logo/inicial + nome da loja + status rápido. Serve como preview
+  /// enquanto o card pai está fechado.
+  Widget _resumoLojasDoGrupo(List<QueryDocumentSnapshot> docsGrupo) {
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.stretch,
+      children: [
+        for (final d in docsGrupo) _linhaResumoLoja(d),
+      ],
+    );
+  }
+
+  Widget _linhaResumoLoja(QueryDocumentSnapshot doc) {
+    final data = doc.data() as Map<String, dynamic>;
+    final nomeLoja = (data['loja_nome'] ?? 'Loja').toString();
+    final status = _normalizarStatus(data['status']);
+    final rotuloStatus = _rotuloCurtoStatus(status);
+    final corStatus = _corRotuloStatus(status);
+
+    final inicial = nomeLoja.isNotEmpty ? nomeLoja[0].toUpperCase() : '?';
+
+    return Container(
+      margin: const EdgeInsets.only(bottom: 6),
+      padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 8),
+      decoration: BoxDecoration(
+        color: Colors.white,
+        borderRadius: BorderRadius.circular(10),
+        border: Border.all(color: Colors.grey.shade200),
+      ),
+      child: Row(
+        children: [
+          CircleAvatar(
+            radius: 14,
+            backgroundColor: diPertinRoxo.withValues(alpha: 0.1),
+            child: Text(
+              inicial,
+              style: const TextStyle(
+                fontWeight: FontWeight.w800,
+                color: diPertinRoxo,
+                fontSize: 13,
+              ),
+            ),
+          ),
+          const SizedBox(width: 10),
+          Expanded(
+            child: Text(
+              nomeLoja,
+              maxLines: 1,
+              overflow: TextOverflow.ellipsis,
+              style: const TextStyle(
+                fontSize: 13.5,
+                fontWeight: FontWeight.w700,
+              ),
+            ),
+          ),
+          Container(
+            padding: const EdgeInsets.symmetric(
+              horizontal: 8,
+              vertical: 3,
+            ),
+            decoration: BoxDecoration(
+              color: corStatus.withValues(alpha: 0.12),
+              borderRadius: BorderRadius.circular(6),
+              border: Border.all(color: corStatus.withValues(alpha: 0.4)),
+            ),
+            child: Text(
+              rotuloStatus,
+              style: TextStyle(
+                fontSize: 10.5,
+                fontWeight: FontWeight.w800,
+                color: corStatus,
+              ),
+            ),
+          ),
+        ],
+      ),
+    );
+  }
+
+  String _rotuloCurtoStatus(String status) {
+    switch (status) {
+      case PedidoStatus.pendente:
+        return 'Aguardando loja';
+      case PedidoStatus.aguardandoPagamento:
+        return 'Aguarda pagamento';
+      case PedidoStatus.aceito:
+        return 'Aceito';
+      case PedidoStatus.emPreparo:
+        return 'Em preparo';
+      case PedidoStatus.pronto:
+        return 'Pronto';
+      case PedidoStatus.aguardandoEntregador:
+        return 'Buscando entregador';
+      case PedidoStatus.entregadorIndoLoja:
+        return 'Entregador na loja';
+      case PedidoStatus.saiuEntrega:
+      case PedidoStatus.aCaminho:
+      case PedidoStatus.emRota:
+        return 'A caminho';
+      case PedidoStatus.entregue:
+        return 'Entregue';
+      case PedidoStatus.cancelado:
+        return 'Cancelado';
+      default:
+        return status;
+    }
+  }
+
+  Color _corRotuloStatus(String status) {
+    switch (status) {
+      case PedidoStatus.cancelado:
+        return Colors.red.shade700;
+      case PedidoStatus.entregue:
+        return Colors.green.shade700;
+      case PedidoStatus.saiuEntrega:
+      case PedidoStatus.aCaminho:
+      case PedidoStatus.emRota:
+      case PedidoStatus.entregadorIndoLoja:
+        return Colors.blue.shade700;
+      default:
+        return diPertinLaranja;
+    }
   }
 
   Widget _construirCardPedido({

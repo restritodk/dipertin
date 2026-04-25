@@ -9,10 +9,18 @@ class CartItemModel {
   final String imagem;
   int quantidade;
 
-  /// Marca produtos que NÃO cabem em moto/bike (volumosos, frágeis grandes,
-  /// cargas maiores). Se qualquer item do grupo de uma loja estiver marcado,
-  /// o frete dessa loja é calculado pela tabela "carro". Caso contrário,
-  /// usa sempre a tabela "padrão" (moto/bike).
+  /// LEGADO (Fase 2 — abr/2026). Substituído por `tipos_entrega_permitidos`
+  /// configurado no PERFIL DA LOJA (não mais por produto). Mantemos o campo
+  /// no modelo e no JSON apenas para:
+  ///   1. Compatibilidade com carrinhos serializados em SharedPreferences
+  ///      antes da migração.
+  ///   2. Fallback em `_lerTiposEntregaAceitos` no `cart_screen.dart` quando
+  ///      a loja ainda não configurou `tipos_entrega_permitidos` em
+  ///      `lojas_public/{uid}` — se algum item tem `true`, o carrinho deriva
+  ///      default `["carro","carro_frete"]` via `TiposEntrega.defaultLegado`.
+  ///
+  /// NÃO USE ESTE CAMPO PARA NOVAS REGRAS. Use `tipos_entrega_permitidos`
+  /// da loja (`lojas_public/{lojaId}.tipos_entrega_permitidos`).
   final bool requerVeiculoGrande;
 
   CartItemModel({

@@ -169,6 +169,29 @@ class LocationService extends ChangeNotifier {
   static String normalizar(String texto) =>
       texto.trim().toLowerCase().replaceAll(RegExp(r'\s+'), ' ');
 
+  /// Remove acentos (á→a, ô→o, ç→c, …) mantendo o restante do texto.
+  /// Usado **somente** na comparação de cidade do comparador de anúncios,
+  /// porque o painel web grava `cidade_normalizada` sem acentos
+  /// (ex.: `"rondonopolis — mt"`), enquanto o app detecta a cidade do GPS
+  /// preservando acentos (ex.: `"rondonópolis"`). Sem esse ajuste, o match
+  /// falha para cidades com acento no nome (Rondonópolis, Goiânia, …).
+  static String _removerAcentos(String s) {
+    const com = 'áàâãäéèêëíìîïóòôõöúùûüçñÁÀÂÃÄÉÈÊËÍÌÎÏÓÒÔÕÖÚÙÛÜÇÑ';
+    const sem = 'aaaaaeeeeiiiiooooouuuucnAAAAAEEEEIIIIOOOOOUUUUCN';
+    final buf = StringBuffer();
+    for (final ch in s.split('')) {
+      final i = com.indexOf(ch);
+      buf.write(i >= 0 ? sem[i] : ch);
+    }
+    return buf.toString();
+  }
+
+  /// Chave canônica para comparar nomes de cidade entre documentos salvos
+  /// pelo painel web (sem acentos) e pela cidade detectada do usuário
+  /// (com acentos). Aplica `normalizar` + remoção de acentos.
+  static String _chaveCidadeComparacao(String s) =>
+      _removerAcentos(normalizar(s));
+
   static String? extrairUf(String? estado) {
     if (estado == null || estado.trim().isEmpty) return null;
     final t = estado.trim();
@@ -209,7 +232,11 @@ class LocationService extends ChangeNotifier {
     if (raw.isEmpty) return globalSeVazio;
     final nome = nomeCidadeParaFiltroAnuncio(raw);
     if (nome.isEmpty) return globalSeVazio;
-    if (nome != cidadeNormUsuario) return false;
+    // Tolerante a acentos: o painel web grava `cidade_normalizada` sem
+    // acentos, o app detecta cidade do GPS com acentos. Comparar só por
+    // lowercase faria `rondonopolis != rondonópolis` e o anúncio sumir.
+    if (_chaveCidadeComparacao(nome) !=
+        _chaveCidadeComparacao(cidadeNormUsuario)) return false;
     final ufAd = ufAnuncioOpcional(raw);
     if (ufAd != null &&
         ufAd.isNotEmpty &&

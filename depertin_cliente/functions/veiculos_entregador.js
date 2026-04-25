@@ -13,13 +13,15 @@
 
 const admin = require("firebase-admin");
 const functions = require("firebase-functions/v1");
+const { normalizarTipoVeiculo } = require("./tipos_entrega");
 
 /** Códigos internos → rótulos já usados pelo painel web. */
 function tipoParaPainel(codigo) {
     const v = String(codigo || "").trim().toLowerCase();
     if (v === "moto") return "Moto";
     if (v === "carro") return "Carro";
-    if (v === "bike") return "Bicicleta";
+    if (v === "carro_frete") return "Carro frete";
+    if (v === "bike" || v === "bicicleta") return "Bicicleta";
     return "";
 }
 
@@ -37,6 +39,7 @@ async function sincronizarAtivoDoUsuario(uid) {
         try {
             await userRef.set({
                 veiculo_ativo_id: admin.firestore.FieldValue.delete(),
+                tipo_veiculo_canonico: admin.firestore.FieldValue.delete(),
             }, {merge: true});
         } catch (e) {
             console.warn("[veiculos] limpar ativo:", e);
@@ -70,6 +73,16 @@ async function sincronizarAtivoDoUsuario(uid) {
     const tipoLabel = tipoParaPainel(data.tipo);
     if (tipoLabel) patch.veiculoTipo = tipoLabel;
     if (urlCrlv) patch.url_crlv = urlCrlv;
+
+    // Campo canônico (bicicleta|moto|carro|carro_frete) — usado pela fila
+    // de despacho para filtrar entregadores compatíveis com a loja do pedido.
+    const canonico = normalizarTipoVeiculo(data.tipo) ||
+        normalizarTipoVeiculo(tipoLabel);
+    if (canonico) {
+        patch.tipo_veiculo_canonico = canonico;
+    } else {
+        patch.tipo_veiculo_canonico = admin.firestore.FieldValue.delete();
+    }
 
     await userRef.set(patch, {merge: true});
     return patch;

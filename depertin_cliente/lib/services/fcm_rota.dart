@@ -9,10 +9,18 @@ String rotaPorPayloadFcm(Map<String, dynamic> data) {
   if (tipo == FcmNotificationEventos.tipoNovaEntrega) {
     return '/entregador';
   }
-  // Cadastro de lojista aprovado/recusado → formulário do cadastro de loja.
+  // Cadastro de lojista APROVADO → painel do lojista (roteador decide
+  // entre dashboard operacional e formulário caso a conta esteja em
+  // transição). Antes o app levava o recém-aprovado direto para
+  // `LojistaFormScreen`, o que passava a sensação de "caiu no
+  // cadastro de novo". Fix 04/2026.
   if (tipo == 'lojista_cadastro_aprovado' ||
-      tipo == 'lojista_cadastro_recusado' ||
-      type == 'LOJISTA_CADASTRO_APROVADO' ||
+      type == 'LOJISTA_CADASTRO_APROVADO') {
+    return '/lojista-painel';
+  }
+  // Cadastro de lojista RECUSADO → formulário, para o lojista rever
+  // dados e reenviar.
+  if (tipo == 'lojista_cadastro_recusado' ||
       type == 'LOJISTA_CADASTRO_RECUSADO') {
     return '/lojista-cadastro';
   }

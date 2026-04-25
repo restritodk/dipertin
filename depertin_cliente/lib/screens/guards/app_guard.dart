@@ -10,6 +10,7 @@ import '../../services/connectivity_service.dart';
 import '../../services/conta_bloqueio_entregador_service.dart';
 import '../../services/conta_bloqueio_lojista_service.dart';
 import '../../services/location_service.dart';
+import '../../services/sessao_timeout_service.dart';
 import '../../widgets/entregador_conta_bloqueada_overlay.dart';
 import '../../widgets/lojista_conta_bloqueada_overlay.dart';
 import 'no_internet_screen.dart';
@@ -41,9 +42,15 @@ class _AppGuardState extends State<AppGuard> with WidgetsBindingObserver {
       }
       _encerrandoSessao = false;
       _validarSessaoAuthRemota();
+      _validarSessaoExpiradaLocal();
+      // Valida a cada 30s: faz `user.reload()` (conta removida/bloqueada
+      // pelo servidor) e verifica expiração local (sessão > 24h).
       _sessaoTimer = Timer.periodic(
         const Duration(seconds: 30),
-        (_) => _validarSessaoAuthRemota(),
+        (_) {
+          _validarSessaoAuthRemota();
+          _validarSessaoExpiradaLocal();
+        },
       );
     });
   }
@@ -60,6 +67,7 @@ class _AppGuardState extends State<AppGuard> with WidgetsBindingObserver {
   void didChangeAppLifecycleState(AppLifecycleState state) {
     if (state == AppLifecycleState.resumed) {
       _validarSessaoAuthRemota();
+      _validarSessaoExpiradaLocal();
     }
   }
 
@@ -81,12 +89,55 @@ class _AppGuardState extends State<AppGuard> with WidgetsBindingObserver {
     }
   }
 
+  /// Verifica a política de expiração local de 24h (ver
+  /// [SessaoTimeoutService]). Se o último login foi há mais tempo que
+  /// [SessaoTimeoutService.duracaoMaximaSessao], força signOut e leva
+  /// o usuário para a tela de login.
+  Future<void> _validarSessaoExpiradaLocal() async {
+    if (!mounted || _encerrandoSessao) return;
+    final user = FirebaseAuth.instance.currentUser;
+    if (user == null) return;
+    final expirada = await SessaoTimeoutService.sessaoExpirada();
+    if (!expirada || !mounted) return;
+    await _encerrarSessaoPorExpiracaoLocal();
+  }
+
+  Future<void> _encerrarSessaoPorExpiracaoLocal() async {
+    if (_encerrandoSessao || !mounted) return;
+    _encerrandoSessao = true;
+    _sessaoTimer?.cancel();
+    try {
+      await FirebaseAuth.instance.signOut();
+    } catch (_) {}
+    try {
+      await SessaoTimeoutService.limparSessao();
+    } catch (_) {}
+    if (!mounted) return;
+    ScaffoldMessenger.of(context).showSnackBar(
+      const SnackBar(
+        content: Text(
+          'Por segurança, sua sessão expirou. Faça login novamente para continuar.',
+        ),
+        backgroundColor: Colors.deepOrange,
+        behavior: SnackBarBehavior.floating,
+        duration: Duration(seconds: 5),
+      ),
+    );
+    Navigator.of(context, rootNavigator: true).pushAndRemoveUntil(
+      MaterialPageRoute<void>(builder: (_) => const LoginScreen()),
+      (route) => false,
+    );
+  }
+
   Future<void> _encerrarSessaoPorContaRemovida() async {
     if (_encerrandoSessao || !mounted) return;
     _encerrandoSessao = true;
     _sessaoTimer?.cancel();
     try {
       await FirebaseAuth.instance.signOut();
+    } catch (_) {}
+    try {
+      await SessaoTimeoutService.limparSessao();
     } catch (_) {}
     if (!mounted) return;
     ScaffoldMessenger.of(context).showSnackBar(

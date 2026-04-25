@@ -7,10 +7,12 @@ import 'package:flutter/material.dart';
 import 'package:geocoding/geocoding.dart';
 import 'package:geolocator/geolocator.dart';
 
+import '../../constants/tipos_entrega.dart';
 import '../../services/location_service.dart';
 import '../../services/permissoes_app_service.dart';
 import '../../utils/loja_pausa.dart';
 import '../../widgets/loja_pausa_motivo_dialog.dart';
+import 'configuracoes/tipos_entrega_loja_screen.dart';
 
 const Color diPertinRoxo = Color(0xFF6A1B9A);
 const Color diPertinLaranja = Color(0xFFFF8F00);
@@ -516,6 +518,97 @@ class _LojistaConfigScreenState extends State<LojistaConfigScreen> {
     );
   }
 
+  Widget _cardTiposEntregaAtalho() {
+    final List<String> tiposAtuais = TiposEntrega.lerDeDoc(
+      widget.dadosAtuaisDaLoja,
+    );
+    final bool configurado = tiposAtuais.isNotEmpty;
+
+    return _card(
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          Row(
+            children: [
+              Container(
+                padding: const EdgeInsets.all(8),
+                decoration: BoxDecoration(
+                  color: configurado
+                      ? Colors.green.withValues(alpha: 0.12)
+                      : Colors.red.withValues(alpha: 0.12),
+                  borderRadius: BorderRadius.circular(10),
+                ),
+                child: Icon(
+                  configurado
+                      ? Icons.check_circle_outline
+                      : Icons.warning_amber_rounded,
+                  color: configurado ? Colors.green.shade700 : Colors.red.shade700,
+                  size: 20,
+                ),
+              ),
+              const SizedBox(width: 10),
+              const Expanded(
+                child: Text(
+                  'Tipos de entrega aceitos',
+                  style: TextStyle(fontSize: 15, fontWeight: FontWeight.w800),
+                ),
+              ),
+            ],
+          ),
+          const SizedBox(height: 10),
+          Text(
+            configurado
+                ? 'Você aceita: ${tiposAtuais.map(TiposEntrega.rotulo).join(', ')}. '
+                    'O frete é calculado pelo tipo mais caro para proteger seu custo de logística.'
+                : 'Você ainda não configurou os tipos de veículos aceitos para '
+                    'suas entregas. Isso é essencial — o sistema usa essa '
+                    'configuração para calcular o frete e chamar o entregador certo.',
+            style: TextStyle(
+              fontSize: 12.5,
+              color: Colors.grey.shade800,
+              height: 1.4,
+            ),
+          ),
+          const SizedBox(height: 14),
+          SizedBox(
+            width: double.infinity,
+            child: FilledButton.icon(
+              onPressed: () async {
+                await Navigator.of(context).push(
+                  MaterialPageRoute<void>(
+                    builder: (_) => const TiposEntregaLojaScreen(),
+                  ),
+                );
+                if (mounted) setState(() {});
+              },
+              style: FilledButton.styleFrom(
+                backgroundColor: diPertinRoxo,
+                foregroundColor: Colors.white,
+                padding: const EdgeInsets.symmetric(vertical: 14),
+                shape: RoundedRectangleBorder(
+                  borderRadius: BorderRadius.circular(12),
+                ),
+                textStyle: const TextStyle(
+                  fontSize: 14,
+                  fontWeight: FontWeight.w700,
+                  letterSpacing: 0.2,
+                ),
+                elevation: 0,
+              ),
+              icon: Icon(
+                configurado ? Icons.tune_rounded : Icons.rocket_launch_rounded,
+                size: 18,
+              ),
+              label: Text(
+                configurado ? 'Editar tipos aceitos' : 'Configurar agora',
+              ),
+            ),
+          ),
+        ],
+      ),
+    );
+  }
+
   @override
   Widget build(BuildContext context) {
     final bool temCidadeUf =
@@ -689,6 +782,14 @@ class _LojistaConfigScreenState extends State<LojistaConfigScreen> {
                 onChanged: (valor) async => _aoMudarPausa(valor),
               ),
             ),
+
+            const SizedBox(height: 20),
+            _secaoTitulo(
+              'Logística da entrega',
+              Icons.two_wheeler_outlined,
+            ),
+            const SizedBox(height: 12),
+            _cardTiposEntregaAtalho(),
 
             const SizedBox(height: 20),
             _secaoTitulo('Horários por dia', Icons.schedule),

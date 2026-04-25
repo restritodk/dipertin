@@ -1,9 +1,11 @@
+import 'package:depertin_web/services/cidades_brasil_service.dart';
 import 'package:depertin_web/widgets/botao_suporte_flutuante.dart';
-import 'package:depertin_web/widgets/campo_cidade_brasil_field.dart';
+import 'package:depertin_web/widgets/cidade_atendida_picker.dart';
 import 'package:flutter/material.dart';
 import 'package:cloud_firestore/cloud_firestore.dart';
 import 'package:firebase_storage/firebase_storage.dart';
 import 'package:file_picker/file_picker.dart';
+import 'package:google_fonts/google_fonts.dart';
 import 'dart:typed_data';
 
 class UtilidadesScreen extends StatefulWidget {
@@ -16,6 +18,273 @@ class UtilidadesScreen extends StatefulWidget {
 class _UtilidadesScreenState extends State<UtilidadesScreen> {
   final Color diPertinRoxo = const Color(0xFF6A1B9A);
   final Color diPertinLaranja = const Color(0xFFFF8F00);
+
+  // Gradient reutilizável para o cabeçalho dos diálogos (idêntico ao AdminCity).
+  static const LinearGradient _gradienteDialog = LinearGradient(
+    colors: [Color(0xFF6A1B9A), Color(0xFF8E24AA), Color(0xFFAB47BC)],
+    begin: Alignment.topLeft,
+    end: Alignment.bottomRight,
+  );
+
+  /// Cache das 5.570 cidades IBGE, carregadas uma vez no initState e usadas
+  /// pelo [CidadeAtendidaPicker] em todos os pop-ups de anúncios.
+  List<CidadePickerItem> _cidadesIBGE = const [];
+  bool _carregandoCidades = true;
+
+  @override
+  void initState() {
+    super.initState();
+    _carregarCidadesIBGE();
+  }
+
+  Future<void> _carregarCidadesIBGE() async {
+    try {
+      final todas = await CidadesBrasilService.todasCidades();
+      if (!mounted) return;
+      setState(() {
+        _cidadesIBGE = todas
+            .map((c) => CidadePickerItem(
+                  label: '${c.nome} — ${c.ufSigla}',
+                  nome: c.nome,
+                  uf: c.ufSigla,
+                  nomeNorm: _removerAcentos(
+                    c.nome.toLowerCase().replaceAll(RegExp(r'\s+'), ' '),
+                  ),
+                  ufNorm: c.ufSigla.toLowerCase(),
+                ))
+            .toList()
+          ..sort((a, b) => a.label.compareTo(b.label));
+        _carregandoCidades = false;
+      });
+    } catch (_) {
+      if (!mounted) return;
+      setState(() => _carregandoCidades = false);
+    }
+  }
+
+  /// Converte a string salva no Firestore (ex.: "Toledo — PR" ou "toledo — pr")
+  /// em um [CidadePickerItem] navegável, procurando casamento na lista IBGE.
+  /// Retorna null se o campo estiver vazio ou não for encontrado.
+  CidadePickerItem? _cidadePickerFromRaw(String raw) {
+    final t = raw.trim();
+    if (t.isEmpty) return null;
+    final partes = t.split(RegExp(r'\s*[—–\-]\s*'));
+    if (partes.length < 2) return null;
+    final nomeNorm = _removerAcentos(
+      partes.first.trim().toLowerCase().replaceAll(RegExp(r'\s+'), ' '),
+    );
+    final ufNorm = partes.last.trim().toLowerCase();
+    for (final c in _cidadesIBGE) {
+      if (c.nomeNorm == nomeNorm && c.ufNorm == ufNorm) return c;
+    }
+    return null;
+  }
+
+  /// Widget padronizado para o campo "Cidade" dos pop-ups de anúncios.
+  /// Sincroniza o valor selecionado com o [TextEditingController] existente
+  /// (mantendo compat. com a lógica de salvamento que lê `.text.trim()`).
+  Widget _campoCidadeAnuncio({
+    required TextEditingController controller,
+    required VoidCallback onChanged,
+  }) {
+    final selecionada = _cidadePickerFromRaw(controller.text);
+    if (_carregandoCidades) {
+      return InputDecorator(
+        decoration: InputDecoration(
+          labelText: 'Cidade (carregando...)',
+          prefixIcon: const Icon(Icons.location_city_outlined),
+          suffixIcon: const Padding(
+            padding: EdgeInsets.all(12),
+            child: SizedBox(
+              width: 18,
+              height: 18,
+              child: CircularProgressIndicator(strokeWidth: 2),
+            ),
+          ),
+          border: OutlineInputBorder(borderRadius: BorderRadius.circular(10)),
+        ),
+        child: const SizedBox.shrink(),
+      );
+    }
+    return CidadeAtendidaPicker(
+      selecionada: selecionada,
+      todas: _cidadesIBGE,
+      label: 'Cidade',
+      placeholder: 'Toque para selecionar',
+      tituloDialog: 'Selecionar cidade do anúncio',
+      descricaoDialog:
+          '${_cidadesIBGE.length} cidades do Brasil. Deixe vazio para publicar em todo o país.',
+      permitirLimpar: true,
+      helperQuandoVazio: 'Em branco = anúncio exibido em todo o Brasil.',
+      onSelecionada: (sel) {
+        controller.text = sel.label;
+        onChanged();
+      },
+      onLimpar: () {
+        controller.text = '';
+        onChanged();
+      },
+    );
+  }
+
+  /// Cabeçalho padrão (gradient roxo + ícone + título + subtítulo) usado em
+  /// todos os diálogos de anúncios, inspirado no pop-up "Novo AdminCity".
+  Widget _buildDialogHeader({
+    required IconData icone,
+    required String titulo,
+    required String subtitulo,
+    VoidCallback? onFechar,
+  }) {
+    return Container(
+      decoration: const BoxDecoration(gradient: _gradienteDialog),
+      padding: const EdgeInsets.fromLTRB(22, 20, 12, 20),
+      child: Row(
+        children: [
+          Container(
+            width: 46,
+            height: 46,
+            decoration: BoxDecoration(
+              color: Colors.white.withOpacity(0.18),
+              borderRadius: BorderRadius.circular(12),
+            ),
+            child: Icon(icone, color: Colors.white),
+          ),
+          const SizedBox(width: 14),
+          Expanded(
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              mainAxisSize: MainAxisSize.min,
+              children: [
+                Text(
+                  titulo,
+                  style: GoogleFonts.plusJakartaSans(
+                    fontSize: 19,
+                    fontWeight: FontWeight.w800,
+                    color: Colors.white,
+                  ),
+                ),
+                const SizedBox(height: 2),
+                Text(
+                  subtitulo,
+                  style: GoogleFonts.plusJakartaSans(
+                    fontSize: 12,
+                    color: Colors.white.withOpacity(0.82),
+                  ),
+                ),
+              ],
+            ),
+          ),
+          if (onFechar != null)
+            IconButton(
+              icon: const Icon(Icons.close_rounded, color: Colors.white),
+              tooltip: 'Fechar',
+              onPressed: onFechar,
+            ),
+        ],
+      ),
+    );
+  }
+
+  /// Wrapper de [Dialog] com shell elegante idêntico ao "Novo AdminCity":
+  /// borda arredondada, sombra, clipBehavior e largura fixa de 520 px.
+  Widget _dialogElegante({
+    required Widget header,
+    required Widget corpo,
+    required Widget rodape,
+  }) {
+    return Dialog(
+      backgroundColor: Colors.transparent,
+      insetPadding: const EdgeInsets.symmetric(horizontal: 20, vertical: 24),
+      child: Container(
+        width: 560,
+        constraints: const BoxConstraints(maxHeight: 720),
+        decoration: BoxDecoration(
+          color: Colors.white,
+          borderRadius: BorderRadius.circular(20),
+          boxShadow: [
+            BoxShadow(
+              color: Colors.black.withOpacity(0.18),
+              blurRadius: 30,
+              offset: const Offset(0, 12),
+            ),
+          ],
+        ),
+        clipBehavior: Clip.antiAlias,
+        child: Column(
+          mainAxisSize: MainAxisSize.min,
+          crossAxisAlignment: CrossAxisAlignment.stretch,
+          children: [
+            header,
+            Flexible(
+              child: SingleChildScrollView(
+                padding: const EdgeInsets.fromLTRB(24, 22, 24, 8),
+                child: corpo,
+              ),
+            ),
+            rodape,
+          ],
+        ),
+      ),
+    );
+  }
+
+  /// Rodapé padrão com botões Cancelar (à esquerda) e Ação primária (laranja).
+  Widget _buildDialogRodape({
+    required VoidCallback? onCancelar,
+    required VoidCallback? onAcao,
+    required String labelAcao,
+    required IconData iconeAcao,
+    bool isLoading = false,
+  }) {
+    return Padding(
+      padding: const EdgeInsets.fromLTRB(24, 10, 24, 18),
+      child: Row(
+        mainAxisAlignment: MainAxisAlignment.end,
+        children: [
+          TextButton(
+            onPressed: isLoading ? null : onCancelar,
+            child: Text(
+              'Cancelar',
+              style: GoogleFonts.plusJakartaSans(
+                fontWeight: FontWeight.w600,
+                color: Colors.grey.shade700,
+              ),
+            ),
+          ),
+          const SizedBox(width: 8),
+          ElevatedButton.icon(
+            onPressed: isLoading ? null : onAcao,
+            icon: isLoading
+                ? const SizedBox(
+                    width: 16,
+                    height: 16,
+                    child: CircularProgressIndicator(
+                      color: Colors.white,
+                      strokeWidth: 2,
+                    ),
+                  )
+                : Icon(iconeAcao, color: Colors.white, size: 18),
+            label: Text(
+              labelAcao,
+              style: GoogleFonts.plusJakartaSans(
+                color: Colors.white,
+                fontWeight: FontWeight.w700,
+              ),
+            ),
+            style: ElevatedButton.styleFrom(
+              backgroundColor: diPertinLaranja,
+              padding:
+                  const EdgeInsets.symmetric(horizontal: 22, vertical: 14),
+              shape: RoundedRectangleBorder(
+                borderRadius: BorderRadius.circular(10),
+              ),
+              elevation: 0,
+            ),
+          ),
+        ],
+      ),
+    );
+  }
 
   /// Normaliza o par "município — UF" mantendo o mesmo formato que o app
   /// espera em `LocationService.cidadeCampoCorrespondeUsuario`.
@@ -543,75 +812,91 @@ class _UtilidadesScreenState extends State<UtilidadesScreen> {
             }
           }
 
-          return AlertDialog(
-          title: Text("Editar Vaga", style: TextStyle(color: diPertinRoxo, fontWeight: FontWeight.bold)),
-          content: SizedBox(
-            width: 500,
-            child: SingleChildScrollView(
-              child: Column(
-                mainAxisSize: MainAxisSize.min,
-                children: [
-                  TextField(controller: cargoC, decoration: const InputDecoration(labelText: "Cargo da Vaga", border: OutlineInputBorder())),
-                  const SizedBox(height: 12),
-                  TextField(controller: empresaC, decoration: const InputDecoration(labelText: "Nome da Empresa", border: OutlineInputBorder())),
-                  const SizedBox(height: 12),
-                  CampoCidadeBrasilField(controller: cidadeC, decoration: const InputDecoration(labelText: "Cidade (deixe vazio para todo o Brasil)", hintText: "Digite e selecione da lista (ex.: Toledo — PR)", helperText: "Selecione pela lista para salvar com UF.", border: OutlineInputBorder())),
-                  const SizedBox(height: 12),
-                  TextField(controller: descC, maxLines: 3, decoration: const InputDecoration(labelText: "Descrição Completa", border: OutlineInputBorder())),
-                  const SizedBox(height: 12),
-                  TextField(controller: contatoC, decoration: const InputDecoration(labelText: "Telefone / Contato", border: OutlineInputBorder())),
-                  const SizedBox(height: 12),
-                  TextField(controller: emailC, keyboardType: TextInputType.emailAddress, decoration: const InputDecoration(labelText: "E-mail", prefixIcon: Icon(Icons.email_outlined), border: OutlineInputBorder())),
-                  const SizedBox(height: 12),
-                  _buildCampoFotoUtilidade(
-                    imagemBytes: imagemBytes,
-                    imagemUrlAtual: removerImagem ? null : imagemUrlAtual,
-                    onEscolher: escolherFoto,
-                    onRemover: () => setDlg(() {
-                      imagemBytes = null;
-                      imagemUrlAtual = null;
-                      removerImagem = true;
-                    }),
-                  ),
-                  const Divider(height: 24),
-                  _buildSecaoFinanceira(valorC: valorC, modalidade: modalidade, dtInicio: dtInicio, dtFim: dtFim, onModalidade: (v) => setDlg(() => modalidade = v), onInicio: (d) => setDlg(() => dtInicio = d), onFim: (d) => setDlg(() => dtFim = d)),
-                ],
-              ),
+          Future<void> salvar() async {
+            final cidadeRaw = cidadeC.text.trim();
+            if (!_cidadeAnuncioValida(cidadeRaw)) {
+              _alertaCidadeInvalida(context);
+              return;
+            }
+            final upd = <String, dynamic>{
+              'cargo': cargoC.text.trim(),
+              'empresa': empresaC.text.trim(),
+              'cidade': cidadeRaw,
+              'cidade_normalizada': _normalizarCidade(cidadeRaw),
+              'descricao': descC.text.trim(),
+              'contato': contatoC.text.trim(),
+            };
+            if (emailC.text.trim().isNotEmpty) {
+              upd['email'] = emailC.text.trim();
+            }
+            if (imagemBytes != null) {
+              upd['imagem_url'] =
+                  await _uploadImagemUtilidade(imagemBytes!);
+            } else if (removerImagem) {
+              upd['imagem_url'] = '';
+            }
+            _aplicarFinanceiro(upd, valorC, modalidade, dtInicio, dtFim);
+            await FirebaseFirestore.instance
+                .collection('vagas')
+                .doc(id)
+                .update(upd);
+            await _registrarReceitaSeValor(valorC, modalidade, dtInicio,
+                dtFim, 'Vagas', cargoC.text, dados['nome_dono'] ?? '');
+            if (context.mounted) {
+              Navigator.pop(context);
+              ScaffoldMessenger.of(context).showSnackBar(const SnackBar(
+                content: Text('Vaga atualizada!'),
+                backgroundColor: Colors.green,
+              ));
+            }
+          }
+
+          return _dialogElegante(
+            header: _buildDialogHeader(
+              icone: Icons.work_outline_rounded,
+              titulo: 'Editar Vaga',
+              subtitulo: 'Atualize os dados da vaga publicada.',
             ),
-          ),
-          actions: [
-            TextButton(onPressed: () => Navigator.pop(context), child: const Text("Cancelar")),
-            ElevatedButton(
-              onPressed: () async {
-                final cidadeRaw = cidadeC.text.trim();
-                if (!_cidadeAnuncioValida(cidadeRaw)) {
-                  _alertaCidadeInvalida(context);
-                  return;
-                }
-                final upd = <String, dynamic>{
-                  'cargo': cargoC.text.trim(),
-                  'empresa': empresaC.text.trim(),
-                  'cidade': cidadeRaw,
-                  'cidade_normalizada': _normalizarCidade(cidadeRaw),
-                  'descricao': descC.text.trim(),
-                  'contato': contatoC.text.trim(),
-                };
-                if (emailC.text.trim().isNotEmpty) upd['email'] = emailC.text.trim();
-                if (imagemBytes != null) {
-                  upd['imagem_url'] = await _uploadImagemUtilidade(imagemBytes!);
-                } else if (removerImagem) {
-                  upd['imagem_url'] = '';
-                }
-                _aplicarFinanceiro(upd, valorC, modalidade, dtInicio, dtFim);
-                await FirebaseFirestore.instance.collection('vagas').doc(id).update(upd);
-                await _registrarReceitaSeValor(valorC, modalidade, dtInicio, dtFim, 'Vagas', cargoC.text, dados['nome_dono'] ?? '');
-                if (context.mounted) { Navigator.pop(context); ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text('Vaga atualizada!'), backgroundColor: Colors.green)); }
-              },
-              style: ElevatedButton.styleFrom(backgroundColor: diPertinLaranja, foregroundColor: Colors.white),
-              child: const Text("Salvar"),
+            rodape: _buildDialogRodape(
+              onCancelar: () => Navigator.pop(context),
+              onAcao: salvar,
+              labelAcao: 'Salvar alterações',
+              iconeAcao: Icons.save_rounded,
             ),
-          ],
-        );
+            corpo: Column(
+              mainAxisSize: MainAxisSize.min,
+              crossAxisAlignment: CrossAxisAlignment.stretch,
+              children: [
+                TextField(controller: cargoC, decoration: const InputDecoration(labelText: "Cargo da Vaga", border: OutlineInputBorder())),
+                const SizedBox(height: 12),
+                TextField(controller: empresaC, decoration: const InputDecoration(labelText: "Nome da Empresa", border: OutlineInputBorder())),
+                const SizedBox(height: 12),
+                _campoCidadeAnuncio(
+                  controller: cidadeC,
+                  onChanged: () => setDlg(() {}),
+                ),
+                const SizedBox(height: 12),
+                TextField(controller: descC, maxLines: 3, decoration: const InputDecoration(labelText: "Descrição Completa", border: OutlineInputBorder())),
+                const SizedBox(height: 12),
+                TextField(controller: contatoC, decoration: const InputDecoration(labelText: "Telefone / Contato", border: OutlineInputBorder())),
+                const SizedBox(height: 12),
+                TextField(controller: emailC, keyboardType: TextInputType.emailAddress, decoration: const InputDecoration(labelText: "E-mail", prefixIcon: Icon(Icons.email_outlined), border: OutlineInputBorder())),
+                const SizedBox(height: 12),
+                _buildCampoFotoUtilidade(
+                  imagemBytes: imagemBytes,
+                  imagemUrlAtual: removerImagem ? null : imagemUrlAtual,
+                  onEscolher: escolherFoto,
+                  onRemover: () => setDlg(() {
+                    imagemBytes = null;
+                    imagemUrlAtual = null;
+                    removerImagem = true;
+                  }),
+                ),
+                const Divider(height: 24),
+                _buildSecaoFinanceira(valorC: valorC, modalidade: modalidade, dtInicio: dtInicio, dtFim: dtFim, onModalidade: (v) => setDlg(() => modalidade = v), onInicio: (d) => setDlg(() => dtInicio = d), onFim: (d) => setDlg(() => dtFim = d)),
+              ],
+            ),
+          );
         },
       ),
     );
@@ -650,75 +935,88 @@ class _UtilidadesScreenState extends State<UtilidadesScreen> {
             }
           }
 
-          return AlertDialog(
-          title: Text(
-            "Editar Destaque",
-            style: TextStyle(color: diPertinRoxo, fontWeight: FontWeight.bold),
-          ),
-          content: SizedBox(
-            width: 500,
-            child: SingleChildScrollView(
-              child: Column(
-                mainAxisSize: MainAxisSize.min,
-                children: [
-                  TextField(controller: tituloC, decoration: const InputDecoration(labelText: "Título", border: OutlineInputBorder())),
-                  const SizedBox(height: 12),
-                  TextField(controller: categoriaC, decoration: const InputDecoration(labelText: "Categoria Profissional", border: OutlineInputBorder())),
-                  const SizedBox(height: 12),
-                  CampoCidadeBrasilField(controller: cidadeC, decoration: const InputDecoration(labelText: "Cidade (deixe vazio para todo o Brasil)", hintText: "Digite e selecione da lista (ex.: Toledo — PR)", helperText: "Selecione pela lista para salvar com UF.", border: OutlineInputBorder())),
-                  const SizedBox(height: 12),
-                  TextField(controller: telefoneC, decoration: const InputDecoration(labelText: "Telefone / Contato", border: OutlineInputBorder())),
-                  const SizedBox(height: 12),
-                  TextField(controller: emailC, keyboardType: TextInputType.emailAddress, decoration: const InputDecoration(labelText: "E-mail", prefixIcon: Icon(Icons.email_outlined), border: OutlineInputBorder())),
-                  const SizedBox(height: 12),
-                  _buildCampoFotoUtilidade(
-                    imagemBytes: imagemBytes,
-                    imagemUrlAtual: removerImagem ? null : imagemUrlAtual,
-                    onEscolher: escolherFoto,
-                    onRemover: () => setDlg(() {
-                      imagemBytes = null;
-                      imagemUrlAtual = null;
-                      removerImagem = true;
-                    }),
-                  ),
-                  const Divider(height: 24),
-                  _buildSecaoFinanceira(valorC: valorC, modalidade: modalidade, dtInicio: dtInicio, dtFim: dtFim, onModalidade: (v) => setDlg(() => modalidade = v), onInicio: (d) => setDlg(() => dtInicio = d), onFim: (d) => setDlg(() => dtFim = d)),
-                ],
-              ),
+          Future<void> salvar() async {
+            final cidadeRaw = cidadeC.text.trim();
+            if (!_cidadeAnuncioValida(cidadeRaw)) {
+              _alertaCidadeInvalida(context);
+              return;
+            }
+            final upd = <String, dynamic>{
+              'titulo': tituloC.text.trim(),
+              'categoria': categoriaC.text.trim(),
+              'cidade': cidadeRaw,
+              'cidade_normalizada': _normalizarCidade(cidadeRaw),
+              'telefone': telefoneC.text.trim(),
+            };
+            if (emailC.text.trim().isNotEmpty) {
+              upd['email'] = emailC.text.trim();
+            }
+            if (imagemBytes != null) {
+              upd['imagem_url'] =
+                  await _uploadImagemUtilidade(imagemBytes!);
+            } else if (removerImagem) {
+              upd['imagem_url'] = '';
+            }
+            _aplicarFinanceiro(upd, valorC, modalidade, dtInicio, dtFim);
+            await FirebaseFirestore.instance
+                .collection('servicos_destaque')
+                .doc(id)
+                .update(upd);
+            await _registrarReceitaSeValor(valorC, modalidade, dtInicio,
+                dtFim, 'Destaques', tituloC.text, dados['nome_dono'] ?? '');
+            if (context.mounted) {
+              Navigator.pop(context);
+              ScaffoldMessenger.of(context).showSnackBar(const SnackBar(
+                content: Text('Destaque atualizado!'),
+                backgroundColor: Colors.green,
+              ));
+            }
+          }
+
+          return _dialogElegante(
+            header: _buildDialogHeader(
+              icone: Icons.star_rounded,
+              titulo: 'Editar Destaque',
+              subtitulo: 'Atualize os dados do serviço destacado.',
             ),
-          ),
-          actions: [
-            TextButton(onPressed: () => Navigator.pop(context), child: const Text("Cancelar")),
-            ElevatedButton(
-              onPressed: () async {
-                final cidadeRaw = cidadeC.text.trim();
-                if (!_cidadeAnuncioValida(cidadeRaw)) {
-                  _alertaCidadeInvalida(context);
-                  return;
-                }
-                final upd = <String, dynamic>{
-                  'titulo': tituloC.text.trim(),
-                  'categoria': categoriaC.text.trim(),
-                  'cidade': cidadeRaw,
-                  'cidade_normalizada': _normalizarCidade(cidadeRaw),
-                  'telefone': telefoneC.text.trim(),
-                };
-                if (emailC.text.trim().isNotEmpty) upd['email'] = emailC.text.trim();
-                if (imagemBytes != null) {
-                  upd['imagem_url'] = await _uploadImagemUtilidade(imagemBytes!);
-                } else if (removerImagem) {
-                  upd['imagem_url'] = '';
-                }
-                _aplicarFinanceiro(upd, valorC, modalidade, dtInicio, dtFim);
-                await FirebaseFirestore.instance.collection('servicos_destaque').doc(id).update(upd);
-                await _registrarReceitaSeValor(valorC, modalidade, dtInicio, dtFim, 'Destaques', tituloC.text, dados['nome_dono'] ?? '');
-                if (context.mounted) { Navigator.pop(context); ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text('Destaque atualizado!'), backgroundColor: Colors.green)); }
-              },
-              style: ElevatedButton.styleFrom(backgroundColor: diPertinLaranja, foregroundColor: Colors.white),
-              child: const Text("Salvar"),
+            rodape: _buildDialogRodape(
+              onCancelar: () => Navigator.pop(context),
+              onAcao: salvar,
+              labelAcao: 'Salvar alterações',
+              iconeAcao: Icons.save_rounded,
             ),
-          ],
-        );
+            corpo: Column(
+              mainAxisSize: MainAxisSize.min,
+              crossAxisAlignment: CrossAxisAlignment.stretch,
+              children: [
+                TextField(controller: tituloC, decoration: const InputDecoration(labelText: "Título", border: OutlineInputBorder())),
+                const SizedBox(height: 12),
+                TextField(controller: categoriaC, decoration: const InputDecoration(labelText: "Categoria Profissional", border: OutlineInputBorder())),
+                const SizedBox(height: 12),
+                _campoCidadeAnuncio(
+                  controller: cidadeC,
+                  onChanged: () => setDlg(() {}),
+                ),
+                const SizedBox(height: 12),
+                TextField(controller: telefoneC, decoration: const InputDecoration(labelText: "Telefone / Contato", border: OutlineInputBorder())),
+                const SizedBox(height: 12),
+                TextField(controller: emailC, keyboardType: TextInputType.emailAddress, decoration: const InputDecoration(labelText: "E-mail", prefixIcon: Icon(Icons.email_outlined), border: OutlineInputBorder())),
+                const SizedBox(height: 12),
+                _buildCampoFotoUtilidade(
+                  imagemBytes: imagemBytes,
+                  imagemUrlAtual: removerImagem ? null : imagemUrlAtual,
+                  onEscolher: escolherFoto,
+                  onRemover: () => setDlg(() {
+                    imagemBytes = null;
+                    imagemUrlAtual = null;
+                    removerImagem = true;
+                  }),
+                ),
+                const Divider(height: 24),
+                _buildSecaoFinanceira(valorC: valorC, modalidade: modalidade, dtInicio: dtInicio, dtFim: dtFim, onModalidade: (v) => setDlg(() => modalidade = v), onInicio: (d) => setDlg(() => dtInicio = d), onFim: (d) => setDlg(() => dtFim = d)),
+              ],
+            ),
+          );
         },
       ),
     );
@@ -751,69 +1049,85 @@ class _UtilidadesScreenState extends State<UtilidadesScreen> {
             }
           }
 
-          return AlertDialog(
-          title: Text("Editar Premium", style: TextStyle(color: diPertinRoxo, fontWeight: FontWeight.bold)),
-          content: SizedBox(
-            width: 500,
-            child: SingleChildScrollView(
-              child: Column(
-                mainAxisSize: MainAxisSize.min,
-                children: [
-                  TextField(controller: tituloC, decoration: const InputDecoration(labelText: "Título", border: OutlineInputBorder())),
-                  const SizedBox(height: 12),
-                  TextField(controller: telefoneC, decoration: const InputDecoration(labelText: "Telefone / WhatsApp", border: OutlineInputBorder())),
-                  const SizedBox(height: 12),
-                  CampoCidadeBrasilField(controller: cidadeC, decoration: const InputDecoration(labelText: "Cidade (deixe vazio para todo o Brasil)", hintText: "Digite e selecione da lista (ex.: Toledo — PR)", helperText: "Selecione pela lista para salvar com UF.", border: OutlineInputBorder())),
-                  const SizedBox(height: 12),
-                  TextField(controller: emailC, keyboardType: TextInputType.emailAddress, decoration: const InputDecoration(labelText: "E-mail", prefixIcon: Icon(Icons.email_outlined), border: OutlineInputBorder())),
-                  const SizedBox(height: 12),
-                  _buildCampoFotoUtilidade(
-                    imagemBytes: imagemBytes,
-                    imagemUrlAtual: removerImagem ? null : imagemUrlAtual,
-                    onEscolher: escolherFoto,
-                    onRemover: () => setDlg(() {
-                      imagemBytes = null;
-                      imagemUrlAtual = null;
-                      removerImagem = true;
-                    }),
-                  ),
-                  const Divider(height: 24),
-                  _buildSecaoFinanceira(valorC: valorC, modalidade: modalidade, dtInicio: dtInicio, dtFim: dtFim, onModalidade: (v) => setDlg(() => modalidade = v), onInicio: (d) => setDlg(() => dtInicio = d), onFim: (d) => setDlg(() => dtFim = d)),
-                ],
-              ),
+          Future<void> salvar() async {
+            final cidadeRaw = cidadeC.text.trim();
+            if (!_cidadeAnuncioValida(cidadeRaw)) {
+              _alertaCidadeInvalida(context);
+              return;
+            }
+            final upd = <String, dynamic>{
+              'titulo': tituloC.text.trim(),
+              'telefone': telefoneC.text.trim(),
+              'cidade': cidadeRaw,
+              'cidade_normalizada': _normalizarCidade(cidadeRaw),
+            };
+            if (emailC.text.trim().isNotEmpty) {
+              upd['email'] = emailC.text.trim();
+            }
+            if (imagemBytes != null) {
+              upd['imagem_url'] =
+                  await _uploadImagemUtilidade(imagemBytes!);
+            } else if (removerImagem) {
+              upd['imagem_url'] = '';
+            }
+            _aplicarFinanceiro(upd, valorC, modalidade, dtInicio, dtFim);
+            await FirebaseFirestore.instance
+                .collection('telefones_premium')
+                .doc(id)
+                .update(upd);
+            await _registrarReceitaSeValor(valorC, modalidade, dtInicio,
+                dtFim, 'Premium', tituloC.text, dados['nome_dono'] ?? '');
+            if (context.mounted) {
+              Navigator.pop(context);
+              ScaffoldMessenger.of(context).showSnackBar(const SnackBar(
+                content: Text('Premium atualizado!'),
+                backgroundColor: Colors.green,
+              ));
+            }
+          }
+
+          return _dialogElegante(
+            header: _buildDialogHeader(
+              icone: Icons.workspace_premium_rounded,
+              titulo: 'Editar Premium',
+              subtitulo: 'Atualize os dados do número premium.',
             ),
-          ),
-          actions: [
-            TextButton(onPressed: () => Navigator.pop(context), child: const Text("Cancelar")),
-            ElevatedButton(
-              onPressed: () async {
-                final cidadeRaw = cidadeC.text.trim();
-                if (!_cidadeAnuncioValida(cidadeRaw)) {
-                  _alertaCidadeInvalida(context);
-                  return;
-                }
-                final upd = <String, dynamic>{
-                  'titulo': tituloC.text.trim(),
-                  'telefone': telefoneC.text.trim(),
-                  'cidade': cidadeRaw,
-                  'cidade_normalizada': _normalizarCidade(cidadeRaw),
-                };
-                if (emailC.text.trim().isNotEmpty) upd['email'] = emailC.text.trim();
-                if (imagemBytes != null) {
-                  upd['imagem_url'] = await _uploadImagemUtilidade(imagemBytes!);
-                } else if (removerImagem) {
-                  upd['imagem_url'] = '';
-                }
-                _aplicarFinanceiro(upd, valorC, modalidade, dtInicio, dtFim);
-                await FirebaseFirestore.instance.collection('telefones_premium').doc(id).update(upd);
-                await _registrarReceitaSeValor(valorC, modalidade, dtInicio, dtFim, 'Premium', tituloC.text, dados['nome_dono'] ?? '');
-                if (context.mounted) { Navigator.pop(context); ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text('Premium atualizado!'), backgroundColor: Colors.green)); }
-              },
-              style: ElevatedButton.styleFrom(backgroundColor: diPertinLaranja, foregroundColor: Colors.white),
-              child: const Text("Salvar"),
+            rodape: _buildDialogRodape(
+              onCancelar: () => Navigator.pop(context),
+              onAcao: salvar,
+              labelAcao: 'Salvar alterações',
+              iconeAcao: Icons.save_rounded,
             ),
-          ],
-        );
+            corpo: Column(
+              mainAxisSize: MainAxisSize.min,
+              crossAxisAlignment: CrossAxisAlignment.stretch,
+              children: [
+                TextField(controller: tituloC, decoration: const InputDecoration(labelText: "Título", border: OutlineInputBorder())),
+                const SizedBox(height: 12),
+                TextField(controller: telefoneC, decoration: const InputDecoration(labelText: "Telefone / WhatsApp", border: OutlineInputBorder())),
+                const SizedBox(height: 12),
+                _campoCidadeAnuncio(
+                  controller: cidadeC,
+                  onChanged: () => setDlg(() {}),
+                ),
+                const SizedBox(height: 12),
+                TextField(controller: emailC, keyboardType: TextInputType.emailAddress, decoration: const InputDecoration(labelText: "E-mail", prefixIcon: Icon(Icons.email_outlined), border: OutlineInputBorder())),
+                const SizedBox(height: 12),
+                _buildCampoFotoUtilidade(
+                  imagemBytes: imagemBytes,
+                  imagemUrlAtual: removerImagem ? null : imagemUrlAtual,
+                  onEscolher: escolherFoto,
+                  onRemover: () => setDlg(() {
+                    imagemBytes = null;
+                    imagemUrlAtual = null;
+                    removerImagem = true;
+                  }),
+                ),
+                const Divider(height: 24),
+                _buildSecaoFinanceira(valorC: valorC, modalidade: modalidade, dtInicio: dtInicio, dtFim: dtFim, onModalidade: (v) => setDlg(() => modalidade = v), onInicio: (d) => setDlg(() => dtInicio = d), onFim: (d) => setDlg(() => dtFim = d)),
+              ],
+            ),
+          );
         },
       ),
     );
@@ -849,78 +1163,94 @@ class _UtilidadesScreenState extends State<UtilidadesScreen> {
             }
           }
 
-          return AlertDialog(
-          title: Text("Editar Evento", style: TextStyle(color: diPertinRoxo, fontWeight: FontWeight.bold)),
-          content: SizedBox(
-            width: 500,
-            child: SingleChildScrollView(
-              child: Column(
-                mainAxisSize: MainAxisSize.min,
-                children: [
-                  TextField(controller: tituloC, decoration: const InputDecoration(labelText: "Título do Evento", border: OutlineInputBorder())),
-                  const SizedBox(height: 12),
-                  TextField(controller: localC, decoration: const InputDecoration(labelText: "Local", border: OutlineInputBorder())),
-                  const SizedBox(height: 12),
-                  CampoCidadeBrasilField(controller: cidadeC, decoration: const InputDecoration(labelText: "Cidade (deixe vazio para todo o Brasil)", hintText: "Digite e selecione da lista (ex.: Toledo — PR)", helperText: "Selecione pela lista para salvar com UF.", border: OutlineInputBorder())),
-                  const SizedBox(height: 12),
-                  TextField(controller: dataEventoC, decoration: const InputDecoration(labelText: "Data do Evento (Ex: 25/Dez às 20h)", border: OutlineInputBorder())),
-                  const SizedBox(height: 12),
-                  TextField(controller: descC, maxLines: 3, decoration: const InputDecoration(labelText: "Descrição Completa", border: OutlineInputBorder())),
-                  const SizedBox(height: 12),
-                  TextField(controller: linkC, decoration: const InputDecoration(labelText: "Link do Ingresso (Opcional)", border: OutlineInputBorder())),
-                  const SizedBox(height: 12),
-                  TextField(controller: emailC, keyboardType: TextInputType.emailAddress, decoration: const InputDecoration(labelText: "E-mail", prefixIcon: Icon(Icons.email_outlined), border: OutlineInputBorder())),
-                  const SizedBox(height: 12),
-                  _buildCampoFotoUtilidade(
-                    imagemBytes: imagemBytes,
-                    imagemUrlAtual: removerImagem ? null : imagemUrlAtual,
-                    onEscolher: escolherFoto,
-                    onRemover: () => setDlg(() {
-                      imagemBytes = null;
-                      imagemUrlAtual = null;
-                      removerImagem = true;
-                    }),
-                  ),
-                  const Divider(height: 24),
-                  _buildSecaoFinanceira(valorC: valorC, modalidade: modalidade, dtInicio: dtInicio, dtFim: dtFim, onModalidade: (v) => setDlg(() => modalidade = v), onInicio: (d) => setDlg(() => dtInicio = d), onFim: (d) => setDlg(() => dtFim = d)),
-                ],
-              ),
+          Future<void> salvar() async {
+            final cidadeRaw = cidadeC.text.trim();
+            if (!_cidadeAnuncioValida(cidadeRaw)) {
+              _alertaCidadeInvalida(context);
+              return;
+            }
+            final upd = <String, dynamic>{
+              'titulo': tituloC.text.trim(),
+              'local': localC.text.trim(),
+              'cidade': cidadeRaw,
+              'cidade_normalizada': _normalizarCidade(cidadeRaw),
+              'data_evento': dataEventoC.text.trim(),
+              'descricao': descC.text.trim(),
+              'link_ingresso': linkC.text.trim(),
+            };
+            if (emailC.text.trim().isNotEmpty) {
+              upd['email'] = emailC.text.trim();
+            }
+            if (imagemBytes != null) {
+              upd['imagem_url'] =
+                  await _uploadImagemUtilidade(imagemBytes!);
+            } else if (removerImagem) {
+              upd['imagem_url'] = '';
+            }
+            _aplicarFinanceiro(upd, valorC, modalidade, dtInicio, dtFim);
+            await FirebaseFirestore.instance
+                .collection('eventos')
+                .doc(id)
+                .update(upd);
+            await _registrarReceitaSeValor(valorC, modalidade, dtInicio,
+                dtFim, 'Eventos', tituloC.text, dados['nome_dono'] ?? '');
+            if (context.mounted) {
+              Navigator.pop(context);
+              ScaffoldMessenger.of(context).showSnackBar(const SnackBar(
+                content: Text('Evento atualizado!'),
+                backgroundColor: Colors.green,
+              ));
+            }
+          }
+
+          return _dialogElegante(
+            header: _buildDialogHeader(
+              icone: Icons.celebration_rounded,
+              titulo: 'Editar Evento',
+              subtitulo: 'Atualize os dados do evento publicado.',
             ),
-          ),
-          actions: [
-            TextButton(onPressed: () => Navigator.pop(context), child: const Text("Cancelar")),
-            ElevatedButton(
-              onPressed: () async {
-                final cidadeRaw = cidadeC.text.trim();
-                if (!_cidadeAnuncioValida(cidadeRaw)) {
-                  _alertaCidadeInvalida(context);
-                  return;
-                }
-                final upd = <String, dynamic>{
-                  'titulo': tituloC.text.trim(),
-                  'local': localC.text.trim(),
-                  'cidade': cidadeRaw,
-                  'cidade_normalizada': _normalizarCidade(cidadeRaw),
-                  'data_evento': dataEventoC.text.trim(),
-                  'descricao': descC.text.trim(),
-                  'link_ingresso': linkC.text.trim(),
-                };
-                if (emailC.text.trim().isNotEmpty) upd['email'] = emailC.text.trim();
-                if (imagemBytes != null) {
-                  upd['imagem_url'] = await _uploadImagemUtilidade(imagemBytes!);
-                } else if (removerImagem) {
-                  upd['imagem_url'] = '';
-                }
-                _aplicarFinanceiro(upd, valorC, modalidade, dtInicio, dtFim);
-                await FirebaseFirestore.instance.collection('eventos').doc(id).update(upd);
-                await _registrarReceitaSeValor(valorC, modalidade, dtInicio, dtFim, 'Eventos', tituloC.text, dados['nome_dono'] ?? '');
-                if (context.mounted) { Navigator.pop(context); ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text('Evento atualizado!'), backgroundColor: Colors.green)); }
-              },
-              style: ElevatedButton.styleFrom(backgroundColor: diPertinLaranja, foregroundColor: Colors.white),
-              child: const Text("Salvar"),
+            rodape: _buildDialogRodape(
+              onCancelar: () => Navigator.pop(context),
+              onAcao: salvar,
+              labelAcao: 'Salvar alterações',
+              iconeAcao: Icons.save_rounded,
             ),
-          ],
-        );
+            corpo: Column(
+              mainAxisSize: MainAxisSize.min,
+              crossAxisAlignment: CrossAxisAlignment.stretch,
+              children: [
+                TextField(controller: tituloC, decoration: const InputDecoration(labelText: "Título do Evento", border: OutlineInputBorder())),
+                const SizedBox(height: 12),
+                TextField(controller: localC, decoration: const InputDecoration(labelText: "Local", border: OutlineInputBorder())),
+                const SizedBox(height: 12),
+                _campoCidadeAnuncio(
+                  controller: cidadeC,
+                  onChanged: () => setDlg(() {}),
+                ),
+                const SizedBox(height: 12),
+                TextField(controller: dataEventoC, decoration: const InputDecoration(labelText: "Data do Evento (Ex: 25/Dez às 20h)", border: OutlineInputBorder())),
+                const SizedBox(height: 12),
+                TextField(controller: descC, maxLines: 3, decoration: const InputDecoration(labelText: "Descrição Completa", border: OutlineInputBorder())),
+                const SizedBox(height: 12),
+                TextField(controller: linkC, decoration: const InputDecoration(labelText: "Link do Ingresso (Opcional)", border: OutlineInputBorder())),
+                const SizedBox(height: 12),
+                TextField(controller: emailC, keyboardType: TextInputType.emailAddress, decoration: const InputDecoration(labelText: "E-mail", prefixIcon: Icon(Icons.email_outlined), border: OutlineInputBorder())),
+                const SizedBox(height: 12),
+                _buildCampoFotoUtilidade(
+                  imagemBytes: imagemBytes,
+                  imagemUrlAtual: removerImagem ? null : imagemUrlAtual,
+                  onEscolher: escolherFoto,
+                  onRemover: () => setDlg(() {
+                    imagemBytes = null;
+                    imagemUrlAtual = null;
+                    removerImagem = true;
+                  }),
+                ),
+                const Divider(height: 24),
+                _buildSecaoFinanceira(valorC: valorC, modalidade: modalidade, dtInicio: dtInicio, dtFim: dtFim, onModalidade: (v) => setDlg(() => modalidade = v), onInicio: (d) => setDlg(() => dtInicio = d), onFim: (d) => setDlg(() => dtFim = d)),
+              ],
+            ),
+          );
         },
       ),
     );
@@ -956,81 +1286,97 @@ class _UtilidadesScreenState extends State<UtilidadesScreen> {
             }
           }
 
-          return AlertDialog(
-          title: Text("Editar Achado", style: TextStyle(color: diPertinRoxo, fontWeight: FontWeight.bold)),
-          content: SizedBox(
-            width: 500,
-            child: SingleChildScrollView(
-              child: Column(
-                mainAxisSize: MainAxisSize.min,
-                children: [
-                  TextField(controller: tituloC, decoration: const InputDecoration(labelText: "Título", border: OutlineInputBorder())),
-                  const SizedBox(height: 12),
-                  Row(children: [
-                    Expanded(child: RadioListTile(title: const Text("Perdido"), value: true, groupValue: isPerdido, onChanged: (v) => setDlg(() => isPerdido = v as bool))),
-                    Expanded(child: RadioListTile(title: const Text("Achado"), value: false, groupValue: isPerdido, onChanged: (v) => setDlg(() => isPerdido = v as bool))),
-                  ]),
-                  const SizedBox(height: 12),
-                  TextField(controller: localC, decoration: const InputDecoration(labelText: "Local", border: OutlineInputBorder())),
-                  const SizedBox(height: 12),
-                  CampoCidadeBrasilField(controller: cidadeC, decoration: const InputDecoration(labelText: "Cidade (deixe vazio para todo o Brasil)", hintText: "Digite e selecione da lista (ex.: Toledo — PR)", helperText: "Selecione pela lista para salvar com UF.", border: OutlineInputBorder())),
-                  const SizedBox(height: 12),
-                  TextField(controller: descC, maxLines: 3, decoration: const InputDecoration(labelText: "Descrição", border: OutlineInputBorder())),
-                  const SizedBox(height: 12),
-                  TextField(controller: contatoC, decoration: const InputDecoration(labelText: "Telefone / Contato", border: OutlineInputBorder())),
-                  const SizedBox(height: 12),
-                  TextField(controller: emailC, keyboardType: TextInputType.emailAddress, decoration: const InputDecoration(labelText: "E-mail", prefixIcon: Icon(Icons.email_outlined), border: OutlineInputBorder())),
-                  const SizedBox(height: 12),
-                  _buildCampoFotoUtilidade(
-                    imagemBytes: imagemBytes,
-                    imagemUrlAtual: removerImagem ? null : imagemUrlAtual,
-                    onEscolher: escolherFoto,
-                    onRemover: () => setDlg(() {
-                      imagemBytes = null;
-                      imagemUrlAtual = null;
-                      removerImagem = true;
-                    }),
-                  ),
-                  const Divider(height: 24),
-                  _buildSecaoFinanceira(valorC: valorC, modalidade: modalidade, dtInicio: dtInicio, dtFim: dtFim, onModalidade: (v) => setDlg(() => modalidade = v), onInicio: (d) => setDlg(() => dtInicio = d), onFim: (d) => setDlg(() => dtFim = d)),
-                ],
-              ),
+          Future<void> salvar() async {
+            final cidadeRaw = cidadeC.text.trim();
+            if (!_cidadeAnuncioValida(cidadeRaw)) {
+              _alertaCidadeInvalida(context);
+              return;
+            }
+            final upd = <String, dynamic>{
+              'titulo': tituloC.text.trim(),
+              'tipo': isPerdido ? 'perdido' : 'encontrado',
+              'local': localC.text.trim(),
+              'cidade': cidadeRaw,
+              'cidade_normalizada': _normalizarCidade(cidadeRaw),
+              'descricao': descC.text.trim(),
+              'contato': contatoC.text.trim(),
+            };
+            if (emailC.text.trim().isNotEmpty) {
+              upd['email'] = emailC.text.trim();
+            }
+            if (imagemBytes != null) {
+              upd['imagem_url'] =
+                  await _uploadImagemUtilidade(imagemBytes!);
+            } else if (removerImagem) {
+              upd['imagem_url'] = '';
+            }
+            _aplicarFinanceiro(upd, valorC, modalidade, dtInicio, dtFim);
+            await FirebaseFirestore.instance
+                .collection('achados')
+                .doc(id)
+                .update(upd);
+            await _registrarReceitaSeValor(valorC, modalidade, dtInicio,
+                dtFim, 'Achados', tituloC.text, dados['nome_dono'] ?? '');
+            if (context.mounted) {
+              Navigator.pop(context);
+              ScaffoldMessenger.of(context).showSnackBar(const SnackBar(
+                content: Text('Achado atualizado!'),
+                backgroundColor: Colors.green,
+              ));
+            }
+          }
+
+          return _dialogElegante(
+            header: _buildDialogHeader(
+              icone: Icons.search_rounded,
+              titulo: 'Editar Achado',
+              subtitulo: 'Atualize os dados do item achado/perdido.',
             ),
-          ),
-          actions: [
-            TextButton(onPressed: () => Navigator.pop(context), child: const Text("Cancelar")),
-            ElevatedButton(
-              onPressed: () async {
-                final cidadeRaw = cidadeC.text.trim();
-                if (!_cidadeAnuncioValida(cidadeRaw)) {
-                  _alertaCidadeInvalida(context);
-                  return;
-                }
-                final upd = <String, dynamic>{
-                  'titulo': tituloC.text.trim(),
-                  'tipo': isPerdido ? 'perdido' : 'encontrado',
-                  'local': localC.text.trim(),
-                  'cidade': cidadeRaw,
-                  'cidade_normalizada': _normalizarCidade(cidadeRaw),
-                  'descricao': descC.text.trim(),
-                  'contato': contatoC.text.trim(),
-                };
-                if (emailC.text.trim().isNotEmpty) upd['email'] = emailC.text.trim();
-                if (imagemBytes != null) {
-                  upd['imagem_url'] = await _uploadImagemUtilidade(imagemBytes!);
-                } else if (removerImagem) {
-                  upd['imagem_url'] = '';
-                }
-                _aplicarFinanceiro(upd, valorC, modalidade, dtInicio, dtFim);
-                await FirebaseFirestore.instance.collection('achados').doc(id).update(upd);
-                await _registrarReceitaSeValor(valorC, modalidade, dtInicio, dtFim, 'Achados', tituloC.text, dados['nome_dono'] ?? '');
-                if (context.mounted) { Navigator.pop(context); ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text('Achado atualizado!'), backgroundColor: Colors.green)); }
-              },
-              style: ElevatedButton.styleFrom(backgroundColor: diPertinLaranja, foregroundColor: Colors.white),
-              child: const Text("Salvar"),
+            rodape: _buildDialogRodape(
+              onCancelar: () => Navigator.pop(context),
+              onAcao: salvar,
+              labelAcao: 'Salvar alterações',
+              iconeAcao: Icons.save_rounded,
             ),
-          ],
-        );
+            corpo: Column(
+              mainAxisSize: MainAxisSize.min,
+              crossAxisAlignment: CrossAxisAlignment.stretch,
+              children: [
+                TextField(controller: tituloC, decoration: const InputDecoration(labelText: "Título", border: OutlineInputBorder())),
+                const SizedBox(height: 12),
+                Row(children: [
+                  Expanded(child: RadioListTile(title: const Text("Perdido"), value: true, groupValue: isPerdido, onChanged: (v) => setDlg(() => isPerdido = v as bool))),
+                  Expanded(child: RadioListTile(title: const Text("Achado"), value: false, groupValue: isPerdido, onChanged: (v) => setDlg(() => isPerdido = v as bool))),
+                ]),
+                const SizedBox(height: 12),
+                TextField(controller: localC, decoration: const InputDecoration(labelText: "Local", border: OutlineInputBorder())),
+                const SizedBox(height: 12),
+                _campoCidadeAnuncio(
+                  controller: cidadeC,
+                  onChanged: () => setDlg(() {}),
+                ),
+                const SizedBox(height: 12),
+                TextField(controller: descC, maxLines: 3, decoration: const InputDecoration(labelText: "Descrição", border: OutlineInputBorder())),
+                const SizedBox(height: 12),
+                TextField(controller: contatoC, decoration: const InputDecoration(labelText: "Telefone / Contato", border: OutlineInputBorder())),
+                const SizedBox(height: 12),
+                TextField(controller: emailC, keyboardType: TextInputType.emailAddress, decoration: const InputDecoration(labelText: "E-mail", prefixIcon: Icon(Icons.email_outlined), border: OutlineInputBorder())),
+                const SizedBox(height: 12),
+                _buildCampoFotoUtilidade(
+                  imagemBytes: imagemBytes,
+                  imagemUrlAtual: removerImagem ? null : imagemUrlAtual,
+                  onEscolher: escolherFoto,
+                  onRemover: () => setDlg(() {
+                    imagemBytes = null;
+                    imagemUrlAtual = null;
+                    removerImagem = true;
+                  }),
+                ),
+                const Divider(height: 24),
+                _buildSecaoFinanceira(valorC: valorC, modalidade: modalidade, dtInicio: dtInicio, dtFim: dtFim, onModalidade: (v) => setDlg(() => modalidade = v), onInicio: (d) => setDlg(() => dtInicio = d), onFim: (d) => setDlg(() => dtFim = d)),
+              ],
+            ),
+          );
         },
       ),
     );
@@ -1268,18 +1614,54 @@ class _UtilidadesScreenState extends State<UtilidadesScreen> {
               }
             }
 
-            return AlertDialog(
-              title: Text(
-                "Nova Publicação",
-                style: TextStyle(
-                  color: diPertinRoxo,
-                  fontWeight: FontWeight.bold,
-                ),
+            String subtituloCategoria() {
+              switch (tipoSelecionado) {
+                case 'Vagas':
+                  return 'Publique uma vaga de emprego.';
+                case 'Eventos':
+                  return 'Divulgue um evento para a cidade.';
+                case 'Achados':
+                  return 'Ajude alguém a encontrar o que perdeu.';
+                case 'Premium':
+                  return 'Anuncie um número premium em destaque.';
+                case 'Destaques':
+                  return 'Destaque um serviço profissional.';
+                default:
+                  return 'Crie uma nova publicação no app.';
+              }
+            }
+
+            IconData iconeCategoria() {
+              switch (tipoSelecionado) {
+                case 'Vagas':
+                  return Icons.work_outline_rounded;
+                case 'Eventos':
+                  return Icons.celebration_rounded;
+                case 'Achados':
+                  return Icons.search_rounded;
+                case 'Premium':
+                  return Icons.workspace_premium_rounded;
+                case 'Destaques':
+                  return Icons.star_rounded;
+                default:
+                  return Icons.campaign_rounded;
+              }
+            }
+
+            return _dialogElegante(
+              header: _buildDialogHeader(
+                icone: iconeCategoria(),
+                titulo: 'Nova Publicação',
+                subtitulo: subtituloCategoria(),
               ),
-              content: SizedBox(
-                width: 500,
-                child: SingleChildScrollView(
-                  child: Column(
+              rodape: _buildDialogRodape(
+                onCancelar: () => Navigator.pop(context),
+                onAcao: salvarPost,
+                labelAcao: 'Publicar Agora',
+                iconeAcao: Icons.send_rounded,
+                isLoading: isLoading,
+              ),
+              corpo: Column(
                     crossAxisAlignment: CrossAxisAlignment.start,
                     children: [
                       // Seletor de Categoria
@@ -1369,20 +1751,14 @@ class _UtilidadesScreenState extends State<UtilidadesScreen> {
 
                       if ([
                         'Vagas',
+                        'Eventos',
                         'Achados',
                         'Premium',
                         'Destaques',
                       ].contains(tipoSelecionado)) ...[
-                        CampoCidadeBrasilField(
+                        _campoCidadeAnuncio(
                           controller: cidadeC,
-                          decoration: const InputDecoration(
-                            labelText: "Cidade (deixe vazio para todo o Brasil)",
-                            hintText:
-                                "Digite e selecione da lista (ex.: Toledo — PR)",
-                            helperText:
-                                "Selecione pela lista para salvar com UF.",
-                            border: OutlineInputBorder(),
-                          ),
+                          onChanged: () => setState(() {}),
                         ),
                         const SizedBox(height: 10),
                       ],
@@ -1585,24 +1961,6 @@ class _UtilidadesScreenState extends State<UtilidadesScreen> {
                       ),
                     ],
                   ),
-                ),
-              ),
-              actions: [
-                TextButton(
-                  onPressed: () => Navigator.pop(context),
-                  child: const Text("Cancelar"),
-                ),
-                ElevatedButton(
-                  onPressed: isLoading ? null : salvarPost,
-                  style: ElevatedButton.styleFrom(
-                    backgroundColor: diPertinLaranja,
-                    foregroundColor: Colors.white,
-                  ),
-                  child: isLoading
-                      ? const CircularProgressIndicator(color: Colors.white)
-                      : const Text("Publicar Agora"),
-                ),
-              ],
             );
           },
         );

@@ -9,6 +9,7 @@
 const functions = require("firebase-functions/v1");
 const admin = require("firebase-admin");
 const { dataSoStrings } = require("./notification_dispatcher");
+const TIPOS_ENTREGA = require("./tipos_entrega");
 
 const OFERTA_SEGUNDOS = 15;
 const RAIO_KM_ETAPA_1 = 3;
@@ -297,16 +298,65 @@ async function construirFilaEntregadores(db, pedido, maxRaioKm) {
         : new Set();
     const resumoOperacional = await construirResumoOperacionalPorEntregador(db);
 
+    // Resolve tipos_entrega_permitidos da loja — prioridade:
+    //   1) snapshot persistido no próprio pedido (imutável para a corrida)
+    //   2) lojas_public (público) ou users (privado) da loja
+    //   3) fallback legado: se vazio, NÃO filtra por tipo (compat com lojas
+    //      pré-migração). Log claro pra observabilidade.
+    const tiposAceitosLoja = await obterTiposEntregaDaLoja(db, pedido);
+    const lojaConfigurada = Array.isArray(tiposAceitosLoja) && tiposAceitosLoja.length > 0;
+
+    // Categoria alvo **deste pedido** (`tipo_entrega_solicitado`). Quando
+    // presente, a oferta é direcionada exclusivamente pra entregadores desse
+    // tipo. Quando ausente mas a loja só aceita UM tipo, esse tipo é
+    // implícito (auto-derivação). Quando ausente e a loja aceita múltiplos,
+    // o dispatch fica em espera — exige nova decisão do lojista via UI.
+    const tipoExplicito = TIPOS_ENTREGA.normalizarTipoSolicitado(
+        pedido?.tipo_entrega_solicitado,
+    );
+    const categoriaEfetiva = tipoExplicito
+        ? tipoExplicito
+        : (lojaConfigurada && tiposAceitosLoja.length === 1
+            ? tiposAceitosLoja[0]
+            : null);
+
+    // Lista efetiva de tipos elegíveis pra este pedido. Se houver categoria
+    // efetiva, usamos apenas ela (filtro estrito). Senão, preservamos a
+    // lista aceita pela loja (compat com pedidos pré-fluxo de escolha).
+    const tiposElegiveis = categoriaEfetiva
+        ? [categoriaEfetiva]
+        : (lojaConfigurada ? tiposAceitosLoja : []);
+    const filtrarPorTipo = tiposElegiveis.length > 0;
+
+    // Se a loja aceita múltiplos tipos e o pedido não tem `tipo_entrega_solicitado`,
+    // o dispatch precisa pausar até o lojista escolher. Em vez de fazer isso
+    // aqui (que roda em várias rotas), a transição de status acima
+    // (`notificarEntregadoresPedidoPronto`) já bloqueia o set de status.
+    // Se por alguma rota chegamos aqui, retornamos fila vazia com aviso.
+    const pedidoSemCategoriaDecidida =
+        lojaConfigurada && tiposAceitosLoja.length > 1 && !tipoExplicito;
+    if (pedidoSemCategoriaDecidida) {
+        console.warn(
+            "[fila] pedido sem `tipo_entrega_solicitado` mas loja aceita " +
+                `múltiplos tipos (${tiposAceitosLoja.join(",")}). ` +
+                "Fila suprimida — lojista deve escolher categoria.",
+        );
+        return [];
+    }
+
     // Só entregadores usam `is_online` no app — consulta única evita fila vazia quando
     // o documento tem `tipoUsuario` em vez de `role` (índice composto role+is_online).
     const snap = await db.collection("users").where("is_online", "==", true).get();
 
     console.log(
         `[fila] loja coords: lat=${lojaLat} lon=${lojaLon} | raio=${limite}km | ` +
-        `is_online docs: ${snap.size} | recusados: ${recusados.size} | bloqueados: ${bloqueados.size}`,
+        `is_online docs: ${snap.size} | recusados: ${recusados.size} | bloqueados: ${bloqueados.size} | ` +
+        `tipoExplicito: ${tipoExplicito || "(ausente)"} | ` +
+        `tiposElegiveis: ${filtrarPorTipo ? JSON.stringify(tiposElegiveis) : "(legado: sem filtro)"}`,
     );
 
     const candidates = [];
+    let descartePorTipo = 0;
     snap.forEach((doc) => {
         const d = doc.data();
         const docId = String(doc.id);
@@ -334,6 +384,36 @@ async function construirFilaEntregadores(db, pedido, maxRaioKm) {
             );
             return;
         }
+
+        // Filtro por tipo de veículo do entregador:
+        //   - Quando o pedido tem `tipo_entrega_solicitado` (ou único tipo
+        //     aceito pela loja), `tiposElegiveis` tem exatamente 1 item →
+        //     apenas entregadores desse tipo passam.
+        //   - Quando não tem (compat com pedidos legado de lojas multi-tipo
+        //     sem escolha), cai no fallback: qualquer tipo na lista aceita
+        //     pela loja passa.
+        //   - Quando `filtrarPorTipo` é false, não filtra (legado puro).
+        if (filtrarPorTipo) {
+            const tipoCanonico = TIPOS_ENTREGA.normalizarTipoVeiculo(
+                d.tipo_veiculo_canonico || d.veiculoTipo || d.veiculo || d.tipo_veiculo,
+            );
+            if (!tipoCanonico) {
+                console.log(
+                    `[fila] ${docId} — skip: veiculo indefinido (exige: ${tiposElegiveis.join(",")})`,
+                );
+                descartePorTipo++;
+                return;
+            }
+            if (!TIPOS_ENTREGA.compativel(tipoCanonico, tiposElegiveis)) {
+                console.log(
+                    `[fila] ${docId} — skip: tipo incompatível ` +
+                    `(ent=${tipoCanonico}, elegíveis=${tiposElegiveis.join(",")})`,
+                );
+                descartePorTipo++;
+                return;
+            }
+        }
+
         const plat = d.latitude != null ? Number(d.latitude) : null;
         const plon = d.longitude != null ? Number(d.longitude) : null;
         let dist = 1e9;
@@ -349,8 +429,64 @@ async function construirFilaEntregadores(db, pedido, maxRaioKm) {
     });
 
     candidates.sort((a, b) => a.dist - b.dist);
-    console.log(`[fila] Total elegíveis: ${candidates.length} (raio ${maxRaioKm}km)`);
+    console.log(
+        `[fila] Total elegíveis: ${candidates.length} (raio ${maxRaioKm}km) | ` +
+        `descartePorTipoVeiculo: ${descartePorTipo}`,
+    );
     return candidates.map((c) => c.id);
+}
+
+/**
+ * Retorna a lista canônica de tipos de entrega aceitos pela loja do pedido.
+ * Ordem de resolução:
+ *   1. Snapshot no próprio pedido (`tipos_entrega_permitidos_loja`) — preserva
+ *      a configuração vigente no momento do checkout.
+ *   2. `lojas_public/{loja_id}.tipos_entrega_permitidos` (sincronizado pelo
+ *      trigger `sincronizarLojaPublicOnWrite`).
+ *   3. `users/{loja_id}.tipos_entrega_permitidos` (fonte de verdade privada).
+ *   4. `[]` (loja legado sem config — a fila NÃO filtra por tipo nesse caso).
+ */
+async function obterTiposEntregaDaLoja(db, pedido) {
+    try {
+        // 1. Snapshot gravado no pedido.
+        const snap = TIPOS_ENTREGA.normalizarLista(pedido?.tipos_entrega_permitidos_loja);
+        if (snap.length > 0) return snap;
+
+        const lid = lojaIdStr(pedido);
+        if (!lid) return [];
+
+        // 2. lojas_public
+        try {
+            const pub = await db.collection("lojas_public").doc(String(lid)).get();
+            if (pub.exists) {
+                const lista = TIPOS_ENTREGA.normalizarLista(
+                    (pub.data() || {}).tipos_entrega_permitidos,
+                );
+                if (lista.length > 0) return lista;
+            }
+        } catch (e) {
+            console.warn("[fila] lerTiposLojaPublic:", e);
+        }
+
+        // 3. users/{loja}
+        try {
+            const priv = await db.collection("users").doc(String(lid)).get();
+            if (priv.exists) {
+                const lista = TIPOS_ENTREGA.normalizarLista(
+                    (priv.data() || {}).tipos_entrega_permitidos,
+                );
+                if (lista.length > 0) return lista;
+            }
+        } catch (e) {
+            console.warn("[fila] lerTiposLojaPriv:", e);
+        }
+
+        // 4. Sem config — legado.
+        return [];
+    } catch (e) {
+        console.warn("[fila] obterTiposEntregaDaLoja:", e);
+        return [];
+    }
 }
 
 async function obterTokenEntregador(db, uid) {
@@ -963,24 +1099,101 @@ exports.notificarEntregadoresPedidoPronto = functions
         const db = admin.firestore();
         const eventId = context.eventId || `evt_${Date.now()}`;
 
+        // `reverterPorFaltaDeCategoria`: se loja aceita múltiplos tipos e o
+        // pedido não tem `tipo_entrega_solicitado`, NÃO despachamos — o
+        // despacho exigiria escolha de categoria pelo lojista. Revertemos
+        // para `em_preparo` com mensagem explicativa; o botão "Solicitar
+        // entregador" do painel já faz o lojista escolher via modal.
+        let reverterPorFaltaDeCategoria = false;
+
         const lockOk = await db.runTransaction(async (t) => {
             const snap = await t.get(ref);
             const d = snap.data();
             if (!d || d.status !== "aguardando_entregador") return false;
             if (d.despacho_job_lock) return false;
-            t.update(ref, {
+            const updates = {
                 despacho_job_lock: eventId,
                 despacho_estado: "aguardando_entregador",
-            });
+            };
+            // Se o pedido ainda não tem snapshot dos tipos aceitos da loja,
+            // grava agora (antes de despachar) pra manter a lista imutável
+            // durante toda a corrida e permitir reprocessamentos determinísticos.
+            const snapshotAtual = TIPOS_ENTREGA.normalizarLista(
+                d.tipos_entrega_permitidos_loja,
+            );
+            let listaTipos = snapshotAtual;
+            if (snapshotAtual.length === 0) {
+                try {
+                    const resolvido = await obterTiposEntregaDaLoja(db, d);
+                    if (resolvido && resolvido.length > 0) {
+                        updates.tipos_entrega_permitidos_loja = resolvido;
+                        updates.tipos_entrega_permitidos_loja_origem = "onUpdate_despacho";
+                        listaTipos = resolvido;
+                    }
+                } catch (e) {
+                    console.warn(`[despacho] snapshot tipos loja falhou ${pedidoId}:`, e);
+                }
+            }
+
+            // Verifica a categoria efetiva do pedido.
+            const tipoSolicitado = TIPOS_ENTREGA.normalizarTipoSolicitado(
+                d.tipo_entrega_solicitado,
+            );
+            const lojaMultiTipo = Array.isArray(listaTipos) && listaTipos.length > 1;
+
+            if (!tipoSolicitado && lojaMultiTipo) {
+                // Reverte status e sinaliza ao lojista. Mantém o `despacho_job_lock`
+                // limpo para que o novo clique possa re-disparar o trigger.
+                reverterPorFaltaDeCategoria = true;
+                t.update(ref, {
+                    status: "em_preparo",
+                    despacho_estado: admin.firestore.FieldValue.delete(),
+                    despacho_job_lock: admin.firestore.FieldValue.delete(),
+                    despacho_aguarda_decisao_lojista: true,
+                    despacho_msg_busca_entregador:
+                        "Escolha a categoria do entregador (ex: moto ou carro) antes de solicitar. " +
+                        "Sua loja aceita mais de um tipo; por isso é preciso decidir qual chamar.",
+                    despacho_motivo_reversao: "sem_tipo_entrega_solicitado",
+                });
+                return false;
+            }
+
+            // Auto-derivação: loja com 1 único tipo aceito e pedido sem escolha
+            // explícita → assume esse tipo como `tipo_entrega_solicitado` pra
+            // manter a propriedade de "todo pedido despachado tem categoria".
+            if (!tipoSolicitado &&
+                Array.isArray(listaTipos) && listaTipos.length === 1) {
+                updates.tipo_entrega_solicitado = listaTipos[0];
+                updates.tipo_entrega_solicitado_origem = "auto_tipo_unico";
+            }
+
+            t.update(ref, updates);
             return true;
         });
+
+        if (reverterPorFaltaDeCategoria) {
+            console.warn(
+                `[despacho] Pedido ${pedidoId} revertido para em_preparo — ` +
+                "loja multi-tipo sem tipo_entrega_solicitado. Lojista deve re-escolher.",
+            );
+            return null;
+        }
 
         if (!lockOk) {
             console.log(`[despacho] Pedido ${pedidoId} — outro job já iniciou ou status inválido.`);
             return null;
         }
 
-        await executarDespachoSequencial(ref, pedidoId, db, depois);
+        // Reler o pedido pra pegar o snapshot de tipos gravado acima (se gravado).
+        let pedidoAtualizado = depois;
+        try {
+            const fresh = await ref.get();
+            if (fresh.exists) pedidoAtualizado = fresh.data();
+        } catch (_) {
+            // ignora; o fallback em construirFilaEntregadores lê do lojas_public/users
+        }
+
+        await executarDespachoSequencial(ref, pedidoId, db, pedidoAtualizado);
         return null;
     });
 
@@ -1106,6 +1319,102 @@ exports.aceitarOfertaCorrida = functions.https.onCall(async (data, context) => {
             return;
         }
 
+        // Validação de compatibilidade entre veículo do entregador e
+        // categoria aceita pela loja.
+        //
+        // POLÍTICA (atualizada 04/2026):
+        //   A FILA é a autoridade do despacho. Se o backend gravou
+        //   `despacho_oferta_uid === uid`, é porque `construirFilaEntregadores`
+        //   considerou este entregador compatível no momento da oferta.
+        //   Bloquear no aceite causa um bug visível ao entregador: a tela
+        //   fullscreen aparece, ele clica "Aceitar", e a corrida some
+        //   silenciosamente — comportamento confuso e que reduz a
+        //   produtividade.
+        //
+        //   Por isso, quando há OFERTA DIRECIONADA (despacho_oferta_uid),
+        //   confiamos na fila e DEIXAMOS PASSAR mesmo que a checagem
+        //   diverja. Apenas logamos um warning estruturado para que possamos
+        //   investigar a causa raiz (mudança de veículo ativo entre fila
+        //   e aceite, snapshot defasado, etc.).
+        //
+        //   O bloqueio rígido é mantido apenas para o caso em que NÃO há
+        //   oferta direcionada (rota legada/manual), onde a defesa de
+        //   profundidade ainda faz sentido.
+        //
+        //   Quando a entrega for inviável (carga grande não cabe no
+        //   veículo, etc.), o entregador tem o caminho não-punitivo
+        //   `entregadorCancelarPorIncompatibilidade` — mesma lógica usada
+        //   pelo botão "Produto incompatível" do dashboard.
+        const tiposAceitosLoja = TIPOS_ENTREGA.normalizarLista(
+            p.tipos_entrega_permitidos_loja,
+        );
+        const tipoSolicitado = TIPOS_ENTREGA.normalizarTipoSolicitado(
+            p.tipo_entrega_solicitado,
+        );
+        const tipoEntregador = TIPOS_ENTREGA.normalizarTipoVeiculo(
+            ud.tipo_veiculo_canonico || ud.veiculoTipo || ud.veiculo || ud.tipo_veiculo,
+        );
+
+        // Lista efetiva de tipos válidos para este pedido (1 item quando
+        // houve escolha explícita ou apenas 1 aceito pela loja).
+        let tiposElegiveisAceite;
+        if (tipoSolicitado) {
+            tiposElegiveisAceite = [tipoSolicitado];
+        } else if (tiposAceitosLoja.length === 1) {
+            tiposElegiveisAceite = [tiposAceitosLoja[0]];
+        } else {
+            tiposElegiveisAceite = tiposAceitosLoja;
+        }
+
+        const ofertaDirecionadaParaMim = String(p.despacho_oferta_uid || "") === String(uid);
+
+        const incompativel =
+            tiposElegiveisAceite.length > 0 &&
+            tipoEntregador &&
+            !TIPOS_ENTREGA.compativel(tipoEntregador, tiposElegiveisAceite);
+
+        if (incompativel && ofertaDirecionadaParaMim) {
+            console.warn(
+                `[aceitarOferta][divergencia-fila-vs-aceite] pedido=${pedidoId} ` +
+                `uid=${uid} ofertaDirecionada=true ` +
+                `tipoEntregador=${tipoEntregador || "(vazio)"} ` +
+                `tipoSolicitado=${tipoSolicitado || "(ausente)"} ` +
+                `tiposElegiveis=${JSON.stringify(tiposElegiveisAceite)} ` +
+                `tiposAceitosLojaSnapshot=${JSON.stringify(tiposAceitosLoja)} ` +
+                `→ DEIXANDO PASSAR (fila já escolheu este entregador)`,
+            );
+            // Não bloqueia. Continua o fluxo de aceite normal abaixo.
+        } else if (incompativel) {
+            // Sem oferta direcionada (rota legada/manual): mantém defesa.
+            const recusadosAtuais = Array.isArray(p.despacho_recusados)
+                ? p.despacho_recusados.map(String)
+                : [];
+            const recusadosNovos = Array.from(
+                new Set([...recusadosAtuais, String(uid)]),
+            );
+            t.update(pedidoRef, {
+                despacho_oferta_uid: admin.firestore.FieldValue.delete(),
+                despacho_oferta_expira_em: admin.firestore.FieldValue.delete(),
+                despacho_oferta_estado: "rejeitada_incompat",
+                despacho_job_lock: admin.firestore.FieldValue.delete(),
+                despacho_recusados: recusadosNovos,
+            });
+            resultado = {
+                ok: true,
+                aceito: false,
+                motivo: "veiculo_incompativel_loja",
+                detalhe:
+                    "Esta loja não aceita seu tipo de veículo para este pedido. " +
+                    "A corrida será oferecida a outro entregador compatível.",
+                tipo_entregador: tipoEntregador,
+                tipo_solicitado: tipoSolicitado || null,
+                tipos_elegiveis: tiposElegiveisAceite,
+                tipos_aceitos_loja: tiposAceitosLoja,
+                redespachar: true,
+            };
+            return;
+        }
+
         t.update(pedidoRef, {
             status: "entregador_indo_loja",
             entregador_id: uid,
@@ -1113,6 +1422,8 @@ exports.aceitarOfertaCorrida = functions.https.onCall(async (data, context) => {
             entregador_foto_url: foto,
             entregador_telefone: tel,
             entregador_veiculo: veiculo,
+            entregador_veiculo_canonico_aceite:
+                tipoEntregador || admin.firestore.FieldValue.delete(),
             entregador_acessibilidade_audicao: audicao,
             entregador_aceito_em: admin.firestore.FieldValue.serverTimestamp(),
             despacho_oferta_uid: admin.firestore.FieldValue.delete(),
@@ -1128,6 +1439,32 @@ exports.aceitarOfertaCorrida = functions.https.onCall(async (data, context) => {
             entregador_estado_operacao_pedido_id: pedidoId,
         }, { merge: true });
     });
+
+    // Se o aceite foi rejeitado por incompatibilidade, refaz o despacho
+    // fora da transação para encontrar um entregador compatível. O uid
+    // atual já está em `despacho_recusados`, então não volta pra ele.
+    if (resultado && resultado.redespachar) {
+        try {
+            const fresh = await pedidoRef.get();
+            if (fresh.exists) {
+                const pedidoAtualizado = fresh.data();
+                if (pedidoAtualizado &&
+                    pedidoAtualizado.status === "aguardando_entregador") {
+                    await executarDespachoSequencial(
+                        pedidoRef,
+                        pedidoId,
+                        db,
+                        pedidoAtualizado,
+                    );
+                }
+            }
+        } catch (e) {
+            console.warn(
+                `[aceitarOferta] redespacho após incompat falhou ${pedidoId}:`,
+                e,
+            );
+        }
+    }
 
     return resultado;
 });
@@ -1383,6 +1720,244 @@ exports.entregadorCancelarCorridaERedespachar = functions
     });
 
 /**
+ * Entregador cancela corrida alegando que o produto é INCOMPATÍVEL com o
+ * veículo ativo dele (ex.: geladeira/caixa volumosa quando está de moto).
+ *
+ * Diferenças vs. `entregadorCancelarCorridaERedespachar`:
+ *   - NÃO penaliza o entregador (não entra em `despacho_bloqueados` no doc
+ *     do pedido, não computa cancelamento "negativo" em métricas).
+ *   - Registra o motivo no histórico do pedido e um alerta para o lojista
+ *     revisar a configuração de `tipos_entrega_permitidos`.
+ *   - Reabre a fila imediatamente e redespacha pra entregador compatível.
+ *
+ * A notificação push NÃO é alterada aqui — o fluxo padrão de redespacho
+ * (`executarDespachoSequencial`) já dispara o FCM para o próximo entregador,
+ * preservando a camada de notificações existente.
+ */
+exports.entregadorCancelarPorIncompatibilidade = functions
+    .runWith({ timeoutSeconds: 540, memory: "512MB" })
+    .https.onCall(async (data, context) => {
+        if (!context.auth) {
+            throw new functions.https.HttpsError("unauthenticated", "Faça login novamente.");
+        }
+        const pedidoId = data && data.pedidoId ? String(data.pedidoId).trim() : "";
+        if (!pedidoId) {
+            throw new functions.https.HttpsError("invalid-argument", "pedidoId obrigatório.");
+        }
+        const observacaoRaw = data && data.observacao != null ? String(data.observacao) : "";
+        const observacao = observacaoRaw.trim().slice(0, 400);
+
+        const uid = context.auth.uid;
+        const db = admin.firestore();
+        const userRef = db.collection("users").doc(uid);
+        const ref = db.collection("pedidos").doc(pedidoId);
+
+        const snap0 = await ref.get();
+        if (!snap0.exists) {
+            throw new functions.https.HttpsError("not-found", "Pedido não encontrado.");
+        }
+        const p0 = snap0.data() || {};
+        const statusAtual = String(p0.status || "");
+
+        const podeCancelar = [
+            "aguardando_entregador",
+            "entregador_indo_loja",
+            "saiu_entrega",
+            "em_rota",
+            "a_caminho",
+        ].includes(statusAtual);
+        if (!podeCancelar) {
+            throw new functions.https.HttpsError(
+                "failed-precondition",
+                "Este pedido não está em uma etapa cancelável pelo entregador.",
+            );
+        }
+
+        // Só exige ownership da corrida quando o pedido já foi aceito.
+        if (statusAtual !== "aguardando_entregador" &&
+            String(p0.entregador_id || "") !== String(uid)) {
+            throw new functions.https.HttpsError(
+                "permission-denied",
+                "A corrida não pertence ao entregador autenticado.",
+            );
+        }
+
+        // Busca dados do entregador para registrar tipo de veículo no histórico.
+        const uSnap = await userRef.get();
+        const ud = uSnap.exists ? uSnap.data() || {} : {};
+        const tipoEntregador = TIPOS_ENTREGA.normalizarTipoVeiculo(
+            ud.tipo_veiculo_canonico || ud.veiculoTipo || ud.veiculo || ud.tipo_veiculo,
+        );
+        const tiposAceitosLoja = TIPOS_ENTREGA.normalizarLista(
+            p0.tipos_entrega_permitidos_loja,
+        );
+
+        const eventoHist = {
+            entregador_uid: String(uid),
+            entregador_tipo_veiculo: tipoEntregador || "",
+            tipos_aceitos_loja: tiposAceitosLoja,
+            status_anterior: statusAtual,
+            observacao,
+            criado_em: admin.firestore.Timestamp.now(),
+        };
+
+        const lockOk = await db.runTransaction(async (t) => {
+            const s = await t.get(ref);
+            if (!s.exists) return false;
+            const x = s.data() || {};
+            const st = String(x.status || "");
+            const podeAgora = [
+                "aguardando_entregador",
+                "entregador_indo_loja",
+                "saiu_entrega",
+                "em_rota",
+                "a_caminho",
+            ].includes(st);
+            if (!podeAgora) return false;
+            if (st !== "aguardando_entregador" &&
+                String(x.entregador_id || "") !== String(uid)) {
+                return false;
+            }
+
+            const recusadosAtuais = Array.isArray(x.despacho_recusados)
+                ? x.despacho_recusados.map(String)
+                : [];
+            // Adiciona ao despacho_recusados para NÃO receber a mesma oferta de
+            // novo (evita loop). NÃO entra em despacho_bloqueados — cancelamento
+            // por incompatibilidade não é uma falha do entregador.
+            const recusadosComCancelador = Array.from(
+                new Set([...recusadosAtuais, String(uid)]),
+            );
+
+            // POLÍTICA (atualizada 04/2026):
+            //   Cancelamento por incompatibilidade volta o pedido para
+            //   `em_preparo` e devolve o controle ao LOJISTA. Sem re-despacho
+            //   automático — o lojista precisa ver a mensagem, eventualmente
+            //   revisar `tipos_entrega_permitidos`, e clicar "Solicitar
+            //   entregador" novamente.
+            //
+            //   Antes (até 04/2026) o backend mantinha `aguardando_entregador`
+            //   e re-despachava automático, o que escondia do lojista o sinal
+            //   de que a categoria cadastrada não era adequada. Agora o
+            //   lojista é confrontado com a mensagem e toma a decisão.
+            t.update(ref, {
+                status: "em_preparo",
+                cancelamento_incompat_ultimo: eventoHist,
+                cancelamentos_incompat_historico:
+                    admin.firestore.FieldValue.arrayUnion(eventoHist),
+                alerta_lojista_tipos_entrega: {
+                    ativo: true,
+                    motivo: "veiculo_incompativel",
+                    entregador_tipo_veiculo: tipoEntregador || "",
+                    tipos_aceitos_loja: tiposAceitosLoja,
+                    mensagem:
+                        "Um entregador cancelou esta corrida por " +
+                        "incompatibilidade de veículo. Revise os Tipos de " +
+                        "entrega aceitos pela sua loja (ex.: produto grande " +
+                        "não cabe na moto) e solicite um novo entregador.",
+                    criado_em: admin.firestore.FieldValue.serverTimestamp(),
+                },
+
+                entregador_id: admin.firestore.FieldValue.delete(),
+                entregador_nome: admin.firestore.FieldValue.delete(),
+                entregador_foto_url: admin.firestore.FieldValue.delete(),
+                entregador_telefone: admin.firestore.FieldValue.delete(),
+                entregador_veiculo: admin.firestore.FieldValue.delete(),
+                entregador_aceito_em: admin.firestore.FieldValue.delete(),
+
+                despacho_job_lock: admin.firestore.FieldValue.delete(),
+                despacho_abort_flag: admin.firestore.FieldValue.delete(),
+                despacho_fila_ids: [],
+                despacho_indice_atual: 0,
+                // Ainda marca este entregador como "recusado" desta corrida
+                // para garantir que se o lojista chamar de novo, a fila o
+                // evite e sele outra pessoa.
+                despacho_recusados: recusadosComCancelador,
+                despacho_oferta_uid: admin.firestore.FieldValue.delete(),
+                despacho_oferta_expira_em: admin.firestore.FieldValue.delete(),
+                despacho_oferta_seq: 0,
+                despacho_oferta_estado: admin.firestore.FieldValue.delete(),
+                despacho_estado: admin.firestore.FieldValue.delete(),
+                despacho_redespacho_entregador_em:
+                    admin.firestore.FieldValue.serverTimestamp(),
+                despacho_sem_entregadores: admin.firestore.FieldValue.delete(),
+                despacho_redirecionado_para_proximo:
+                    admin.firestore.FieldValue.delete(),
+                despacho_erro_msg: admin.firestore.FieldValue.delete(),
+                busca_entregadores_notificados: [],
+                // Aguarda decisão do lojista — `despacho_auto_encerrada_*`
+                // dispara o mesmo banner amarelo que já usamos pra "busca
+                // encerrada" no painel web do lojista.
+                despacho_auto_encerrada_sem_entregador: true,
+                despacho_msg_busca_entregador:
+                    "Entrega cancelada pelo entregador por incompatibilidade " +
+                    "de veículo. Revise os Tipos de entrega aceitos pela " +
+                    "loja e clique em «Solicitar entregador» para chamar " +
+                    "outra pessoa compatível.",
+                despacho_aguarda_decisao_lojista:
+                    admin.firestore.FieldValue.delete(),
+                despacho_macro_ciclo_atual: admin.firestore.FieldValue.delete(),
+                despacho_busca_extensao_usada:
+                    admin.firestore.FieldValue.delete(),
+                busca_raio_km: admin.firestore.FieldValue.delete(),
+                busca_entregador_inicio: admin.firestore.FieldValue.delete(),
+            });
+
+            // NÃO marca penalidade no entregador. Apenas libera operação.
+            t.set(userRef, {
+                entregador_operacao_status: "DISPONIVEL",
+                entregador_corridas_pendentes: 0,
+                entregador_estado_operacao_atualizado_em:
+                    admin.firestore.FieldValue.serverTimestamp(),
+                entregador_estado_operacao_origem:
+                    "entregadorCancelarPorIncompatibilidade",
+                entregador_estado_operacao_pedido_id: pedidoId,
+                entregador_ultimo_cancelamento_incompat_em:
+                    admin.firestore.FieldValue.serverTimestamp(),
+                entregador_cancelamentos_incompat_total:
+                    admin.firestore.FieldValue.increment(1),
+            }, { merge: true });
+
+            return true;
+        });
+
+        if (!lockOk) {
+            throw new functions.https.HttpsError(
+                "aborted",
+                "Não foi possível cancelar agora. Atualize a tela e tente novamente.",
+            );
+        }
+
+        // Alerta agregado no doc do lojista (pra dashboard/tela de acompanhamento).
+        try {
+            const lojaId = lojaIdStr(p0);
+            if (lojaId) {
+                await db.collection("users").doc(String(lojaId)).set({
+                    alerta_tipos_entrega_incompat: {
+                        total_ultimos_30d: admin.firestore.FieldValue.increment(1),
+                        ultimo_em: admin.firestore.FieldValue.serverTimestamp(),
+                        ultimo_pedido_id: pedidoId,
+                        ultimo_tipo_entregador: tipoEntregador || "",
+                        ultimo_tipos_aceitos_loja: tiposAceitosLoja,
+                    },
+                }, { merge: true });
+            }
+        } catch (e) {
+            console.warn("[cancelarIncompat] alerta loja falhou:", e);
+        }
+
+        // IMPORTANTE: não executamos `executarDespachoSequencial` aqui.
+        //   Política nova: o lojista é quem decide re-solicitar entregador
+        //   depois de ler a mensagem do cancelamento. Re-despacho automático
+        //   mascarava o problema de categoria mal configurada.
+        return {
+            ok: true,
+            motivo: "veiculo_incompativel",
+            proximo_passo: "aguardando_lojista_solicitar_novamente",
+        };
+    });
+
+/**
  * Lojista cancela o despacho em andamento e inicia nova fila (mesmo status).
  */
 exports.lojistaRedespacharEntregador = functions
@@ -1395,6 +1970,14 @@ exports.lojistaRedespacharEntregador = functions
         if (!pedidoId) {
             throw new functions.https.HttpsError("invalid-argument", "pedidoId obrigatório.");
         }
+
+        const tipoSolicitadoBruto = data && data.tipoEntregaSolicitado != null
+            ? String(data.tipoEntregaSolicitado)
+            : "";
+        const tipoSolicitado = TIPOS_ENTREGA.normalizarTipoSolicitado(
+            tipoSolicitadoBruto,
+        );
+
         const uid = context.auth.uid;
         const db = admin.firestore();
         const ref = db.collection("pedidos").doc(pedidoId);
@@ -1418,6 +2001,34 @@ exports.lojistaRedespacharEntregador = functions
             );
         }
 
+        const tiposAceitosLoja = await obterTiposEntregaDaLoja(db, p0);
+        if (tipoSolicitado && tiposAceitosLoja.length > 0 &&
+            !tiposAceitosLoja.includes(tipoSolicitado)) {
+            throw new functions.https.HttpsError(
+                "failed-precondition",
+                `A categoria '${TIPOS_ENTREGA.rotulo(tipoSolicitado)}' não está ` +
+                "marcada como aceita no perfil da sua loja.",
+                {
+                    motivo: "tipo_entrega_solicitado_fora_da_lista",
+                    tipo_solicitado: tipoSolicitado,
+                    tipos_aceitos_loja: tiposAceitosLoja,
+                },
+            );
+        }
+        if (!tipoSolicitado && tiposAceitosLoja.length > 1) {
+            throw new functions.https.HttpsError(
+                "failed-precondition",
+                "Sua loja aceita mais de um tipo de entrega. Escolha qual " +
+                "categoria chamar antes de redespachar.",
+                {
+                    motivo: "tipo_entrega_solicitado_obrigatorio",
+                    tipos_aceitos_loja: tiposAceitosLoja,
+                },
+            );
+        }
+        const tipoEfetivo = tipoSolicitado ||
+            (tiposAceitosLoja.length === 1 ? tiposAceitosLoja[0] : "");
+
         const comLock = (await ref.get()).data();
         if (comLock && comLock.despacho_job_lock) {
             await ref.update({ despacho_abort_flag: true });
@@ -1435,7 +2046,7 @@ exports.lojistaRedespacharEntregador = functions
             if (!x || x.status !== "aguardando_entregador") return false;
             if (x.entregador_id) return false;
             if (x.despacho_job_lock) return false;
-            t.update(ref, {
+            const updates = {
                 despacho_job_lock: eventId,
                 despacho_recusados: [],
                 despacho_bloqueados: [],
@@ -1451,9 +2062,19 @@ exports.lojistaRedespacharEntregador = functions
                 despacho_msg_busca_entregador: admin.firestore.FieldValue.delete(),
                 despacho_macro_ciclo_atual: admin.firestore.FieldValue.delete(),
                 despacho_busca_extensao_usada: admin.firestore.FieldValue.delete(),
+                despacho_motivo_reversao: admin.firestore.FieldValue.delete(),
                 despacho_estado: "redespacho_loja",
                 despacho_redespacho_loja_em: admin.firestore.FieldValue.serverTimestamp(),
-            });
+            };
+            if (tipoEfetivo) {
+                updates.tipo_entrega_solicitado = tipoEfetivo;
+                updates.tipo_entrega_solicitado_origem = tipoSolicitado
+                    ? "lojista_redesp"
+                    : "auto_tipo_unico_redesp";
+                updates.tipo_entrega_solicitado_em =
+                    admin.firestore.FieldValue.serverTimestamp();
+            }
+            t.update(ref, updates);
             return true;
         });
 
@@ -1728,6 +2349,16 @@ exports.lojistaSolicitarDespachoEntregador = functions
         if (!pedidoId) {
             throw new functions.https.HttpsError("invalid-argument", "pedidoId obrigatório.");
         }
+
+        // Categoria explicitamente escolhida pelo lojista no painel. Pode vir
+        // vazia para lojas com 1 único tipo aceito (auto-derivação backend).
+        const tipoSolicitadoBruto = data && data.tipoEntregaSolicitado != null
+            ? String(data.tipoEntregaSolicitado)
+            : "";
+        const tipoSolicitado = TIPOS_ENTREGA.normalizarTipoSolicitado(
+            tipoSolicitadoBruto,
+        );
+
         const authUid = context.auth.uid;
         const db = admin.firestore();
         const ref = db.collection("pedidos").doc(pedidoId);
@@ -1743,6 +2374,42 @@ exports.lojistaSolicitarDespachoEntregador = functions
             throw new functions.https.HttpsError("failed-precondition", "Já há entregador atribuído a este pedido.");
         }
 
+        // Resolve a lista aceita pela loja já aqui pra validar a categoria
+        // recebida e rejeitar lojas multi-tipo sem escolha — espelha o que
+        // `notificarEntregadoresPedidoPronto` faria depois.
+        const tiposAceitosLoja = await obterTiposEntregaDaLoja(db, p0);
+        if (tiposAceitosLoja.length > 1 && !tipoSolicitado) {
+            throw new functions.https.HttpsError(
+                "failed-precondition",
+                "Sua loja aceita mais de um tipo de entrega. Escolha qual " +
+                "categoria chamar (ex.: moto ou carro) e tente de novo.",
+                {
+                    motivo: "tipo_entrega_solicitado_obrigatorio",
+                    tipos_aceitos_loja: tiposAceitosLoja,
+                },
+            );
+        }
+        if (tipoSolicitado && tiposAceitosLoja.length > 0 &&
+            !tiposAceitosLoja.includes(tipoSolicitado)) {
+            throw new functions.https.HttpsError(
+                "failed-precondition",
+                `A categoria '${TIPOS_ENTREGA.rotulo(tipoSolicitado)}' não está ` +
+                "marcada como aceita no perfil da sua loja. Atualize a configuração " +
+                "antes de tentar novamente.",
+                {
+                    motivo: "tipo_entrega_solicitado_fora_da_lista",
+                    tipo_solicitado: tipoSolicitado,
+                    tipos_aceitos_loja: tiposAceitosLoja,
+                },
+            );
+        }
+
+        // Tipo efetivo: explícito se veio do cliente, ou único tipo aceito
+        // como auto-derivação. Caso contrário (loja sem config) deixamos vazio
+        // pra preservar o fallback legado dentro do dispatch.
+        const tipoEfetivo = tipoSolicitado ||
+            (tiposAceitosLoja.length === 1 ? tiposAceitosLoja[0] : "");
+
         const st = p0.status;
 
         if (st === "em_preparo") {
@@ -1754,7 +2421,7 @@ exports.lojistaSolicitarDespachoEntregador = functions
                     if (!x || x.status !== "em_preparo" || x.entregador_id) {
                         throw new Error("dip_invalid_state_em_preparo");
                     }
-                    t.update(ref, {
+                    const updates = {
                         status: "aguardando_entregador",
                         busca_raio_km: 0.5,
                         busca_entregador_inicio: admin.firestore.FieldValue.serverTimestamp(),
@@ -1780,7 +2447,22 @@ exports.lojistaSolicitarDespachoEntregador = functions
                         despacho_msg_busca_entregador: admin.firestore.FieldValue.delete(),
                         despacho_busca_extensao_usada: admin.firestore.FieldValue.delete(),
                         despacho_auto_encerrada_sem_entregador: admin.firestore.FieldValue.delete(),
-                    });
+                        despacho_motivo_reversao: admin.firestore.FieldValue.delete(),
+                        // Limpa o alerta de incompatibilidade quando o lojista
+                        // re-solicita (ou ele tomou ciência do problema ou já
+                        // ajustou `tipos_entrega_permitidos`). Mantém o
+                        // `cancelamento_incompat_ultimo` para histórico.
+                        alerta_lojista_tipos_entrega: admin.firestore.FieldValue.delete(),
+                    };
+                    if (tipoEfetivo) {
+                        updates.tipo_entrega_solicitado = tipoEfetivo;
+                        updates.tipo_entrega_solicitado_origem = tipoSolicitado
+                            ? "lojista_web"
+                            : "auto_tipo_unico";
+                        updates.tipo_entrega_solicitado_em =
+                            admin.firestore.FieldValue.serverTimestamp();
+                    }
+                    t.update(ref, updates);
                 });
             } catch (e) {
                 if (e && e.message === "dip_invalid_state_em_preparo") {
@@ -1814,7 +2496,7 @@ exports.lojistaSolicitarDespachoEntregador = functions
                 if (!x || x.status !== "aguardando_entregador") return false;
                 if (x.entregador_id) return false;
                 if (x.despacho_job_lock) return false;
-                t.update(ref, {
+                const updates = {
                     despacho_job_lock: eventId,
                     despacho_recusados: [],
                     despacho_bloqueados: [],
@@ -1830,9 +2512,19 @@ exports.lojistaSolicitarDespachoEntregador = functions
                     despacho_msg_busca_entregador: admin.firestore.FieldValue.delete(),
                     despacho_busca_extensao_usada: admin.firestore.FieldValue.delete(),
                     despacho_auto_encerrada_sem_entregador: admin.firestore.FieldValue.delete(),
+                    despacho_motivo_reversao: admin.firestore.FieldValue.delete(),
                     despacho_estado: "redespacho_loja",
                     despacho_redespacho_loja_em: admin.firestore.FieldValue.serverTimestamp(),
-                });
+                };
+                if (tipoEfetivo) {
+                    updates.tipo_entrega_solicitado = tipoEfetivo;
+                    updates.tipo_entrega_solicitado_origem = tipoSolicitado
+                        ? "lojista_web_redesp"
+                        : "auto_tipo_unico_redesp";
+                    updates.tipo_entrega_solicitado_em =
+                        admin.firestore.FieldValue.serverTimestamp();
+                }
+                t.update(ref, updates);
                 return true;
             });
 

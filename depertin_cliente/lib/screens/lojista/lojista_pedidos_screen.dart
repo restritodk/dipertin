@@ -10,10 +10,13 @@ import 'package:flutter/foundation.dart';
 import 'package:flutter/material.dart';
 
 import 'package:depertin_cliente/constants/pedido_status.dart';
+import 'package:depertin_cliente/constants/tipos_entrega.dart';
 import 'package:depertin_cliente/services/firebase_functions_config.dart';
 import 'package:depertin_cliente/utils/lojista_acesso_app.dart';
 import 'package:depertin_cliente/widgets/badge_entregador_acessibilidade.dart';
 import 'package:depertin_cliente/widgets/chat_pedido_botao.dart';
+
+import 'widgets/escolher_tipo_entrega_dialog.dart';
 
 const Color diPertinRoxo = Color(0xFF6A1B9A);
 const Color diPertinLaranja = Color(0xFFFF8F00);
@@ -459,7 +462,10 @@ class _LojistaPedidosScreenState extends State<LojistaPedidosScreen> {
     }
   }
 
-  Future<void> _chamarEntregadorNovamente(String pedidoId) async {
+  Future<void> _chamarEntregadorNovamente(
+    String pedidoId, {
+    String? tipoAnteriorCanonico,
+  }) async {
     if (_abrindoConfirmacaoChamarDeNovo.contains(pedidoId) ||
         _chamandoDeNovoEmProgresso.contains(pedidoId)) {
       return;
@@ -467,36 +473,89 @@ class _LojistaPedidosScreenState extends State<LojistaPedidosScreen> {
     if (mounted) {
       setState(() => _abrindoConfirmacaoChamarDeNovo.add(pedidoId));
     }
-    final ok = await showDialog<bool>(
-      context: context,
-      builder: (ctx) => AlertDialog(
-        title: const Text('Chamar entregador novamente?'),
-        content: const Text(
-          'Reinicia a busca do zero: ofertas na ordem de proximidade '
-          '(até 3 km, depois 5 km, com expansão gradual; se não houver ninguém, segue a fila).',
-        ),
-        actions: [
-          TextButton(
-            onPressed: () => Navigator.pop(ctx, false),
-            child: const Text('Não'),
+
+    String? tipoEscolhido;
+    try {
+      final aceitos = await _tiposAceitosDaLojaAtual();
+      if (!mounted) return;
+      if (aceitos.length == 1) {
+        tipoEscolhido = aceitos.first;
+        final ok = await showDialog<bool>(
+          context: context,
+          builder: (ctx) => AlertDialog(
+            title: const Text('Chamar entregador novamente?'),
+            content: Text(
+              'Reinicia a busca do zero para a categoria '
+              '${TiposEntrega.rotulo(tipoEscolhido!)}.',
+            ),
+            actions: [
+              TextButton(
+                onPressed: () => Navigator.pop(ctx, false),
+                child: const Text('Não'),
+              ),
+              FilledButton(
+                onPressed: () => Navigator.pop(ctx, true),
+                child: const Text('Sim, chamar de novo'),
+              ),
+            ],
           ),
-          FilledButton(
-            onPressed: () => Navigator.pop(ctx, true),
-            child: const Text('Sim, chamar de novo'),
+        );
+        if (ok != true) {
+          return;
+        }
+      } else if (aceitos.length > 1) {
+        final mensagemAnterior = tipoAnteriorCanonico == null
+            ? null
+            : 'A categoria ${TiposEntrega.rotulo(tipoAnteriorCanonico)} '
+                  'esgotou sem aceite. Tente outra.';
+        tipoEscolhido = await EscolherTipoEntregaDialog.mostrar(
+          context,
+          tiposDisponiveis: aceitos,
+          tipoAnteriorMensagem: mensagemAnterior,
+        );
+        if (tipoEscolhido == null) {
+          return;
+        }
+      } else {
+        final ok = await showDialog<bool>(
+          context: context,
+          builder: (ctx) => AlertDialog(
+            title: const Text('Chamar entregador novamente?'),
+            content: const Text(
+              'Reinicia a busca do zero: ofertas na ordem de proximidade '
+              '(até 3 km, depois 5 km, com expansão gradual; se não houver ninguém, segue a fila).',
+            ),
+            actions: [
+              TextButton(
+                onPressed: () => Navigator.pop(ctx, false),
+                child: const Text('Não'),
+              ),
+              FilledButton(
+                onPressed: () => Navigator.pop(ctx, true),
+                child: const Text('Sim, chamar de novo'),
+              ),
+            ],
           ),
-        ],
-      ),
-    );
-    if (mounted) {
-      setState(() => _abrindoConfirmacaoChamarDeNovo.remove(pedidoId));
-    } else {
-      _abrindoConfirmacaoChamarDeNovo.remove(pedidoId);
+        );
+        if (ok != true) {
+          return;
+        }
+      }
+    } finally {
+      if (mounted) {
+        setState(() => _abrindoConfirmacaoChamarDeNovo.remove(pedidoId));
+      } else {
+        _abrindoConfirmacaoChamarDeNovo.remove(pedidoId);
+      }
     }
-    if (ok != true || !mounted) return;
+    if (!mounted) return;
     setState(() => _chamandoDeNovoEmProgresso.add(pedidoId));
 
     try {
-      await _redespacharEntregadorViaFirestore(pedidoId);
+      await _redespacharEntregadorViaFirestore(
+        pedidoId,
+        tipoEntregaSolicitado: tipoEscolhido,
+      );
       if (mounted) {
         ScaffoldMessenger.of(context).showSnackBar(
           const SnackBar(
@@ -525,7 +584,10 @@ class _LojistaPedidosScreenState extends State<LojistaPedidosScreen> {
 
   /// Redespacho via Firestore: aborta job em andamento, reseta para em_preparo,
   /// depois muda para aguardando_entregador — trigger reconhece a transição.
-  Future<void> _redespacharEntregadorViaFirestore(String pedidoId) async {
+  Future<void> _redespacharEntregadorViaFirestore(
+    String pedidoId, {
+    String? tipoEntregaSolicitado,
+  }) async {
     final ref = FirebaseFirestore.instance.collection('pedidos').doc(pedidoId);
 
     final snap = await ref.get();
@@ -574,14 +636,25 @@ class _LojistaPedidosScreenState extends State<LojistaPedidosScreen> {
     });
 
     await Future<void>.delayed(const Duration(milliseconds: 500));
-    await _solicitarEntregadorViaFirestore(pedidoId);
+    await _solicitarEntregadorViaFirestore(
+      pedidoId,
+      tipoEntregaSolicitado: tipoEntregaSolicitado,
+    );
   }
 
   /// Muda status para `aguardando_entregador` via Firestore direto.
   /// O trigger `notificarEntregadoresPedidoPronto` (Cloud Function) detecta a
   /// transição e executa o despacho sequencial por proximidade server-side.
-  Future<void> _solicitarEntregadorViaFirestore(String pedidoId) async {
+  ///
+  /// [tipoEntregaSolicitado] é obrigatório em lojas com >1 tipo aceito.
+  /// Para lojas com 1 único tipo, pode vir nulo/empty — o backend deriva
+  /// automaticamente.
+  Future<void> _solicitarEntregadorViaFirestore(
+    String pedidoId, {
+    String? tipoEntregaSolicitado,
+  }) async {
     final ref = FirebaseFirestore.instance.collection('pedidos').doc(pedidoId);
+    final canon = TiposEntrega.normalizarTipoSolicitado(tipoEntregaSolicitado);
 
     await FirebaseFirestore.instance.runTransaction((transaction) async {
       final snap = await transaction.get(ref);
@@ -596,6 +669,11 @@ class _LojistaPedidosScreenState extends State<LojistaPedidosScreen> {
       }
       transaction.update(ref, <String, dynamic>{
         'status': PedidoStatus.aguardandoEntregador,
+        if (canon.isNotEmpty) 'tipo_entrega_solicitado': canon,
+        if (canon.isNotEmpty)
+          'tipo_entrega_solicitado_origem': 'lojista_mobile',
+        if (canon.isNotEmpty)
+          'tipo_entrega_solicitado_em': FieldValue.serverTimestamp(),
         'busca_raio_km': 0.5,
         'busca_entregador_inicio': FieldValue.serverTimestamp(),
         'busca_entregadores_notificados': <String>[],
@@ -620,8 +698,38 @@ class _LojistaPedidosScreenState extends State<LojistaPedidosScreen> {
         'despacho_msg_busca_entregador': FieldValue.delete(),
         'despacho_busca_extensao_usada': FieldValue.delete(),
         'despacho_auto_encerrada_sem_entregador': FieldValue.delete(),
+        'despacho_motivo_reversao': FieldValue.delete(),
       });
     });
+  }
+
+  /// Resolve a lista de tipos de entrega aceitos pela loja autenticada
+  /// lendo primeiro `lojas_public` (fonte pública + allowlist) e caindo em
+  /// `users/{uid}` se necessário. Retorna lista normalizada (pode ser vazia
+  /// para lojas legado sem config).
+  Future<List<String>> _tiposAceitosDaLojaAtual() async {
+    final uid = FirebaseAuth.instance.currentUser?.uid;
+    if (uid == null || uid.isEmpty) return const <String>[];
+    try {
+      final pub = await FirebaseFirestore.instance
+          .collection('lojas_public')
+          .doc(uid)
+          .get();
+      final tiposPub = TiposEntrega.lerDeDoc(pub.data());
+      if (tiposPub.isNotEmpty) return tiposPub;
+    } catch (e) {
+      debugPrint('[solicitarEntregador] lojas_public: $e');
+    }
+    try {
+      final priv = await FirebaseFirestore.instance
+          .collection('users')
+          .doc(uid)
+          .get();
+      return TiposEntrega.lerDeDoc(priv.data());
+    } catch (e) {
+      debugPrint('[solicitarEntregador] users: $e');
+      return const <String>[];
+    }
   }
 
   Future<void> _continuarBuscaEntregadoresCallable(String pedidoId) async {
@@ -672,12 +780,33 @@ class _LojistaPedidosScreenState extends State<LojistaPedidosScreen> {
       });
     }
     try {
-      await _solicitarEntregadorViaFirestore(pedidoId);
+      final aceitos = await _tiposAceitosDaLojaAtual();
+      String? tipo;
+      if (aceitos.length == 1) {
+        tipo = aceitos.first;
+      } else if (aceitos.length > 1) {
+        if (!mounted) return;
+        tipo = await EscolherTipoEntregaDialog.mostrar(
+          context,
+          tiposDisponiveis: aceitos,
+        );
+        if (tipo == null) {
+          return;
+        }
+      }
+
+      await _solicitarEntregadorViaFirestore(
+        pedidoId,
+        tipoEntregaSolicitado: tipo,
+      );
       if (mounted) {
+        final rotuloCategoria = tipo == null
+            ? ''
+            : ' (${TiposEntrega.rotulo(tipo)})';
         ScaffoldMessenger.of(context).showSnackBar(
-          const SnackBar(
+          SnackBar(
             content: Text(
-              'Buscando entregador próximo. Você será avisado quando alguém aceitar.',
+              'Buscando entregador próximo$rotuloCategoria. Você será avisado quando alguém aceitar.',
             ),
             backgroundColor: Colors.green,
           ),
@@ -1989,7 +2118,17 @@ class _LojistaPedidosScreenState extends State<LojistaPedidosScreen> {
             onPressed: (_abrindoConfirmacaoChamarDeNovo.contains(id) ||
                     _chamandoDeNovoEmProgresso.contains(id))
                 ? null
-                : () => _chamarEntregadorNovamente(id),
+                : () => _chamarEntregadorNovamente(
+                      id,
+                      tipoAnteriorCanonico:
+                          TiposEntrega.normalizarTipoSolicitado(
+                            pedido['tipo_entrega_solicitado'],
+                          ).isNotEmpty
+                          ? TiposEntrega.normalizarTipoSolicitado(
+                              pedido['tipo_entrega_solicitado'],
+                            )
+                          : null,
+                    ),
           ),
         ],
       );

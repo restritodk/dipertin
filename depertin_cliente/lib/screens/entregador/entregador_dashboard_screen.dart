@@ -12,9 +12,11 @@ import 'package:geocoding/geocoding.dart';
 import 'package:geolocator/geolocator.dart';
 import 'package:audioplayers/audioplayers.dart';
 import 'package:intl/intl.dart';
+import 'package:shared_preferences/shared_preferences.dart';
 import 'package:url_launcher/url_launcher.dart';
 
 import 'package:depertin_cliente/constants/pedido_status.dart';
+import 'package:depertin_cliente/constants/tipos_entrega.dart';
 import 'package:depertin_cliente/services/android_nav_intent.dart';
 import 'package:depertin_cliente/services/conta_bloqueio_entregador_service.dart';
 import 'package:depertin_cliente/services/firebase_functions_config.dart';
@@ -25,6 +27,7 @@ import 'package:depertin_cliente/services/alerta_corrida_nativo.dart';
 import 'package:depertin_cliente/services/flash_alerta_corrida.dart';
 import 'package:permission_handler/permission_handler.dart';
 
+import 'configuracoes/gerenciar_veiculos_screen.dart';
 import 'diagnostico_alertas_corrida_screen.dart';
 import 'entrega_concluida_screen.dart';
 
@@ -69,6 +72,17 @@ class _EntregadorDashboardScreenState extends State<EntregadorDashboardScreen>
 
   StreamSubscription<Position>? _rastreadorGps;
   late final Stream<QuerySnapshot> _pedidosStream;
+
+  /// Listener dedicado pro disparo de tela fullscreen / áudio. Roda
+  /// **independente** do build da lista — assim a chamada aparece na hora
+  /// que `despacho_oferta_uid` é gravado pelo backend, mesmo que o item
+  /// ainda não tenha sido renderizado pelo `SliverChildBuilderDelegate`.
+  StreamSubscription<QuerySnapshot>? _ofertaFullscreenSub;
+
+  /// Listener auxiliar — observa quando o backend confirma o aceite
+  /// (`entregador_id == _uid`) e libera o bloqueio local da oferta
+  /// correspondente.
+  StreamSubscription<QuerySnapshot>? _confirmacoesBackendSub;
 
   /// Evita duplo toque enquanto grava no Firestore.
   String? _recusandoPedidoId;
@@ -151,22 +165,201 @@ class _EntregadorDashboardScreenState extends State<EntregadorDashboardScreen>
           ],
         )
         .snapshots();
+
+    // Listener dedicado pra disparar o fullscreen assim que o backend
+    // me atribui como `despacho_oferta_uid` — não depende da UI ter
+    // renderizado o item da lista.
+    _ofertaFullscreenSub = FirebaseFirestore.instance
+        .collection('pedidos')
+        .where('status', isEqualTo: PedidoStatus.aguardandoEntregador)
+        .where('despacho_oferta_uid', isEqualTo: _uid)
+        .snapshots()
+        .listen(_processarOfertasParaMim);
+    // Listener auxiliar dedicado (NÃO compartilha com `_pedidosStream`
+    // porque snapshots() do Firestore é single-subscription — uma
+    // segunda escuta deixaria o `StreamBuilder` do radar travado em
+    // ConnectionState.waiting). Aqui filtramos só pelos pedidos onde
+    // `entregador_id == meu uid`. Quando o backend confirma o aceite,
+    // liberamos o bloqueio local da oferta correspondente.
+    _confirmacoesBackendSub = FirebaseFirestore.instance
+        .collection('pedidos')
+        .where('entregador_id', isEqualTo: _uid)
+        .snapshots()
+        .listen(_observarConfirmacoesBackend);
+    // Sincronização inicial do bloqueio nativo (sobrevive à recriação
+    // do widget — ex.: voltei do IncomingDeliveryActivity após Aceitar).
+    unawaited(_carregarOfertasProcessadasLocais());
     WidgetsBinding.instance.addPostFrameCallback((_) {
       unawaited(_checarConfigAndroidChamadaFullScreen());
       unawaited(_contarPendenciasPermissao());
       unawaited(_syncFloatingIconState());
       unawaited(_ocultarFloatingIconEnquantoAppAberto());
       unawaited(_garantirOnlineApenasComAcaoManual());
+      // Logo após o widget renderizar, verifica se houve falha no
+      // último aceite executado pela fullscreen nativa — sem isso, o
+      // entregador toca em "Aceitar" e o pedido some sem feedback.
+      unawaited(_consumirFeedbackFalhaAceite());
     });
   }
 
-  Future<void> _syncFloatingIconState() async {
-    final running = await AndroidNavIntent.isFloatingIconRunning();
-    if (running) {
-      await AndroidNavIntent.stopFloatingIcon();
+  /// Cache em memória do estado nativo `MainActivity.ofertasProcessadasLocais`.
+  /// Mapa `pedidoId → despacho_oferta_seq` da última oferta que o
+  /// entregador decidiu localmente. Usado por `_processarOfertasParaMim`
+  /// para distinguir lock obsoleto (mesmo seq) vs. re-dispatch (seq maior).
+  final Map<String, int> _ofertasDecididasNativas = <String, int>{};
+
+  /// Importa para o estado em memória (`_ofertasOcultadasLocalmente` e
+  /// `_ofertasDecididasNativas`) a lista de pedidos que o entregador já
+  /// decidiu na fullscreen nativa (`MainActivity.ofertasProcessadasLocais`).
+  /// Esse import é crítico imediatamente após o widget ser recriado pelo
+  /// `pushNamedAndRemoveUntil('/entregador')` do
+  /// `IncomingDeliveryActivity.openMainRadar`: sem isso, o
+  /// `_ofertaFullscreenSub` pega a snapshot inicial com o pedido ainda em
+  /// `aguardando_entregador` (backend processando o aceite) e reabre a
+  /// fullscreen — o bug exato reportado.
+  Future<void> _carregarOfertasProcessadasLocais() async {
+    try {
+      final mapa = await AndroidNavIntent.getOfertasProcessadasLocais();
+      if (!mounted || mapa.isEmpty) return;
+      mapa.forEach((id, seq) {
+        _ofertasDecididasNativas[id] = seq;
+        _ofertasOcultadasLocalmente.add(id);
+      });
+    } catch (e) {
+      debugPrint('[_carregarOfertasProcessadasLocais] $e');
     }
-    if (mounted && running != _floatingIconAtivo) {
-      setState(() => _floatingIconAtivo = running);
+  }
+
+  /// Lê e LIMPA, no nativo, o motivo da última falha de aceite (callable
+  /// `aceitarOfertaCorrida` retornou aceito=false ou erro de rede).
+  /// Mostra SnackBar para o entregador entender por que a oferta sumiu
+  /// logo após tocar Aceitar — sem isso, ficaria como uma "tela
+  /// fantasma" que aceita e some sem feedback nenhum.
+  Future<void> _consumirFeedbackFalhaAceite() async {
+    try {
+      final dados = await AndroidNavIntent.consumirUltimaFalhaAceite();
+      if (!mounted || dados == null) return;
+      final mensagem = (dados['mensagem'] as String?)?.trim() ?? '';
+      if (mensagem.isEmpty) return;
+      final motivo = (dados['motivo'] as String?)?.trim() ?? '';
+      final isCriticoVeiculo = motivo == 'veiculo_nao_configurado';
+
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(
+          duration: const Duration(seconds: 6),
+          backgroundColor: isCriticoVeiculo ? Colors.deepOrange : Colors.black87,
+          content: Text(
+            mensagem,
+            style: const TextStyle(color: Colors.white),
+          ),
+          action: isCriticoVeiculo
+              ? SnackBarAction(
+                  label: 'Veículos',
+                  textColor: Colors.white,
+                  onPressed: () {
+                    Navigator.of(context).push(
+                      MaterialPageRoute<void>(
+                        builder: (_) => const GerenciarVeiculosScreen(),
+                      ),
+                    );
+                  },
+                )
+              : SnackBarAction(
+                  label: 'OK',
+                  textColor: Colors.white,
+                  onPressed: () {
+                    ScaffoldMessenger.of(context).hideCurrentSnackBar();
+                  },
+                ),
+        ),
+      );
+    } catch (e) {
+      debugPrint('[_consumirFeedbackFalhaAceite] $e');
+    }
+  }
+
+  /// Para cada snapshot do `_pedidosStream`, se vejo um pedido cujo
+  /// `entregador_id == _uid` (backend já gravou o aceite), libero o
+  /// bloqueio local pra que o radar mostre o pedido normalmente e
+  /// futuras re-ofertas (após uma recusa que não foi confirmada, p.ex.)
+  /// possam disparar a fullscreen de novo.
+  void _observarConfirmacoesBackend(QuerySnapshot snap) {
+    if (!mounted) return;
+    for (final doc in snap.docs) {
+      final data = doc.data() as Map<String, dynamic>?;
+      if (data == null) continue;
+      final entregadorId = data['entregador_id']?.toString().trim() ?? '';
+      if (entregadorId != _uid) continue;
+      final st = data['status'] as String? ?? '';
+      // Status pós-aceite: aceite confirmado pelo backend.
+      if (st == PedidoStatus.entregadorIndoLoja ||
+          st == PedidoStatus.aCaminho ||
+          st == PedidoStatus.emRota ||
+          st == PedidoStatus.saiuEntrega) {
+        final removeu = _ofertasOcultadasLocalmente.remove(doc.id);
+        _ofertasDecididasNativas.remove(doc.id);
+        if (removeu) {
+          unawaited(
+            AndroidNavIntent.confirmarOfertaProcessadaPorBackend(doc.id),
+          );
+        }
+      }
+    }
+  }
+
+  /// Chave de preferência que guarda a escolha do entregador para o
+  /// ícone flutuante. A política é:
+  ///   - Ligado: o ícone APARECE sempre que o app entra em background
+  ///     (paused), ficando escondido enquanto o app está em foreground
+  ///     (para não sobrepor a UI).
+  ///   - Desligado: nunca aparece.
+  ///
+  /// Esta preferência é preservada entre navegações de aba (Perfil,
+  /// Vitrine) e entre reinícios do app. Só é alterada por duas ações:
+  ///   - O entregador tocar no switch manualmente (on/off).
+  ///   - O entregador ficar OFFLINE (o ícone é limpado automaticamente).
+  static const String _kPrefFloatingIconLigado =
+      'entregador.floating_icon_ligado';
+
+  Future<bool> _lerPrefFloatingIcon() async {
+    try {
+      final prefs = await SharedPreferences.getInstance();
+      return prefs.getBool(_kPrefFloatingIconLigado) ?? false;
+    } catch (_) {
+      return false;
+    }
+  }
+
+  Future<void> _salvarPrefFloatingIcon(bool ligado) async {
+    try {
+      final prefs = await SharedPreferences.getInstance();
+      await prefs.setBool(_kPrefFloatingIconLigado, ligado);
+    } catch (_) {}
+  }
+
+  /// Sincroniza o estado do widget (`_floatingIconAtivo`) com a
+  /// preferência persistida e garante que, enquanto o app estiver em
+  /// foreground, o serviço nativo não desenhe o ícone por cima da UI.
+  ///
+  /// **Importante**: esta função **NÃO** desliga a preferência quando
+  /// encontra o serviço rodando. Antes a gente fazia isso e o resultado
+  /// era o bug reportado em 04/2026 ("entregador vai pra aba Perfil/
+  /// Vitrine e o ícone desaparece"). A preferência só muda por ação
+  /// manual no switch ou quando o entregador fica offline.
+  Future<void> _syncFloatingIconState() async {
+    final pref = await _lerPrefFloatingIcon();
+    // Em foreground, nunca queremos o ícone desenhado. Se estiver
+    // rodando por alguma razão (app retornou de background, OEM que
+    // re-subiu o serviço), mandamos parar — sem tocar na preferência.
+    try {
+      final running = await AndroidNavIntent.isFloatingIconRunning();
+      if (running) {
+        await AndroidNavIntent.stopFloatingIcon();
+      }
+    } catch (_) {}
+    if (!mounted) return;
+    if (pref != _floatingIconAtivo) {
+      setState(() => _floatingIconAtivo = pref);
     }
   }
 
@@ -175,17 +368,41 @@ class _EntregadorDashboardScreenState extends State<EntregadorDashboardScreen>
     if (state == AppLifecycleState.resumed) {
       unawaited(_contarPendenciasPermissao());
       unawaited(_ocultarFloatingIconEnquantoAppAberto());
+      // App veio do background (incluindo retorno da fullscreen nativa
+      // após Aceitar/Recusar). Re-importa o set de ofertas decididas
+      // localmente — janela crítica do bug "ACEITAR → some → ACEITAR".
+      unawaited(_carregarOfertasProcessadasLocais());
+      // Pode haver uma falha de aceite registrada enquanto a callable
+      // rodava em background — exibe SnackBar agora que estamos visíveis.
+      unawaited(_consumirFeedbackFalhaAceite());
     } else if (state == AppLifecycleState.paused) {
-      if (_floatingIconAtivo) {
-        unawaited(AndroidNavIntent.startFloatingIcon());
-      }
+      // Respeita a PREFERÊNCIA do entregador (persistida). Não usa
+      // apenas o flag em memória porque, dependendo de navegações
+      // entre abas (Perfil/Vitrine) e re-montagens de widget, a
+      // variável `_floatingIconAtivo` pode estar num estado
+      // transitório. A verdade sobre "o entregador quer o ícone?"
+      // mora no SharedPreferences.
+      unawaited(_ligarFloatingIconSePreferido());
     }
+  }
+
+  Future<void> _ligarFloatingIconSePreferido() async {
+    if (kIsWeb || defaultTargetPlatform != TargetPlatform.android) return;
+    final pref = await _lerPrefFloatingIcon();
+    if (!pref) return;
+    try {
+      await AndroidNavIntent.startFloatingIcon();
+    } catch (_) {}
   }
 
   Future<void> _ocultarFloatingIconEnquantoAppAberto() async {
     if (kIsWeb || defaultTargetPlatform != TargetPlatform.android) return;
-    if (!_floatingIconAtivo) return;
-    await AndroidNavIntent.stopFloatingIcon();
+    // Para o ícone em foreground INDEPENDENTE da preferência — evita
+    // desenhar a bolha por cima da própria UI do app. A preferência
+    // continua intacta para o próximo pause.
+    try {
+      await AndroidNavIntent.stopFloatingIcon();
+    } catch (_) {}
   }
 
   Future<void> _garantirOnlineApenasComAcaoManual() async {
@@ -242,7 +459,68 @@ class _EntregadorDashboardScreenState extends State<EntregadorDashboardScreen>
     unawaited(CorridaChamadaEntregadorAudio.parar());
     _audioPlayer.dispose();
     _pararRastreioGps();
+    unawaited(_ofertaFullscreenSub?.cancel());
+    _ofertaFullscreenSub = null;
+    unawaited(_confirmacoesBackendSub?.cancel());
+    _confirmacoesBackendSub = null;
     super.dispose();
+  }
+
+  /// Recebe **apenas** os pedidos cujo backend já gravou
+  /// `despacho_oferta_uid == este entregador`. Para cada um, dispara
+  /// `_sincronizarSomChamadaOferta` — que abre a tela oficial de chamada
+  /// (`IncomingDeliveryActivity` no Android) e o som.
+  ///
+  /// Faz isso fora do build da lista pra não depender do
+  /// `SliverChildBuilderDelegate.builder` ter renderizado o item — assim a
+  /// fullscreen aparece imediatamente quando a oferta passa a ser minha,
+  /// independentemente de qual aba/scroll position o entregador está.
+  ///
+  /// **Importante**: antes de processar, sincroniza com o estado nativo
+  /// `MainActivity.ofertasProcessadasLocais` para NÃO reabrir a fullscreen
+  /// de uma oferta que o entregador acabou de aceitar/recusar (entre o
+  /// tap e o backend gravar `entregador_id`/`despacho_recusados`). Sem
+  /// essa guarda, o widget recriado por `pushNamedAndRemoveUntil` cai
+  /// no loop "ACEITAR → some → ACEITAR de novo".
+  Future<void> _processarOfertasParaMim(QuerySnapshot snap) async {
+    if (!mounted) return;
+    if (snap.docs.isEmpty) return;
+    try {
+      final processadas = await AndroidNavIntent.getOfertasProcessadasLocais();
+      _ofertasDecididasNativas
+        ..clear()
+        ..addAll(processadas);
+      processadas.forEach((id, _) => _ofertasOcultadasLocalmente.add(id));
+    } catch (e) {
+      debugPrint('[_processarOfertasParaMim] sync nativo: $e');
+    }
+    if (!mounted) return;
+    for (final doc in snap.docs) {
+      final data = doc.data() as Map<String, dynamic>?;
+      if (data == null) continue;
+      // Compara o seq atual do Firestore com o seq armazenado quando o
+      // entregador decidiu localmente. Se o backend emitiu uma NOVA
+      // oferta (re-dispatch após recusa/expiração), o seq aumenta e o
+      // lock local é liberado automaticamente — o entregador volta a
+      // receber a fullscreen normalmente.
+      final seqAtual =
+          (data['despacho_oferta_seq'] as num?)?.toInt() ?? 0;
+      final seqDecididoLocal = _ofertasDecididasNativas[doc.id];
+      if (seqDecididoLocal != null && seqAtual <= seqDecididoLocal) {
+        // Mesma oferta da última decisão local → ainda esperando backend
+        // processar. Não toca/abre fullscreen.
+        continue;
+      }
+      if (seqDecididoLocal != null && seqAtual > seqDecididoLocal) {
+        // Re-dispatch confirmado: libera o lock local (nativo + memória).
+        _ofertasDecididasNativas.remove(doc.id);
+        _ofertasOcultadasLocalmente.remove(doc.id);
+        unawaited(
+          AndroidNavIntent.confirmarOfertaProcessadaPorBackend(doc.id),
+        );
+      }
+      _sincronizarSomChamadaOferta(doc.id, data);
+    }
   }
 
   Future<void> _mudarStatusTrabalho(bool ficarOnline) async {
@@ -255,8 +533,16 @@ class _EntregadorDashboardScreenState extends State<EntregadorDashboardScreen>
         _iniciarRastreioGps();
       } else {
         _pararRastreioGps();
+        // Ao ficar offline, o ícone flutuante deixa de fazer sentido
+        // (não vai haver oferta). Limpa o serviço nativo E a
+        // preferência persistida — conforme política: fica offline =
+        // desliga o ícone. Ao voltar online, o entregador precisa
+        // reativar o switch manualmente.
         if (_floatingIconAtivo) {
-          await AndroidNavIntent.stopFloatingIcon();
+          try {
+            await AndroidNavIntent.stopFloatingIcon();
+          } catch (_) {}
+          await _salvarPrefFloatingIcon(false);
           if (mounted) setState(() => _floatingIconAtivo = false);
         }
       }
@@ -512,10 +798,20 @@ class _EntregadorDashboardScreenState extends State<EntregadorDashboardScreen>
 
   /// Oferta direcionada: só o alvo vê. Sem alvo: entregadores num raio de
   /// 40 km veem o pedido no radar (informacional, sem botões de ação).
+  ///
+  /// Também aplica o filtro de compatibilidade de veículo: se a loja configurou
+  /// `tipos_entrega_permitidos` (snapshot em `tipos_entrega_permitidos_loja`
+  /// no pedido), o entregador só enxerga o pedido se seu
+  /// `tipo_veiculo_canonico` estiver na lista aceita. Isso mantém o radar
+  /// consistente com o critério de despacho — um entregador de moto não vê
+  /// pedidos de lojas que aceitam só `carro`/`carro_frete`, e vice-versa.
+  /// Pedidos sem snapshot (lojas legado sem config) continuam visíveis para
+  /// todos, preservando retrocompatibilidade.
   bool _entregadorPodeVerPedidoNaLista(
     Map<String, dynamic> data, {
     double? latEntregador,
     double? lonEntregador,
+    String? tipoVeiculoCanonicoEntregador,
   }) {
     final st = data['status'] as String? ?? '';
     if (st == PedidoStatus.emRota && data['entregador_id'] != _uid) {
@@ -529,20 +825,71 @@ class _EntregadorDashboardScreenState extends State<EntregadorDashboardScreen>
       return false;
     }
     if (st == PedidoStatus.aguardandoEntregador) {
+      // Despacho sequencial estrito (regra do produto):
+      //
+      //   1. O pedido só aparece para o entregador atualmente atribuído
+      //      pelo backend — ou seja, `despacho_oferta_uid == _uid`.
+      //   2. Os outros entregadores compatíveis NÃO veem o pedido no
+      //      radar enquanto a oferta está com outra pessoa, mesmo
+      //      estando próximos. A corrida deixa de ser "pública".
+      //   3. Se a oferta expirou (`despacho_oferta_expira_em` no
+      //      passado), também não mostro mais — o backend vai re-rotear
+      //      pro próximo da fila num batimento subsequente.
+      //
+      // Com isso, a tela Radar do entregador é, em essência, um espelho
+      // do estado: "a chamada está vindo pra mim?". Sem listas de
+      // pedidos abertos.
+      final alvo = _despachoUidCampo(data['despacho_oferta_uid']);
+      if (alvo != _uid) {
+        return false;
+      }
+
+      // Categoria: paridade com backend `construirFilaEntregadores`. Se
+      // houver `tipo_entrega_solicitado`, só entregadores **desse tipo
+      // exato** veem; senão, cai no `tipos_entrega_permitidos_loja`. Esta
+      // checagem é defensiva — o backend já só atribui `despacho_oferta_uid`
+      // pra entregadores compatíveis, mas mantemos a guarda no app.
+      final tiposAceitosLoja = TiposEntrega.normalizarLista(
+        data['tipos_entrega_permitidos_loja'],
+      );
+      final tipoSolicitado = TiposEntrega.normalizarTipoSolicitado(
+        data['tipo_entrega_solicitado'],
+      );
+      final List<String> tiposElegiveis;
+      if (tipoSolicitado.isNotEmpty) {
+        tiposElegiveis = <String>[tipoSolicitado];
+      } else if (tiposAceitosLoja.length == 1) {
+        tiposElegiveis = <String>[tiposAceitosLoja.first];
+      } else {
+        tiposElegiveis = tiposAceitosLoja;
+      }
+      final tipoEntregador = (tipoVeiculoCanonicoEntregador ?? '')
+          .trim()
+          .toLowerCase();
+      if (tiposElegiveis.isNotEmpty) {
+        if (tipoEntregador.isEmpty) {
+          return false;
+        }
+        if (!TiposEntrega.compativel(tipoEntregador, tiposElegiveis)) {
+          return false;
+        }
+      }
+
+      // Expirado? então não mostra — backend está prestes a reatribuir.
+      final expiraTs = data['despacho_oferta_expira_em'];
+      if (expiraTs is Timestamp) {
+        if (DateTime.now().isAfter(expiraTs.toDate())) {
+          return false;
+        }
+      }
+
+      // Recusados nunca recebem a mesma oferta — nem no radar.
       final List<dynamic> recusados = data['despacho_recusados'] ?? const [];
       if (recusados.map((e) => e.toString()).contains(_uid)) {
         return false;
       }
-      final alvo = _despachoUidCampo(data['despacho_oferta_uid']);
-      if (alvo == _uid) return true;
-      if (alvo.isNotEmpty) return false;
-      const raioRadarSemAlvoKm = 40.0;
-      final km = _kmDistanciaLojaEntregador(
-        data,
-        latEntregador: latEntregador,
-        lonEntregador: lonEntregador,
-      );
-      return km == null || km <= raioRadarSemAlvoKm;
+
+      return true;
     }
     return true;
   }
@@ -1290,29 +1637,21 @@ class _EntregadorDashboardScreenState extends State<EntregadorDashboardScreen>
         _pedidosAbrindoConfirmacaoCancelamento.add(pedidoId);
       });
     }
-    // Não bloqueia a confirmação aguardando áudio; popup precisa abrir instantâneo.
     unawaited(_pararSomChamada());
     await Future<void>.delayed(Duration.zero);
+    if (!mounted) {
+      _pedidosAbrindoConfirmacaoCancelamento.remove(pedidoId);
+      return;
+    }
 
-    final confirmar = await showDialog<bool>(
-      context: context,
-      useRootNavigator: true,
-      builder: (ctx) => AlertDialog(
-        title: const Text('Cancelar entrega'),
-        content: const Text('Tem certeza que deseja cancelar esta entrega?'),
-        actions: [
-          TextButton(
-            onPressed: () => Navigator.of(ctx).pop(false),
-            child: const Text('Voltar'),
-          ),
-          FilledButton(
-            style: FilledButton.styleFrom(backgroundColor: Colors.red),
-            onPressed: () => Navigator.of(ctx).pop(true),
-            child: const Text('Confirmar'),
-          ),
-        ],
-      ),
-    );
+    // Diálogo com 2 motivos:
+    //   - 'normal'      → entregadorCancelarCorridaERedespachar (cancelamento
+    //                     do entregador, pode impactar métricas — coleta
+    //                     observação opcional no próximo passo)
+    //   - 'incompat'    → entregadorCancelarPorIncompatibilidade (sem
+    //                     penalidade, cancela direto e devolve o controle
+    //                     ao lojista via painel)
+    final motivo = await _showDialogCancelarEntrega(context);
     if (mounted) {
       setState(() {
         _pedidosAbrindoConfirmacaoCancelamento.remove(pedidoId);
@@ -1321,7 +1660,15 @@ class _EntregadorDashboardScreenState extends State<EntregadorDashboardScreen>
       _pedidosAbrindoConfirmacaoCancelamento.remove(pedidoId);
     }
 
-    if (confirmar != true) return;
+    if (motivo == null) return;
+
+    if (motivo == 'incompat') {
+      // UX (solicitado pelo lojista em 04/2026): cancelar DIRETO sem pedir
+      // observação. O painel do lojista já mostra a mensagem padronizada
+      // `despacho_msg_busca_entregador` quando este motivo acontece.
+      await _cancelarEntregaPorIncompatibilidade(pedidoId);
+      return;
+    }
 
     if (mounted) {
       setState(() => _cancelandoPedidoId = pedidoId);
@@ -1403,6 +1750,179 @@ class _EntregadorDashboardScreenState extends State<EntregadorDashboardScreen>
       ScaffoldMessenger.of(context).showSnackBar(
         SnackBar(
           content: Text('Não foi possível cancelar a entrega: $e'),
+          backgroundColor: Colors.red,
+        ),
+      );
+    } finally {
+      if (mounted) {
+        setState(() {
+          if (_cancelandoPedidoId == pedidoId) {
+            _cancelandoPedidoId = null;
+          }
+        });
+      }
+    }
+  }
+
+  /// Diálogo profissional que coleta o motivo do cancelamento.
+  ///
+  /// Retorna:
+  ///   - `'incompat'` — o produto não cabe / não é seguro no veículo do
+  ///     entregador. Cancela sem penalidade e devolve ao lojista.
+  ///   - `'normal'`   — qualquer outro motivo. Continua fluxo antigo de
+  ///     cancelamento + re-despacho automático.
+  ///   - `null`       — usuário fechou o diálogo sem confirmar.
+  Future<String?> _showDialogCancelarEntrega(BuildContext rootContext) {
+    return showDialog<String>(
+      context: rootContext,
+      useRootNavigator: true,
+      barrierColor: Colors.black.withValues(alpha: 0.55),
+      builder: (ctx) {
+        final theme = Theme.of(ctx);
+        return Dialog(
+          insetPadding: const EdgeInsets.symmetric(
+            horizontal: 20,
+            vertical: 24,
+          ),
+          shape: RoundedRectangleBorder(
+            borderRadius: BorderRadius.circular(20),
+          ),
+          elevation: 16,
+          child: ConstrainedBox(
+            constraints: const BoxConstraints(maxWidth: 420),
+            child: Padding(
+              padding: const EdgeInsets.fromLTRB(22, 22, 22, 16),
+              child: Column(
+                mainAxisSize: MainAxisSize.min,
+                crossAxisAlignment: CrossAxisAlignment.stretch,
+                children: [
+                  Row(
+                    children: [
+                      Container(
+                        width: 42,
+                        height: 42,
+                        decoration: BoxDecoration(
+                          color: Colors.red.shade50,
+                          borderRadius: BorderRadius.circular(12),
+                        ),
+                        alignment: Alignment.center,
+                        child: Icon(
+                          Icons.warning_amber_rounded,
+                          color: Colors.red.shade700,
+                          size: 24,
+                        ),
+                      ),
+                      const SizedBox(width: 12),
+                      Expanded(
+                        child: Text(
+                          'Cancelar entrega',
+                          style: theme.textTheme.titleLarge?.copyWith(
+                            fontWeight: FontWeight.w700,
+                            color: Colors.grey.shade900,
+                          ),
+                        ),
+                      ),
+                    ],
+                  ),
+                  const SizedBox(height: 14),
+                  Text(
+                    'Qual o motivo? A escolha correta mantém seu histórico '
+                    'limpo e ajuda a plataforma a prevenir problemas.',
+                    style: theme.textTheme.bodyMedium?.copyWith(
+                      color: Colors.grey.shade700,
+                      height: 1.4,
+                    ),
+                  ),
+                  const SizedBox(height: 18),
+                  _CancelOptionTile(
+                    icon: Icons.report_gmailerrorred_outlined,
+                    iconColor: Colors.orange.shade700,
+                    iconBg: Colors.orange.shade50,
+                    title: 'Produto incompatível',
+                    subtitle:
+                        'Não cabe ou não é seguro no seu veículo. '
+                        'Sem penalidade — o lojista é notificado.',
+                    onTap: () => Navigator.of(ctx).pop('incompat'),
+                  ),
+                  const SizedBox(height: 10),
+                  _CancelOptionTile(
+                    icon: Icons.edit_note_outlined,
+                    iconColor: Colors.blueGrey.shade700,
+                    iconBg: Colors.blueGrey.shade50,
+                    title: 'Outro motivo',
+                    subtitle:
+                        'Cancelar e permitir que o sistema busque outro '
+                        'entregador automaticamente.',
+                    onTap: () => Navigator.of(ctx).pop('normal'),
+                  ),
+                  const SizedBox(height: 16),
+                  Align(
+                    alignment: Alignment.centerRight,
+                    child: TextButton(
+                      onPressed: () => Navigator.of(ctx).pop(null),
+                      style: TextButton.styleFrom(
+                        foregroundColor: Colors.grey.shade700,
+                        padding: const EdgeInsets.symmetric(
+                          horizontal: 16,
+                          vertical: 10,
+                        ),
+                      ),
+                      child: const Text(
+                        'Voltar',
+                        style: TextStyle(fontWeight: FontWeight.w600),
+                      ),
+                    ),
+                  ),
+                ],
+              ),
+            ),
+          ),
+        );
+      },
+    );
+  }
+
+  /// Cancelamento SEM penalidade — o produto é incompatível com o veículo
+  /// ativo do entregador. Chama o callable diretamente (sem segundo diálogo
+  /// de observação, por UX solicitada em 04/2026). O callable:
+  ///   - NÃO registra cancelamento "negativo" no perfil do entregador
+  ///   - Volta o pedido para `em_preparo` e anexa alerta ao lojista
+  ///   - NÃO re-despacha automaticamente — o lojista vê a mensagem no
+  ///     painel e decide chamar outro entregador
+  Future<void> _cancelarEntregaPorIncompatibilidade(String pedidoId) async {
+    if (mounted) {
+      setState(() => _cancelandoPedidoId = pedidoId);
+    }
+    try {
+      final callable = appFirebaseFunctions.httpsCallable(
+        'entregadorCancelarPorIncompatibilidade',
+      );
+      await callable.call<Map<String, dynamic>>(<String, dynamic>{
+        'pedidoId': pedidoId,
+        // Observação é opcional no backend — passamos string vazia pra
+        // manter compatibilidade com versões antigas do callable.
+        'observacao': '',
+      });
+
+      if (!mounted) return;
+      setState(() {
+        _pedidosIndoCliente.remove(pedidoId);
+        _pedidosSolicitarCodigo.remove(pedidoId);
+      });
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(
+          content: Text(
+            'Entrega cancelada sem penalidade. O lojista foi avisado e vai solicitar outro entregador.',
+          ),
+          backgroundColor: Colors.orange,
+          duration: Duration(seconds: 4),
+        ),
+      );
+    } catch (e) {
+      if (!mounted) return;
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(
+          content: Text('Não foi possível cancelar: $e'),
           backgroundColor: Colors.red,
         ),
       );
@@ -2155,6 +2675,13 @@ class _EntregadorDashboardScreenState extends State<EntregadorDashboardScreen>
                         final lonE =
                             _toDoubleOrNull(dadosEntregador['longitude']) ??
                             _lonAtualLocal;
+                        final tipoVeiculoEntregador =
+                            TiposEntrega.normalizarTipoVeiculo(
+                              dadosEntregador['tipo_veiculo_canonico'] ??
+                                  dadosEntregador['veiculoTipo'] ??
+                                  dadosEntregador['veiculo'] ??
+                                  dadosEntregador['tipo_veiculo'],
+                            );
 
                         final allDocs = snapshotPedidos.data!.docs;
                         final estouIndoParaLoja = allDocs.any((d) {
@@ -2180,6 +2707,8 @@ class _EntregadorDashboardScreenState extends State<EntregadorDashboardScreen>
                             data,
                             latEntregador: latE,
                             lonEntregador: lonE,
+                            tipoVeiculoCanonicoEntregador:
+                                tipoVeiculoEntregador,
                           );
                         }).toList();
 
@@ -2953,9 +3482,18 @@ class _EntregadorDashboardScreenState extends State<EntregadorDashboardScreen>
                   );
                   if (!ok) return;
                 }
-                await AndroidNavIntent.startFloatingIcon();
+                // Persiste a preferência ANTES de chamar start, para
+                // que um lifecycle race-condition (pause logo após
+                // tocar) não ache pref=false e apague o ícone.
+                await _salvarPrefFloatingIcon(true);
+                try {
+                  await AndroidNavIntent.startFloatingIcon();
+                } catch (_) {}
               } else {
-                await AndroidNavIntent.stopFloatingIcon();
+                await _salvarPrefFloatingIcon(false);
+                try {
+                  await AndroidNavIntent.stopFloatingIcon();
+                } catch (_) {}
               }
               if (mounted) setState(() => _floatingIconAtivo = val);
             },
@@ -3541,6 +4079,93 @@ class _DialogEntregaConfirmada extends StatelessWidget {
                     child: const Text('Continuar'),
                   ),
                 ),
+              ),
+            ],
+          ),
+        ),
+      ),
+    );
+  }
+}
+
+/// Tile clicável usado dentro do diálogo "Cancelar entrega".
+///
+/// Mostra um ícone em um card colorido, o título em negrito e uma
+/// descrição curta em cinza. Ao ser tocado, invoca [onTap] — que os
+/// chamadores usam para retornar o motivo do cancelamento via
+/// `Navigator.pop`.
+class _CancelOptionTile extends StatelessWidget {
+  const _CancelOptionTile({
+    required this.icon,
+    required this.iconColor,
+    required this.iconBg,
+    required this.title,
+    required this.subtitle,
+    required this.onTap,
+  });
+
+  final IconData icon;
+  final Color iconColor;
+  final Color iconBg;
+  final String title;
+  final String subtitle;
+  final VoidCallback onTap;
+
+  @override
+  Widget build(BuildContext context) {
+    final theme = Theme.of(context);
+    return Material(
+      color: Colors.white,
+      borderRadius: BorderRadius.circular(14),
+      child: InkWell(
+        borderRadius: BorderRadius.circular(14),
+        onTap: onTap,
+        child: Ink(
+          decoration: BoxDecoration(
+            borderRadius: BorderRadius.circular(14),
+            border: Border.all(color: Colors.grey.shade300),
+          ),
+          padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 12),
+          child: Row(
+            crossAxisAlignment: CrossAxisAlignment.center,
+            children: [
+              Container(
+                width: 40,
+                height: 40,
+                decoration: BoxDecoration(
+                  color: iconBg,
+                  borderRadius: BorderRadius.circular(10),
+                ),
+                alignment: Alignment.center,
+                child: Icon(icon, color: iconColor, size: 22),
+              ),
+              const SizedBox(width: 12),
+              Expanded(
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    Text(
+                      title,
+                      style: theme.textTheme.titleSmall?.copyWith(
+                        fontWeight: FontWeight.w700,
+                        color: Colors.grey.shade900,
+                      ),
+                    ),
+                    const SizedBox(height: 2),
+                    Text(
+                      subtitle,
+                      style: theme.textTheme.bodySmall?.copyWith(
+                        color: Colors.grey.shade700,
+                        height: 1.35,
+                      ),
+                    ),
+                  ],
+                ),
+              ),
+              const SizedBox(width: 8),
+              Icon(
+                Icons.chevron_right_rounded,
+                color: Colors.grey.shade500,
               ),
             ],
           ),

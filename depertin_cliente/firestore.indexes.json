@@ -1,14 +1,6 @@
 {
   "indexes": [
     {
-      "collectionGroup": "documentos",
-      "queryScope": "COLLECTION_GROUP",
-      "fields": [
-        { "fieldPath": "status", "order": "ASCENDING" },
-        { "fieldPath": "__name__", "order": "ASCENDING" }
-      ]
-    },
-    {
       "collectionGroup": "achados",
       "queryScope": "COLLECTION",
       "fields": [
@@ -72,6 +64,14 @@
       "fields": [
         { "fieldPath": "status", "order": "ASCENDING" },
         { "fieldPath": "pix_expira_em", "order": "ASCENDING" }
+      ]
+    },
+    {
+      "collectionGroup": "pedidos",
+      "queryScope": "COLLECTION",
+      "fields": [
+        { "fieldPath": "status", "order": "ASCENDING" },
+        { "fieldPath": "despacho_oferta_uid", "order": "ASCENDING" }
       ]
     },
     {

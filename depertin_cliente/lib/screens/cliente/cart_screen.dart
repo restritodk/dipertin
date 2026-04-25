@@ -16,6 +16,7 @@ import '../../providers/cart_provider.dart';
 import '../../models/cart_item_model.dart';
 import '../../services/firebase_functions_config.dart';
 import '../../utils/loja_pausa.dart';
+import '../../constants/tipos_entrega.dart';
 
 const Color diPertinRoxo = Color(0xFF6A1B9A);
 const Color diPertinLaranja = Color(0xFFFF8F00);
@@ -61,6 +62,12 @@ class _CartScreenState extends State<CartScreen> {
   /// Memória detalhada da regra aplicada por loja (para mostrar a
   /// composição do frete no card Subtotal — auditoria visual).
   Map<String, _DetalheFreteLoja> _detalhesFretePorLoja = {};
+
+  /// Cache dos `tipos_entrega_permitidos` por loja (lido uma vez em
+  /// `_recalcularTaxaEntrega` e reaproveitado na criação dos pedidos para
+  /// persistir snapshot no subpedido). Chave = lojaId; valor = lista
+  /// canônica normalizada (pode estar vazia quando a loja é legado).
+  Map<String, List<String>> _tiposEntregaAceitosPorLoja = {};
   int _qtdPedidosUltimoCheckout = 1;
 
   double get _taxaEntregaReal => _retirarNaLoja ? 0.0 : _taxaEntregaCalculada;
@@ -313,21 +320,27 @@ class _CartScreenState extends State<CartScreen> {
     });
   }
 
-  /// Carrega a regra de frete respeitando o veículo alvo (`padrao` ou `carro`).
+  /// Carrega a regra de frete respeitando o tipo de veículo canônico aceito
+  /// pela loja (`bicicleta`, `moto`, `carro` ou `carro_frete`).
   ///
-  /// Regra do projeto: o frete padrão é SEMPRE moto/bike. A tabela de carro
-  /// só é acionada quando a loja marca `requer_veiculo_grande` em algum item
-  /// do carrinho (carga maior / volumoso).
+  /// A decisão de qual tipo usar é do `_recalcularTaxaEntrega`, que lê
+  /// `lojas_public/{lojaId}.tipos_entrega_permitidos` e aplica a regra
+  /// mestre do projeto: usar o tipo de MAIOR hierarquia aceito pela loja
+  /// (carro_frete > carro > moto > bicicleta).
   ///
-  /// Fallbacks:
-  /// - Se `veiculoAlvo == 'carro'` e não existir regra do carro para a cidade,
-  ///   caímos para a regra `padrao` (e deixamos isso explícito no detalhe).
-  /// - Se `veiculoAlvo == 'padrao'` e só existir `carro`, NÃO usamos carro
-  ///   (retorna `null` para cair no fallback fixo de [_taxaBaseFallback]).
+  /// Cadeia de fallback (ver [TiposEntrega.cadeiaFallbackTabela]):
+  /// - `carro_frete` → tenta `{cidade}_carro_frete` → `{cidade}_carro` → `{cidade}_padrao`
+  /// - `carro`       → tenta `{cidade}_carro` → `{cidade}_padrao`
+  /// - `moto`        → tenta `{cidade}_padrao`
+  /// - `bicicleta`   → tenta `{cidade}_padrao` (bike e moto compartilham tabela)
+  ///
+  /// `veiculoEfetivo` pode divergir de `veiculoAlvoCanonico` quando a
+  /// tabela preferida não existe e caímos em um fallback — é o valor
+  /// exibido no card Subtotal para auditoria visual.
   Future<({Map<String, dynamic> regra, String veiculoEfetivo})?>
   _carregarRegraFrete(
     String cidadeLoja, {
-    required String veiculoAlvo,
+    required String veiculoAlvoCanonico,
   }) async {
     final cidadeOriginal = cidadeLoja.trim().toLowerCase();
     final cidadeNormalizada = _normalizarCidadeFrete(cidadeLoja);
@@ -352,20 +365,21 @@ class _CartScreenState extends State<CartScreen> {
       }
     }
 
-    for (final id in <String>{
-      '${cidadeOriginal}_padrao',
-      '${cidadeOriginal}_carro',
-      '${cidadeNormalizada}_padrao',
-      '${cidadeNormalizada}_carro',
-      'todas_padrao',
-      'todas_carro',
-    }) {
-      final d = await getDoc(id);
-      if (d.exists) {
-        porId[id] = d.data() ?? <String, dynamic>{};
+    // Carrega todas as combinações por doc-id (compat com esquema atual).
+    // Inclui os 3 sufixos de tabela: `padrao`, `carro`, `carro_frete`.
+    const sufixosTabela = <String>['padrao', 'carro', 'carro_frete'];
+    for (final cidade in <String>{cidadeOriginal, cidadeNormalizada, 'todas'}) {
+      for (final sufixo in sufixosTabela) {
+        final id = '${cidade}_$sufixo';
+        final d = await getDoc(id);
+        if (d.exists) {
+          porId[id] = d.data() ?? <String, dynamic>{};
+        }
       }
     }
 
+    // Fallback por query (documentos que têm campo `cidade` mas nome
+    // diferente do convencional).
     for (final cidade in <String>{cidadeOriginal, cidadeNormalizada, 'todas'}) {
       final q = await getCidade(cidade);
       for (final doc in q.docs) {
@@ -375,14 +389,23 @@ class _CartScreenState extends State<CartScreen> {
 
     if (porId.isEmpty) return null;
 
-    String veiculoDaRegra(String id, Map<String, dynamic> dados) {
+    // Classifica cada regra por tabela canônica: `padrao` | `carro` | `carro_frete`.
+    String tabelaDaRegra(String id, Map<String, dynamic> dados) {
       final campo = (dados['veiculo'] ?? '').toString().toLowerCase();
+      if (campo.contains('frete') || campo.contains('fiorino') ||
+          campo.contains('pick') || campo.contains('kombi') ||
+          campo.contains('utilit') || campo == 'carro_frete') {
+        return 'carro_frete';
+      }
       if (campo.contains('carro')) return 'carro';
       if (campo.contains('moto') || campo.contains('bike') ||
           campo.contains('padr')) {
         return 'padrao';
       }
-      return id.endsWith('_carro') ? 'carro' : 'padrao';
+      // Heurística pelo id: {cidade}_carro_frete | {cidade}_carro | {cidade}_padrao
+      if (id.endsWith('_carro_frete')) return 'carro_frete';
+      if (id.endsWith('_carro')) return 'carro';
+      return 'padrao';
     }
 
     int cmpAtualizacao(
@@ -398,45 +421,43 @@ class _CartScreenState extends State<CartScreen> {
       return tb.compareTo(ta);
     }
 
-    final candidatasAlvo = porId.entries
-        .where((e) => veiculoDaRegra(e.key, e.value) == veiculoAlvo)
-        .toList()
-      ..sort(cmpAtualizacao);
-    if (candidatasAlvo.isNotEmpty) {
-      return (
-        regra: candidatasAlvo.first.value,
-        veiculoEfetivo: veiculoAlvo,
-      );
-    }
+    // Cadeia de preferência por tipo canônico (ver TiposEntrega.cadeiaFallbackTabela).
+    final cadeia = TiposEntrega.cadeiaFallbackTabela[veiculoAlvoCanonico] ??
+        const <String>['padrao'];
 
-    // Fallback: se pedi 'carro' e não há regra específica, uso 'padrao'.
-    if (veiculoAlvo == 'carro') {
-      final candidatasPadrao = porId.entries
-          .where((e) => veiculoDaRegra(e.key, e.value) == 'padrao')
+    for (final tabelaPreferida in cadeia) {
+      final candidatas = porId.entries
+          .where((e) => tabelaDaRegra(e.key, e.value) == tabelaPreferida)
           .toList()
         ..sort(cmpAtualizacao);
-      if (candidatasPadrao.isNotEmpty) {
+      if (candidatas.isNotEmpty) {
+        // `veiculoEfetivo` mantém o código canônico do alvo se a tabela
+        // bate; se caiu em fallback, sinaliza qual tabela foi usada.
+        final efetivo = tabelaPreferida == TiposEntrega.tabelaFretePorTipo[
+                veiculoAlvoCanonico]
+            ? veiculoAlvoCanonico
+            : tabelaPreferida;
         return (
-          regra: candidatasPadrao.first.value,
-          veiculoEfetivo: 'padrao',
+          regra: candidatas.first.value,
+          veiculoEfetivo: efetivo,
         );
       }
     }
 
-    // Se pedi 'padrao' e só há carro, NÃO uso (frete padrão é sagrado).
     return null;
   }
 
   /// Frete de uma loja até o endereço de entrega (mesma regra que o fluxo single-loja).
   ///
-  /// [veiculoAlvo] deve ser `'padrao'` (moto/bike) ou `'carro'`. O carrinho
-  /// escolhe `'carro'` apenas quando algum item do grupo da loja está marcado
-  /// como `requer_veiculo_grande` no painel do lojista.
+  /// [veiculoAlvoCanonico] é um dos 4 tipos canônicos
+  /// (`bicicleta` | `moto` | `carro` | `carro_frete`), derivado da config
+  /// `tipos_entrega_permitidos` da loja. Ver `TiposEntrega.maiorTipoDaLista`.
   Future<_DetalheFreteLoja> _resolverTaxaEntregaParaLoja({
     required String clienteId,
     required String lojaId,
     required String enderecoTexto,
-    required String veiculoAlvo,
+    required String veiculoAlvoCanonico,
+    required List<String> tiposAceitosLoja,
   }) async {
     // Fase 3G.2 — carrinho lê dados da loja em `lojas_public` (cidade + coords
     // para calcular frete). Dados sensíveis do lojista ficam em `users`.
@@ -453,23 +474,24 @@ class _CartScreenState extends State<CartScreen> {
         lojaId: lojaId,
         taxa: _taxaBaseFallback,
         motivo: 'Loja sem cidade/coordenadas cadastradas',
-        veiculoAlvo: veiculoAlvo,
+        veiculoAlvo: veiculoAlvoCanonico,
+        tiposAceitosLoja: tiposAceitosLoja,
       );
     }
 
     final resultado = await _carregarRegraFrete(
       cidadeLoja,
-      veiculoAlvo: veiculoAlvo,
+      veiculoAlvoCanonico: veiculoAlvoCanonico,
     );
     if (resultado == null) {
       return _DetalheFreteLoja.fallback(
         lojaId: lojaId,
         taxa: _taxaBaseFallback,
-        motivo: veiculoAlvo == 'carro'
-            ? 'Sem tabela de frete (carro/padrão) para $cidadeLoja'
-            : 'Sem tabela de frete (padrão) para $cidadeLoja',
+        motivo: 'Sem tabela de frete para $cidadeLoja '
+            '(alvo: ${TiposEntrega.rotulo(veiculoAlvoCanonico)})',
         cidade: cidadeLoja,
-        veiculoAlvo: veiculoAlvo,
+        veiculoAlvo: veiculoAlvoCanonico,
+        tiposAceitosLoja: tiposAceitosLoja,
       );
     }
 
@@ -497,8 +519,9 @@ class _CartScreenState extends State<CartScreen> {
       return _DetalheFreteLoja(
         lojaId: lojaId,
         cidade: cidadeLoja,
-        veiculoAlvo: veiculoAlvo,
+        veiculoAlvo: veiculoAlvoCanonico,
         veiculoEfetivo: resultado.veiculoEfetivo,
+        tiposAceitosLoja: tiposAceitosLoja,
         base: base,
         distanciaBaseKm: distBase,
         valorKmAdicional: extraKm,
@@ -517,8 +540,9 @@ class _CartScreenState extends State<CartScreen> {
     return _DetalheFreteLoja(
       lojaId: lojaId,
       cidade: cidadeLoja,
-      veiculoAlvo: veiculoAlvo,
+      veiculoAlvo: veiculoAlvoCanonico,
       veiculoEfetivo: resultado.veiculoEfetivo,
+      tiposAceitosLoja: tiposAceitosLoja,
       base: base,
       distanciaBaseKm: distBase,
       valorKmAdicional: extraKm,
@@ -527,6 +551,42 @@ class _CartScreenState extends State<CartScreen> {
       taxa: double.parse(taxa.toStringAsFixed(2)),
       fallback: false,
     );
+  }
+
+  /// Lê `tipos_entrega_permitidos` da loja em `lojas_public/{lojaId}`.
+  ///
+  /// **Retorna lista vazia** quando `lojas_public` ainda não espelha a config
+  /// (ex.: espelho desatualizado antes de a loja fazer qualquer edição após
+  /// o deploy do trigger `sincronizarLojaPublicOnWrite`). Isso é PROPOSITAL:
+  ///
+  /// - o cliente não pode ler `users/{lojaId}` por rules de segurança;
+  /// - se cairmos em default adivinhado aqui, arriscamos gravar um snapshot
+  ///   ERRADO em `pedidos/{id}.tipos_entrega_permitidos_loja`, que por sua
+  ///   vez filtra entregadores incompatíveis na corrida;
+  /// - snapshot vazio faz o backend (`obterTiposEntregaDaLoja`) resolver
+  ///   pela fonte da verdade (`users/{lojaId}`) com admin SDK.
+  ///
+  /// Nunca lança — em caso de erro retorna lista vazia.
+  Future<List<String>> _lerTiposEntregaAceitos({
+    required String lojaId,
+    required List<CartItemModel> itensDaLoja,
+  }) async {
+    try {
+      final snap = await FirebaseFirestore.instance
+          .collection('lojas_public')
+          .doc(lojaId)
+          .get();
+      final data = snap.data();
+      final config = TiposEntrega.lerDeDoc(data);
+      if (config.isNotEmpty) return config;
+      debugPrint(
+        '[tipos_entrega] lojas_public/$lojaId sem config — '
+        'snapshot ficará vazio e o backend resolverá pela fonte da verdade.',
+      );
+    } catch (e) {
+      debugPrint('[tipos_entrega] erro lendo lojas_public/$lojaId: $e');
+    }
+    return const <String>[];
   }
 
   Future<void> _recalcularTaxaEntrega() async {
@@ -558,6 +618,7 @@ class _CartScreenState extends State<CartScreen> {
 
     final taxas = <String, double>{};
     final detalhes = <String, _DetalheFreteLoja>{};
+    final tiposPorLoja = <String, List<String>>{};
     var soma = 0.0;
     _DetalheFreteLoja? primeiroDetalhe;
     var qtdFalhas = 0;
@@ -567,29 +628,27 @@ class _CartScreenState extends State<CartScreen> {
     // SÓ pra essa loja e continuamos calculando as demais.
     for (final lojaId in lojaIds) {
       final itens = grupos[lojaId] ?? const <CartItemModel>[];
-      // Blindagem contra itens carregados do SharedPreferences antes de
-      // o campo `requerVeiculoGrande` existir (ou contra hot-reload que
-      // deixa instâncias antigas sem o slot) — tratamos qualquer erro de
-      // acesso como "não volumoso".
-      bool precisaCarro = false;
-      for (final item in itens) {
-        try {
-          if (item.requerVeiculoGrande == true) {
-            precisaCarro = true;
-            break;
-          }
-        } catch (_) {
-          // ignore — instância antiga sem o campo, trata como padrão
-        }
-      }
-      final veiculoAlvo = precisaCarro ? 'carro' : 'padrao';
+
+      // Lê os tipos de entrega aceitos pela loja (com fallback legado).
+      final tiposAceitos = await _lerTiposEntregaAceitos(
+        lojaId: lojaId,
+        itensDaLoja: itens,
+      );
+      tiposPorLoja[lojaId] = tiposAceitos;
+
+      // Regra mestre: usa o tipo de MAIOR hierarquia aceito pela loja.
+      // Se loja aceita [bike,moto,carro] → calcula como carro (mais caro).
+      // Se loja aceita só [carro_frete] → calcula como carro_frete.
+      final veiculoAlvoCanonico = TiposEntrega.maiorTipoDaLista(tiposAceitos) ??
+          TiposEntrega.codMoto;
 
       try {
         final det = await _resolverTaxaEntregaParaLoja(
           clienteId: user.uid,
           lojaId: lojaId,
           enderecoTexto: endereco,
-          veiculoAlvo: veiculoAlvo,
+          veiculoAlvoCanonico: veiculoAlvoCanonico,
+          tiposAceitosLoja: tiposAceitos,
         );
         taxas[lojaId] = det.taxa;
         detalhes[lojaId] = det;
@@ -603,7 +662,8 @@ class _CartScreenState extends State<CartScreen> {
           lojaId: lojaId,
           taxa: _taxaBaseFallback,
           motivo: 'Erro ao calcular frete — usando valor padrão',
-          veiculoAlvo: veiculoAlvo,
+          veiculoAlvo: veiculoAlvoCanonico,
+          tiposAceitosLoja: tiposAceitos,
         );
         detalhes[lojaId] = fallbackDet;
         soma += _taxaBaseFallback;
@@ -618,6 +678,7 @@ class _CartScreenState extends State<CartScreen> {
     setState(() {
       _taxaEntregaPorLoja = taxas;
       _detalhesFretePorLoja = detalhes;
+      _tiposEntregaAceitosPorLoja = tiposPorLoja;
       _taxaEntregaCalculada = _round2(soma);
       if (lojaIds.length > 1) {
         final sufixo = qtdFalhas > 0 ? ' (frete padrão em $qtdFalhas)' : '';
@@ -1457,6 +1518,18 @@ class _CartScreenState extends State<CartScreen> {
       final subL = _subtotalItensLista(listaItens);
       final taxaL = _retirarNaLoja ? 0.0 : (_taxaEntregaPorLoja[lojaId] ?? 0.0);
 
+      // Snapshot dos tipos aceitos pela loja no momento do checkout.
+      // Usado pelo backend para filtrar entregadores compatíveis (Fase 3)
+      // e auditoria — mesmo que a loja altere depois, o pedido preserva
+      // a regra do momento da compra.
+      final tiposAceitosLoja = _tiposEntregaAceitosPorLoja[lojaId] ??
+          const <String>[];
+      final veiculoAlvoFrete = _detalhesFretePorLoja[lojaId]?.veiculoAlvo ??
+          TiposEntrega.maiorTipoDaLista(tiposAceitosLoja) ??
+          TiposEntrega.codMoto;
+      final freteTabelaEfetiva =
+          _detalhesFretePorLoja[lojaId]?.veiculoEfetivo ?? veiculoAlvoFrete;
+
       final docPayload = <String, dynamic>{
         'cliente_id': clienteId,
         'cliente_nome': identidadeCliente['nome'] ?? '',
@@ -1513,6 +1586,17 @@ class _CartScreenState extends State<CartScreen> {
         'checkout_grupo_lider': isLider,
         if (precisaMpUnificado && isLider)
           'checkout_valor_mp_total_cobranca': totalFinal,
+        // Logística por tipos de entrega aceitos pela loja (Fase 2):
+        // - `tipos_entrega_permitidos_loja`: snapshot no momento do checkout
+        //   (usado pelo filtro de entregadores; imutável após criação).
+        // - `veiculo_alvo_frete`: tipo canônico de maior hierarquia escolhido
+        //   para calcular o frete (ex.: "carro" quando loja aceita moto+carro).
+        // - `frete_tabela_efetiva`: tabela que REALMENTE bateu (pode divergir
+        //   do alvo quando caímos em fallback; útil para auditoria).
+        if (tiposAceitosLoja.isNotEmpty)
+          'tipos_entrega_permitidos_loja': tiposAceitosLoja,
+        'veiculo_alvo_frete': veiculoAlvoFrete,
+        'frete_tabela_efetiva': freteTabelaEfetiva,
       };
 
       batch.set(refs[i], docPayload);
@@ -1819,39 +1903,37 @@ class _CartScreenState extends State<CartScreen> {
       );
     } else if (detalhes.length == 1) {
       final d = detalhes.values.first;
-      conteudo = Column(
-        crossAxisAlignment: CrossAxisAlignment.start,
-        mainAxisSize: MainAxisSize.min,
-        children: [
-          Text(
-            d.resumoCurto(),
-            style: TextStyle(
-              fontSize: 12,
-              color: Colors.grey[700],
-              height: 1.35,
-            ),
-          ),
-          if (d.veiculoAlvo == 'carro' && d.veiculoEfetivo == 'padrao') ...[
-            const SizedBox(height: 4),
-            Text(
-              'A loja não tem tabela de carro cadastrada para a cidade — '
-              'estamos aplicando a tabela padrão.',
-              style: TextStyle(
-                fontSize: 11,
-                color: Colors.orange[800],
-                fontStyle: FontStyle.italic,
-              ),
-            ),
-          ],
-        ],
+      conteudo = Text(
+        d.fallback
+            ? (d.motivo ?? 'Frete padrão aplicado.')
+            : 'Frete calculado pela loja conforme a distância até o endereço.',
+        style: TextStyle(
+          fontSize: 12,
+          color: Colors.grey[700],
+          height: 1.35,
+        ),
       );
     } else {
+      final nomesPorLoja = <String, String>{};
+      for (final item in context.read<CartProvider>().items) {
+        final id = item.lojaId.trim();
+        if (id.isEmpty) continue;
+        nomesPorLoja.putIfAbsent(id, () => item.lojaNome.trim());
+      }
+
+      String rotuloLoja(String lojaId, int ordem) {
+        final nome = nomesPorLoja[lojaId]?.trim() ?? '';
+        if (nome.isNotEmpty) return nome;
+        return 'Loja $ordem';
+      }
+
+      final entradas = detalhes.entries.toList();
       conteudo = Column(
         crossAxisAlignment: CrossAxisAlignment.start,
         mainAxisSize: MainAxisSize.min,
         children: [
           Text(
-            '${detalhes.length} lojas — composição do frete:',
+            'Frete por loja',
             style: TextStyle(
               fontSize: 12,
               color: Colors.grey[700],
@@ -1859,7 +1941,7 @@ class _CartScreenState extends State<CartScreen> {
             ),
           ),
           const SizedBox(height: 4),
-          for (final d in detalhes.values)
+          for (int i = 0; i < entradas.length; i++)
             Padding(
               padding: const EdgeInsets.only(bottom: 2),
               child: Row(
@@ -1874,12 +1956,24 @@ class _CartScreenState extends State<CartScreen> {
                   ),
                   Expanded(
                     child: Text(
-                      d.resumoCurto(),
+                      rotuloLoja(entradas[i].key, i + 1),
                       style: TextStyle(
                         fontSize: 11.5,
-                        color: Colors.grey[700],
+                        color: Colors.grey[800],
                         height: 1.3,
                       ),
+                      overflow: TextOverflow.ellipsis,
+                      maxLines: 1,
+                    ),
+                  ),
+                  const SizedBox(width: 8),
+                  Text(
+                    entradas[i].value.resumoClienteSimples(),
+                    style: TextStyle(
+                      fontSize: 11.5,
+                      color: Colors.grey[800],
+                      height: 1.3,
+                      fontWeight: FontWeight.w600,
                     ),
                   ),
                 ],
@@ -3259,12 +3353,21 @@ class _DetalheFreteLoja {
   final String lojaId;
   final String? cidade;
 
-  /// Veículo que o carrinho PEDIU (`padrao` ou `carro`).
+  /// Tipo canônico de entrega que o carrinho PEDIU (um dos 4 valores
+  /// em [TiposEntrega] — bicicleta/moto/carro/carro_frete). Derivado do
+  /// maior tipo da lista `tipos_entrega_permitidos` da loja.
   final String veiculoAlvo;
 
-  /// Veículo que a tabela realmente respondeu. Pode divergir de [veiculoAlvo]
-  /// quando `carro` foi solicitado mas só existia `padrao` cadastrado.
+  /// Tabela que a regra realmente respondeu. Pode divergir de [veiculoAlvo]
+  /// quando o alvo não existia e caímos em fallback na cadeia
+  /// [TiposEntrega.cadeiaFallbackTabela]. Valores possíveis:
+  /// `bicicleta` | `moto` | `carro` | `carro_frete` | `padrao`.
   final String veiculoEfetivo;
+
+  /// Lista de tipos aceitos pela loja no momento do cálculo (snapshot).
+  /// Vazia quando a loja é legado sem configuração — nesse caso foi
+  /// aplicado o default de [TiposEntrega.defaultLegado].
+  final List<String> tiposAceitosLoja;
 
   final double base;
   final double distanciaBaseKm;
@@ -3289,6 +3392,7 @@ class _DetalheFreteLoja {
     required this.cidade,
     required this.veiculoAlvo,
     required this.veiculoEfetivo,
+    required this.tiposAceitosLoja,
     required this.base,
     required this.distanciaBaseKm,
     required this.valorKmAdicional,
@@ -3304,6 +3408,7 @@ class _DetalheFreteLoja {
     required double taxa,
     required String motivo,
     required String veiculoAlvo,
+    List<String> tiposAceitosLoja = const <String>[],
     String? cidade,
   }) =>
       _DetalheFreteLoja(
@@ -3311,6 +3416,7 @@ class _DetalheFreteLoja {
         cidade: cidade,
         veiculoAlvo: veiculoAlvo,
         veiculoEfetivo: veiculoAlvo,
+        tiposAceitosLoja: tiposAceitosLoja,
         base: taxa,
         distanciaBaseKm: 0,
         valorKmAdicional: 0,
@@ -3321,11 +3427,25 @@ class _DetalheFreteLoja {
         motivo: motivo,
       );
 
-  String get rotuloVeiculo =>
-      veiculoEfetivo == 'carro' ? 'Carro (carga maior)' : 'Moto/Bike';
+  /// Rótulo genérico ao cliente — NUNCA expõe o tipo técnico. O cliente
+  /// não precisa saber se é moto, carro ou carro-frete; pra ele isso é
+  /// decisão da loja. Mostramos só "Frete calculado pela loja".
+  String get rotuloVeiculo => 'Frete calculado pela loja';
 
-  /// Linha curta exibida abaixo da taxa no card Subtotal (single-loja).
-  /// Ex.: "Toledo · Moto/Bike · R$ 1,00 base + R$ 2,25 × 1,2 km = R$ 3,70"
+  /// Resumo enxuto exibido ao cliente no card Subtotal. Não vaza regra,
+  /// base, distância base ou km adicional — apenas o valor final (ou, em
+  /// caso de fallback, o motivo amigável).
+  ///
+  /// Exemplo: "R$ 3,70" (sucesso) · "Frete padrão aplicado" (fallback sem motivo).
+  String resumoClienteSimples() {
+    if (fallback) {
+      return motivo ?? 'Frete padrão aplicado';
+    }
+    return 'R\$ ${taxa.toStringAsFixed(2)}';
+  }
+
+  /// Resumo técnico — uso INTERNO (logs, auditoria, tela de lojista). NÃO
+  /// exibir ao cliente final. Mostra cidade, cálculo base/km e distância.
   String resumoCurto() {
     if (fallback) {
       return motivo ?? 'Frete padrão aplicado';

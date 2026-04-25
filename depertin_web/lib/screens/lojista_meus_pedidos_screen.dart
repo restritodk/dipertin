@@ -1,8 +1,11 @@
 import 'package:cloud_firestore/cloud_firestore.dart';
+import 'package:depertin_web/constants/tipos_entrega.dart';
 import 'package:depertin_web/services/firebase_functions_config.dart';
 import 'package:depertin_web/theme/painel_admin_theme.dart';
 import 'package:depertin_web/utils/lojista_painel_context.dart';
 import 'package:depertin_web/widgets/botao_suporte_flutuante.dart';
+import 'package:depertin_web/widgets/escolher_tipo_entrega_dialog.dart';
+import 'package:firebase_auth/firebase_auth.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:intl/intl.dart';
@@ -796,14 +799,56 @@ class _LojistaPedidoDetalheDialogState extends State<_LojistaPedidoDetalheDialog
     });
   }
 
+  /// Lê os tipos de entrega aceitos pela loja autenticada (lojas_public →
+  /// users) para alimentar o modal de escolha de categoria.
+  Future<List<String>> _tiposAceitosLojaAtual() async {
+    final uid = FirebaseAuth.instance.currentUser?.uid ?? widget.uidLoja;
+    try {
+      final pub = await FirebaseFirestore.instance
+          .collection('lojas_public')
+          .doc(uid)
+          .get();
+      final tiposPub = TiposEntrega.lerDeDoc(pub.data());
+      if (tiposPub.isNotEmpty) return tiposPub;
+    } catch (_) {/* ignora */}
+    try {
+      final priv = await FirebaseFirestore.instance
+          .collection('users')
+          .doc(uid)
+          .get();
+      return TiposEntrega.lerDeDoc(priv.data());
+    } catch (_) {
+      return const <String>[];
+    }
+  }
+
   Future<void> _acaoSolicitarEntregador() async {
     await _run(() async {
+      final aceitos = await _tiposAceitosLojaAtual();
+      String? tipo;
+      if (aceitos.length == 1) {
+        tipo = aceitos.first;
+      } else if (aceitos.length > 1) {
+        if (!mounted) return;
+        tipo = await EscolherTipoEntregaDialog.mostrar(
+          context,
+          tiposDisponiveis: aceitos,
+        );
+        if (tipo == null) {
+          return;
+        }
+      }
+
       await callFirebaseFunctionSafe(
         'lojistaSolicitarDespachoEntregador',
-        parameters: <String, dynamic>{'pedidoId': widget.pedidoId},
+        parameters: <String, dynamic>{
+          'pedidoId': widget.pedidoId,
+          'tipoEntregaSolicitado': ?tipo,
+        },
       );
+      final rotulo = tipo == null ? '' : ' (${TiposEntrega.rotulo(tipo)})';
       _snack(
-        'Buscando entregador próximo. Você será avisado quando alguém aceitar.',
+        'Buscando entregador próximo$rotulo. Você será avisado quando alguém aceitar.',
       );
     });
   }
@@ -958,33 +1003,77 @@ class _LojistaPedidoDetalheDialogState extends State<_LojistaPedidoDetalheDialog
     });
   }
 
-  Future<void> _acaoChamarDeNovo() async {
-    final ok = await showDialog<bool>(
-      context: context,
-      builder: (ctx) => AlertDialog(
-        title: const Text('Chamar entregador novamente?'),
-        content: const Text(
-          'Reinicia a busca do zero: ofertas na ordem de proximidade.',
+  Future<void> _acaoChamarDeNovo({String? tipoAnteriorCanonico}) async {
+    final aceitos = await _tiposAceitosLojaAtual();
+    if (!mounted) return;
+
+    String? tipoEscolhido;
+    if (aceitos.length == 1) {
+      tipoEscolhido = aceitos.first;
+      final ok = await showDialog<bool>(
+        context: context,
+        builder: (ctx) => AlertDialog(
+          title: const Text('Chamar entregador novamente?'),
+          content: Text(
+            'Reinicia a busca do zero para a categoria '
+            '${TiposEntrega.rotulo(tipoEscolhido!)}.',
+          ),
+          actions: [
+            TextButton(
+              onPressed: () => Navigator.pop(ctx, false),
+              child: const Text('Não'),
+            ),
+            FilledButton(
+              onPressed: () => Navigator.pop(ctx, true),
+              child: const Text('Sim, chamar de novo'),
+            ),
+          ],
         ),
-        actions: [
-          TextButton(
-            onPressed: () => Navigator.pop(ctx, false),
-            child: const Text('Não'),
+      );
+      if (ok != true) return;
+    } else if (aceitos.length > 1) {
+      final mensagemAnterior = tipoAnteriorCanonico == null
+          ? null
+          : 'A categoria ${TiposEntrega.rotulo(tipoAnteriorCanonico)} esgotou '
+                'sem aceite. Tente outra.';
+      tipoEscolhido = await EscolherTipoEntregaDialog.mostrar(
+        context,
+        tiposDisponiveis: aceitos,
+        tipoAnteriorMensagem: mensagemAnterior,
+      );
+      if (tipoEscolhido == null) return;
+    } else {
+      final ok = await showDialog<bool>(
+        context: context,
+        builder: (ctx) => AlertDialog(
+          title: const Text('Chamar entregador novamente?'),
+          content: const Text(
+            'Reinicia a busca do zero: ofertas na ordem de proximidade.',
           ),
-          FilledButton(
-            onPressed: () => Navigator.pop(ctx, true),
-            child: const Text('Sim, chamar de novo'),
-          ),
-        ],
-      ),
-    );
-    if (ok != true || !mounted) return;
+          actions: [
+            TextButton(
+              onPressed: () => Navigator.pop(ctx, false),
+              child: const Text('Não'),
+            ),
+            FilledButton(
+              onPressed: () => Navigator.pop(ctx, true),
+              child: const Text('Sim, chamar de novo'),
+            ),
+          ],
+        ),
+      );
+      if (ok != true) return;
+    }
+    if (!mounted) return;
 
     await _run(() async {
       try {
         await callFirebaseFunctionSafe(
           'lojistaRedespacharEntregador',
-          parameters: {'pedidoId': widget.pedidoId},
+          parameters: {
+            'pedidoId': widget.pedidoId,
+            'tipoEntregaSolicitado': ?tipoEscolhido,
+          },
         );
         _snack('Busca reiniciada. Os entregadores serão chamados novamente.');
       } on CallableHttpException catch (e) {
@@ -1172,24 +1261,84 @@ class _LojistaPedidoDetalheDialogState extends State<_LojistaPedidoDetalheDialog
     }
 
     if (_isEmPreparo(status)) {
+      // Detecta motivo específico pra dar visual mais forte quando o
+      // entregador cancelou por incompatibilidade de veículo — nesse caso
+      // o lojista precisa prestar atenção pra revisar `tipos_entrega`.
+      final alertaIncompatRaw = d['alerta_lojista_tipos_entrega'];
+      final bool alertaIncompatAtivo =
+          alertaIncompatRaw is Map &&
+          alertaIncompatRaw['ativo'] == true &&
+          (alertaIncompatRaw['motivo']?.toString() ?? '') ==
+              'veiculo_incompativel';
+
+      final bool mostraBanner = !isRetirada &&
+          (d['despacho_auto_encerrada_sem_entregador'] == true ||
+              alertaIncompatAtivo);
+
       return Column(
         crossAxisAlignment: CrossAxisAlignment.stretch,
         children: [
-          if (!isRetirada && d['despacho_auto_encerrada_sem_entregador'] == true) ...[
+          if (mostraBanner) ...[
             Container(
               padding: const EdgeInsets.all(12),
               margin: const EdgeInsets.only(bottom: 10),
               decoration: BoxDecoration(
-                color: Colors.amber.shade50,
+                color: alertaIncompatAtivo
+                    ? Colors.orange.shade50
+                    : Colors.amber.shade50,
                 borderRadius: BorderRadius.circular(10),
-                border: Border.all(color: Colors.amber.shade400),
+                border: Border.all(
+                  color: alertaIncompatAtivo
+                      ? Colors.orange.shade400
+                      : Colors.amber.shade400,
+                ),
               ),
-              child: Text(
-                (d['despacho_msg_busca_entregador']?.toString() ?? '').trim().isNotEmpty
-                    ? d['despacho_msg_busca_entregador'].toString()
-                    : 'A busca encerrou automaticamente após várias tentativas. '
-                        'Use «Solicitar entregador» para tentar de novo.',
-                style: TextStyle(fontSize: 13, color: Colors.grey.shade900, height: 1.35),
+              child: Row(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  Icon(
+                    alertaIncompatAtivo
+                        ? Icons.report_gmailerrorred_outlined
+                        : Icons.info_outline,
+                    color: alertaIncompatAtivo
+                        ? Colors.orange.shade800
+                        : Colors.amber.shade800,
+                    size: 20,
+                  ),
+                  const SizedBox(width: 10),
+                  Expanded(
+                    child: Column(
+                      crossAxisAlignment: CrossAxisAlignment.start,
+                      children: [
+                        if (alertaIncompatAtivo) ...[
+                          Text(
+                            'Entregador cancelou por incompatibilidade de veículo',
+                            style: TextStyle(
+                              fontSize: 13,
+                              fontWeight: FontWeight.w700,
+                              color: Colors.orange.shade900,
+                            ),
+                          ),
+                          const SizedBox(height: 4),
+                        ],
+                        Text(
+                          (d['despacho_msg_busca_entregador']?.toString() ?? '')
+                                  .trim()
+                                  .isNotEmpty
+                              ? d['despacho_msg_busca_entregador'].toString()
+                              : 'A busca encerrou automaticamente após '
+                                  'várias tentativas. Use «Solicitar '
+                                  'entregador» para tentar de novo.',
+                          style: TextStyle(
+                            fontSize: 13,
+                            color: Colors.grey.shade900,
+                            height: 1.35,
+                          ),
+                        ),
+                      ],
+                    ),
+                  ),
+                ],
               ),
             ),
           ],
@@ -1288,7 +1437,12 @@ class _LojistaPedidoDetalheDialogState extends State<_LojistaPedidoDetalheDialog
           ),
           const SizedBox(height: 8),
           OutlinedButton.icon(
-            onPressed: _acaoChamarDeNovo,
+            onPressed: () => _acaoChamarDeNovo(
+              tipoAnteriorCanonico:
+                  TiposEntrega.normalizarTipoSolicitado(
+                    d['tipo_entrega_solicitado']?.toString(),
+                  ),
+            ),
             icon: const Icon(Icons.refresh, size: 20),
             label: const Text('Chamar de novo'),
             style: OutlinedButton.styleFrom(foregroundColor: _laranja),

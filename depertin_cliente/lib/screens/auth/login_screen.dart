@@ -10,6 +10,7 @@ import '../../services/biometria_service.dart';
 import '../../services/conta_bloqueio_entregador_service.dart';
 import '../../services/conta_bloqueio_lojista_service.dart';
 import '../../services/conta_exclusao_service.dart';
+import '../../services/sessao_timeout_service.dart';
 import '../../widgets/entregador_conta_bloqueada_overlay.dart';
 import '../../widgets/lojista_conta_bloqueada_overlay.dart';
 import '../../services/location_service.dart';
@@ -485,6 +486,10 @@ class _LoginScreenState extends State<LoginScreen> {
       final podeEntrar = await _contaOperacionalPodeEntrarAposLogin(uid);
       if (!podeEntrar) return;
 
+      // Marca o início da sessão — o `AppGuard` usa esse timestamp para
+      // forçar re-login a cada 24h (política de segurança).
+      await SessaoTimeoutService.registrarLoginAgora();
+
       if (mounted) {
         ScaffoldMessenger.of(context).showSnackBar(
           const SnackBar(
@@ -696,6 +701,9 @@ class _LoginScreenState extends State<LoginScreen> {
         final podeEntrar = await _contaOperacionalPodeEntrarAposLogin(uid);
         if (!podeEntrar) return;
 
+        // Marca o início da sessão — ver SessaoTimeoutService.
+        await SessaoTimeoutService.registrarLoginAgora();
+
         // Primeiro login autorizado → oferece ativação biométrica.
         final emailLimpo = _emailController.text.trim();
         final senhaLimpa = _senhaController.text.trim();
@@ -888,6 +896,9 @@ class _LoginScreenState extends State<LoginScreen> {
       await _atualizarTokenAposLogin(user.uid);
       final podeEntrar = await _contaOperacionalPodeEntrarAposLogin(user.uid);
       if (!podeEntrar) return;
+
+      // Marca o início da sessão — ver SessaoTimeoutService.
+      await SessaoTimeoutService.registrarLoginAgora();
 
       // Primeiro login Google autorizado → oferece ativação biométrica
       // (sem senha, método google — re-login futuro via signInSilently).

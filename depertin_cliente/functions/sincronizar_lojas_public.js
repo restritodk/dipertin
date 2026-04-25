@@ -70,6 +70,12 @@ const CAMPOS_PUBLICOS_LOJA = [
     // Social proof
     "rating_media",
     "total_avaliacoes",
+    // Logística (tipos de entrega aceitos pela loja — usado pelo carrinho
+    // para escolher a tabela de frete e pelo backend para filtrar
+    // entregadores compatíveis). Lista de strings canônicas — ver
+    // functions/tipos_entrega.js.
+    "tipos_entrega_permitidos",
+    "tipos_entrega_atualizado_em",
 ];
 
 function ehLojista(data) {

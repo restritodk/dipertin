@@ -188,7 +188,7 @@ class _SobreScreenState extends State<SobreScreen> {
       return _info!.version;
     }
     if (_erro != null) {
-      return '1.0.0';
+      return '1.1.0';
     }
     return '…';
   }

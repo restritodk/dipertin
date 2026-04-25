@@ -263,62 +263,89 @@ class _LojistaMeuCardapioScreenState extends State<LojistaMeuCardapioScreen> {
                         const SizedBox(height: 4),
                         Container(
                           margin: const EdgeInsets.only(top: 8),
-                          padding: const EdgeInsets.symmetric(
-                            horizontal: 14,
-                            vertical: 4,
-                          ),
+                          padding: const EdgeInsets.all(14),
                           decoration: BoxDecoration(
-                            color: requerVeiculoGrande
-                                ? _laranja.withValues(alpha: 0.08)
-                                : const Color(0xFFF8F7FC),
+                            color: const Color(0xFFF0F7FF),
                             borderRadius: BorderRadius.circular(12),
-                            border: Border.all(
-                              color: requerVeiculoGrande
-                                  ? _laranja.withValues(alpha: 0.45)
-                                  : Colors.grey.shade300,
-                              width: 1,
-                            ),
+                            border:
+                                Border.all(color: const Color(0xFFBFDBFE)),
                           ),
-                          child: SwitchListTile(
-                            contentPadding: EdgeInsets.zero,
-                            title: Row(
-                              mainAxisSize: MainAxisSize.min,
-                              children: [
-                                Icon(
-                                  Icons.local_shipping_rounded,
-                                  size: 18,
-                                  color: requerVeiculoGrande
-                                      ? _laranja
-                                      : Colors.grey.shade600,
-                                ),
-                                const SizedBox(width: 8),
-                                const Flexible(
-                                  child: Text(
-                                    'Requer veículo maior (carro)',
-                                    style: TextStyle(
-                                      fontWeight: FontWeight.w700,
+                          child: Column(
+                            crossAxisAlignment: CrossAxisAlignment.start,
+                            children: [
+                              Row(
+                                children: [
+                                  const Icon(
+                                    Icons.info_outline,
+                                    size: 18,
+                                    color: Color(0xFF1D4ED8),
+                                  ),
+                                  const SizedBox(width: 8),
+                                  Expanded(
+                                    child: Text(
+                                      'A logística mudou: configure na loja',
+                                      style: TextStyle(
+                                        fontWeight: FontWeight.w700,
+                                        color: const Color(0xFF1E3A8A),
+                                        fontSize: 13.5,
+                                      ),
                                     ),
+                                  ),
+                                ],
+                              ),
+                              const SizedBox(height: 8),
+                              Text(
+                                'Agora o tipo de veículo usado para entregar é configurado '
+                                'uma única vez no perfil da sua loja (Configurações da loja → '
+                                'Tipos de entrega aceitos), e vale para TODOS os produtos. '
+                                'Essa configuração define a tabela de frete e quais entregadores '
+                                'serão convocados.',
+                                style: TextStyle(
+                                  fontSize: 12.5,
+                                  color: const Color(0xFF1E3A8A),
+                                  height: 1.4,
+                                ),
+                              ),
+                              if (requerVeiculoGrande) ...[
+                                const SizedBox(height: 10),
+                                Container(
+                                  padding: const EdgeInsets.all(10),
+                                  decoration: BoxDecoration(
+                                    color: _laranja.withValues(alpha: 0.08),
+                                    borderRadius: BorderRadius.circular(8),
+                                    border: Border.all(
+                                      color:
+                                          _laranja.withValues(alpha: 0.35),
+                                    ),
+                                  ),
+                                  child: Row(
+                                    crossAxisAlignment:
+                                        CrossAxisAlignment.start,
+                                    children: [
+                                      Icon(
+                                        Icons.local_shipping_rounded,
+                                        size: 18,
+                                        color: _laranja,
+                                      ),
+                                      const SizedBox(width: 8),
+                                      const Expanded(
+                                        child: Text(
+                                          'Este produto foi marcado como "volumoso/carga maior" '
+                                          'no modelo antigo. Esse dado ainda é lido como '
+                                          'fallback de segurança enquanto você não define os '
+                                          'Tipos de entrega da loja. Recomendamos configurar a '
+                                          'loja inteira em Configurações.',
+                                          style: TextStyle(
+                                            fontSize: 11.5,
+                                            height: 1.35,
+                                          ),
+                                        ),
+                                      ),
+                                    ],
                                   ),
                                 ),
                               ],
-                            ),
-                            subtitle: Padding(
-                              padding: const EdgeInsets.only(top: 4),
-                              child: Text(
-                                requerVeiculoGrande
-                                    ? 'Este item será entregue pela tabela de frete do carro (volumoso, frágil grande ou pesado).'
-                                    : 'Mantenha desligado quando couber em moto/bike. Se ligado, o frete da loja passa a usar a tabela do carro sempre que este item estiver no carrinho.',
-                                style: TextStyle(
-                                  fontSize: 12,
-                                  color: Colors.grey.shade700,
-                                  height: 1.3,
-                                ),
-                              ),
-                            ),
-                            value: requerVeiculoGrande,
-                            activeThumbColor: _laranja,
-                            onChanged: (v) =>
-                                setS(() => requerVeiculoGrande = v),
+                            ],
                           ),
                         ),
                       ],

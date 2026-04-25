@@ -49,6 +49,61 @@ class MainActivity : FlutterFragmentActivity() {
         @JvmStatic
         @Volatile
         var isFlutterHostResumed: Boolean = false
+
+        /**
+         * Mapa `pedidoId → OfertaLocal` para ofertas que o entregador já
+         * decidiu (ACEITOU ou RECUSOU) localmente mas o backend ainda pode
+         * não ter processado.
+         *
+         * Usado pelo Flutter (via MethodChannel `getOfertasProcessadasLocais`)
+         * para evitar que o `_ofertaFullscreenSub` reabra a tela de chamada
+         * durante a janela entre o tap do entregador e o backend gravar
+         * `entregador_id` no Firestore.
+         *
+         * Por que guardar `seq`: o backend pode re-despachar o mesmo
+         * pedidoId pra mim depois de uma recusa (lojista clicou
+         * "Solicitar Entregador" de novo). Nesse cenário o
+         * `despacho_oferta_seq` aumenta. O Flutter compara o seq atual
+         * vindo do Firestore com o `seq` armazenado aqui — se for maior,
+         * é uma NOVA oferta e o bloqueio local é ignorado/liberado.
+         *
+         * Vive na `companion object` (estática) — sobrevive à recriação
+         * do widget Flutter quando MainActivity é trazido ao topo após
+         * `IncomingDeliveryActivity.openMainRadar`.
+         *
+         * Limpeza: TTL de 60s + remoção explícita via
+         * `confirmarOfertaProcessadaPorBackend` quando o Flutter confirma
+         * que o backend setou `entregador_id` (status pós-aceite).
+         */
+        data class OfertaLocal(val seq: Long, val timestampMs: Long)
+
+        @JvmStatic
+        val ofertasProcessadasLocais: java.util.concurrent.ConcurrentHashMap<String, OfertaLocal> =
+            java.util.concurrent.ConcurrentHashMap<String, OfertaLocal>()
+
+        private const val OFERTA_LOCAL_TTL_MS = 60_000L
+
+        @JvmStatic
+        fun marcarOfertaProcessadaLocal(orderId: String, seq: Long) {
+            val id = orderId.trim()
+            if (id.isEmpty()) return
+            limparOfertasLocaisExpiradas()
+            ofertasProcessadasLocais[id] = OfertaLocal(seq, System.currentTimeMillis())
+        }
+
+        @JvmStatic
+        fun limparOfertaProcessadaLocal(orderId: String) {
+            val id = orderId.trim()
+            if (id.isEmpty()) return
+            ofertasProcessadasLocais.remove(id)
+        }
+
+        private fun limparOfertasLocaisExpiradas() {
+            val agora = System.currentTimeMillis()
+            ofertasProcessadasLocais.entries.removeAll {
+                agora - it.value.timestampMs > OFERTA_LOCAL_TTL_MS
+            }
+        }
     }
 
     override fun onResume() {
@@ -225,6 +280,44 @@ class MainActivity : FlutterFragmentActivity() {
                 "openIncomingDeliveryScreen" -> {
                     val opened = openIncomingDeliveryScreenFromMap(call.arguments as? Map<*, *>)
                     result.success(opened)
+                }
+
+                // ── Despacho sequencial: ofertas processadas localmente ───
+                // Permite ao Flutter consultar e limpar o estado nativo de
+                // ofertas que o entregador já decidiu (aceite/recusa) na
+                // fullscreen. Evita o loop em que o listener Firestore do
+                // dashboard reabre a IncomingDeliveryActivity logo após o
+                // entregador clicar Aceitar — a janela entre o tap e o
+                // backend gravar `entregador_id` é exatamente quando o bug
+                // se manifesta.
+                "getOfertasProcessadasLocais" -> {
+                    limparOfertasLocaisExpiradas()
+                    // Retorna Map<orderId:String, seq:Long> pra que o
+                    // Flutter compare contra o seq vindo do Firestore e
+                    // libere o lock automaticamente em caso de re-dispatch.
+                    val payload = HashMap<String, Long>()
+                    for ((id, oferta) in ofertasProcessadasLocais) {
+                        payload[id] = oferta.seq
+                    }
+                    result.success(payload)
+                }
+                "confirmarOfertaProcessadaPorBackend" -> {
+                    val orderId = call.arguments as? String
+                    if (!orderId.isNullOrBlank()) {
+                        limparOfertaProcessadaLocal(orderId)
+                    }
+                    result.success(true)
+                }
+
+                // Lê e LIMPA o motivo da última falha de aceite registrada
+                // pelo IncomingDeliveryActivity / IncomingDeliveryActionReceiver.
+                // O dashboard chama isso no initState e a cada `resumed`
+                // pra mostrar SnackBar — assim o entregador entende por que
+                // a oferta sumiu (ex.: corrida já aceita por outro
+                // entregador, ou rede falhou).
+                "consumirUltimaFalhaAceite" -> {
+                    val payload = UltimaFalhaAceiteStore.consumir(applicationContext)
+                    result.success(payload)
                 }
 
                 // ── Info do dispositivo ────────────────────────────

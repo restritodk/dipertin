@@ -9,6 +9,7 @@ import '../../services/fcm_notification_eventos.dart';
 import '../../services/fcm_rota.dart';
 import '../../services/notificacoes_historico_service.dart';
 import '../lojista/lojista_form_screen.dart';
+import '../lojista/lojista_painel_roteador.dart';
 import '../entregador/entregador_form_screen.dart';
 import '../entregador/entregador_home_screen.dart';
 import '../entregador/entregador_carteira_screen.dart';
@@ -200,12 +201,21 @@ class _MinhasNotificacoesScreenState extends State<MinhasNotificacoesScreen> {
 
     if (!mounted) return;
 
-    // 1) Cadastro de lojista (aprovado/recusado) → tela "Ser lojista".
-    if (tipo.contains('lojista_cadastro') ||
-        tipo.contains('cadastro_aprovado') && widget.role == 'lojista' ||
-        tipo.contains('cadastro_recusado') && widget.role == 'lojista') {
+    // 1) Cadastro de lojista:
+    //    - APROVADO → painel operacional do lojista (roteador decide
+    //      entre dashboard ou formulário se a conta estiver em
+    //      transição/bloqueio).
+    //    - RECUSADO/demais → formulário "Ser lojista" para revisar.
+    final ehCadastroLojista = tipo.contains('lojista_cadastro') ||
+        (tipo.contains('cadastro') && widget.role == 'lojista');
+    if (ehCadastroLojista) {
+      final ehAprovado = tipo.contains('aprovad');
       Navigator.of(context).push(
-        MaterialPageRoute(builder: (_) => const LojistaFormScreen()),
+        MaterialPageRoute(
+          builder: (_) => ehAprovado
+              ? const LojistaPainelRoteador()
+              : const LojistaFormScreen(),
+        ),
       );
       return;
     }

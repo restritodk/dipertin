@@ -1,4 +1,5 @@
 import 'package:cloud_firestore/cloud_firestore.dart';
+import 'package:depertin_web/constants/tipos_entrega.dart';
 import 'package:depertin_web/theme/painel_admin_theme.dart';
 import 'package:depertin_web/utils/admin_perfil.dart';
 import 'package:depertin_web/utils/loja_pausa.dart';
@@ -180,6 +181,10 @@ class _ConfiguracoesLojistaScreenState extends State<ConfiguracoesLojistaScreen>
   bool _carregando = true;
   String? _erroCarregar;
 
+  Set<String> _tiposEntregaSelecionados = <String>{};
+  _AlertaIncompatWeb? _alertaIncompat;
+  bool _dispensandoIncompat = false;
+
   final Map<String, String> _nomesDias = const {
     'segunda': 'Segunda-feira',
     'terca': 'Terça-feira',
@@ -275,6 +280,9 @@ class _ConfiguracoesLojistaScreenState extends State<ConfiguracoesLojistaScreen>
         }
       }
     }
+
+    _tiposEntregaSelecionados = TiposEntrega.lerDeDoc(d).toSet();
+    _alertaIncompat = _AlertaIncompatWeb.deDados(d);
   }
 
   @override
@@ -370,14 +378,25 @@ class _ConfiguracoesLojistaScreenState extends State<ConfiguracoesLojistaScreen>
       );
       return;
     }
+    if (_tiposEntregaSelecionados.isEmpty) {
+      _snack(
+        'Selecione ao menos um tipo de entrega aceito pela sua loja.',
+        erro: true,
+      );
+      return;
+    }
 
     setState(() => _salvando = true);
     try {
+      final tiposEntregaList =
+          TiposEntrega.paraFirestore(_tiposEntregaSelecionados.toList());
       final upd = <String, dynamic>{
         'loja_nome': _nomeLojaC.text.trim(),
         'endereco': _enderecoC.text.trim(),
         'telefone': _telefoneC.text.trim(),
         'horarios': _horarios,
+        'tipos_entrega_permitidos': tiposEntregaList,
+        'tipos_entrega_atualizado_em': FieldValue.serverTimestamp(),
         'updated_at': FieldValue.serverTimestamp(),
       };
 
@@ -561,6 +580,8 @@ class _ConfiguracoesLojistaScreenState extends State<ConfiguracoesLojistaScreen>
                     const SizedBox(height: 16),
                     _buildCardPausa(),
                     const SizedBox(height: 16),
+                    _buildCardTiposEntrega(),
+                    const SizedBox(height: 16),
                     _buildCardHorarios(horariosEmLinha),
                     const SizedBox(height: 32),
                     _buildSaveButton(),
@@ -742,6 +763,426 @@ class _ConfiguracoesLojistaScreenState extends State<ConfiguracoesLojistaScreen>
         activeThumbColor: _laranja,
         activeTrackColor: _laranja.withValues(alpha: 0.45),
         onChanged: (v) async => _aoMudarPausa(v),
+      ),
+    );
+  }
+
+  Widget _buildCardTiposEntrega() {
+    final List<String> selecOrdenada = _tiposEntregaSelecionados.toList()
+      ..sort(
+        (a, b) => (TiposEntrega.hierarquia[a] ?? 0)
+            .compareTo(TiposEntrega.hierarquia[b] ?? 0),
+      );
+    final String? maior = TiposEntrega.maiorTipoDaLista(selecOrdenada);
+    final bool temSomenteLeve = selecOrdenada.isNotEmpty &&
+        !selecOrdenada.contains(TiposEntrega.codCarro) &&
+        !selecOrdenada.contains(TiposEntrega.codCarroFrete);
+    final bool marcouBike =
+        selecOrdenada.contains(TiposEntrega.codBicicleta);
+
+    final alerta = _alertaIncompat;
+    return Container(
+      decoration: PainelAdminTheme.dashboardCard(),
+      padding: const EdgeInsets.all(24),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.stretch,
+        children: [
+          _sectionTitle(
+            icon: Icons.two_wheeler_rounded,
+            title: 'Tipos de entrega aceitos',
+            subtitle:
+                'Define a tabela de frete e os entregadores convocados para sua loja',
+          ),
+          if (alerta != null && alerta.ativo) ...[
+            const SizedBox(height: 16),
+            _blocoAlertaIncompat(alerta),
+          ],
+          const SizedBox(height: 18),
+          Container(
+            padding: const EdgeInsets.all(14),
+            decoration: BoxDecoration(
+              color: _surfaceMuted,
+              borderRadius: BorderRadius.circular(10),
+              border: Border.all(color: _borderLight),
+            ),
+            child: Row(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                Icon(Icons.lightbulb_outline, color: _laranja, size: 20),
+                const SizedBox(width: 10),
+                Expanded(
+                  child: Text(
+                    'Selecione os tipos de veículos compatíveis com seus produtos. '
+                    'Se sua loja vende itens grandes ou pesados (móveis, eletrodomésticos, caixas volumosas), '
+                    'habilite Carro ou Carro frete. O frete é calculado pelo tipo de maior custo '
+                    'entre os marcados — isso protege sua operação de prejuízo quando um entregador maior aceita a corrida.',
+                    style: GoogleFonts.plusJakartaSans(
+                      fontSize: 13,
+                      color: _ink,
+                      height: 1.45,
+                    ),
+                  ),
+                ),
+              ],
+            ),
+          ),
+          const SizedBox(height: 16),
+          Wrap(
+            spacing: 10,
+            runSpacing: 10,
+            children: TiposEntrega.ordemCanonica
+                .map((codigo) => _chipTipoEntregaWeb(codigo))
+                .toList(),
+          ),
+          if (temSomenteLeve) ...[
+            const SizedBox(height: 14),
+            _avisoTipoEntrega(
+              cor: Colors.red.shade400,
+              bg: Colors.red.shade50,
+              icon: Icons.warning_amber_rounded,
+              texto:
+                  'Você habilitou apenas tipos leves. Se a loja vender produtos volumosos ou pesados, '
+                  'habilite também Carro ou Carro frete — caso contrário o entregador pode recusar a corrida na hora da retirada.',
+            ),
+          ],
+          if (marcouBike) ...[
+            const SizedBox(height: 14),
+            _avisoTipoEntrega(
+              cor: _laranja.withValues(alpha: 0.7),
+              bg: _laranja.withValues(alpha: 0.08),
+              icon: Icons.info_outline,
+              texto:
+                  'Bicicleta é indicada apenas para entregas pequenas e próximas (até ~2 km da loja). '
+                  'Para pedidos maiores ou mais distantes, o sistema acionará entregador de moto ou carro automaticamente.',
+            ),
+          ],
+          if (maior != null) ...[
+            const SizedBox(height: 14),
+            Container(
+              padding: const EdgeInsets.all(14),
+              decoration: BoxDecoration(
+                color: _roxo.withValues(alpha: 0.06),
+                borderRadius: BorderRadius.circular(10),
+                border: Border.all(color: _roxo.withValues(alpha: 0.25)),
+              ),
+              child: Row(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  Icon(Icons.calculate_outlined, color: _roxo, size: 20),
+                  const SizedBox(width: 10),
+                  Expanded(
+                    child: Text(
+                      'Tabela de frete aplicada: "${TiposEntrega.rotulo(maior)}" — o tipo '
+                      'de maior hierarquia entre os que você aceita.',
+                      style: GoogleFonts.plusJakartaSans(
+                        fontSize: 13,
+                        color: _ink,
+                        height: 1.4,
+                        fontWeight: FontWeight.w600,
+                      ),
+                    ),
+                  ),
+                ],
+              ),
+            ),
+          ],
+        ],
+      ),
+    );
+  }
+
+  /// Banner de alerta para cancelamentos por incompatibilidade reportados
+  /// por entregadores. Aparece apenas dentro do card de tipos de entrega
+  /// — é onde o lojista corrige a config.
+  Widget _blocoAlertaIncompat(_AlertaIncompatWeb a) {
+    final ultimo = a.ultimoEm;
+    final ultimoTxt = ultimo == null
+        ? ''
+        : ' (último em ${_fmtDataHora(ultimo)})';
+    final tiposAceitos =
+        a.ultimoTiposAceitosLoja.map(TiposEntrega.rotulo).join(', ');
+    final tipoEntreg = a.ultimoTipoEntregador.isEmpty
+        ? 'não informado'
+        : TiposEntrega.rotulo(a.ultimoTipoEntregador);
+
+    return Container(
+      padding: const EdgeInsets.all(14),
+      decoration: BoxDecoration(
+        color: Colors.amber.shade50,
+        borderRadius: BorderRadius.circular(10),
+        border: Border.all(color: Colors.amber.shade400, width: 1.2),
+      ),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          Row(
+            children: [
+              Icon(
+                Icons.pedal_bike_rounded,
+                color: Colors.amber.shade900,
+                size: 20,
+              ),
+              const SizedBox(width: 8),
+              Text(
+                'Cancelamentos por incompatibilidade',
+                style: GoogleFonts.plusJakartaSans(
+                  fontSize: 13.5,
+                  fontWeight: FontWeight.w800,
+                  color: Colors.amber.shade900,
+                ),
+              ),
+            ],
+          ),
+          const SizedBox(height: 6),
+          Text(
+            'Entregadores já reportaram ${a.totalUltimos30d} cancelamento(s) '
+            'desta loja marcando "produto incompatível com meu veículo"$ultimoTxt. '
+            'Sem penalidade ao entregador e com redespacho automático — mas '
+            'indica que a configuração atual pode não refletir a carga real.',
+            style: GoogleFonts.plusJakartaSans(
+              fontSize: 12.5,
+              color: Colors.amber.shade900,
+              height: 1.4,
+            ),
+          ),
+          const SizedBox(height: 8),
+          Container(
+            padding: const EdgeInsets.all(10),
+            decoration: BoxDecoration(
+              color: Colors.white,
+              borderRadius: BorderRadius.circular(8),
+              border: Border.all(color: Colors.amber.shade200),
+            ),
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                Text(
+                  'Último evento',
+                  style: GoogleFonts.plusJakartaSans(
+                    fontSize: 10.5,
+                    fontWeight: FontWeight.w800,
+                    letterSpacing: 0.8,
+                    color: Colors.amber.shade900,
+                  ),
+                ),
+                const SizedBox(height: 3),
+                Text(
+                  'Veículo do entregador: $tipoEntreg',
+                  style: GoogleFonts.plusJakartaSans(fontSize: 12),
+                ),
+                if (tiposAceitos.isNotEmpty)
+                  Text(
+                    'Sua loja aceita: $tiposAceitos',
+                    style: GoogleFonts.plusJakartaSans(fontSize: 12),
+                  ),
+              ],
+            ),
+          ),
+          const SizedBox(height: 10),
+          Align(
+            alignment: Alignment.centerRight,
+            child: OutlinedButton.icon(
+              onPressed: _dispensandoIncompat ? null : _dispensarAlertaIncompat,
+              style: OutlinedButton.styleFrom(
+                foregroundColor: Colors.amber.shade900,
+                side: BorderSide(color: Colors.amber.shade400),
+                padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 10),
+                shape: RoundedRectangleBorder(
+                  borderRadius: BorderRadius.circular(8),
+                ),
+              ),
+              icon: _dispensandoIncompat
+                  ? const SizedBox(
+                      width: 14,
+                      height: 14,
+                      child: CircularProgressIndicator(strokeWidth: 2),
+                    )
+                  : const Icon(Icons.check_rounded, size: 16),
+              label: Text(
+                _dispensandoIncompat ? 'Dispensando…' : 'Já revisei',
+                style: GoogleFonts.plusJakartaSans(
+                  fontSize: 12.5,
+                  fontWeight: FontWeight.w700,
+                ),
+              ),
+            ),
+          ),
+        ],
+      ),
+    );
+  }
+
+  /// Grava `alerta_tipos_entrega_incompat.dispensado_em = now` no doc do
+  /// usuário logado. Só esconde o alerta — preserva o histórico.
+  Future<void> _dispensarAlertaIncompat() async {
+    if (_dispensandoIncompat) return;
+    setState(() => _dispensandoIncompat = true);
+    try {
+      await widget.docRef.set({
+        'alerta_tipos_entrega_incompat': {
+          'dispensado_em': FieldValue.serverTimestamp(),
+        },
+      }, SetOptions(merge: true));
+      if (!mounted) return;
+      final snap = await widget.docRef.get();
+      if (!mounted) return;
+      setState(() {
+        if (snap.data() != null) {
+          _alertaIncompat = _AlertaIncompatWeb.deDados(snap.data()!);
+        }
+        _dispensandoIncompat = false;
+      });
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(
+          content: Text('Alerta dispensado. Reaparece se houver novo caso.'),
+          duration: Duration(seconds: 2),
+        ),
+      );
+    } catch (e) {
+      if (!mounted) return;
+      setState(() => _dispensandoIncompat = false);
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(content: Text('Falha ao dispensar: $e')),
+      );
+    }
+  }
+
+  String _fmtDataHora(DateTime dt) {
+    String d2(int n) => n.toString().padLeft(2, '0');
+    return '${d2(dt.day)}/${d2(dt.month)} ${d2(dt.hour)}:${d2(dt.minute)}';
+  }
+
+  Widget _chipTipoEntregaWeb(String codigo) {
+    final bool selecionado = _tiposEntregaSelecionados.contains(codigo);
+    final IconData icone;
+    switch (codigo) {
+      case TiposEntrega.codBicicleta:
+        icone = Icons.pedal_bike_rounded;
+        break;
+      case TiposEntrega.codMoto:
+        icone = Icons.two_wheeler_rounded;
+        break;
+      case TiposEntrega.codCarro:
+        icone = Icons.directions_car_rounded;
+        break;
+      case TiposEntrega.codCarroFrete:
+        icone = Icons.local_shipping_rounded;
+        break;
+      default:
+        icone = Icons.inventory_2_outlined;
+    }
+    return InkWell(
+      borderRadius: BorderRadius.circular(14),
+      onTap: () {
+        setState(() {
+          if (selecionado) {
+            _tiposEntregaSelecionados.remove(codigo);
+          } else {
+            _tiposEntregaSelecionados.add(codigo);
+          }
+        });
+      },
+      child: Container(
+        width: 240,
+        padding: const EdgeInsets.all(14),
+        decoration: BoxDecoration(
+          color: selecionado ? _laranja.withValues(alpha: 0.07) : Colors.white,
+          borderRadius: BorderRadius.circular(14),
+          border: Border.all(
+            color: selecionado ? _laranja : _borderLight,
+            width: selecionado ? 1.5 : 1,
+          ),
+        ),
+        child: Row(
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            Container(
+              padding: const EdgeInsets.all(8),
+              decoration: BoxDecoration(
+                color: selecionado
+                    ? _laranja.withValues(alpha: 0.15)
+                    : _surfaceMuted,
+                borderRadius: BorderRadius.circular(10),
+              ),
+              child: Icon(
+                icone,
+                color: selecionado ? _laranja : _muted,
+                size: 20,
+              ),
+            ),
+            const SizedBox(width: 12),
+            Expanded(
+              child: Column(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  Row(
+                    children: [
+                      Expanded(
+                        child: Text(
+                          TiposEntrega.rotulo(codigo),
+                          style: GoogleFonts.plusJakartaSans(
+                            fontSize: 14,
+                            fontWeight: FontWeight.w700,
+                            color: _ink,
+                          ),
+                        ),
+                      ),
+                      Icon(
+                        selecionado
+                            ? Icons.check_circle_rounded
+                            : Icons.radio_button_unchecked_rounded,
+                        size: 18,
+                        color: selecionado ? _laranja : _muted,
+                      ),
+                    ],
+                  ),
+                  const SizedBox(height: 4),
+                  Text(
+                    TiposEntrega.descricaoCurta(codigo),
+                    style: GoogleFonts.plusJakartaSans(
+                      fontSize: 11.5,
+                      color: _muted,
+                      height: 1.35,
+                    ),
+                  ),
+                ],
+              ),
+            ),
+          ],
+        ),
+      ),
+    );
+  }
+
+  Widget _avisoTipoEntrega({
+    required Color cor,
+    required Color bg,
+    required IconData icon,
+    required String texto,
+  }) {
+    return Container(
+      padding: const EdgeInsets.all(12),
+      decoration: BoxDecoration(
+        color: bg,
+        borderRadius: BorderRadius.circular(10),
+        border: Border.all(color: cor),
+      ),
+      child: Row(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          Icon(icon, color: cor, size: 18),
+          const SizedBox(width: 10),
+          Expanded(
+            child: Text(
+              texto,
+              style: GoogleFonts.plusJakartaSans(
+                fontSize: 12.5,
+                color: _ink,
+                height: 1.4,
+              ),
+            ),
+          ),
+        ],
       ),
     );
   }
@@ -999,6 +1440,59 @@ class _ConfiguracoesLojistaScreenState extends State<ConfiguracoesLojistaScreen>
           ],
         ),
       ),
+    );
+  }
+}
+
+/// Snapshot imutável do campo `alerta_tipos_entrega_incompat` persistido no
+/// doc do lojista. Espelha a classe `_AlertaIncompat` do app mobile.
+class _AlertaIncompatWeb {
+  _AlertaIncompatWeb({
+    required this.totalUltimos30d,
+    required this.ultimoEm,
+    required this.dispensadoEm,
+    required this.ultimoPedidoId,
+    required this.ultimoTipoEntregador,
+    required this.ultimoTiposAceitosLoja,
+  });
+
+  final int totalUltimos30d;
+  final DateTime? ultimoEm;
+  final DateTime? dispensadoEm;
+  final String ultimoPedidoId;
+  final String ultimoTipoEntregador;
+  final List<String> ultimoTiposAceitosLoja;
+
+  bool get ativo {
+    if (totalUltimos30d <= 0) return false;
+    if (ultimoEm == null) return false;
+    if (dispensadoEm == null) return true;
+    return ultimoEm!.isAfter(dispensadoEm!);
+  }
+
+  static _AlertaIncompatWeb? deDados(Map<String, dynamic>? d) {
+    if (d == null) return null;
+    final raw = d['alerta_tipos_entrega_incompat'];
+    if (raw is! Map) return null;
+    final m = Map<String, dynamic>.from(raw);
+    DateTime? ts(dynamic v) =>
+        v is Timestamp ? v.toDate() : (v is DateTime ? v : null);
+    final aceitos = (m['ultimo_tipos_aceitos_loja'] is Iterable)
+        ? List<String>.from(
+            (m['ultimo_tipos_aceitos_loja'] as Iterable)
+                .map((e) => e?.toString() ?? '')
+                .where((s) => s.isNotEmpty),
+          )
+        : <String>[];
+    return _AlertaIncompatWeb(
+      totalUltimos30d: (m['total_ultimos_30d'] is num)
+          ? (m['total_ultimos_30d'] as num).toInt()
+          : 0,
+      ultimoEm: ts(m['ultimo_em']),
+      dispensadoEm: ts(m['dispensado_em']),
+      ultimoPedidoId: m['ultimo_pedido_id']?.toString() ?? '',
+      ultimoTipoEntregador: m['ultimo_tipo_entregador']?.toString() ?? '',
+      ultimoTiposAceitosLoja: aceitos,
     );
   }
 }

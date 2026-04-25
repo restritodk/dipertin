@@ -28,9 +28,18 @@ class IncomingDeliveryActionReceiver : BroadcastReceiver() {
                     putExtra(MainActivity.EXTRA_ORDER_ID, orderId)
                 }
                 context.startActivity(openIntent)
-                IncomingDeliveryRepository.aceitar(orderId) { ok, _ ->
-                    if (!ok) {
+                IncomingDeliveryRepository.aceitar(orderId) { resultado ->
+                    if (!resultado.ok) {
                         IncomingDeliveryFlowState.markCancelled(requestId)
+                        // Persiste o motivo para o dashboard exibir SnackBar.
+                        // Sem isso, o entregador toca em "Aceitar" pela
+                        // notificação heads-up e o pedido some sem feedback.
+                        UltimaFalhaAceiteStore.gravar(
+                            context.applicationContext,
+                            orderId,
+                            resultado.motivo,
+                            resultado.mensagem ?: "Não foi possível aceitar a corrida.",
+                        )
                     }
                     pendingResult.finish()
                 }

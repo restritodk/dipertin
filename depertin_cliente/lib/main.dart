@@ -6,6 +6,7 @@ import 'package:depertin_cliente/screens/cliente/chat_suporte_screen.dart';
 import 'package:depertin_cliente/screens/cliente/orders_screen.dart';
 import 'package:depertin_cliente/screens/entregador/entregador_form_screen.dart';
 import 'package:depertin_cliente/screens/lojista/lojista_form_screen.dart';
+import 'package:depertin_cliente/screens/lojista/lojista_painel_roteador.dart';
 import 'package:depertin_cliente/screens/lojista/lojista_pedidos_screen.dart';
 import 'package:depertin_cliente/services/fcm_notification_eventos.dart';
 import 'package:depertin_cliente/services/fcm_rota.dart';
@@ -32,6 +33,7 @@ import 'services/permissoes_app_service.dart';
 import 'services/notificacoes_prefs.dart';
 import 'services/app_atualizacao_obrigatoria_service.dart';
 import 'services/android_nav_intent.dart';
+import 'services/entregador_oferta_global_listener.dart';
 import 'services/corrida_chamada_entregador_audio.dart';
 import 'services/corrida_foreground_notificacao.dart';
 import 'services/notificacoes_historico_service.dart';
@@ -124,6 +126,12 @@ void main() async {
   await ativarFirebaseAppCheck();
 
   FirebaseMessaging.onBackgroundMessage(_firebaseMessagingBackgroundHandler);
+
+  // Listener GLOBAL de ofertas para entregador — independe da tela atual.
+  // Sem isto, se o entregador estivesse em qualquer rota diferente do
+  // dashboard (configurações/histórico/veículos/chat), a oferta só
+  // apareceria via push FCM, que é frágil em foreground + Doze + OEMs.
+  EntregadorOfertaGlobalListener.instance.iniciar();
 
   const AndroidInitializationSettings initializationSettingsAndroid =
       AndroidInitializationSettings('@drawable/ic_stat_notify');
@@ -265,6 +273,10 @@ class _DiPertinAppState extends State<DiPertinApp> with WidgetsBindingObserver {
         '/suporte': (context) => const ChatSuporteScreen(),
         // Rotas abertas a partir do push de "conta aprovada/recusada".
         '/lojista-cadastro': (context) => const LojistaFormScreen(),
+        // Deep-link da notificação "Conta aprovada": decide no runtime
+        // se abre o painel operacional ou leva o lojista de volta ao
+        // formulário/aviso de bloqueio conforme o documento do usuário.
+        '/lojista-painel': (context) => const LojistaPainelRoteador(),
         '/entregador-cadastro': (context) => const EntregadorFormScreen(),
       },
     );

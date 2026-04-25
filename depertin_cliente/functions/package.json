@@ -12,7 +12,8 @@
     "seed:master": "node scripts/seed_master_painel.js",
     "reset:usuarios-superadmin": "node scripts/reset_usuarios_somente_superadmin.js",
     "creditar:lojista": "node scripts/creditar_saldo_lojista.js",
-    "seed:atualizacao-app": "node scripts/seed_atualizacao_app.js"
+    "seed:atualizacao-app": "node scripts/seed_atualizacao_app.js",
+    "test": "node --test test/*.test.js"
   },
   "engines": {
     "node": "20"

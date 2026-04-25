@@ -92,191 +92,15 @@ class _EntregadorHistoricoScreenState extends State<EntregadorHistoricoScreen> {
     required String docId,
     required Map<String, dynamic> pedido,
   }) {
-    final loja = pedido['loja_nome'] ?? 'Loja parceira';
-    final endereco =
-        pedido['endereco_entrega']?.toString() ?? 'Endereço não informado';
-    final taxa = _ganhoEntregador(pedido);
-    final totalPedido = (pedido['total'] ?? 0.0).toDouble();
-
-    int qtdItens = 0;
-    final items = pedido['items'];
-    if (items is List) qtdItens = items.length;
-
-    String fmt(Timestamp? t) {
-      if (t == null) return '—';
-      return DateFormat("dd/MM/yyyy 'às' HH:mm").format(t.toDate());
-    }
-
-    final tsEntrega = pedido['data_entregue'] is Timestamp
-        ? pedido['data_entregue'] as Timestamp
-        : null;
-    final tsPedido = pedido['data_pedido'] is Timestamp
-        ? pedido['data_pedido'] as Timestamp
-        : null;
-
-    final idCurto = docId.length > 8
-        ? '…${docId.substring(docId.length - 8)}'
-        : docId;
-
     showModalBottomSheet<void>(
       context: context,
       isScrollControlled: true,
-      shape: const RoundedRectangleBorder(
-        borderRadius: BorderRadius.vertical(top: Radius.circular(20)),
+      backgroundColor: Colors.transparent,
+      useSafeArea: true,
+      builder: (ctx) => _DetalhesCorridaSheet(
+        docId: docId,
+        pedido: pedido,
       ),
-      builder: (ctx) {
-        return Padding(
-          padding: EdgeInsets.only(
-            left: 20,
-            right: 20,
-            top: 16,
-            bottom: MediaQuery.of(ctx).viewInsets.bottom + 24,
-          ),
-          child: SingleChildScrollView(
-            child: Column(
-              crossAxisAlignment: CrossAxisAlignment.stretch,
-              mainAxisSize: MainAxisSize.min,
-              children: [
-                Center(
-                  child: Container(
-                    width: 40,
-                    height: 4,
-                    margin: const EdgeInsets.only(bottom: 16),
-                    decoration: BoxDecoration(
-                      color: Colors.grey[300],
-                      borderRadius: BorderRadius.circular(2),
-                    ),
-                  ),
-                ),
-                const Text(
-                  'Detalhes da corrida',
-                  style: TextStyle(
-                    fontSize: 18,
-                    fontWeight: FontWeight.w600,
-                    color: diPertinRoxo,
-                  ),
-                ),
-                const SizedBox(height: 6),
-                Text(
-                  'Pedido $idCurto',
-                  style: TextStyle(fontSize: 13, color: Colors.grey[600]),
-                ),
-                const SizedBox(height: 20),
-                _linhaDetalhe(Icons.store, 'Loja', loja),
-                const SizedBox(height: 12),
-                _linhaDetalhe(Icons.event, 'Entrega concluída', fmt(tsEntrega)),
-                if (tsPedido != null) ...[
-                  const SizedBox(height: 8),
-                  _linhaDetalhe(
-                    Icons.shopping_bag_outlined,
-                    'Pedido criado',
-                    fmt(tsPedido),
-                  ),
-                ],
-                if (qtdItens > 0) ...[
-                  const SizedBox(height: 12),
-                  _linhaDetalhe(
-                    Icons.inventory_2_outlined,
-                    'Itens',
-                    '$qtdItens ${qtdItens == 1 ? 'item' : 'itens'}',
-                  ),
-                ],
-                if (totalPedido > 0) ...[
-                  const SizedBox(height: 8),
-                  _linhaDetalhe(
-                    Icons.receipt_long,
-                    'Valor do pedido',
-                    _moeda.format(totalPedido),
-                  ),
-                ],
-                const SizedBox(height: 16),
-                Row(
-                  crossAxisAlignment: CrossAxisAlignment.start,
-                  children: [
-                    Icon(Icons.location_on, color: Colors.red[700], size: 22),
-                    const SizedBox(width: 8),
-                    Expanded(
-                      child: Text(
-                        endereco,
-                        style: const TextStyle(
-                          fontSize: 14,
-                          height: 1.35,
-                          color: Colors.black87,
-                        ),
-                      ),
-                    ),
-                  ],
-                ),
-                const SizedBox(height: 12),
-                OutlinedButton.icon(
-                  onPressed: () async {
-                    await Clipboard.setData(ClipboardData(text: endereco));
-                    if (ctx.mounted) {
-                      ScaffoldMessenger.of(ctx).showSnackBar(
-                        const SnackBar(
-                          content: Text('Endereço copiado.'),
-                          behavior: SnackBarBehavior.floating,
-                        ),
-                      );
-                    }
-                  },
-                  icon: const Icon(Icons.copy, size: 18),
-                  label: const Text('Copiar endereço'),
-                ),
-                const Divider(height: 32),
-                Row(
-                  mainAxisAlignment: MainAxisAlignment.spaceBetween,
-                  children: [
-                    const Text(
-                      'Seu ganho líquido',
-                      style: TextStyle(
-                        fontSize: 15,
-                        fontWeight: FontWeight.w500,
-                      ),
-                    ),
-                    Text(
-                      _moeda.format(taxa),
-                      style: const TextStyle(
-                        fontSize: 20,
-                        fontWeight: FontWeight.bold,
-                        color: diPertinLaranja,
-                      ),
-                    ),
-                  ],
-                ),
-              ],
-            ),
-          ),
-        );
-      },
-    );
-  }
-
-  static Widget _linhaDetalhe(IconData icon, String titulo, String valor) {
-    return Row(
-      crossAxisAlignment: CrossAxisAlignment.start,
-      children: [
-        Icon(icon, size: 20, color: diPertinRoxo),
-        const SizedBox(width: 10),
-        Expanded(
-          child: Column(
-            crossAxisAlignment: CrossAxisAlignment.start,
-            children: [
-              Text(
-                titulo,
-                style: TextStyle(fontSize: 12, color: Colors.grey[600]),
-              ),
-              Text(
-                valor,
-                style: const TextStyle(
-                  fontSize: 14,
-                  fontWeight: FontWeight.w500,
-                ),
-              ),
-            ],
-          ),
-        ),
-      ],
     );
   }
 
@@ -695,6 +519,552 @@ class _EntregadorHistoricoScreenState extends State<EntregadorHistoricoScreen> {
             ),
           );
         },
+      ),
+    );
+  }
+}
+
+/// Modal "Detalhes da corrida" — visual premium usado na listagem do
+/// histórico do entregador.
+///
+/// Arquitetura visual (top → bottom):
+///   - `_DetalhesCorridaHeader`: faixa com gradiente DiPertin, ganho
+///     líquido em destaque, selo "Concluída" e ID resumido.
+///   - Card com dados da loja, itens, datas.
+///   - Card com endereço de entrega + botão "Copiar".
+///   - Resumo financeiro (valor do pedido, taxa do app, ganho).
+class _DetalhesCorridaSheet extends StatelessWidget {
+  const _DetalhesCorridaSheet({
+    required this.docId,
+    required this.pedido,
+  });
+
+  final String docId;
+  final Map<String, dynamic> pedido;
+
+  static final NumberFormat _moeda = NumberFormat.currency(
+    locale: 'pt_BR',
+    symbol: 'R\$',
+  );
+
+  static double _toDouble(dynamic v) {
+    if (v == null) return 0;
+    if (v is num) return v.toDouble();
+    if (v is String) {
+      return double.tryParse(v.replaceAll(',', '.')) ?? 0;
+    }
+    return 0;
+  }
+
+  static double _ganho(Map<String, dynamic> pedido) {
+    final liquido = _toDouble(pedido['valor_liquido_entregador']);
+    if (liquido > 0) return liquido;
+    final frete = _toDouble(pedido['taxa_entrega']);
+    final taxaPlataforma = _toDouble(pedido['taxa_entregador']);
+    return math.max(0, frete - taxaPlataforma);
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    final loja = (pedido['loja_nome'] ?? 'Loja parceira').toString();
+    final endereco =
+        (pedido['endereco_entrega']?.toString() ?? '').trim().isEmpty
+            ? 'Endereço não informado'
+            : pedido['endereco_entrega'].toString();
+    final ganho = _ganho(pedido);
+    final totalPedido = _toDouble(pedido['total']);
+    final freteBruto = _toDouble(pedido['taxa_entrega']);
+    final taxaPlataforma = _toDouble(pedido['taxa_entregador']);
+
+    int qtdItens = 0;
+    final items = pedido['items'];
+    if (items is List) qtdItens = items.length;
+
+    final tsEntrega = pedido['data_entregue'] is Timestamp
+        ? (pedido['data_entregue'] as Timestamp).toDate()
+        : null;
+    final tsPedido = pedido['data_pedido'] is Timestamp
+        ? (pedido['data_pedido'] as Timestamp).toDate()
+        : null;
+
+    final idCurto = docId.length > 8
+        ? docId.substring(docId.length - 8).toUpperCase()
+        : docId.toUpperCase();
+
+    return DraggableScrollableSheet(
+      expand: false,
+      initialChildSize: 0.82,
+      minChildSize: 0.5,
+      maxChildSize: 0.95,
+      builder: (ctx, scrollController) {
+        return Container(
+          decoration: const BoxDecoration(
+            color: Color(0xFFF7F6FB),
+            borderRadius: BorderRadius.vertical(top: Radius.circular(24)),
+          ),
+          child: CustomScrollView(
+            controller: scrollController,
+            slivers: [
+              SliverToBoxAdapter(
+                child: _DetalhesCorridaHeader(
+                  ganho: ganho,
+                  idCurto: idCurto,
+                ),
+              ),
+              SliverPadding(
+                padding: const EdgeInsets.fromLTRB(16, 16, 16, 28),
+                sliver: SliverList(
+                  delegate: SliverChildListDelegate([
+                    _CardSecao(
+                      icone: Icons.storefront_outlined,
+                      titulo: 'Loja',
+                      children: [
+                        _LinhaInfo(
+                          icone: Icons.store,
+                          rotulo: 'Nome',
+                          valor: loja,
+                          cor: diPertinRoxo,
+                        ),
+                        if (qtdItens > 0) ...[
+                          _LinhaInfo(
+                            icone: Icons.inventory_2_outlined,
+                            rotulo: 'Itens transportados',
+                            valor:
+                                '$qtdItens ${qtdItens == 1 ? 'item' : 'itens'}',
+                            cor: diPertinRoxo,
+                          ),
+                        ],
+                        if (totalPedido > 0)
+                          _LinhaInfo(
+                            icone: Icons.receipt_long_outlined,
+                            rotulo: 'Valor do pedido',
+                            valor: _moeda.format(totalPedido),
+                            cor: diPertinRoxo,
+                          ),
+                      ],
+                    ),
+                    const SizedBox(height: 14),
+                    _CardSecao(
+                      icone: Icons.schedule,
+                      titulo: 'Linha do tempo',
+                      children: [
+                        if (tsPedido != null)
+                          _LinhaInfo(
+                            icone: Icons.shopping_bag_outlined,
+                            rotulo: 'Pedido criado',
+                            valor: _formatarData(tsPedido),
+                            cor: diPertinRoxo,
+                          ),
+                        if (tsEntrega != null)
+                          _LinhaInfo(
+                            icone: Icons.task_alt_rounded,
+                            rotulo: 'Entrega concluída',
+                            valor: _formatarData(tsEntrega),
+                            cor: Colors.green.shade700,
+                          ),
+                        if (tsPedido != null && tsEntrega != null)
+                          _LinhaInfo(
+                            icone: Icons.timer_outlined,
+                            rotulo: 'Duração total',
+                            valor: _formatarDuracao(
+                              tsEntrega.difference(tsPedido),
+                            ),
+                            cor: diPertinRoxo,
+                          ),
+                      ],
+                    ),
+                    const SizedBox(height: 14),
+                    _CardSecao(
+                      icone: Icons.location_on_outlined,
+                      titulo: 'Endereço de entrega',
+                      children: [
+                        Padding(
+                          padding: const EdgeInsets.symmetric(
+                              horizontal: 12, vertical: 10),
+                          child: Text(
+                            endereco,
+                            style: const TextStyle(
+                              fontSize: 14,
+                              height: 1.45,
+                              color: Colors.black87,
+                            ),
+                          ),
+                        ),
+                        const Divider(height: 1, color: Color(0xFFEDEAF3)),
+                        InkWell(
+                          onTap: () async {
+                            await Clipboard.setData(
+                                ClipboardData(text: endereco));
+                            if (ctx.mounted) {
+                              ScaffoldMessenger.of(ctx).showSnackBar(
+                                const SnackBar(
+                                  content: Text('Endereço copiado.'),
+                                  behavior: SnackBarBehavior.floating,
+                                ),
+                              );
+                            }
+                          },
+                          child: Padding(
+                            padding: const EdgeInsets.symmetric(
+                              horizontal: 14,
+                              vertical: 12,
+                            ),
+                            child: Row(
+                              children: [
+                                Icon(Icons.copy_rounded,
+                                    size: 18, color: diPertinRoxo),
+                                const SizedBox(width: 8),
+                                Text(
+                                  'Copiar endereço',
+                                  style: TextStyle(
+                                    color: diPertinRoxo,
+                                    fontWeight: FontWeight.w700,
+                                    fontSize: 13.5,
+                                  ),
+                                ),
+                              ],
+                            ),
+                          ),
+                        ),
+                      ],
+                    ),
+                    const SizedBox(height: 14),
+                    _CardSecao(
+                      icone: Icons.account_balance_wallet_outlined,
+                      titulo: 'Resumo financeiro',
+                      children: [
+                        if (freteBruto > 0)
+                          _LinhaInfoValor(
+                            rotulo: 'Frete bruto',
+                            valor: _moeda.format(freteBruto),
+                          ),
+                        if (taxaPlataforma > 0)
+                          _LinhaInfoValor(
+                            rotulo: 'Taxa do app',
+                            valor: '- ${_moeda.format(taxaPlataforma)}',
+                            corValor: Colors.red.shade600,
+                          ),
+                        const Divider(height: 1, color: Color(0xFFEDEAF3)),
+                        _LinhaInfoValor(
+                          rotulo: 'Seu ganho líquido',
+                          valor: _moeda.format(ganho),
+                          corValor: diPertinLaranja,
+                          destaque: true,
+                        ),
+                      ],
+                    ),
+                    const SizedBox(height: 20),
+                    OutlinedButton(
+                      onPressed: () => Navigator.of(ctx).maybePop(),
+                      style: OutlinedButton.styleFrom(
+                        padding: const EdgeInsets.symmetric(vertical: 14),
+                        side: BorderSide(color: diPertinRoxo.withValues(alpha: 0.4)),
+                        shape: RoundedRectangleBorder(
+                          borderRadius: BorderRadius.circular(12),
+                        ),
+                      ),
+                      child: Text(
+                        'Fechar',
+                        style: TextStyle(
+                          color: diPertinRoxo,
+                          fontWeight: FontWeight.w700,
+                          fontSize: 14,
+                        ),
+                      ),
+                    ),
+                  ]),
+                ),
+              ),
+            ],
+          ),
+        );
+      },
+    );
+  }
+
+  static String _formatarData(DateTime d) {
+    return DateFormat("dd/MM/yyyy 'às' HH:mm", 'pt_BR').format(d);
+  }
+
+  static String _formatarDuracao(Duration d) {
+    if (d.isNegative || d == Duration.zero) return '—';
+    final horas = d.inHours;
+    final minutos = d.inMinutes.remainder(60);
+    if (horas > 0) {
+      return '${horas}h ${minutos.toString().padLeft(2, '0')}min';
+    }
+    return '${minutos}min';
+  }
+}
+
+class _DetalhesCorridaHeader extends StatelessWidget {
+  const _DetalhesCorridaHeader({
+    required this.ganho,
+    required this.idCurto,
+  });
+
+  final double ganho;
+  final String idCurto;
+
+  static final NumberFormat _moeda = NumberFormat.currency(
+    locale: 'pt_BR',
+    symbol: 'R\$',
+  );
+
+  @override
+  Widget build(BuildContext context) {
+    return Container(
+      padding: const EdgeInsets.fromLTRB(20, 12, 20, 24),
+      decoration: const BoxDecoration(
+        gradient: LinearGradient(
+          begin: Alignment.topLeft,
+          end: Alignment.bottomRight,
+          colors: [diPertinRoxo, Color(0xFF8E24AA), Color(0xFF7B1FA2)],
+        ),
+        borderRadius: BorderRadius.vertical(top: Radius.circular(24)),
+      ),
+      child: Column(
+        mainAxisSize: MainAxisSize.min,
+        children: [
+          Center(
+            child: Container(
+              width: 44,
+              height: 4,
+              margin: const EdgeInsets.only(bottom: 18),
+              decoration: BoxDecoration(
+                color: Colors.white.withValues(alpha: 0.35),
+                borderRadius: BorderRadius.circular(2),
+              ),
+            ),
+          ),
+          Row(
+            mainAxisAlignment: MainAxisAlignment.spaceBetween,
+            children: [
+              Container(
+                padding:
+                    const EdgeInsets.symmetric(horizontal: 10, vertical: 4),
+                decoration: BoxDecoration(
+                  color: Colors.green.shade400.withValues(alpha: 0.22),
+                  borderRadius: BorderRadius.circular(20),
+                  border: Border.all(
+                      color: Colors.green.shade300.withValues(alpha: 0.6)),
+                ),
+                child: Row(
+                  mainAxisSize: MainAxisSize.min,
+                  children: [
+                    Icon(Icons.check_circle_rounded,
+                        color: Colors.green.shade200, size: 15),
+                    const SizedBox(width: 6),
+                    const Text(
+                      'Concluída',
+                      style: TextStyle(
+                        color: Colors.white,
+                        fontWeight: FontWeight.w700,
+                        fontSize: 12,
+                      ),
+                    ),
+                  ],
+                ),
+              ),
+              Text(
+                'Pedido · $idCurto',
+                style: TextStyle(
+                  color: Colors.white.withValues(alpha: 0.85),
+                  fontSize: 12,
+                  fontWeight: FontWeight.w600,
+                  letterSpacing: 0.3,
+                ),
+              ),
+            ],
+          ),
+          const SizedBox(height: 20),
+          const Text(
+            'Ganho desta corrida',
+            style: TextStyle(
+              color: Colors.white70,
+              fontSize: 13,
+              fontWeight: FontWeight.w600,
+              letterSpacing: 0.2,
+            ),
+          ),
+          const SizedBox(height: 4),
+          Text(
+            _moeda.format(ganho),
+            style: const TextStyle(
+              color: Colors.white,
+              fontSize: 38,
+              fontWeight: FontWeight.w800,
+              letterSpacing: -0.8,
+              height: 1.05,
+            ),
+          ),
+          const SizedBox(height: 6),
+          Text(
+            'Valor líquido creditado na sua carteira',
+            style: TextStyle(
+              color: Colors.white.withValues(alpha: 0.85),
+              fontSize: 12,
+            ),
+          ),
+        ],
+      ),
+    );
+  }
+}
+
+class _CardSecao extends StatelessWidget {
+  const _CardSecao({
+    required this.icone,
+    required this.titulo,
+    required this.children,
+  });
+
+  final IconData icone;
+  final String titulo;
+  final List<Widget> children;
+
+  @override
+  Widget build(BuildContext context) {
+    return Container(
+      decoration: BoxDecoration(
+        color: Colors.white,
+        borderRadius: BorderRadius.circular(16),
+        border: Border.all(color: const Color(0xFFEDEAF3)),
+        boxShadow: [
+          BoxShadow(
+            color: Colors.black.withValues(alpha: 0.03),
+            blurRadius: 10,
+            offset: const Offset(0, 3),
+          ),
+        ],
+      ),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.stretch,
+        children: [
+          Padding(
+            padding: const EdgeInsets.fromLTRB(14, 14, 14, 10),
+            child: Row(
+              children: [
+                Container(
+                  padding: const EdgeInsets.all(6),
+                  decoration: BoxDecoration(
+                    color: diPertinRoxo.withValues(alpha: 0.1),
+                    borderRadius: BorderRadius.circular(8),
+                  ),
+                  child: Icon(icone, color: diPertinRoxo, size: 16),
+                ),
+                const SizedBox(width: 10),
+                Text(
+                  titulo,
+                  style: const TextStyle(
+                    fontSize: 14,
+                    fontWeight: FontWeight.w800,
+                    color: diPertinRoxo,
+                    letterSpacing: 0.2,
+                  ),
+                ),
+              ],
+            ),
+          ),
+          const Divider(height: 1, color: Color(0xFFEDEAF3)),
+          ...children,
+        ],
+      ),
+    );
+  }
+}
+
+class _LinhaInfo extends StatelessWidget {
+  const _LinhaInfo({
+    required this.icone,
+    required this.rotulo,
+    required this.valor,
+    required this.cor,
+  });
+
+  final IconData icone;
+  final String rotulo;
+  final String valor;
+  final Color cor;
+
+  @override
+  Widget build(BuildContext context) {
+    return Padding(
+      padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 11),
+      child: Row(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          Icon(icone, size: 18, color: cor),
+          const SizedBox(width: 12),
+          Expanded(
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                Text(
+                  rotulo,
+                  style: TextStyle(
+                    fontSize: 11.5,
+                    color: Colors.grey.shade600,
+                    fontWeight: FontWeight.w600,
+                    letterSpacing: 0.2,
+                  ),
+                ),
+                const SizedBox(height: 2),
+                Text(
+                  valor,
+                  style: const TextStyle(
+                    fontSize: 14.5,
+                    fontWeight: FontWeight.w600,
+                    color: Colors.black87,
+                  ),
+                ),
+              ],
+            ),
+          ),
+        ],
+      ),
+    );
+  }
+}
+
+class _LinhaInfoValor extends StatelessWidget {
+  const _LinhaInfoValor({
+    required this.rotulo,
+    required this.valor,
+    this.corValor,
+    this.destaque = false,
+  });
+
+  final String rotulo;
+  final String valor;
+  final Color? corValor;
+  final bool destaque;
+
+  @override
+  Widget build(BuildContext context) {
+    return Padding(
+      padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 12),
+      child: Row(
+        mainAxisAlignment: MainAxisAlignment.spaceBetween,
+        children: [
+          Text(
+            rotulo,
+            style: TextStyle(
+              fontSize: destaque ? 14.5 : 13,
+              fontWeight: destaque ? FontWeight.w800 : FontWeight.w600,
+              color: destaque ? Colors.black87 : Colors.grey.shade700,
+            ),
+          ),
+          Text(
+            valor,
+            style: TextStyle(
+              fontSize: destaque ? 18 : 14,
+              fontWeight: destaque ? FontWeight.w800 : FontWeight.w700,
+              color: corValor ?? Colors.black87,
+              letterSpacing: destaque ? -0.3 : 0,
+            ),
+          ),
+        ],
       ),
     );
   }

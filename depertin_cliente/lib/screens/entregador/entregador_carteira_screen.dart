@@ -191,12 +191,71 @@ class _EntregadorCarteiraScreenState extends State<EntregadorCarteiraScreen> {
     return 'PIX •••• ${t.substring(t.length - 4)}';
   }
 
-  void _abrirSheetSaque(double saldoDisponivel) {
+  /// Representa o último saque bem-sucedido do entregador, usado para
+  /// pré-preencher o modal e oferecer a opção de "Usar mesmos dados".
+  _UltimoSaqueDados? _ultimoSaque;
+
+  /// Lê da coleção `saques_solicitacoes` o último pedido deste
+  /// entregador para reaproveitar os dados bancários. Ignora saques
+  /// recusados/estornados — só os que o entregador efetivamente usou.
+  Future<_UltimoSaqueDados?> _carregarUltimoSaque(String uid) async {
+    try {
+      final snap = await FirebaseFirestore.instance
+          .collection('saques_solicitacoes')
+          .where('user_id', isEqualTo: uid)
+          .get();
+      if (snap.docs.isEmpty) return null;
+
+      // Ordenação em memória: os índices do Firestore podem não cobrir
+      // `user_id + data_solicitacao` e aqui o volume por usuário é baixo.
+      final docs = List<QueryDocumentSnapshot<Map<String, dynamic>>>.from(
+        snap.docs,
+      )..sort((a, b) {
+          final ta = a.data()['data_solicitacao'] as Timestamp?;
+          final tb = b.data()['data_solicitacao'] as Timestamp?;
+          if (ta == null) return 1;
+          if (tb == null) return -1;
+          return tb.compareTo(ta);
+        });
+
+      for (final d in docs) {
+        final m = d.data();
+        final status = (m['status'] ?? '').toString().toLowerCase();
+        // Considera dados reutilizáveis se o saque tem chave PIX
+        // preenchida e não foi marcado como recusado. Mesmo status
+        // "pendente" e "pago" qualificam: o entregador informou esses
+        // dados com sucesso.
+        if (status == 'recusado') continue;
+        final chave = (m['chave_pix'] ?? '').toString().trim();
+        if (chave.isEmpty) continue;
+        return _UltimoSaqueDados(
+          titular: (m['titular_conta'] ?? '').toString(),
+          banco: (m['banco'] ?? '').toString(),
+          chavePix: chave,
+        );
+      }
+      return null;
+    } catch (e) {
+      debugPrint('[carteira] _carregarUltimoSaque: $e');
+      return null;
+    }
+  }
+
+  Future<void> _abrirSheetSaque(double saldoDisponivel) async {
     if (saldoDisponivel <= 0) return;
 
     _valorController.text = _moeda
         .format(saldoDisponivel)
         .replaceAll('\u00A0', ' ');
+
+    final uid = FirebaseAuth.instance.currentUser?.uid;
+    _UltimoSaqueDados? ultimo;
+    if (uid != null) {
+      ultimo = _ultimoSaque ?? await _carregarUltimoSaque(uid);
+      _ultimoSaque = ultimo;
+    }
+
+    if (!mounted) return;
 
     showModalBottomSheet<void>(
       context: context,
@@ -204,150 +263,16 @@ class _EntregadorCarteiraScreenState extends State<EntregadorCarteiraScreen> {
       useSafeArea: true,
       backgroundColor: Colors.transparent,
       builder: (sheetContext) {
-        return StatefulBuilder(
-          builder: (context, setModalState) {
-            return Padding(
-              padding: EdgeInsets.only(
-                bottom: MediaQuery.of(sheetContext).viewInsets.bottom,
-              ),
-              child: Container(
-                decoration: const BoxDecoration(
-                  color: Colors.white,
-                  borderRadius: BorderRadius.vertical(top: Radius.circular(20)),
-                ),
-                child: SingleChildScrollView(
-                  padding: const EdgeInsets.fromLTRB(20, 12, 20, 24),
-                  child: Column(
-                    mainAxisSize: MainAxisSize.min,
-                    crossAxisAlignment: CrossAxisAlignment.stretch,
-                    children: [
-                      Center(
-                        child: Container(
-                          width: 40,
-                          height: 4,
-                          margin: const EdgeInsets.only(bottom: 16),
-                          decoration: BoxDecoration(
-                            color: Colors.grey[300],
-                            borderRadius: BorderRadius.circular(2),
-                          ),
-                        ),
-                      ),
-                      const Text(
-                        'Solicitar saque via PIX',
-                        style: TextStyle(
-                          fontSize: 18,
-                          fontWeight: FontWeight.w600,
-                          color: diPertinRoxo,
-                        ),
-                      ),
-                      const SizedBox(height: 6),
-                      Text(
-                        'Informe o valor e os dados da conta que receberá o repasse.',
-                        style: TextStyle(fontSize: 13, color: Colors.grey[600]),
-                      ),
-                      const SizedBox(height: 20),
-                      TextField(
-                        controller: _valorController,
-                        keyboardType: const TextInputType.numberWithOptions(
-                          decimal: true,
-                        ),
-                        inputFormatters: [
-                          FilteringTextInputFormatter.allow(RegExp(r'[\d.,]')),
-                        ],
-                        onChanged: (_) => setModalState(() {}),
-                        decoration: InputDecoration(
-                          labelText: 'Valor (R\$)',
-                          border: const OutlineInputBorder(),
-                          prefixIcon: const Icon(
-                            Icons.attach_money,
-                            color: Colors.green,
-                          ),
-                          suffixText: 'Máx. ${_moeda.format(saldoDisponivel)}',
-                          suffixStyle: TextStyle(
-                            fontSize: 11,
-                            color: Colors.grey[600],
-                          ),
-                        ),
-                      ),
-                      Align(
-                        alignment: Alignment.centerRight,
-                        child: TextButton(
-                          onPressed: () {
-                            _valorController.text = _moeda
-                                .format(saldoDisponivel)
-                                .replaceAll('\u00A0', ' ');
-                            setModalState(() {});
-                          },
-                          child: const Text('Sacar tudo'),
-                        ),
-                      ),
-                      const SizedBox(height: 8),
-                      TextField(
-                        controller: _titularController,
-                        textCapitalization: TextCapitalization.words,
-                        decoration: const InputDecoration(
-                          labelText: 'Nome do titular',
-                          border: OutlineInputBorder(),
-                          prefixIcon: Icon(Icons.person, color: diPertinRoxo),
-                        ),
-                      ),
-                      const SizedBox(height: 12),
-                      TextField(
-                        controller: _bancoController,
-                        textCapitalization: TextCapitalization.words,
-                        decoration: const InputDecoration(
-                          labelText: 'Banco (ex.: Nubank, Inter, Itaú)',
-                          border: OutlineInputBorder(),
-                          prefixIcon: Icon(
-                            Icons.account_balance,
-                            color: diPertinRoxo,
-                          ),
-                        ),
-                      ),
-                      const SizedBox(height: 12),
-                      TextField(
-                        controller: _chavePixController,
-                        decoration: const InputDecoration(
-                          labelText: 'Chave PIX',
-                          border: OutlineInputBorder(),
-                          prefixIcon: Icon(Icons.pix, color: diPertinLaranja),
-                        ),
-                      ),
-                      const SizedBox(height: 24),
-                      Row(
-                        children: [
-                          Expanded(
-                            child: OutlinedButton(
-                              onPressed: () => Navigator.pop(sheetContext),
-                              child: const Text('Cancelar'),
-                            ),
-                          ),
-                          const SizedBox(width: 12),
-                          Expanded(
-                            flex: 2,
-                            child: FilledButton(
-                              style: FilledButton.styleFrom(
-                                backgroundColor: diPertinLaranja,
-                                foregroundColor: Colors.white,
-                                padding: const EdgeInsets.symmetric(
-                                  vertical: 14,
-                                ),
-                              ),
-                              onPressed: () => _confirmarSaque(
-                                saldoDisponivel,
-                                sheetContext,
-                              ),
-                              child: const Text('Confirmar saque'),
-                            ),
-                          ),
-                        ],
-                      ),
-                    ],
-                  ),
-                ),
-              ),
-            );
-          },
+        return _SheetSaquePix(
+          saldoDisponivel: saldoDisponivel,
+          ultimoSaque: ultimo,
+          moeda: _moeda,
+          valorController: _valorController,
+          titularController: _titularController,
+          bancoController: _bancoController,
+          chavePixController: _chavePixController,
+          parseValor: _parseValorDigitado,
+          onConfirmar: () => _confirmarSaque(saldoDisponivel, sheetContext),
         );
       },
     );
@@ -1010,6 +935,423 @@ class _EntregadorCarteiraScreenState extends State<EntregadorCarteiraScreen> {
             Positioned.fill(
               child: AbsorbPointer(child: Container(color: Colors.black26)),
             ),
+        ],
+      ),
+    );
+  }
+}
+
+/// Dados do último saque solicitado pelo entregador — usados para
+/// pré-preencher o modal de novo saque e oferecer "usar mesma conta".
+class _UltimoSaqueDados {
+  const _UltimoSaqueDados({
+    required this.titular,
+    required this.banco,
+    required this.chavePix,
+  });
+
+  final String titular;
+  final String banco;
+  final String chavePix;
+}
+
+/// Modal "Solicitar saque via PIX".
+///
+/// - Na primeira vez que o entregador solicita saque, o modal abre em
+///   modo "novo cadastro": campos em branco, pedindo titular, banco e
+///   chave PIX.
+/// - A partir da segunda vez, o modal abre em modo "repetir último":
+///   exibe um cartão com os dados do último saque e dois caminhos:
+///     1. "Usar estes dados" → confirma no mesmo click.
+///     2. "Usar outra conta" → alterna para o formulário em branco,
+///        preservando a digitação caso o entregador mude de ideia.
+class _SheetSaquePix extends StatefulWidget {
+  const _SheetSaquePix({
+    required this.saldoDisponivel,
+    required this.ultimoSaque,
+    required this.moeda,
+    required this.valorController,
+    required this.titularController,
+    required this.bancoController,
+    required this.chavePixController,
+    required this.parseValor,
+    required this.onConfirmar,
+  });
+
+  final double saldoDisponivel;
+  final _UltimoSaqueDados? ultimoSaque;
+  final NumberFormat moeda;
+  final TextEditingController valorController;
+  final TextEditingController titularController;
+  final TextEditingController bancoController;
+  final TextEditingController chavePixController;
+  final double Function(String) parseValor;
+  final VoidCallback onConfirmar;
+
+  @override
+  State<_SheetSaquePix> createState() => _SheetSaquePixState();
+}
+
+class _SheetSaquePixState extends State<_SheetSaquePix> {
+  /// `true` → modo "resumo" (usa os dados do último saque).
+  /// `false` → modo "nova conta" (formulário em branco).
+  late bool _usarUltimos;
+
+  @override
+  void initState() {
+    super.initState();
+    final ultimo = widget.ultimoSaque;
+    _usarUltimos = ultimo != null;
+    if (ultimo != null) {
+      widget.titularController.text = ultimo.titular;
+      widget.bancoController.text = ultimo.banco;
+      widget.chavePixController.text = ultimo.chavePix;
+    }
+  }
+
+  String _mascararChave(String chave) {
+    final t = chave.trim();
+    if (t.isEmpty) return '—';
+    if (t.length <= 4) return '•••• $t';
+    return '•••• ${t.substring(t.length - 4)}';
+  }
+
+  void _alternarParaNovaConta() {
+    setState(() {
+      _usarUltimos = false;
+      widget.titularController.clear();
+      widget.bancoController.clear();
+      widget.chavePixController.clear();
+    });
+  }
+
+  void _alternarParaUltimos() {
+    final ultimo = widget.ultimoSaque;
+    if (ultimo == null) return;
+    setState(() {
+      _usarUltimos = true;
+      widget.titularController.text = ultimo.titular;
+      widget.bancoController.text = ultimo.banco;
+      widget.chavePixController.text = ultimo.chavePix;
+    });
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    return Padding(
+      padding: EdgeInsets.only(
+        bottom: MediaQuery.of(context).viewInsets.bottom,
+      ),
+      child: Container(
+        decoration: const BoxDecoration(
+          color: Colors.white,
+          borderRadius: BorderRadius.vertical(top: Radius.circular(20)),
+        ),
+        child: SingleChildScrollView(
+          padding: const EdgeInsets.fromLTRB(20, 12, 20, 24),
+          child: Column(
+            mainAxisSize: MainAxisSize.min,
+            crossAxisAlignment: CrossAxisAlignment.stretch,
+            children: [
+              Center(
+                child: Container(
+                  width: 40,
+                  height: 4,
+                  margin: const EdgeInsets.only(bottom: 16),
+                  decoration: BoxDecoration(
+                    color: Colors.grey[300],
+                    borderRadius: BorderRadius.circular(2),
+                  ),
+                ),
+              ),
+              Row(
+                children: [
+                  Container(
+                    padding: const EdgeInsets.all(8),
+                    decoration: BoxDecoration(
+                      color: diPertinLaranja.withValues(alpha: 0.12),
+                      borderRadius: BorderRadius.circular(10),
+                    ),
+                    child: const Icon(Icons.pix,
+                        color: diPertinLaranja, size: 22),
+                  ),
+                  const SizedBox(width: 12),
+                  Expanded(
+                    child: Column(
+                      crossAxisAlignment: CrossAxisAlignment.start,
+                      children: [
+                        const Text(
+                          'Solicitar saque via PIX',
+                          style: TextStyle(
+                            fontSize: 17,
+                            fontWeight: FontWeight.w800,
+                            color: diPertinRoxo,
+                          ),
+                        ),
+                        Text(
+                          'Saldo disponível ${widget.moeda.format(widget.saldoDisponivel)}',
+                          style: TextStyle(
+                            fontSize: 12,
+                            color: Colors.grey[600],
+                          ),
+                        ),
+                      ],
+                    ),
+                  ),
+                ],
+              ),
+              const SizedBox(height: 18),
+              TextField(
+                controller: widget.valorController,
+                keyboardType:
+                    const TextInputType.numberWithOptions(decimal: true),
+                inputFormatters: [
+                  FilteringTextInputFormatter.allow(RegExp(r'[\d.,]')),
+                ],
+                decoration: InputDecoration(
+                  labelText: 'Valor (R\$)',
+                  border: const OutlineInputBorder(),
+                  prefixIcon: const Icon(
+                    Icons.attach_money,
+                    color: Colors.green,
+                  ),
+                  suffixText:
+                      'Máx. ${widget.moeda.format(widget.saldoDisponivel)}',
+                  suffixStyle: TextStyle(
+                    fontSize: 11,
+                    color: Colors.grey[600],
+                  ),
+                ),
+              ),
+              Align(
+                alignment: Alignment.centerRight,
+                child: TextButton(
+                  onPressed: () {
+                    setState(() {
+                      widget.valorController.text = widget.moeda
+                          .format(widget.saldoDisponivel)
+                          .replaceAll('\u00A0', ' ');
+                    });
+                  },
+                  child: const Text('Sacar tudo'),
+                ),
+              ),
+              const SizedBox(height: 8),
+              if (_usarUltimos && widget.ultimoSaque != null)
+                _CardUltimaConta(
+                  dados: widget.ultimoSaque!,
+                  mascarar: _mascararChave,
+                  onUsarOutra: _alternarParaNovaConta,
+                )
+              else ...[
+                if (widget.ultimoSaque != null) ...[
+                  Align(
+                    alignment: Alignment.centerLeft,
+                    child: TextButton.icon(
+                      onPressed: _alternarParaUltimos,
+                      icon: const Icon(Icons.restart_alt, size: 18),
+                      label: const Text('Usar dados do último saque'),
+                      style: TextButton.styleFrom(
+                        foregroundColor: diPertinRoxo,
+                        padding:
+                            const EdgeInsets.symmetric(horizontal: 4),
+                      ),
+                    ),
+                  ),
+                  const SizedBox(height: 4),
+                ],
+                TextField(
+                  controller: widget.titularController,
+                  textCapitalization: TextCapitalization.words,
+                  decoration: const InputDecoration(
+                    labelText: 'Nome do titular',
+                    border: OutlineInputBorder(),
+                    prefixIcon: Icon(Icons.person, color: diPertinRoxo),
+                  ),
+                ),
+                const SizedBox(height: 12),
+                TextField(
+                  controller: widget.bancoController,
+                  textCapitalization: TextCapitalization.words,
+                  decoration: const InputDecoration(
+                    labelText: 'Banco (ex.: Nubank, Inter, Itaú)',
+                    border: OutlineInputBorder(),
+                    prefixIcon: Icon(
+                      Icons.account_balance,
+                      color: diPertinRoxo,
+                    ),
+                  ),
+                ),
+                const SizedBox(height: 12),
+                TextField(
+                  controller: widget.chavePixController,
+                  decoration: const InputDecoration(
+                    labelText: 'Chave PIX',
+                    border: OutlineInputBorder(),
+                    prefixIcon: Icon(Icons.pix, color: diPertinLaranja),
+                  ),
+                ),
+              ],
+              const SizedBox(height: 24),
+              Row(
+                children: [
+                  Expanded(
+                    child: OutlinedButton(
+                      onPressed: () => Navigator.pop(context),
+                      child: const Text('Cancelar'),
+                    ),
+                  ),
+                  const SizedBox(width: 12),
+                  Expanded(
+                    flex: 2,
+                    child: FilledButton.icon(
+                      style: FilledButton.styleFrom(
+                        backgroundColor: diPertinLaranja,
+                        foregroundColor: Colors.white,
+                        padding: const EdgeInsets.symmetric(vertical: 14),
+                      ),
+                      onPressed: widget.onConfirmar,
+                      icon: const Icon(Icons.check_circle_outline, size: 20),
+                      label: const Text(
+                        'Confirmar saque',
+                        style: TextStyle(fontWeight: FontWeight.w700),
+                      ),
+                    ),
+                  ),
+                ],
+              ),
+            ],
+          ),
+        ),
+      ),
+    );
+  }
+}
+
+class _CardUltimaConta extends StatelessWidget {
+  const _CardUltimaConta({
+    required this.dados,
+    required this.mascarar,
+    required this.onUsarOutra,
+  });
+
+  final _UltimoSaqueDados dados;
+  final String Function(String) mascarar;
+  final VoidCallback onUsarOutra;
+
+  @override
+  Widget build(BuildContext context) {
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.stretch,
+      children: [
+        Container(
+          padding: const EdgeInsets.all(14),
+          decoration: BoxDecoration(
+            color: diPertinRoxo.withValues(alpha: 0.06),
+            borderRadius: BorderRadius.circular(14),
+            border: Border.all(
+              color: diPertinRoxo.withValues(alpha: 0.22),
+            ),
+          ),
+          child: Column(
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              Row(
+                children: [
+                  Icon(
+                    Icons.bookmark_added_outlined,
+                    color: diPertinRoxo,
+                    size: 18,
+                  ),
+                  const SizedBox(width: 8),
+                  Text(
+                    'Conta do último saque',
+                    style: TextStyle(
+                      fontSize: 12.5,
+                      fontWeight: FontWeight.w700,
+                      color: diPertinRoxo,
+                      letterSpacing: 0.2,
+                    ),
+                  ),
+                ],
+              ),
+              const SizedBox(height: 12),
+              if (dados.titular.trim().isNotEmpty)
+                _LinhaResumo(
+                  icone: Icons.person,
+                  rotulo: 'Titular',
+                  valor: dados.titular,
+                ),
+              if (dados.banco.trim().isNotEmpty)
+                _LinhaResumo(
+                  icone: Icons.account_balance,
+                  rotulo: 'Banco',
+                  valor: dados.banco,
+                ),
+              _LinhaResumo(
+                icone: Icons.pix,
+                rotulo: 'Chave PIX',
+                valor: mascarar(dados.chavePix),
+              ),
+            ],
+          ),
+        ),
+        const SizedBox(height: 10),
+        Align(
+          alignment: Alignment.centerRight,
+          child: TextButton.icon(
+            onPressed: onUsarOutra,
+            icon: const Icon(Icons.add_circle_outline, size: 18),
+            label: const Text('Usar outra conta'),
+            style: TextButton.styleFrom(foregroundColor: diPertinRoxo),
+          ),
+        ),
+      ],
+    );
+  }
+}
+
+class _LinhaResumo extends StatelessWidget {
+  const _LinhaResumo({
+    required this.icone,
+    required this.rotulo,
+    required this.valor,
+  });
+
+  final IconData icone;
+  final String rotulo;
+  final String valor;
+
+  @override
+  Widget build(BuildContext context) {
+    return Padding(
+      padding: const EdgeInsets.only(bottom: 8),
+      child: Row(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          Icon(icone, size: 16, color: Colors.grey.shade700),
+          const SizedBox(width: 8),
+          SizedBox(
+            width: 78,
+            child: Text(
+              rotulo,
+              style: TextStyle(
+                fontSize: 12,
+                color: Colors.grey.shade700,
+                fontWeight: FontWeight.w600,
+              ),
+            ),
+          ),
+          Expanded(
+            child: Text(
+              valor,
+              style: const TextStyle(
+                fontSize: 13.5,
+                color: Colors.black87,
+                fontWeight: FontWeight.w600,
+              ),
+            ),
+          ),
         ],
       ),
     );

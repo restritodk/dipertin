@@ -51,22 +51,47 @@ class AppAtualizacaoObrigatoriaService {
     final atual = info.version.trim();
     if (atual.isEmpty) return AppAtualizacaoVerificacao.ok();
 
+    // IMPORTANTE: força `Source.server` para ignorar cache local do Firestore.
+    // Sem isso, se o usuário abrir o app offline (ou o cache tiver o doc antigo),
+    // a verificação lê a versão mínima desatualizada e nunca bloqueia, mesmo
+    // após o lojista master atualizar `versao_minima_android` no Firestore.
     Map<String, dynamic>? data;
     try {
-      final snap = await FirebaseFirestore.instance
+      final docRef = FirebaseFirestore.instance
           .collection('configuracoes')
-          .doc('atualizacao_app')
-          .get()
-          .timeout(_timeoutLeitura);
+          .doc('atualizacao_app');
+      DocumentSnapshot<Map<String, dynamic>>? snap;
+      try {
+        snap = await docRef
+            .get(const GetOptions(source: Source.server))
+            .timeout(_timeoutLeitura);
+      } catch (e) {
+        // Sem rede → tenta cache para ainda conseguir bloquear em reaberturas
+        // seguintes (o último estado conhecido já valeu). Se o cache também
+        // falhar, seguimos sem bloquear (fail-open) — app offline não pode
+        // ficar travado.
+        debugPrint('[atualizacao_app] server falhou, tentando cache: $e');
+        try {
+          snap = await docRef
+              .get(const GetOptions(source: Source.cache))
+              .timeout(_timeoutLeitura);
+        } catch (e2) {
+          debugPrint('[atualizacao_app] cache também falhou: $e2');
+          return AppAtualizacaoVerificacao.ok();
+        }
+      }
       if (snap.exists) {
         data = snap.data();
       }
     } catch (e) {
-      debugPrint('[atualizacao_app] Firestore/timeout (seguindo sem bloquear): $e');
+      debugPrint('[atualizacao_app] leitura falhou (seguindo sem bloquear): $e');
       return AppAtualizacaoVerificacao.ok();
     }
 
-    if (data == null) return AppAtualizacaoVerificacao.ok();
+    if (data == null) {
+      debugPrint('[atualizacao_app] doc configuracoes/atualizacao_app inexistente.');
+      return AppAtualizacaoVerificacao.ok();
+    }
 
     final bool isAndroid = defaultTargetPlatform == TargetPlatform.android;
     final bool isIos = defaultTargetPlatform == TargetPlatform.iOS;
@@ -81,10 +106,20 @@ class AppAtualizacaoObrigatoriaService {
     }
 
     if (minRaw == null || minRaw.isEmpty) {
+      debugPrint(
+        '[atualizacao_app] versao_minima_${isAndroid ? "android" : "ios"} '
+        'está vazia — nada a bloquear. (Preencha no Firestore para forçar '
+        'atualização obrigatória.)',
+      );
       return AppAtualizacaoVerificacao.ok();
     }
 
-    if (compararVersao(atual, minRaw) >= 0) {
+    final cmp = compararVersao(atual, minRaw);
+    debugPrint(
+      '[atualizacao_app] instalada=$atual mínima=$minRaw comparação=$cmp '
+      '(negativo => bloqueia)',
+    );
+    if (cmp >= 0) {
       return AppAtualizacaoVerificacao.ok();
     }
 

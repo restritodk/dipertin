@@ -28,6 +28,7 @@ class IncomingDeliveryActivity : AppCompatActivity() {
     private var orderId: String = ""
     private var requestId: String = ""
     private var expiresAtMs: Long = 0L
+    private var ofertaSeq: Long = 0L
     private var timer: CountDownTimer? = null
     private var actionLoading = false
     private var activeAction: String? = null
@@ -126,6 +127,9 @@ class IncomingDeliveryActivity : AppCompatActivity() {
             NotificationUtils.cancelIncomingNotification(this, orderId)
         }
         expiresAtMs = intent?.getStringExtra(IncomingDeliveryContract.EXTRA_EXPIRES_AT)
+            ?.toLongOrNull()
+            ?: 0L
+        ofertaSeq = intent?.getStringExtra("despacho_oferta_seq")
             ?.toLongOrNull()
             ?: 0L
 
@@ -271,10 +275,32 @@ class IncomingDeliveryActivity : AppCompatActivity() {
         activeAction = "accept"
         timer?.cancel()
         IncomingDeliveryFlowState.markAccepted(requestId)
-        IncomingDeliveryRepository.aceitar(orderId) { ok, msg ->
-            if (!ok) {
+        // Marca como decidida localmente para o listener Flutter do
+        // EntregadorDashboardScreen NÃO reabrir esta fullscreen na janela
+        // entre o tap e o backend gravar `entregador_id` no Firestore.
+        // O `ofertaSeq` é guardado pra que um re-dispatch futuro (com
+        // seq maior) consiga "furar" o lock automaticamente.
+        MainActivity.marcarOfertaProcessadaLocal(orderId, ofertaSeq)
+        val pedidoIdLocal = orderId
+        IncomingDeliveryRepository.aceitar(orderId) { resultado ->
+            if (!resultado.ok) {
                 IncomingDeliveryFlowState.markCancelled(requestId)
-                Log.w(tag, "Aceite falhou em background: ${msg ?: "erro"}")
+                // Aceite rejeitado pelo backend (ex.: corrida_ja_aceita).
+                // Libera o estado local para que o entregador possa
+                // receber/aceitar uma nova chamada deste mesmo pedido caso
+                // o lojista re-solicite.
+                MainActivity.limparOfertaProcessadaLocal(pedidoIdLocal)
+                val mensagem = resultado.mensagem ?: "Não foi possível aceitar a corrida."
+                Log.w(tag, "Aceite falhou em background: $mensagem (motivo=${resultado.motivo})")
+                // Persiste pra o EntregadorDashboardScreen exibir SnackBar
+                // assim que o radar voltar à tona — sem isso o entregador
+                // só vê a oferta sumir, sem entender o motivo.
+                UltimaFalhaAceiteStore.gravar(
+                    applicationContext,
+                    pedidoIdLocal,
+                    resultado.motivo,
+                    mensagem,
+                )
             }
         }
         openMainRadar()
@@ -293,6 +319,13 @@ class IncomingDeliveryActivity : AppCompatActivity() {
         activeAction = "reject"
         timer?.cancel()
         IncomingDeliveryFlowState.markRejected(requestId)
+        // Bloqueia reabertura local da fullscreen enquanto a callable
+        // recusarOfertaCorrida ainda está em vôo. O backend coloca o uid
+        // em `despacho_recusados` e migra a oferta para o próximo —
+        // qualquer reabertura aqui seria um falso positivo. Guarda o
+        // `seq` atual: re-dispatch posterior (lojista clicou de novo)
+        // virá com seq maior e libera o lock.
+        MainActivity.marcarOfertaProcessadaLocal(orderId, ofertaSeq)
         IncomingDeliveryRepository.recusar(orderId) { ok, msg ->
             if (!ok) {
                 Log.w(tag, "Recusa falhou em background: ${msg ?: "erro"}")
