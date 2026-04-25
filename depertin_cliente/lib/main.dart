@@ -29,6 +29,7 @@ import 'firebase_options.dart';
 import 'providers/cart_provider.dart';
 import 'services/connectivity_service.dart';
 import 'services/location_service.dart';
+import 'services/pos_login_onboarding_gate.dart';
 import 'services/permissoes_app_service.dart';
 import 'services/notificacoes_prefs.dart';
 import 'services/app_atualizacao_obrigatoria_service.dart';
@@ -933,6 +934,9 @@ class MainNavigator extends StatefulWidget {
 class _MainNavigatorState extends State<MainNavigator> {
   late int _selectedIndex;
   bool _onboardingEnderecoProcessado = false;
+  /// Evita duas execuções em paralelo (p.ex. [initState] e [authStateChanges]
+  /// a agendarem a mesma rotina) e, com isso, o segundo [showDialog] duplicado.
+  bool _onboardingEnderecoEmExecucao = false;
   bool _comunicadosExibidos = false;
   String? _ultimoUidOnboarding;
   StreamSubscription<User?>? _authSub;
@@ -949,6 +953,9 @@ class _MainNavigatorState extends State<MainNavigator> {
     _selectedIndex =
         (t != null && t >= 0 && t < _telas.length) ? t : 1;
     _ultimoUidOnboarding = FirebaseAuth.instance.currentUser?.uid;
+    PosLoginOnboardingGate.definirAvaliadorOnboardingEndereco(
+      () => unawaited(_executarOnboardingEnderecoPrimeiroAcesso()),
+    );
     WidgetsBinding.instance.addPostFrameCallback((_) {
       _executarOnboardingEnderecoPrimeiroAcesso().then((_) {
         _exibirComunicadosNaoLidos();
@@ -979,29 +986,61 @@ class _MainNavigatorState extends State<MainNavigator> {
 
   @override
   void dispose() {
+    PosLoginOnboardingGate.definirAvaliadorOnboardingEndereco(null);
     _authSub?.cancel();
     super.dispose();
   }
 
   Future<void> _executarOnboardingEnderecoPrimeiroAcesso() async {
     if (_onboardingEnderecoProcessado || !mounted) return;
-    _onboardingEnderecoProcessado = true;
-
+    if (PosLoginOnboardingGate.suprimirAvaliacaoEndereco) return;
+    if (_onboardingEnderecoEmExecucao) return;
+    _onboardingEnderecoEmExecucao = true;
+    try {
     final user = FirebaseAuth.instance.currentUser;
     if (user == null) return;
 
     final userRef = FirebaseFirestore.instance.collection('users').doc(user.uid);
-    final userSnap = await userRef.get();
-    if (!userSnap.exists || !mounted) return;
+    // Pode haver corrida: o [MaterialApp] abre a home no mesmo instante em que
+    // o [LoginScreen] acabou de gravar `users/{uid}`. A primeira leitura às
+    // vezes ainda vê o doc inexistente; se marcássemos "já processado" logo
+    // no início, o diálogo nunca mais rodava. Por isso, várias tentativas curtas
+    // antes de desistir.
+    DocumentSnapshot? userSnap;
+    for (var t = 0; t < 8; t++) {
+      if (!mounted) return;
+      userSnap = await userRef.get();
+      if (userSnap.exists) break;
+      if (t < 7) {
+        await Future<void>.delayed(const Duration(milliseconds: 400));
+      }
+    }
+    if (userSnap == null || !userSnap.exists) {
+      if (kDebugMode) {
+        debugPrint(
+          '[onboarding_endereco] users/${user.uid} inexistente após espera; '
+          'não exibe o diálogo. Verifique criação do doc no Firestore.',
+        );
+      }
+      return;
+    }
+    if (!mounted) return;
 
-    final dados = userSnap.data() ?? <String, dynamic>{};
+    final dados = (userSnap.data() as Map<String, dynamic>?) ??
+        <String, dynamic>{};
     final role = (dados['role'] ?? dados['tipoUsuario'] ?? '')
         .toString()
         .toLowerCase();
-    if (role != 'cliente') return;
+    if (role != 'cliente') {
+      _onboardingEnderecoProcessado = true;
+      return;
+    }
 
     final onboardingPendente = dados['onboarding_endereco_pendente'] == true;
-    if (!onboardingPendente) return;
+    if (!onboardingPendente) {
+      _onboardingEnderecoProcessado = true;
+      return;
+    }
 
     final ep = dados['endereco_entrega_padrao'];
     final temEnderecoPadrao = ep is Map &&
@@ -1014,10 +1053,12 @@ class _MainNavigatorState extends State<MainNavigator> {
         'onboarding_endereco_pendente': false,
         'onboarding_endereco_concluido_em': FieldValue.serverTimestamp(),
       }, SetOptions(merge: true));
+      _onboardingEnderecoProcessado = true;
       return;
     }
 
     if (!mounted) return;
+    _onboardingEnderecoProcessado = true;
     final deveCadastrar = await showDialog<bool>(
       context: context,
       barrierDismissible: false,
@@ -1085,6 +1126,9 @@ class _MainNavigatorState extends State<MainNavigator> {
           'onboarding_endereco_concluido_em': FieldValue.serverTimestamp(),
         }, SetOptions(merge: true));
       }
+    }
+    } finally {
+      _onboardingEnderecoEmExecucao = false;
     }
   }
 

@@ -43,21 +43,39 @@ class SessaoTimeoutService {
     }
   }
 
-  /// Retorna `true` se a sessão atual já passou de [duracaoMaximaSessao]
-  /// desde o último [registrarLoginAgora], OU se não há registro (o que
-  /// acontece em instalações antigas/ou após [limparSessao]).
+  /// Garante um instante de referência local quando há usuário logado
+  /// no Firebase mas ainda não foi gravado timestamp (p.ex. após
+  /// [limparSessao] + novo login, o [authStateChanges] do AppGuard pode
+  /// correr *antes* de [registrarLoginAgora] no LoginScreen).
   ///
-  /// Em ambos os casos o `AppGuard` deve forçar signOut.
+  /// Sem isso, [sessaoExpirada] com `ms == null` podia sinalizar "expirado"
+  /// e o guard fazia `signOut` de novo de imediato.
+  static Future<void> garantirTimestampSessaoSeAusente() async {
+    try {
+      final prefs = await SharedPreferences.getInstance();
+      if (prefs.getInt(_kPrefUltimoLoginMs) == null) {
+        await prefs.setInt(
+          _kPrefUltimoLoginMs,
+          DateTime.now().millisecondsSinceEpoch,
+        );
+      }
+    } catch (_) {}
+  }
+
+  /// Retorna `true` se a sessão atual já passou de [duracaoMaximaSessao]
+  /// desde o último [registrarLoginAgora].
+  ///
+  /// Se não há registro (`ms == null`), retorna `false` — a ausência
+  /// significa "ainda não medimos" (corrida pós-login / primeiro paint),
+  /// não "forçar logout". O AppGuard chama [garantirTimestampSessaoSeAusente]
+  /// antes de avaliar, para o relógio de 24h passar a contar a partir
+  /// da primeira oportunidade com utilizador autenticado.
   static Future<bool> sessaoExpirada() async {
     try {
       final prefs = await SharedPreferences.getInstance();
       final ms = prefs.getInt(_kPrefUltimoLoginMs);
       if (ms == null) {
-        // Sem timestamp ainda: tratamos como ESPIRADO para sessões
-        // existentes em dispositivos que atualizaram para a versão
-        // com expiração forçada. Só uma vez — após próximo login,
-        // fica tudo normal.
-        return true;
+        return false;
       }
       final ultimoLogin = DateTime.fromMillisecondsSinceEpoch(ms);
       final agora = DateTime.now();

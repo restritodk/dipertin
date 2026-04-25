@@ -97,6 +97,11 @@ class _AppGuardState extends State<AppGuard> with WidgetsBindingObserver {
     if (!mounted || _encerrandoSessao) return;
     final user = FirebaseAuth.instance.currentUser;
     if (user == null) return;
+    // Evita falso "expirado" quando ainda não há `ultimo_login_ms` no mesmo
+    // tick em que o Firebase notifica o novo login (LoginScreen ainda a
+    // chamar [registrarLoginAgora]).
+    await SessaoTimeoutService.garantirTimestampSessaoSeAusente();
+    if (!mounted || _encerrandoSessao) return;
     final expirada = await SessaoTimeoutService.sessaoExpirada();
     if (!expirada || !mounted) return;
     await _encerrarSessaoPorExpiracaoLocal();

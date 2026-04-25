@@ -11,6 +11,7 @@ import '../../services/conta_bloqueio_entregador_service.dart';
 import '../../services/conta_bloqueio_lojista_service.dart';
 import '../../services/conta_exclusao_service.dart';
 import '../../services/sessao_timeout_service.dart';
+import '../../services/pos_login_onboarding_gate.dart';
 import '../../widgets/entregador_conta_bloqueada_overlay.dart';
 import '../../widgets/lojista_conta_bloqueada_overlay.dart';
 import '../../services/location_service.dart';
@@ -479,12 +480,20 @@ class _LoginScreenState extends State<LoginScreen> {
         return;
       }
 
+      PosLoginOnboardingGate.iniciouFluxoPosSignIn();
+
       final uid = user.uid;
-      if (!await _podeUsarAppMobile(uid)) return;
+      if (!await _podeUsarAppMobile(uid)) {
+        PosLoginOnboardingGate.abortouFluxoLiberarSemOnboarding();
+        return;
+      }
       await ContaExclusaoService.cancelarExclusaoPendenteSeNecessario(uid);
       await _atualizarTokenAposLogin(uid);
       final podeEntrar = await _contaOperacionalPodeEntrarAposLogin(uid);
-      if (!podeEntrar) return;
+      if (!podeEntrar) {
+        PosLoginOnboardingGate.abortouFluxoLiberarSemOnboarding();
+        return;
+      }
 
       // Marca o início da sessão — o `AppGuard` usa esse timestamp para
       // forçar re-login a cada 24h (política de segurança).
@@ -500,7 +509,9 @@ class _LoginScreenState extends State<LoginScreen> {
         );
         _fecharAposLoginSucesso();
       }
+      PosLoginOnboardingGate.concluiuFluxoLiberarOnboardingAposSairDoLogin();
     } on FirebaseAuthException catch (e) {
+      PosLoginOnboardingGate.abortouFluxoLiberarSemOnboarding();
       debugPrint('Login biométrico falhou: ${e.code} ${e.message}');
       // Credencial inválida → vínculo obsoleto, limpa tudo.
       if (e.code == 'wrong-password' ||
@@ -523,6 +534,7 @@ class _LoginScreenState extends State<LoginScreen> {
         }
       }
     } catch (e) {
+      PosLoginOnboardingGate.abortouFluxoLiberarSemOnboarding();
       debugPrint('Login biométrico erro: $e');
       if (mounted) {
         ScaffoldMessenger.of(context).showSnackBar(
@@ -693,13 +705,24 @@ class _LoginScreenState extends State<LoginScreen> {
             email: _emailController.text.trim(),
             password: _senhaController.text.trim(),
           );
+      var loginEmailConcluiuAteFechar = false;
       if (userCredential.user != null) {
+        // Imediatamente após o signIn — antes de awaits — para o
+        // MainNavigator de baixo não mostrar o onboarding do endereço
+        // em paralelo com a biometria.
+        PosLoginOnboardingGate.iniciouFluxoPosSignIn();
         final uid = userCredential.user!.uid;
-        if (!await _podeUsarAppMobile(uid)) return;
+        if (!await _podeUsarAppMobile(uid)) {
+          PosLoginOnboardingGate.abortouFluxoLiberarSemOnboarding();
+          return;
+        }
         await ContaExclusaoService.cancelarExclusaoPendenteSeNecessario(uid);
         await _atualizarTokenAposLogin(uid);
         final podeEntrar = await _contaOperacionalPodeEntrarAposLogin(uid);
-        if (!podeEntrar) return;
+        if (!podeEntrar) {
+          PosLoginOnboardingGate.abortouFluxoLiberarSemOnboarding();
+          return;
+        }
 
         // Marca o início da sessão — ver SessaoTimeoutService.
         await SessaoTimeoutService.registrarLoginAgora();
@@ -713,6 +736,7 @@ class _LoginScreenState extends State<LoginScreen> {
           metodo: BiometriaMetodoLogin.emailSenha,
           senhaParaVinculo: senhaLimpa,
         );
+        loginEmailConcluiuAteFechar = true;
       }
 
       if (mounted) {
@@ -725,7 +749,11 @@ class _LoginScreenState extends State<LoginScreen> {
         );
         _fecharAposLoginSucesso();
       }
+      if (loginEmailConcluiuAteFechar) {
+        PosLoginOnboardingGate.concluiuFluxoLiberarOnboardingAposSairDoLogin();
+      }
     } on FirebaseAuthException catch (e) {
+      PosLoginOnboardingGate.abortouFluxoLiberarSemOnboarding();
       if (e.code == 'user-not-found') {
         if (mounted) await _mostrarDialogoContaNaoEncontrada();
       } else {
@@ -832,6 +860,10 @@ class _LoginScreenState extends State<LoginScreen> {
         return;
       }
 
+      // Sincronamente após o signIn — evita o onboarding de endereço a competir
+      // com termos, biometria, etc. (há [MainNavigator] por baixo do login).
+      PosLoginOnboardingGate.iniciouFluxoPosSignIn();
+
       final doc = await FirebaseFirestore.instance
           .collection('users')
           .doc(user.uid)
@@ -839,7 +871,10 @@ class _LoginScreenState extends State<LoginScreen> {
       if (!doc.exists) {
         final vinculou = await _tentarVincularPerfilExistentePorEmail(user);
         if (!vinculou) {
-          if (!mounted) return;
+          if (!mounted) {
+            PosLoginOnboardingGate.abortouFluxoLiberarSemOnboarding();
+            return;
+          }
           final bool? aceitou = await Navigator.of(context).push<bool>(
             MaterialPageRoute<bool>(
               fullscreenDialog: true,
@@ -847,9 +882,13 @@ class _LoginScreenState extends State<LoginScreen> {
             ),
           );
           if (aceitou != true) {
+            PosLoginOnboardingGate.abortouFluxoLiberarSemOnboarding();
             return;
           }
-          if (!mounted) return;
+          if (!mounted) {
+            PosLoginOnboardingGate.abortouFluxoLiberarSemOnboarding();
+            return;
+          }
           try {
             final loc = context.read<LocationService>();
             await FirebaseFirestore.instance
@@ -891,11 +930,17 @@ class _LoginScreenState extends State<LoginScreen> {
           }
         }
       }
-      if (!await _podeUsarAppMobile(user.uid)) return;
+      if (!await _podeUsarAppMobile(user.uid)) {
+        PosLoginOnboardingGate.abortouFluxoLiberarSemOnboarding();
+        return;
+      }
       await ContaExclusaoService.cancelarExclusaoPendenteSeNecessario(user.uid);
       await _atualizarTokenAposLogin(user.uid);
       final podeEntrar = await _contaOperacionalPodeEntrarAposLogin(user.uid);
-      if (!podeEntrar) return;
+      if (!podeEntrar) {
+        PosLoginOnboardingGate.abortouFluxoLiberarSemOnboarding();
+        return;
+      }
 
       // Marca o início da sessão — ver SessaoTimeoutService.
       await SessaoTimeoutService.registrarLoginAgora();
@@ -918,7 +963,9 @@ class _LoginScreenState extends State<LoginScreen> {
         );
         _fecharAposLoginSucesso();
       }
+      PosLoginOnboardingGate.concluiuFluxoLiberarOnboardingAposSairDoLogin();
     } on StateError catch (e) {
+      PosLoginOnboardingGate.abortouFluxoLiberarSemOnboarding();
       if (mounted && !e.message.contains('cancelado')) {
         ScaffoldMessenger.of(context).showSnackBar(
           SnackBar(
@@ -929,6 +976,7 @@ class _LoginScreenState extends State<LoginScreen> {
         );
       }
     } on FirebaseAuthException catch (e) {
+      PosLoginOnboardingGate.abortouFluxoLiberarSemOnboarding();
       if (mounted) {
         ScaffoldMessenger.of(context).showSnackBar(
           SnackBar(
@@ -939,6 +987,7 @@ class _LoginScreenState extends State<LoginScreen> {
         );
       }
     } catch (e) {
+      PosLoginOnboardingGate.abortouFluxoLiberarSemOnboarding();
       if (mounted) {
         ScaffoldMessenger.of(context).showSnackBar(
           SnackBar(
