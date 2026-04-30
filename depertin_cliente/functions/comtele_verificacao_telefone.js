@@ -110,7 +110,10 @@ async function comtelePostEnviar(authKey, phoneDigits) {
     },
     body: JSON.stringify({
       PhoneNumber: phoneDigits,
-      Prefix: "DiPertin",
+      // Comtele concatena: "{Prefix}: Codigo de Autorizacao {XXXXXX}"
+      // Texto curto em GSM-7 (sem acentos) para custo/previsibilidade.
+      Prefix:
+        "DiPertin - Verificacao de cadastro. Valido 10 min. Nao compartilhe este codigo",
       EnforceSecureValidation: true,
       ExpireInMinutes: TOKEN_EXPIRE_MINUTES,
     }),

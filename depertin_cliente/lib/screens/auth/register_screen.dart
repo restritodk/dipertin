@@ -11,6 +11,7 @@ import 'package:flutter/services.dart';
 import 'package:flutter_multi_formatter/flutter_multi_formatter.dart';
 import 'package:provider/provider.dart';
 
+import '../../services/cadastro_sms_consent_android.dart';
 import '../../services/cidades_brasil_service.dart';
 import '../../services/firebase_functions_config.dart';
 import '../../services/location_service.dart';
@@ -117,8 +118,23 @@ class _RegisterScreenState extends State<RegisterScreen> {
         _timerCooldownSms?.cancel();
         _timerCooldownSms = null;
         _cooldownReenvioSms = 0;
+        CadastroSmsConsentAndroid.parar();
       }
     });
+  }
+
+  Future<void> _iniciarOuRenovarEscutaSmsConsent() async {
+    if (!CadastroSmsConsentAndroid.disponivel) return;
+    if (!_smsCodigoEnviado || _telefoneVerificadoSms) return;
+    await CadastroSmsConsentAndroid.iniciar(
+      regex: r'\d{6}',
+      onCodigo: (codigo) {
+        if (!mounted || _telefoneVerificadoSms || !_smsCodigoEnviado) return;
+        _codigoSmsController.value = TextEditingValue(text: codigo);
+        setState(() {});
+        Future.microtask(_validarCodigoSms);
+      },
+    );
   }
 
   void _iniciarCooldownReenvioSms() {
@@ -183,6 +199,7 @@ class _RegisterScreenState extends State<RegisterScreen> {
           behavior: SnackBarBehavior.floating,
         ),
       );
+      await _iniciarOuRenovarEscutaSmsConsent();
     } catch (e) {
       if (mounted) {
         ScaffoldMessenger.of(context).showSnackBar(
@@ -199,6 +216,8 @@ class _RegisterScreenState extends State<RegisterScreen> {
   }
 
   Future<void> _validarCodigoSms() async {
+    await CadastroSmsConsentAndroid.parar();
+    if (!mounted) return;
     final codigo = _digitosTelefone(_codigoSmsController.text);
     if (codigo.length != 6) {
       ScaffoldMessenger.of(context).showSnackBar(
@@ -622,10 +641,25 @@ class _RegisterScreenState extends State<RegisterScreen> {
                   fontWeight: FontWeight.w800,
                 ),
                 inputFormatters: [FilteringTextInputFormatter.digitsOnly],
+                autofillHints: CadastroSmsConsentAndroid.disponivel
+                    ? const [AutofillHints.oneTimeCode]
+                    : null,
                 decoration: _decorCampo('Código SMS (6 dígitos)', Icons.pin_rounded)
                     .copyWith(counterText: ''),
                 enabled: !_isLoading && !_validandoCodigoSms,
               ),
+              if (CadastroSmsConsentAndroid.disponivel) ...[
+                const SizedBox(height: 8),
+                Text(
+                  'Ao receber o SMS, o sistema pode pedir autorização para usar o código '
+                  'neste aplicativo (SMS User Consent). Você pode recusar e digitar manualmente.',
+                  style: TextStyle(
+                    fontSize: 11.5,
+                    height: 1.35,
+                    color: Colors.grey.shade600,
+                  ),
+                ),
+              ],
               const SizedBox(height: 12),
               Row(
                 children: [
@@ -693,6 +727,7 @@ class _RegisterScreenState extends State<RegisterScreen> {
 
   @override
   void dispose() {
+    CadastroSmsConsentAndroid.parar();
     _timerCooldownSms?.cancel();
     _cidadeController.removeListener(_onCidadeChanged);
     _telefoneController.removeListener(_onTelefoneParaSmsChanged);

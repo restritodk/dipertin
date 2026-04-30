@@ -118,6 +118,7 @@ class MainActivity : FlutterFragmentActivity() {
 
     override fun onDestroy() {
         isFlutterHostResumed = false
+        DipertinCadastroSmsConsent.stop(this)
         super.onDestroy()
     }
 
@@ -376,6 +377,29 @@ class MainActivity : FlutterFragmentActivity() {
                 else -> result.notImplemented()
             }
         }
+
+        MethodChannel(
+            flutterEngine.dartExecutor.binaryMessenger,
+            "dipertin.android/cadastro_sms",
+        ).also { ch ->
+                ch.setMethodCallHandler { call, result ->
+                    when (call.method) {
+                        "startListen" -> {
+                            val regex =
+                                (call.arguments as? Map<*, *>)
+                                    ?.get("regex") as? String
+                                    ?: "\\d{6}"
+                            DipertinCadastroSmsConsent.start(this, ch, regex)
+                            result.success(true)
+                        }
+                        "stopListen" -> {
+                            DipertinCadastroSmsConsent.stop(this)
+                            result.success(true)
+                        }
+                        else -> result.notImplemented()
+                    }
+                }
+            }
     }
 
     override fun onPostResume() {

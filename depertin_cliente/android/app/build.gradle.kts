@@ -78,6 +78,8 @@ flutter {
 
 dependencies {
     coreLibraryDesugaring("com.android.tools:desugar_jdk_libs:2.1.4")
+    // SMS User Consent (OTP cadastro; sem READ_SMS).
+    implementation("com.google.android.gms:play-services-auth-api-phone:18.1.0")
     implementation("androidx.appcompat:appcompat:1.6.1")
     implementation("androidx.core:core-ktx:1.12.0")
     implementation(platform("com.google.firebase:firebase-bom:33.7.0"))
