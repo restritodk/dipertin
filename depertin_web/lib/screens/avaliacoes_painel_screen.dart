@@ -3,8 +3,6 @@ import 'package:flutter/material.dart';
 import 'package:intl/intl.dart';
 
 import '../theme/painel_admin_theme.dart';
-import '../widgets/botao_suporte_flutuante.dart';
-
 class AvaliacoesPainelScreen extends StatefulWidget {
   const AvaliacoesPainelScreen({super.key});
 
@@ -107,7 +105,6 @@ class _AvaliacoesPainelScreenState extends State<AvaliacoesPainelScreen> {
   Widget build(BuildContext context) {
     return Scaffold(
       backgroundColor: _bg,
-      floatingActionButton: const BotaoSuporteFlutuante(),
       body: StreamBuilder<QuerySnapshot>(
         stream: FirebaseFirestore.instance
             .collection('avaliacoes')

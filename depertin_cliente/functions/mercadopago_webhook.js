@@ -439,7 +439,8 @@ async function resolverMetodoPagamentoPorBinMp({ accessToken, publicKey, bin, ti
                     (m) => String(m.payment_type_id || "").toLowerCase() === tipoAlvo,
                 );
             }
-            const escolhido = preferido || results[0];
+            // Se o usuário pediu um tipo específico (débito/crédito), não faz fallback para outro tipo
+            const escolhido = preferido;
             if (!escolhido || !escolhido.id) continue;
             return {
                 payment_method_id: String(escolhido.id).toLowerCase(),

@@ -5,7 +5,6 @@ import 'package:google_fonts/google_fonts.dart';
 
 import '../theme/painel_admin_theme.dart';
 import '../utils/lojista_painel_context.dart';
-import '../widgets/botao_suporte_flutuante.dart';
 import '../widgets/colaboradores_lojista_painel_card.dart';
 
 /// Cadastro de colaboradores do painel (nível III) — menu Configuração → Cadastro de Acesso.
@@ -40,7 +39,6 @@ class CadastroAcessoColaboradoresScreen extends StatelessWidget {
         final uidLoja = uidLojaEfetivo(d, uid);
         return Scaffold(
           backgroundColor: PainelAdminTheme.fundoCanvas,
-          floatingActionButton: const BotaoSuporteFlutuante(),
           body: SingleChildScrollView(
             padding: const EdgeInsets.fromLTRB(24, 28, 24, 120),
             child: Align(

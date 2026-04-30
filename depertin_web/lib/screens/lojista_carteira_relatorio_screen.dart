@@ -1,6 +1,5 @@
 import 'package:depertin_web/navigation/painel_navigation_scope.dart';
 import 'package:depertin_web/theme/painel_admin_theme.dart';
-import 'package:depertin_web/widgets/botao_suporte_flutuante.dart';
 import 'package:flutter/material.dart';
 import 'package:google_fonts/google_fonts.dart';
 
@@ -12,7 +11,6 @@ class LojistaCarteiraRelatorioScreen extends StatelessWidget {
   Widget build(BuildContext context) {
     return Scaffold(
       backgroundColor: PainelAdminTheme.fundoCanvas,
-      floatingActionButton: const BotaoSuporteFlutuante(),
       body: Center(
         child: Padding(
           padding: const EdgeInsets.all(32),

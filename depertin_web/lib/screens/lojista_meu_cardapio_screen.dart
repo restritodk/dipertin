@@ -1,7 +1,6 @@
 import 'package:cloud_firestore/cloud_firestore.dart';
 import 'package:depertin_web/theme/painel_admin_theme.dart';
 import 'package:depertin_web/utils/lojista_painel_context.dart';
-import 'package:depertin_web/widgets/botao_suporte_flutuante.dart';
 import 'package:flutter/foundation.dart' show kIsWeb;
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
@@ -543,7 +542,6 @@ class _LojistaMeuCardapioScreenState extends State<LojistaMeuCardapioScreen> {
 
         return Scaffold(
       backgroundColor: PainelAdminTheme.fundoCanvas,
-      floatingActionButton: const BotaoSuporteFlutuante(),
       body: StreamBuilder<QuerySnapshot<Map<String, dynamic>>>(
         stream: FirebaseFirestore.instance
             .collection('produtos')

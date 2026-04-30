@@ -1,11 +1,11 @@
 import 'package:depertin_web/services/cidades_brasil_service.dart';
-import 'package:depertin_web/widgets/botao_suporte_flutuante.dart';
 import 'package:depertin_web/widgets/cidade_atendida_picker.dart';
 import 'package:flutter/material.dart';
 import 'package:cloud_firestore/cloud_firestore.dart';
 import 'package:firebase_storage/firebase_storage.dart';
 import 'package:file_picker/file_picker.dart';
 import 'package:google_fonts/google_fonts.dart';
+import 'package:intl/intl.dart';
 import 'dart:typed_data';
 
 class UtilidadesScreen extends StatefulWidget {
@@ -29,6 +29,35 @@ class _UtilidadesScreenState extends State<UtilidadesScreen> {
   /// Cache das 5.570 cidades IBGE, carregadas uma vez no initState e usadas
   /// pelo [CidadeAtendidaPicker] em todos os pop-ups de anúncios.
   List<CidadePickerItem> _cidadesIBGE = const [];
+
+  /// Dias de exibição inclusivos (início e fim contam no período).
+  static int _diasContratados(DateTime inicio, DateTime fim) {
+    final d = fim.difference(inicio).inDays + 1;
+    return d < 1 ? 1 : d;
+  }
+
+  static double _valorTotalDoPeriodo({
+    required double valorUnitario,
+    required String modalidade,
+    required int diasContratados,
+  }) {
+    if (valorUnitario <= 0) return 0;
+    if (modalidade == 'mensal') {
+      final meses = (diasContratados / 30).ceil().clamp(1, 9999);
+      return valorUnitario * meses;
+    }
+    return valorUnitario * diasContratados;
+  }
+
+  String _fmtBrl(double v) {
+    return NumberFormat.currency(locale: 'pt_BR', symbol: r'R$').format(v);
+  }
+
+  String _docIdReceitaUtilidade(String colecao, String anuncioId) {
+    final c = colecao.replaceAll('/', '_');
+    final a = anuncioId.replaceAll('/', '_');
+    return 'util_${c}_$a';
+  }
   bool _carregandoCidades = true;
 
   @override
@@ -671,9 +700,14 @@ class _UtilidadesScreenState extends State<UtilidadesScreen> {
     required ValueChanged<String> onModalidade,
     required ValueChanged<DateTime> onInicio,
     required ValueChanged<DateTime> onFim,
+    VoidCallback? onValorChanged,
   }) {
     String fmt(DateTime d) =>
         '${d.day.toString().padLeft(2, '0')}/${d.month.toString().padLeft(2, '0')}/${d.year}';
+    final dias = _diasContratados(dtInicio, dtFim);
+    final unit = double.tryParse(valorC.text.replaceAll(',', '.')) ?? 0;
+    final totalPrev =
+        _valorTotalDoPeriodo(valorUnitario: unit, modalidade: modalidade, diasContratados: dias);
     return Column(
       crossAxisAlignment: CrossAxisAlignment.start,
       children: [
@@ -684,6 +718,7 @@ class _UtilidadesScreenState extends State<UtilidadesScreen> {
             Expanded(
               child: TextField(
                 controller: valorC,
+                onChanged: onValorChanged != null ? (_) => onValorChanged() : null,
                 keyboardType: TextInputType.number,
                 decoration: InputDecoration(
                   labelText: modalidade == 'diario' ? "Valor/dia (R\$)" : "Valor/mês (R\$)",
@@ -699,7 +734,10 @@ class _UtilidadesScreenState extends State<UtilidadesScreen> {
                 ButtonSegment(value: 'mensal', label: Text('Mês')),
               ],
               selected: {modalidade},
-              onSelectionChanged: (v) => onModalidade(v.first),
+              onSelectionChanged: (v) {
+                onModalidade(v.first);
+                onValorChanged?.call();
+              },
               style: SegmentedButton.styleFrom(
                 selectedBackgroundColor: diPertinLaranja,
                 selectedForegroundColor: Colors.white,
@@ -714,7 +752,10 @@ class _UtilidadesScreenState extends State<UtilidadesScreen> {
               child: OutlinedButton.icon(
                 onPressed: () async {
                   final p = await showDatePicker(context: context, initialDate: dtInicio, firstDate: DateTime(2024), lastDate: DateTime(2030));
-                  if (p != null) onInicio(p);
+                  if (p != null) {
+                    onInicio(p);
+                    onValorChanged?.call();
+                  }
                 },
                 icon: const Icon(Icons.calendar_today, size: 16),
                 label: Text("Início: ${fmt(dtInicio)}"),
@@ -725,13 +766,54 @@ class _UtilidadesScreenState extends State<UtilidadesScreen> {
               child: OutlinedButton.icon(
                 onPressed: () async {
                   final p = await showDatePicker(context: context, initialDate: dtFim, firstDate: DateTime(2024), lastDate: DateTime(2030));
-                  if (p != null) onFim(p);
+                  if (p != null) {
+                    onFim(p);
+                    onValorChanged?.call();
+                  }
                 },
                 icon: const Icon(Icons.event_available, size: 16),
                 label: Text("Fim: ${fmt(dtFim)}"),
               ),
             ),
           ],
+        ),
+        const SizedBox(height: 12),
+        Container(
+          width: double.infinity,
+          padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 10),
+          decoration: BoxDecoration(
+            color: diPertinRoxo.withValues(alpha: 0.06),
+            borderRadius: BorderRadius.circular(10),
+            border: Border.all(color: diPertinRoxo.withValues(alpha: 0.15)),
+          ),
+          child: unit <= 0
+              ? Text(
+                  'Informe o valor unitário para ver o total do período.',
+                  style: TextStyle(fontSize: 12.5, color: Colors.grey.shade700, height: 1.25),
+                )
+              : Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    Text(
+                      'Total no período',
+                      style: TextStyle(
+                        fontSize: 11,
+                        fontWeight: FontWeight.w600,
+                        color: Colors.grey.shade700,
+                        letterSpacing: 0.2,
+                      ),
+                    ),
+                    const SizedBox(height: 2),
+                    Text(
+                      '$dias ${dias == 1 ? 'dia' : 'dias'} × ${modalidade == 'mensal' ? 'valor mensal' : 'valor/dia'} → ${_fmtBrl(totalPrev)}',
+                      style: TextStyle(
+                        fontSize: 14,
+                        fontWeight: FontWeight.w800,
+                        color: diPertinRoxo,
+                      ),
+                    ),
+                  ],
+                ),
         ),
       ],
     );
@@ -740,37 +822,42 @@ class _UtilidadesScreenState extends State<UtilidadesScreen> {
   void _aplicarFinanceiro(Map<String, dynamic> upd, TextEditingController valorC, String modalidade, DateTime dtInicio, DateTime dtFim) {
     final val = double.tryParse(valorC.text.replaceAll(',', '.')) ?? 0;
     if (val <= 0) return;
-    int dias = dtFim.difference(dtInicio).inDays;
-    if (dias <= 0) dias = 1;
-    double total;
+    final dias = _diasContratados(dtInicio, dtFim);
+    final total = _valorTotalDoPeriodo(valorUnitario: val, modalidade: modalidade, diasContratados: dias);
     if (modalidade == 'mensal') {
-      final meses = (dias / 30).ceil().clamp(1, 9999);
-      total = val * meses;
       upd['valor_mensal'] = val;
     } else {
-      total = val * dias;
       upd['valor_diario'] = val;
     }
     upd['modalidade_valor'] = modalidade;
     upd['data_inicio'] = Timestamp.fromDate(dtInicio);
     upd['data_fim'] = Timestamp.fromDate(dtFim);
     upd['valor_total'] = total;
+    upd['qtd_dias_contratados'] = dias;
     upd['gera_receita'] = true;
   }
 
-  Future<void> _registrarReceitaSeValor(TextEditingController valorC, String modalidade, DateTime dtInicio, DateTime dtFim, String tipo, String titulo, String pagador) async {
+  /// Espelha uma linha no extrato com ID estável: ao reeditar o anúncio, substitui
+  /// o valor (sem duplicar no Livro Caixa — KPI usa o doc do anúncio).
+  Future<void> _sincronizarReceitaUtilidade({
+    required String colecaoFirestore,
+    required String anuncioDocId,
+    required TextEditingController valorC,
+    required String modalidade,
+    required DateTime dtInicio,
+    required DateTime dtFim,
+    required String tipoReceita,
+    required String titulo,
+    required String pagador,
+  }) async {
     final val = double.tryParse(valorC.text.replaceAll(',', '.')) ?? 0;
     if (val <= 0) return;
-    int dias = dtFim.difference(dtInicio).inDays;
-    if (dias <= 0) dias = 1;
-    double total;
-    if (modalidade == 'mensal') {
-      total = val * (dias / 30).ceil().clamp(1, 9999);
-    } else {
-      total = val * dias;
-    }
-    await FirebaseFirestore.instance.collection('receitas_app').add({
-      'tipo_receita': tipo,
+    final dias = _diasContratados(dtInicio, dtFim);
+    final total =
+        _valorTotalDoPeriodo(valorUnitario: val, modalidade: modalidade, diasContratados: dias);
+    final rid = _docIdReceitaUtilidade(colecaoFirestore, anuncioDocId);
+    await FirebaseFirestore.instance.collection('receitas_app').doc(rid).set({
+      'tipo_receita': tipoReceita,
       'titulo_referencia': titulo,
       'nome_pagador': pagador,
       'valor_total': total,
@@ -779,8 +866,11 @@ class _UtilidadesScreenState extends State<UtilidadesScreen> {
       'data_inicio': Timestamp.fromDate(dtInicio),
       'data_fim': Timestamp.fromDate(dtFim),
       'qtd_dias': dias,
+      'utilidade_colecao': colecaoFirestore,
+      'utilidade_anuncio_id': anuncioDocId,
+      'livro_caixa_manual': false,
       'data_registro': FieldValue.serverTimestamp(),
-    });
+    }, SetOptions(merge: true));
   }
 
   void _editarVaga(String id, Map<String, dynamic> dados) {
@@ -840,8 +930,17 @@ class _UtilidadesScreenState extends State<UtilidadesScreen> {
                 .collection('vagas')
                 .doc(id)
                 .update(upd);
-            await _registrarReceitaSeValor(valorC, modalidade, dtInicio,
-                dtFim, 'Vagas', cargoC.text, dados['nome_dono'] ?? '');
+            await _sincronizarReceitaUtilidade(
+              colecaoFirestore: 'vagas',
+              anuncioDocId: id,
+              valorC: valorC,
+              modalidade: modalidade,
+              dtInicio: dtInicio,
+              dtFim: dtFim,
+              tipoReceita: 'Vagas',
+              titulo: cargoC.text,
+              pagador: dados['nome_dono']?.toString() ?? '',
+            );
             if (context.mounted) {
               Navigator.pop(context);
               ScaffoldMessenger.of(context).showSnackBar(const SnackBar(
@@ -893,7 +992,16 @@ class _UtilidadesScreenState extends State<UtilidadesScreen> {
                   }),
                 ),
                 const Divider(height: 24),
-                _buildSecaoFinanceira(valorC: valorC, modalidade: modalidade, dtInicio: dtInicio, dtFim: dtFim, onModalidade: (v) => setDlg(() => modalidade = v), onInicio: (d) => setDlg(() => dtInicio = d), onFim: (d) => setDlg(() => dtFim = d)),
+                _buildSecaoFinanceira(
+                  valorC: valorC,
+                  modalidade: modalidade,
+                  dtInicio: dtInicio,
+                  dtFim: dtFim,
+                  onModalidade: (v) => setDlg(() => modalidade = v),
+                  onInicio: (d) => setDlg(() => dtInicio = d),
+                  onFim: (d) => setDlg(() => dtFim = d),
+                  onValorChanged: () => setDlg(() {}),
+                ),
               ],
             ),
           );
@@ -962,8 +1070,17 @@ class _UtilidadesScreenState extends State<UtilidadesScreen> {
                 .collection('servicos_destaque')
                 .doc(id)
                 .update(upd);
-            await _registrarReceitaSeValor(valorC, modalidade, dtInicio,
-                dtFim, 'Destaques', tituloC.text, dados['nome_dono'] ?? '');
+            await _sincronizarReceitaUtilidade(
+              colecaoFirestore: 'servicos_destaque',
+              anuncioDocId: id,
+              valorC: valorC,
+              modalidade: modalidade,
+              dtInicio: dtInicio,
+              dtFim: dtFim,
+              tipoReceita: 'Destaques',
+              titulo: tituloC.text,
+              pagador: dados['nome_dono']?.toString() ?? '',
+            );
             if (context.mounted) {
               Navigator.pop(context);
               ScaffoldMessenger.of(context).showSnackBar(const SnackBar(
@@ -1013,7 +1130,16 @@ class _UtilidadesScreenState extends State<UtilidadesScreen> {
                   }),
                 ),
                 const Divider(height: 24),
-                _buildSecaoFinanceira(valorC: valorC, modalidade: modalidade, dtInicio: dtInicio, dtFim: dtFim, onModalidade: (v) => setDlg(() => modalidade = v), onInicio: (d) => setDlg(() => dtInicio = d), onFim: (d) => setDlg(() => dtFim = d)),
+                _buildSecaoFinanceira(
+                  valorC: valorC,
+                  modalidade: modalidade,
+                  dtInicio: dtInicio,
+                  dtFim: dtFim,
+                  onModalidade: (v) => setDlg(() => modalidade = v),
+                  onInicio: (d) => setDlg(() => dtInicio = d),
+                  onFim: (d) => setDlg(() => dtFim = d),
+                  onValorChanged: () => setDlg(() {}),
+                ),
               ],
             ),
           );
@@ -1075,8 +1201,17 @@ class _UtilidadesScreenState extends State<UtilidadesScreen> {
                 .collection('telefones_premium')
                 .doc(id)
                 .update(upd);
-            await _registrarReceitaSeValor(valorC, modalidade, dtInicio,
-                dtFim, 'Premium', tituloC.text, dados['nome_dono'] ?? '');
+            await _sincronizarReceitaUtilidade(
+              colecaoFirestore: 'telefones_premium',
+              anuncioDocId: id,
+              valorC: valorC,
+              modalidade: modalidade,
+              dtInicio: dtInicio,
+              dtFim: dtFim,
+              tipoReceita: 'Premium',
+              titulo: tituloC.text,
+              pagador: dados['nome_dono']?.toString() ?? '',
+            );
             if (context.mounted) {
               Navigator.pop(context);
               ScaffoldMessenger.of(context).showSnackBar(const SnackBar(
@@ -1124,7 +1259,16 @@ class _UtilidadesScreenState extends State<UtilidadesScreen> {
                   }),
                 ),
                 const Divider(height: 24),
-                _buildSecaoFinanceira(valorC: valorC, modalidade: modalidade, dtInicio: dtInicio, dtFim: dtFim, onModalidade: (v) => setDlg(() => modalidade = v), onInicio: (d) => setDlg(() => dtInicio = d), onFim: (d) => setDlg(() => dtFim = d)),
+                _buildSecaoFinanceira(
+                  valorC: valorC,
+                  modalidade: modalidade,
+                  dtInicio: dtInicio,
+                  dtFim: dtFim,
+                  onModalidade: (v) => setDlg(() => modalidade = v),
+                  onInicio: (d) => setDlg(() => dtInicio = d),
+                  onFim: (d) => setDlg(() => dtFim = d),
+                  onValorChanged: () => setDlg(() {}),
+                ),
               ],
             ),
           );
@@ -1192,8 +1336,17 @@ class _UtilidadesScreenState extends State<UtilidadesScreen> {
                 .collection('eventos')
                 .doc(id)
                 .update(upd);
-            await _registrarReceitaSeValor(valorC, modalidade, dtInicio,
-                dtFim, 'Eventos', tituloC.text, dados['nome_dono'] ?? '');
+            await _sincronizarReceitaUtilidade(
+              colecaoFirestore: 'eventos',
+              anuncioDocId: id,
+              valorC: valorC,
+              modalidade: modalidade,
+              dtInicio: dtInicio,
+              dtFim: dtFim,
+              tipoReceita: 'Eventos',
+              titulo: tituloC.text,
+              pagador: dados['nome_dono']?.toString() ?? '',
+            );
             if (context.mounted) {
               Navigator.pop(context);
               ScaffoldMessenger.of(context).showSnackBar(const SnackBar(
@@ -1247,7 +1400,16 @@ class _UtilidadesScreenState extends State<UtilidadesScreen> {
                   }),
                 ),
                 const Divider(height: 24),
-                _buildSecaoFinanceira(valorC: valorC, modalidade: modalidade, dtInicio: dtInicio, dtFim: dtFim, onModalidade: (v) => setDlg(() => modalidade = v), onInicio: (d) => setDlg(() => dtInicio = d), onFim: (d) => setDlg(() => dtFim = d)),
+                _buildSecaoFinanceira(
+                  valorC: valorC,
+                  modalidade: modalidade,
+                  dtInicio: dtInicio,
+                  dtFim: dtFim,
+                  onModalidade: (v) => setDlg(() => modalidade = v),
+                  onInicio: (d) => setDlg(() => dtInicio = d),
+                  onFim: (d) => setDlg(() => dtFim = d),
+                  onValorChanged: () => setDlg(() {}),
+                ),
               ],
             ),
           );
@@ -1315,8 +1477,17 @@ class _UtilidadesScreenState extends State<UtilidadesScreen> {
                 .collection('achados')
                 .doc(id)
                 .update(upd);
-            await _registrarReceitaSeValor(valorC, modalidade, dtInicio,
-                dtFim, 'Achados', tituloC.text, dados['nome_dono'] ?? '');
+            await _sincronizarReceitaUtilidade(
+              colecaoFirestore: 'achados',
+              anuncioDocId: id,
+              valorC: valorC,
+              modalidade: modalidade,
+              dtInicio: dtInicio,
+              dtFim: dtFim,
+              tipoReceita: 'Achados',
+              titulo: tituloC.text,
+              pagador: dados['nome_dono']?.toString() ?? '',
+            );
             if (context.mounted) {
               Navigator.pop(context);
               ScaffoldMessenger.of(context).showSnackBar(const SnackBar(
@@ -1373,7 +1544,16 @@ class _UtilidadesScreenState extends State<UtilidadesScreen> {
                   }),
                 ),
                 const Divider(height: 24),
-                _buildSecaoFinanceira(valorC: valorC, modalidade: modalidade, dtInicio: dtInicio, dtFim: dtFim, onModalidade: (v) => setDlg(() => modalidade = v), onInicio: (d) => setDlg(() => dtInicio = d), onFim: (d) => setDlg(() => dtFim = d)),
+                _buildSecaoFinanceira(
+                  valorC: valorC,
+                  modalidade: modalidade,
+                  dtInicio: dtInicio,
+                  dtFim: dtFim,
+                  onModalidade: (v) => setDlg(() => modalidade = v),
+                  onInicio: (d) => setDlg(() => dtInicio = d),
+                  onFim: (d) => setDlg(() => dtFim = d),
+                  onValorChanged: () => setDlg(() {}),
+                ),
               ],
             ),
           );
@@ -1449,8 +1629,7 @@ class _UtilidadesScreenState extends State<UtilidadesScreen> {
               try {
                 double valorCobrado =
                     double.tryParse(valorC.text.replaceAll(',', '.')) ?? 0.0;
-                int qtdDias = dataFim.difference(dataInicio).inDays;
-                if (qtdDias <= 0) qtdDias = 1;
+                final qtdDias = _diasContratados(dataInicio, dataFim);
 
                 String urlImagem = '';
                 if (imagemBytes != null) {
@@ -1474,32 +1653,18 @@ class _UtilidadesScreenState extends State<UtilidadesScreen> {
                   dados['nome_dono'] = donoC.text.trim();
                   dados['gera_receita'] = true;
                   dados['modalidade_valor'] = modalidadeValor;
-
-                  double valorTotalGerado;
+                  final valorTotalGerado = _valorTotalDoPeriodo(
+                    valorUnitario: valorCobrado,
+                    modalidade: modalidadeValor,
+                    diasContratados: qtdDias,
+                  );
                   if (modalidadeValor == 'mensal') {
                     dados['valor_mensal'] = valorCobrado;
-                    final meses = (qtdDias / 30).ceil().clamp(1, 9999);
-                    valorTotalGerado = valorCobrado * meses;
                   } else {
                     dados['valor_diario'] = valorCobrado;
-                    valorTotalGerado = valorCobrado * qtdDias;
                   }
                   dados['valor_total'] = valorTotalGerado;
-
-                  await FirebaseFirestore.instance
-                      .collection('receitas_app')
-                      .add({
-                        'tipo_receita': tipoSelecionado,
-                        'titulo_referencia': tituloC.text,
-                        'nome_pagador': donoC.text.trim(),
-                        'valor_total': valorTotalGerado,
-                        'valor_unitario': valorCobrado,
-                        'modalidade_valor': modalidadeValor,
-                        'data_inicio': Timestamp.fromDate(dataInicio),
-                        'data_fim': Timestamp.fromDate(dataFim),
-                        'qtd_dias': qtdDias,
-                        'data_registro': FieldValue.serverTimestamp(),
-                      });
+                  dados['qtd_dias_contratados'] = qtdDias;
                 }
 
                 // 3. Molda os dados de acordo com a categoria (Igual estava antes)
@@ -1509,6 +1674,8 @@ class _UtilidadesScreenState extends State<UtilidadesScreen> {
 
                 final cidadeRaw = cidadeC.text.trim();
                 final cidadeNorm = _normalizarCidade(cidadeRaw);
+
+                DocumentReference<Map<String, dynamic>>? refAnuncio;
 
                 if (tipoSelecionado == 'Vagas') {
                   dados.addAll({
@@ -1523,7 +1690,7 @@ class _UtilidadesScreenState extends State<UtilidadesScreen> {
                       DateTime.now().add(const Duration(days: 7)),
                     ),
                   });
-                  await FirebaseFirestore.instance
+                  refAnuncio = await FirebaseFirestore.instance
                       .collection('vagas')
                       .add(dados);
                 } else if (tipoSelecionado == 'Eventos') {
@@ -1543,7 +1710,7 @@ class _UtilidadesScreenState extends State<UtilidadesScreen> {
                   if (dados['gera_receita'] == null) {
                     dados['gera_receita'] = false;
                   }
-                  await FirebaseFirestore.instance
+                  refAnuncio = await FirebaseFirestore.instance
                       .collection('eventos')
                       .add(dados);
                 } else if (tipoSelecionado == 'Achados') {
@@ -1561,7 +1728,7 @@ class _UtilidadesScreenState extends State<UtilidadesScreen> {
                       DateTime.now().add(const Duration(days: 3)),
                     ),
                   });
-                  await FirebaseFirestore.instance
+                  refAnuncio = await FirebaseFirestore.instance
                       .collection('achados')
                       .add(dados);
                 } else if (tipoSelecionado == 'Premium') {
@@ -1574,7 +1741,7 @@ class _UtilidadesScreenState extends State<UtilidadesScreen> {
                     'tipo_contato': 'whatsapp',
                   });
                   dados['data_vencimento'] ??= Timestamp.fromDate(dataFim);
-                  await FirebaseFirestore.instance
+                  refAnuncio = await FirebaseFirestore.instance
                       .collection('telefones_premium')
                       .add(dados);
                 } else if (tipoSelecionado == 'Destaques') {
@@ -1586,9 +1753,23 @@ class _UtilidadesScreenState extends State<UtilidadesScreen> {
                     'telefone': contatoC.text,
                     'imagem_url': urlImagem,
                   });
-                  await FirebaseFirestore.instance
+                  refAnuncio = await FirebaseFirestore.instance
                       .collection('servicos_destaque')
                       .add(dados);
+                }
+
+                if (valorCobrado > 0 && refAnuncio != null) {
+                  await _sincronizarReceitaUtilidade(
+                    colecaoFirestore: refAnuncio.parent.id,
+                    anuncioDocId: refAnuncio.id,
+                    valorC: valorC,
+                    modalidade: modalidadeValor,
+                    dtInicio: dataInicio,
+                    dtFim: dataFim,
+                    tipoReceita: tipoSelecionado,
+                    titulo: tituloC.text,
+                    pagador: donoC.text.trim(),
+                  );
                 }
 
                 if (context.mounted) {
@@ -1845,6 +2026,7 @@ class _UtilidadesScreenState extends State<UtilidadesScreen> {
                           Expanded(
                             child: TextField(
                               controller: valorC,
+                              onChanged: (_) => setState(() {}),
                               keyboardType: TextInputType.number,
                               decoration: InputDecoration(
                                 labelText: modalidadeValor == 'diario'
@@ -1913,15 +2095,15 @@ class _UtilidadesScreenState extends State<UtilidadesScreen> {
                       ),
                       Builder(
                         builder: (_) {
-                          final dias = dataFim.difference(dataInicio).inDays.clamp(1, 99999);
-                          final val = double.tryParse(valorC.text.replaceAll(',', '.')) ?? 0;
-                          double total;
-                          if (modalidadeValor == 'mensal') {
-                            final meses = (dias / 30).ceil().clamp(1, 9999);
-                            total = val * meses;
-                          } else {
-                            total = val * dias;
-                          }
+                          final dias =
+                              _diasContratados(dataInicio, dataFim);
+                          final val =
+                              double.tryParse(valorC.text.replaceAll(',', '.')) ?? 0;
+                          final total = _valorTotalDoPeriodo(
+                            valorUnitario: val,
+                            modalidade: modalidadeValor,
+                            diasContratados: dias,
+                          );
                           if (val <= 0) return const SizedBox(height: 15);
                           return Padding(
                             padding: const EdgeInsets.only(top: 8),
@@ -1935,8 +2117,8 @@ class _UtilidadesScreenState extends State<UtilidadesScreen> {
                               ),
                               child: Text(
                                 modalidadeValor == 'mensal'
-                                    ? "$dias dias (${(dias / 30).ceil()} mês(es)) × R\$ ${val.toStringAsFixed(2)}/mês = R\$ ${total.toStringAsFixed(2)}"
-                                    : "$dias dias × R\$ ${val.toStringAsFixed(2)}/dia = R\$ ${total.toStringAsFixed(2)}",
+                                    ? '$dias dias (${(dias / 30).ceil()} mês(es)) × ${_fmtBrl(val)}/mês = ${_fmtBrl(total)}'
+                                    : '$dias dias × ${_fmtBrl(val)}/dia = ${_fmtBrl(total)}',
                                 style: TextStyle(
                                   color: Colors.green.shade800,
                                   fontWeight: FontWeight.w700,
@@ -2180,29 +2362,19 @@ class _UtilidadesScreenState extends State<UtilidadesScreen> {
       child: Scaffold(
         backgroundColor: Colors.grey[100],
 
-        // A MÁGICA ENTRA AQUI! O BOTÃO FLUTUANTE DE CRIAR POST + SUPORTE
-        floatingActionButton: Column(
-          mainAxisAlignment: MainAxisAlignment.end,
-          crossAxisAlignment: CrossAxisAlignment.end,
-          children: [
-            // NOSSO BOTÃO DE SUPORTE NO TOPO
-            const BotaoSuporteFlutuante(),
-            const SizedBox(height: 15), // Espaçamento entre os botões
-            // O BOTÃO DE NOVO ANÚNCIO (Que você já tinha)
-            FloatingActionButton.extended(
-              heroTag: 'btn_utilidades', // Evita erro de animação duplicada
-              onPressed: _mostrarFormularioNovoPost,
-              backgroundColor: diPertinLaranja,
-              icon: const Icon(Icons.add, color: Colors.white),
-              label: const Text(
-                "Novo Anúncio",
-                style: TextStyle(
-                  color: Colors.white,
-                  fontWeight: FontWeight.bold,
-                ),
-              ),
+        // Novo anúncio (FAB)
+        floatingActionButton: FloatingActionButton.extended(
+          heroTag: 'btn_utilidades', // Evita erro de animação duplicada
+          onPressed: _mostrarFormularioNovoPost,
+          backgroundColor: diPertinLaranja,
+          icon: const Icon(Icons.add, color: Colors.white),
+          label: const Text(
+            "Novo Anúncio",
+            style: TextStyle(
+              color: Colors.white,
+              fontWeight: FontWeight.bold,
             ),
-          ],
+          ),
         ),
 
         body: Column(

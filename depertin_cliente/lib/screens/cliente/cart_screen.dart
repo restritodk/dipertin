@@ -15,6 +15,7 @@ import 'package:http/http.dart' as http;
 import '../../providers/cart_provider.dart';
 import '../../models/cart_item_model.dart';
 import '../../services/firebase_functions_config.dart';
+import '../../services/wallet_reserva_service.dart';
 import '../../utils/loja_pausa.dart';
 import '../../constants/tipos_entrega.dart';
 
@@ -31,11 +32,9 @@ class CartScreen extends StatefulWidget {
 class _CartScreenState extends State<CartScreen> {
   final TextEditingController _enderecoController = TextEditingController();
   final TextEditingController _cupomController = TextEditingController();
-  final TextEditingController _trocoParaController = TextEditingController();
   String _formaPagamento = 'PIX';
   bool _processandoPedido = false;
   bool _retirarNaLoja = false;
-  bool _precisaTrocoDinheiro = false;
 
   // Variáveis para o saldo
   double _saldoCliente = 0.0;
@@ -166,18 +165,6 @@ class _CartScreenState extends State<CartScreen> {
       if (v.isNotEmpty) return v;
     }
     return '';
-  }
-
-  static double? _parseMoedaDigitada(String valor) {
-    var texto = valor.trim();
-    if (texto.isEmpty) return null;
-    texto = texto.replaceAll(RegExp(r'[^0-9,\.]'), '');
-    if (texto.contains(',') && texto.contains('.')) {
-      texto = texto.replaceAll('.', '').replaceAll(',', '.');
-    } else {
-      texto = texto.replaceAll(',', '.');
-    }
-    return double.tryParse(texto);
   }
 
   static String _normalizarCidadeFrete(String valor) {
@@ -707,7 +694,6 @@ class _CartScreenState extends State<CartScreen> {
     _debounceTaxa?.cancel();
     _enderecoController.dispose();
     _cupomController.dispose();
-    _trocoParaController.dispose();
     super.dispose();
   }
 
@@ -912,42 +898,43 @@ class _CartScreenState extends State<CartScreen> {
       return;
     }
 
-    if (_formaPagamento == 'Dinheiro') {
-      if (_precisaTrocoDinheiro) {
-        final trocoPara = _parseMoedaDigitada(_trocoParaController.text);
-        if (trocoPara == null || trocoPara <= 0) {
-          ScaffoldMessenger.of(context).showSnackBar(
-            const SnackBar(
-              content: Text('Informe um valor válido para troco.'),
-              backgroundColor: Colors.red,
-            ),
-          );
-          return;
-        }
-        if (trocoPara < totalFinal) {
-          ScaffoldMessenger.of(context).showSnackBar(
-            SnackBar(
-              content: Text(
-                'O valor para troco deve ser igual ou maior que R\$ ${totalFinal.toStringAsFixed(2)}.',
-              ),
-              backgroundColor: Colors.red,
-            ),
-          );
-          return;
-        }
-      }
-      final pedidoId = await _salvarPedidoNoBanco(
-        cart,
-        user.uid,
-        subtotal,
-        valorDesconto,
-        totalFinal,
-        fecharCarrinhoEExibirDialogo: false,
-      );
-      if (!mounted || pedidoId == null) return;
-      await _mostrarConfirmacaoPedidoFeitoDinheiro();
-      return;
-    }
+    // DESABILITADO TEMPORARIAMENTE: Pagamento por Dinheiro
+    // if (_formaPagamento == 'Dinheiro') {
+    //   if (_precisaTrocoDinheiro) {
+    //     final trocoPara = _parseMoedaDigitada(_trocoParaController.text);
+    //     if (trocoPara == null || trocoPara <= 0) {
+    //       ScaffoldMessenger.of(context).showSnackBar(
+    //         const SnackBar(
+    //           content: Text('Informe um valor válido para troco.'),
+    //           backgroundColor: Colors.red,
+    //         ),
+    //       );
+    //       return;
+    //     }
+    //     if (trocoPara < totalFinal) {
+    //       ScaffoldMessenger.of(context).showSnackBar(
+    //         SnackBar(
+    //           content: Text(
+    //             'O valor para troco deve ser igual ou maior que R\$ ${totalFinal.toStringAsFixed(2)}.',
+    //           ),
+    //           backgroundColor: Colors.red,
+    //         ),
+    //       );
+    //       return;
+    //     }
+    //   }
+    //   final pedidoId = await _salvarPedidoNoBanco(
+    //     cart,
+    //     user.uid,
+    //     subtotal,
+    //     valorDesconto,
+    //     totalFinal,
+    //     fecharCarrinhoEExibirDialogo: false,
+    //   );
+    //   if (!mounted || pedidoId == null) return;
+    //   await _mostrarConfirmacaoPedidoFeitoDinheiro();
+    //   return;
+    // }
 
     // PIX: cria pedido aguardando pagamento, gera cobrança no checkout e confirma via webhook/polling.
     if (_formaPagamento == 'PIX') {
@@ -1193,14 +1180,7 @@ class _CartScreenState extends State<CartScreen> {
         );
       }
 
-      // Salva o Pedido
-      final pagamentoDinheiro = totalFinal > 0 && _formaPagamento == 'Dinheiro';
-      final trocoPara = pagamentoDinheiro && _precisaTrocoDinheiro
-          ? _parseMoedaDigitada(_trocoParaController.text)
-          : null;
-      final trocoValor = trocoPara != null && trocoPara > totalFinal
-          ? trocoPara - totalFinal
-          : 0.0;
+      // Salva o Pedido (pagamento em dinheiro desabilitado na UI — sem campos de troco)
 
       // Fase 3G.3 — denormaliza identidade do cliente no pedido pra que lojista e
       // entregador não precisem mais ler `users/{cliente_id}` (permite fechar rule).
@@ -1244,29 +1224,62 @@ class _CartScreenState extends State<CartScreen> {
           'forma_pagamento': totalFinal == 0.0
               ? 'Saldo do App'
               : _formaPagamento,
-          if (pagamentoDinheiro) ...{
-            'pagamento_dinheiro_precisa_troco': _precisaTrocoDinheiro,
-            'troco_responsavel': 'entregador',
-            if (_precisaTrocoDinheiro && trocoPara != null)
-              'pagamento_dinheiro_troco_para': double.parse(
-                trocoPara.toStringAsFixed(2),
-              ),
-            if (_precisaTrocoDinheiro && trocoValor > 0)
-              'pagamento_dinheiro_troco_valor': double.parse(
-                trocoValor.toStringAsFixed(2),
-              ),
-          },
           'status': statusPedido,
           'data_pedido': FieldValue.serverTimestamp(),
         },
       );
 
-      // Deduz o saldo do cliente
-      if (valorDesconto > 0) {
+      // ===== SISTEMA DE RESERVA DE SALDO (Novo) =====
+      String? reservaIdSaldo;
+
+      // Se usando saldo + pagamento externo (PIX/Cartão), RESERVA ao invés de debitar
+      if (valorDesconto > 0 && statusPedido == 'aguardando_pagamento') {
+        try {
+          final reserva = await WalletReservaService.reservarSaldo(
+            userId: clienteId,
+            pedidoId: docRef.id,
+            valor: valorDesconto,
+          );
+          reservaIdSaldo = reserva['reservaId'] as String?;
+
+          // Atualiza pedido com ID da reserva
+          await docRef.update({
+            'reserva_id_saldo': reservaIdSaldo,
+            'saldo_reservado': valorDesconto,
+          });
+
+          if (mounted) {
+            print(
+              '[CartScreen] Saldo reservado: R\$ ${valorDesconto.toStringAsFixed(2)} | '
+              'ReservaId: $reservaIdSaldo',
+            );
+          }
+        } catch (e) {
+          if (mounted) {
+            ScaffoldMessenger.of(context).showSnackBar(
+              SnackBar(
+                content: Text('Erro ao reservar saldo: $e'),
+                backgroundColor: Colors.red,
+              ),
+            );
+          }
+          setState(() => _processandoPedido = false);
+          return null;
+        }
+      }
+      // Se usando saldo COMPLETO para pagar (status final), debita agora
+      else if (valorDesconto > 0 && totalFinal == 0.0) {
         await FirebaseFirestore.instance
             .collection('users')
             .doc(clienteId)
             .update({'saldo': FieldValue.increment(-valorDesconto)});
+
+        if (mounted) {
+          print(
+            '[CartScreen] Saldo debitado (pagamento completo): '
+            'R\$ ${valorDesconto.toStringAsFixed(2)}',
+          );
+        }
       }
 
       _qtdPedidosUltimoCheckout = 1;
@@ -1436,42 +1449,7 @@ class _CartScreenState extends State<CartScreen> {
       );
     }
 
-    final pagamentoDinheiro = totalFinal > 0 && _formaPagamento == 'Dinheiro';
-    final trocoParaGlobal = pagamentoDinheiro && _precisaTrocoDinheiro
-        ? _parseMoedaDigitada(_trocoParaController.text)
-        : null;
-
-    final trocoParaPorLoja = List<double?>.filled(n, null);
-    final trocoValorPorLoja = List<double>.filled(n, 0);
-    if (trocoParaGlobal != null) {
-      // Cada pedido (loja) tem o seu próprio entregador, que é o
-      // responsável pelo dinheiro/troco daquela parcela. A base correta
-      // para o troco é o total que o cliente paga POR PEDIDO (produtos +
-      // frete da loja, descontos já aplicados). Antes usava só subtotal de
-      // produtos, gerando incoerência com o single-store que usa totalFinal.
-      final totaisPorPedido = List<double>.generate(
-        n,
-        (i) => _round2(totais[i]),
-      );
-      final somaTotais = totaisPorPedido.fold(0.0, (a, b) => a + b);
-      if (somaTotais > 0) {
-        var accTrocoPara = 0.0;
-        for (var i = 0; i < n; i++) {
-          if (i < n - 1) {
-            final proporcao = totaisPorPedido[i] / somaTotais;
-            final tp = _round2(trocoParaGlobal * proporcao);
-            trocoParaPorLoja[i] = tp;
-            accTrocoPara += tp;
-          } else {
-            trocoParaPorLoja[i] = _round2(trocoParaGlobal - accTrocoPara);
-          }
-          final tp = trocoParaPorLoja[i]!;
-          trocoValorPorLoja[i] = tp > totaisPorPedido[i]
-              ? _round2(tp - totaisPorPedido[i])
-              : 0;
-        }
-      }
-    }
+    // Pagamento em dinheiro desabilitado na UI — sem troco por loja.
 
     final checkoutGrupoId = FirebaseFirestore.instance.collection('pedidos').doc().id;
     final refs = lojaKeys
@@ -1567,18 +1545,6 @@ class _CartScreenState extends State<CartScreen> {
         'forma_pagamento': totalFinal == 0.0
             ? 'Saldo do App'
             : _formaPagamento,
-        if (pagamentoDinheiro) ...{
-          'pagamento_dinheiro_precisa_troco': _precisaTrocoDinheiro,
-          'troco_responsavel': 'entregador',
-          if (_precisaTrocoDinheiro && trocoParaPorLoja[i] != null)
-            'pagamento_dinheiro_troco_para': double.parse(
-              trocoParaPorLoja[i]!.toStringAsFixed(2),
-            ),
-          if (_precisaTrocoDinheiro && trocoValorPorLoja[i] > 0)
-            'pagamento_dinheiro_troco_valor': double.parse(
-              trocoValorPorLoja[i].toStringAsFixed(2),
-            ),
-        },
         'status': statusPedido,
         'data_pedido': FieldValue.serverTimestamp(),
         'checkout_grupo_id': checkoutGrupoId,
@@ -1644,7 +1610,7 @@ class _CartScreenState extends State<CartScreen> {
 
   String _textoBotaoCheckout(double totalFinal) {
     if (totalFinal <= 0) return 'Confirmar pedido';
-    if (_formaPagamento == 'Dinheiro') return 'Confirmar pedido';
+    // DESABILITADO: if (_formaPagamento == 'Dinheiro') return 'Confirmar pedido';
     return 'Ir para pagamento';
   }
 
@@ -1659,10 +1625,6 @@ class _CartScreenState extends State<CartScreen> {
     return InkWell(
       onTap: () => setState(() {
         _formaPagamento = value;
-        if (value != 'Dinheiro') {
-          _precisaTrocoDinheiro = false;
-          _trocoParaController.clear();
-        }
       }),
       borderRadius: BorderRadius.circular(12),
       child: Padding(
@@ -1724,65 +1686,6 @@ class _CartScreenState extends State<CartScreen> {
             ),
           ],
         ),
-      ),
-    );
-  }
-
-  Future<void> _mostrarConfirmacaoPedidoFeitoDinheiro() async {
-    if (!mounted) return;
-    await showDialog<void>(
-      context: context,
-      barrierDismissible: false,
-      builder: (ctx) => AlertDialog(
-        shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(20)),
-        content: Column(
-          mainAxisSize: MainAxisSize.min,
-          children: [
-            Icon(Icons.check_circle, color: Colors.green.shade600, size: 72),
-            const SizedBox(height: 16),
-            const Text(
-              'Pedido feito!',
-              textAlign: TextAlign.center,
-              style: TextStyle(
-                fontSize: 22,
-                fontWeight: FontWeight.bold,
-                color: diPertinRoxo,
-              ),
-            ),
-            const SizedBox(height: 10),
-            Text(
-              _qtdPedidosUltimoCheckout > 1
-                  ? (_retirarNaLoja
-                      ? 'As lojas já receberam seus pedidos. Acompanhe em Meus pedidos.'
-                      : 'As lojas já receberam seus pedidos. Acompanhe a entrega em Meus pedidos.')
-                  : (_retirarNaLoja
-                      ? 'A loja já recebeu seu pedido. Acompanhe em Meus pedidos.'
-                      : 'A loja já recebeu seu pedido. Acompanhe a entrega em Meus pedidos.'),
-              textAlign: TextAlign.center,
-              style: TextStyle(fontSize: 15, height: 1.4, color: Colors.grey[800]),
-            ),
-          ],
-        ),
-        actionsAlignment: MainAxisAlignment.center,
-        actions: [
-          FilledButton(
-            style: FilledButton.styleFrom(
-              backgroundColor: diPertinLaranja,
-              foregroundColor: Colors.white,
-              padding: const EdgeInsets.symmetric(horizontal: 24, vertical: 12),
-            ),
-            onPressed: () {
-              Navigator.of(ctx).pop();
-              if (mounted) {
-                Navigator.pushReplacementNamed(context, '/meus-pedidos');
-              }
-            },
-            child: const Text(
-              'Ir para Meus pedidos',
-              style: TextStyle(fontWeight: FontWeight.w600),
-            ),
-          ),
-        ],
       ),
     );
   }
@@ -3008,111 +2911,113 @@ class _CartScreenState extends State<CartScreen> {
                           Divider(height: 1, color: Colors.grey.shade200),
                           _pagamentoOpcao(
                             value: 'Cartão',
-                            titulo: 'Cartão de crédito',
+                            titulo: 'Cartão',
                             subtitulo: 'Pagamento seguro pelo app.',
                             icon: Icons.credit_card_rounded,
                             corIcone: diPertinRoxo,
                           ),
-                          Divider(height: 1, color: Colors.grey.shade200),
-                          _pagamentoOpcao(
-                            value: 'Dinheiro',
-                            titulo: 'Dinheiro na entrega',
-                            subtitulo:
-                                'Pague em espécie ao entregador ao receber o pedido.',
-                            icon: Icons.payments_outlined,
-                            corIcone: diPertinLaranja,
-                          ),
+                          // DESABILITADO TEMPORARIAMENTE: Pagamento por Dinheiro
+                          // Divider(height: 1, color: Colors.grey.shade200),
+                          // _pagamentoOpcao(
+                          //   value: 'Dinheiro',
+                          //   titulo: 'Dinheiro na entrega',
+                          //   subtitulo:
+                          //       'Pague em espécie ao entregador ao receber o pedido.',
+                          //   icon: Icons.payments_outlined,
+                          //   corIcone: diPertinLaranja,
+                          // ),
                         ],
                       ),
                     ),
                     const SizedBox(height: 28),
-                    if (_formaPagamento == 'Dinheiro') ...[
-                      Container(
-                        padding: const EdgeInsets.all(14),
-                        decoration: BoxDecoration(
-                          color: Colors.white,
-                          borderRadius: BorderRadius.circular(14),
-                          border: Border.all(color: Colors.grey.shade200),
-                        ),
-                        child: Column(
-                          crossAxisAlignment: CrossAxisAlignment.start,
-                          children: [
-                            Row(
-                              children: [
-                                Checkbox(
-                                  value: _precisaTrocoDinheiro,
-                                  activeColor: diPertinRoxo,
-                                  onChanged: (valor) {
-                                    setState(() {
-                                      _precisaTrocoDinheiro = valor ?? false;
-                                      if (!_precisaTrocoDinheiro) {
-                                        _trocoParaController.clear();
-                                      }
-                                    });
-                                  },
-                                ),
-                                const Expanded(
-                                  child: Text(
-                                    'Precisa de troco?',
-                                    style: TextStyle(
-                                      fontWeight: FontWeight.w600,
-                                      fontSize: 15,
-                                    ),
-                                  ),
-                                ),
-                              ],
-                            ),
-                            if (_precisaTrocoDinheiro) ...[
-                              const SizedBox(height: 8),
-                              TextField(
-                                controller: _trocoParaController,
-                                keyboardType:
-                                    const TextInputType.numberWithOptions(
-                                      decimal: true,
-                                    ),
-                                decoration: InputDecoration(
-                                  labelText: 'Troco para quanto?',
-                                  hintText: 'Ex.: 50,00',
-                                  prefixText: 'R\$ ',
-                                  filled: true,
-                                  fillColor: const Color(0xFFF8F9FA),
-                                  border: OutlineInputBorder(
-                                    borderRadius: BorderRadius.circular(12),
-                                    borderSide: BorderSide(
-                                      color: Colors.grey.shade300,
-                                    ),
-                                  ),
-                                  enabledBorder: OutlineInputBorder(
-                                    borderRadius: BorderRadius.circular(12),
-                                    borderSide: BorderSide(
-                                      color: Colors.grey.shade300,
-                                    ),
-                                  ),
-                                  focusedBorder: const OutlineInputBorder(
-                                    borderRadius: BorderRadius.all(
-                                      Radius.circular(12),
-                                    ),
-                                    borderSide: BorderSide(
-                                      color: diPertinRoxo,
-                                      width: 1.4,
-                                    ),
-                                  ),
-                                ),
-                              ),
-                              const SizedBox(height: 6),
-                              Text(
-                                'Essa informação será enviada para a loja.',
-                                style: TextStyle(
-                                  fontSize: 12,
-                                  color: Colors.grey[600],
-                                ),
-                              ),
-                            ],
-                          ],
-                        ),
-                      ),
-                      const SizedBox(height: 24),
-                    ],
+                    // DESABILITADO TEMPORARIAMENTE: Opções de troco para pagamento em dinheiro
+                    // if (_formaPagamento == 'Dinheiro') ...[
+                    //   Container(
+                    //     padding: const EdgeInsets.all(14),
+                    //     decoration: BoxDecoration(
+                    //       color: Colors.white,
+                    //       borderRadius: BorderRadius.circular(14),
+                    //       border: Border.all(color: Colors.grey.shade200),
+                    //     ),
+                    //     child: Column(
+                    //       crossAxisAlignment: CrossAxisAlignment.start,
+                    //       children: [
+                    //         Row(
+                    //           children: [
+                    //             Checkbox(
+                    //               value: _precisaTrocoDinheiro,
+                    //               activeColor: diPertinRoxo,
+                    //               onChanged: (valor) {
+                    //                 setState(() {
+                    //                   _precisaTrocoDinheiro = valor ?? false;
+                    //                   if (!_precisaTrocoDinheiro) {
+                    //                     _trocoParaController.clear();
+                    //                   }
+                    //                 });
+                    //               },
+                    //             ),
+                    //             const Expanded(
+                    //               child: Text(
+                    //                 'Precisa de troco?',
+                    //                 style: TextStyle(
+                    //                   fontWeight: FontWeight.w600,
+                    //                   fontSize: 15,
+                    //                 ),
+                    //               ),
+                    //             ),
+                    //           ],
+                    //         ),
+                    //         if (_precisaTrocoDinheiro) ...[
+                    //           const SizedBox(height: 8),
+                    //           TextField(
+                    //             controller: _trocoParaController,
+                    //             keyboardType:
+                    //                 const TextInputType.numberWithOptions(
+                    //                   decimal: true,
+                    //                 ),
+                    //             decoration: InputDecoration(
+                    //               labelText: 'Troco para quanto?',
+                    //               hintText: 'Ex.: 50,00',
+                    //               prefixText: 'R\$ ',
+                    //               filled: true,
+                    //               fillColor: const Color(0xFFF8F9FA),
+                    //               border: OutlineInputBorder(
+                    //                 borderRadius: BorderRadius.circular(12),
+                    //                 borderSide: BorderSide(
+                    //                   color: Colors.grey.shade300,
+                    //                 ),
+                    //               ),
+                    //               enabledBorder: OutlineInputBorder(
+                    //                 borderRadius: BorderRadius.circular(12),
+                    //                 borderSide: BorderSide(
+                    //                   color: Colors.grey.shade300,
+                    //                 ),
+                    //               ),
+                    //               focusedBorder: const OutlineInputBorder(
+                    //                 borderRadius: BorderRadius.all(
+                    //                   Radius.circular(12),
+                    //                 ),
+                    //                 borderSide: BorderSide(
+                    //                   color: diPertinRoxo,
+                    //                   width: 1.4,
+                    //                 ),
+                    //               ),
+                    //             ),
+                    //           ),
+                    //           const SizedBox(height: 6),
+                    //           Text(
+                    //             'Essa informação será enviada para a loja.',
+                    //             style: TextStyle(
+                    //               fontSize: 12,
+                    //               color: Colors.grey[600],
+                    //             ),
+                    //           ),
+                    //         ],
+                    //       ],
+                    //     ),
+                    //   ),
+                    //   const SizedBox(height: 24),
+                    // ],
                   ],
 
                   Container(

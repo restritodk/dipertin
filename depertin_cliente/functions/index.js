@@ -113,6 +113,13 @@ exports.notificarClienteConfirmacaoCancelamento =
 const avaliacaoPedido = require("./avaliacao_pedido");
 exports.atualizarRatingLojaAposAvaliacao = avaliacaoPedido.atualizarRatingLojaAposAvaliacao;
 
+// Carimbos de status no pedido (monitor / investigação). Sem FCM.
+const pedidoOperacaoTimeline = require("./pedido_operacao_timeline");
+exports.gravarOperacaoStatusEmPedidoOnCreate =
+    pedidoOperacaoTimeline.gravarOperacaoStatusEmPedidoOnCreate;
+exports.gravarOperacaoStatusEmPedidoOnUpdate =
+    pedidoOperacaoTimeline.gravarOperacaoStatusEmPedidoOnUpdate;
+
 // ==========================================
 // Entrega concluída → creditar saldos + notificar loja
 // Dispara quando status muda para 'entregue'.

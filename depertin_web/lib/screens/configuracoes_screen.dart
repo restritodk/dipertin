@@ -2,7 +2,6 @@ import 'dart:math' show min;
 
 import 'package:cloud_firestore/cloud_firestore.dart';
 import 'package:depertin_web/theme/painel_admin_theme.dart';
-import 'package:depertin_web/widgets/botao_suporte_flutuante.dart';
 import 'package:flutter/foundation.dart' show kIsWeb;
 import 'package:flutter/material.dart';
 
@@ -1518,7 +1517,6 @@ class _ConfiguracoesScreenState extends State<ConfiguracoesScreen>
           ),
         ],
       ),
-      floatingActionButton: const BotaoSuporteFlutuante(),
     );
   }
 }

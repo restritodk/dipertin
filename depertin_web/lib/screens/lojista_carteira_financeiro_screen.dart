@@ -8,7 +8,6 @@ import 'package:depertin_web/services/carteira_lojista_extrato.dart';
 import 'package:depertin_web/theme/painel_admin_theme.dart';
 import 'package:depertin_web/utils/lojista_painel_context.dart';
 import 'package:depertin_web/utils/pdf_download.dart';
-import 'package:depertin_web/widgets/botao_suporte_flutuante.dart';
 import 'package:firebase_auth/firebase_auth.dart';
 import 'package:flutter/foundation.dart' show kIsWeb;
 import 'package:flutter/material.dart';
@@ -459,7 +458,6 @@ class _LojistaCarteiraFinanceiroScreenState
       ),
       child: Scaffold(
         backgroundColor: CarteiraFinTokens.bg,
-        floatingActionButton: const BotaoSuporteFlutuante(),
         body: LayoutBuilder(
           builder: (context, constraints) {
             final wide = constraints.maxWidth >= 960;

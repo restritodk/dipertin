@@ -4,7 +4,6 @@ import 'package:depertin_web/theme/painel_admin_theme.dart';
 import 'package:depertin_web/utils/admin_perfil.dart';
 import 'package:depertin_web/utils/loja_pausa.dart';
 import 'package:depertin_web/utils/lojista_painel_context.dart';
-import 'package:depertin_web/widgets/botao_suporte_flutuante.dart';
 import 'package:depertin_web/widgets/loja_pausa_motivo_dialog.dart';
 import 'package:firebase_auth/firebase_auth.dart';
 import 'package:flutter/material.dart';
@@ -555,7 +554,6 @@ class _ConfiguracoesLojistaScreenState extends State<ConfiguracoesLojistaScreen>
 
     return Scaffold(
       backgroundColor: PainelAdminTheme.fundoCanvas,
-      floatingActionButton: const BotaoSuporteFlutuante(),
       body: LayoutBuilder(
         builder: (context, constraints) {
           final wide = constraints.maxWidth >= 900;

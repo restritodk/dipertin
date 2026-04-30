@@ -1,6 +1,6 @@
 import 'package:cloud_firestore/cloud_firestore.dart';
+import 'package:depertin_cliente/constants/conteudo_legal_padrao.dart';
 import 'package:depertin_web/theme/painel_admin_theme.dart';
-import 'package:depertin_web/widgets/botao_suporte_flutuante.dart';
 import 'package:flutter/material.dart';
 import 'package:intl/intl.dart';
 
@@ -18,93 +18,167 @@ class _ConteudoLegalScreenState extends State<ConteudoLegalScreen>
   static const _roxo = PainelAdminTheme.roxo;
   static const _laranja = PainelAdminTheme.laranja;
 
-  final _termosTituloC = TextEditingController();
-  final _termosConteudoC = TextEditingController();
+  final _usoTituloC = TextEditingController();
+  final _usoConteudoC = TextEditingController();
+  final _compraTituloC = TextEditingController();
+  final _compraConteudoC = TextEditingController();
   final _privacidadeTituloC = TextEditingController();
   final _privacidadeConteudoC = TextEditingController();
 
-  bool _salvandoTermos = false;
+  bool _salvandoUso = false;
+  bool _salvandoCompra = false;
   bool _salvandoPrivacidade = false;
   bool _carregado = false;
 
-  String _termosUltimaAtualizacao = '';
+  String _usoUltimaAtualizacao = '';
+  String _compraUltimaAtualizacao = '';
   String _privacidadeUltimaAtualizacao = '';
 
   @override
   void initState() {
     super.initState();
-    _tabController = TabController(length: 2, vsync: this);
+    _tabController = TabController(length: 3, vsync: this);
     _carregarConteudo();
   }
 
   @override
   void dispose() {
     _tabController.dispose();
-    _termosTituloC.dispose();
-    _termosConteudoC.dispose();
+    _usoTituloC.dispose();
+    _usoConteudoC.dispose();
+    _compraTituloC.dispose();
+    _compraConteudoC.dispose();
     _privacidadeTituloC.dispose();
     _privacidadeConteudoC.dispose();
     super.dispose();
   }
 
+  static String _tituloOuPadrao(Map<String, dynamic>? d, String padrao) {
+    final v = d?['titulo'];
+    if (v is String && v.trim().isNotEmpty) return v.trim();
+    return padrao;
+  }
+
+  static String _conteudoOuPadrao(Map<String, dynamic>? d, String padraoConteudo) {
+    final v = d?['conteudo'];
+    if (v is String && v.trim().isNotEmpty) return v;
+    return padraoConteudo;
+  }
+
+  static String? _formatTs(Map<String, dynamic>? d) {
+    final ts = d?['data_atualizacao'];
+    if (ts is Timestamp) {
+      return DateFormat('dd/MM/yyyy HH:mm').format(ts.toDate());
+    }
+    return null;
+  }
+
+  void _aplicarPadraoLocalCompleto() {
+    _usoTituloC.text = ConteudoLegalPadrao.tituloUsoPadrao;
+    _usoConteudoC.text = ConteudoLegalPadrao.textoFirestoreUso();
+    _compraTituloC.text = ConteudoLegalPadrao.tituloCompraPadrao;
+    _compraConteudoC.text = ConteudoLegalPadrao.textoFirestoreCompra();
+    _privacidadeTituloC.text = ConteudoLegalPadrao.tituloPrivacidadePadrao;
+    _privacidadeConteudoC.text =
+        ConteudoLegalPadrao.textoFirestorePrivacidade();
+    _usoUltimaAtualizacao = '';
+    _compraUltimaAtualizacao = '';
+    _privacidadeUltimaAtualizacao = '';
+  }
+
   Future<void> _carregarConteudo() async {
     try {
       final col = FirebaseFirestore.instance.collection('conteudo_legal');
-      final termos = await col.doc('termos').get();
+      final uso = await col.doc('termos').get();
+      final compra = await col.doc('compra').get();
       final privacidade = await col.doc('privacidade').get();
 
-      if (termos.exists) {
-        final d = termos.data()!;
-        _termosTituloC.text = d['titulo'] ?? 'Termos de Uso';
-        _termosConteudoC.text = d['conteudo'] ?? '';
-        final ts = d['data_atualizacao'] as Timestamp?;
-        if (ts != null) {
-          _termosUltimaAtualizacao =
-              DateFormat('dd/MM/yyyy HH:mm').format(ts.toDate());
-        }
-      } else {
-        _termosTituloC.text = 'Termos de Uso';
-      }
+      final usoD = uso.data();
+      _usoTituloC.text =
+          _tituloOuPadrao(usoD, ConteudoLegalPadrao.tituloUsoPadrao);
+      _usoConteudoC.text = _conteudoOuPadrao(
+        usoD,
+        ConteudoLegalPadrao.textoFirestoreUso(),
+      );
+      _usoUltimaAtualizacao = _formatTs(usoD) ?? '';
 
-      if (privacidade.exists) {
-        final d = privacidade.data()!;
-        _privacidadeTituloC.text = d['titulo'] ?? 'Política de Privacidade';
-        _privacidadeConteudoC.text = d['conteudo'] ?? '';
-        final ts = d['data_atualizacao'] as Timestamp?;
-        if (ts != null) {
-          _privacidadeUltimaAtualizacao =
-              DateFormat('dd/MM/yyyy HH:mm').format(ts.toDate());
-        }
-      } else {
-        _privacidadeTituloC.text = 'Política de Privacidade';
-      }
+      final compraD = compra.data();
+      _compraTituloC.text =
+          _tituloOuPadrao(compraD, ConteudoLegalPadrao.tituloCompraPadrao);
+      _compraConteudoC.text = _conteudoOuPadrao(
+        compraD,
+        ConteudoLegalPadrao.textoFirestoreCompra(),
+      );
+      _compraUltimaAtualizacao = _formatTs(compraD) ?? '';
+
+      final privD = privacidade.data();
+      _privacidadeTituloC.text = _tituloOuPadrao(
+        privD,
+        ConteudoLegalPadrao.tituloPrivacidadePadrao,
+      );
+      _privacidadeConteudoC.text = _conteudoOuPadrao(
+        privD,
+        ConteudoLegalPadrao.textoFirestorePrivacidade(),
+      );
+      _privacidadeUltimaAtualizacao = _formatTs(privD) ?? '';
 
       if (mounted) setState(() => _carregado = true);
     } catch (e) {
-      if (mounted) setState(() => _carregado = true);
+      _aplicarPadraoLocalCompleto();
+      if (mounted) {
+        setState(() => _carregado = true);
+        _snack(
+          'Não foi possível ler o Firestore ($e). Exibindo texto padrão do app — '
+          'salve para publicar.',
+          erro: true,
+        );
+      }
     }
   }
 
-  Future<void> _salvarTermos() async {
-    setState(() => _salvandoTermos = true);
+  Future<void> _salvarUso() async {
+    setState(() => _salvandoUso = true);
     try {
       await FirebaseFirestore.instance
           .collection('conteudo_legal')
           .doc('termos')
           .set({
-        'titulo': _termosTituloC.text.trim(),
-        'conteudo': _termosConteudoC.text.trim(),
+        'titulo': _usoTituloC.text.trim(),
+        'conteudo': _usoConteudoC.text.trim(),
         'data_atualizacao': FieldValue.serverTimestamp(),
       });
       final now = DateFormat('dd/MM/yyyy HH:mm').format(DateTime.now());
       if (mounted) {
-        setState(() => _termosUltimaAtualizacao = now);
-        _snack('Termos de Uso salvos com sucesso!');
+        setState(() => _usoUltimaAtualizacao = now);
+        _snack('Política de uso salva com sucesso!');
       }
     } catch (e) {
       if (mounted) _snack('Erro ao salvar: $e', erro: true);
     } finally {
-      if (mounted) setState(() => _salvandoTermos = false);
+      if (mounted) setState(() => _salvandoUso = false);
+    }
+  }
+
+  Future<void> _salvarCompra() async {
+    setState(() => _salvandoCompra = true);
+    try {
+      await FirebaseFirestore.instance
+          .collection('conteudo_legal')
+          .doc('compra')
+          .set({
+        'titulo': _compraTituloC.text.trim(),
+        'conteudo': _compraConteudoC.text.trim(),
+        'data_atualizacao': FieldValue.serverTimestamp(),
+      });
+      final now = DateFormat('dd/MM/yyyy HH:mm').format(DateTime.now());
+      if (mounted) {
+        setState(() => _compraUltimaAtualizacao = now);
+        _snack('Política de compra salva com sucesso!');
+      }
+    } catch (e) {
+      if (mounted) _snack('Erro ao salvar: $e', erro: true);
+    } finally {
+      if (mounted) setState(() => _salvandoCompra = false);
     }
   }
 
@@ -122,7 +196,7 @@ class _ConteudoLegalScreenState extends State<ConteudoLegalScreen>
       final now = DateFormat('dd/MM/yyyy HH:mm').format(DateTime.now());
       if (mounted) {
         setState(() => _privacidadeUltimaAtualizacao = now);
-        _snack('Política de Privacidade salva com sucesso!');
+        _snack('Política de privacidade salva com sucesso!');
       }
     } catch (e) {
       if (mounted) _snack('Erro ao salvar: $e', erro: true);
@@ -139,6 +213,10 @@ class _ConteudoLegalScreenState extends State<ConteudoLegalScreen>
       behavior: SnackBarBehavior.floating,
     ));
   }
+
+  static const _hintSecoes =
+      'Opcional: inicie linhas com ## e um espaço para título de capítulo '
+      '(ex.: ## I — Objeto). O app exibirá cada bloco como uma seção.';
 
   @override
   Widget build(BuildContext context) {
@@ -166,7 +244,10 @@ class _ConteudoLegalScreenState extends State<ConteudoLegalScreen>
                       ),
                       SizedBox(height: 6),
                       Text(
-                        'Edite os Termos de Uso e a Política de Privacidade exibidos no app.',
+                        'Os três documentos abaixo são os mesmos do app (Política e privacidade). '
+                        'Se o Firestore ainda não tiver texto, carregamos automaticamente a versão '
+                        'igual à do aplicativo; salve cada aba para publicar. Depois disso, o app '
+                        'atualiza em tempo real quando você salvar aqui.',
                         style: TextStyle(
                             color: PainelAdminTheme.textoSecundario,
                             fontSize: 15),
@@ -189,13 +270,17 @@ class _ConteudoLegalScreenState extends State<ConteudoLegalScreen>
                       fontWeight: FontWeight.w600, fontSize: 13),
                   tabs: const [
                     Tab(
-                        icon: Icon(Icons.description_outlined),
+                        icon: Icon(Icons.gavel_outlined),
                         height: 72,
-                        text: 'Termos de Uso'),
+                        text: 'Política de uso'),
+                    Tab(
+                        icon: Icon(Icons.shopping_bag_outlined),
+                        height: 72,
+                        text: 'Política de compra'),
                     Tab(
                         icon: Icon(Icons.privacy_tip_outlined),
                         height: 72,
-                        text: 'Política de Privacidade'),
+                        text: 'Política de privacidade'),
                   ],
                 ),
                 Divider(height: 1, color: Colors.grey.shade200),
@@ -209,17 +294,24 @@ class _ConteudoLegalScreenState extends State<ConteudoLegalScreen>
                     controller: _tabController,
                     children: [
                       _buildEditor(
-                        tituloC: _termosTituloC,
-                        conteudoC: _termosConteudoC,
-                        ultimaAtualizacao: _termosUltimaAtualizacao,
-                        onSalvar: _salvarTermos,
-                        salvando: _salvandoTermos,
+                        tituloC: _usoTituloC,
+                        conteudoC: _usoConteudoC,
+                        ultimaAtualizacao: _usoUltimaAtualizacao,
+                        onSalvar: _salvarUso,
+                        salvando: _salvandoUso,
                         placeholder:
-                            'Digite aqui o texto completo dos Termos de Uso...\n\n'
-                            '1. Aceitação dos Termos\n\n'
-                            '2. Uso da Plataforma\n\n'
-                            '3. Responsabilidades\n\n'
-                            '4. Disposições Gerais',
+                            '$_hintSecoes\n\n'
+                            'Texto integral da Política de uso…',
+                      ),
+                      _buildEditor(
+                        tituloC: _compraTituloC,
+                        conteudoC: _compraConteudoC,
+                        ultimaAtualizacao: _compraUltimaAtualizacao,
+                        onSalvar: _salvarCompra,
+                        salvando: _salvandoCompra,
+                        placeholder:
+                            '$_hintSecoes\n\n'
+                            'Texto integral da Política de compra…',
                       ),
                       _buildEditor(
                         tituloC: _privacidadeTituloC,
@@ -228,18 +320,14 @@ class _ConteudoLegalScreenState extends State<ConteudoLegalScreen>
                         onSalvar: _salvarPrivacidade,
                         salvando: _salvandoPrivacidade,
                         placeholder:
-                            'Digite aqui o texto completo da Política de Privacidade...\n\n'
-                            '1. Dados Coletados\n\n'
-                            '2. Uso dos Dados\n\n'
-                            '3. Compartilhamento\n\n'
-                            '4. Seus Direitos',
+                            '$_hintSecoes\n\n'
+                            'Texto integral da Política de privacidade…',
                       ),
                     ],
                   ),
           ),
         ],
       ),
-      floatingActionButton: const BotaoSuporteFlutuante(),
     );
   }
 
@@ -305,6 +393,7 @@ class _ConteudoLegalScreenState extends State<ConteudoLegalScreen>
               TextField(
                 controller: conteudoC,
                 maxLines: 30,
+                onChanged: (_) => setState(() {}),
                 decoration: dec.copyWith(
                   labelText: 'Conteúdo',
                   hintText: placeholder,

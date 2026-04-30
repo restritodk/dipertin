@@ -18,11 +18,20 @@ class PolicyScrollPage extends StatelessWidget {
     required this.title,
     required this.sections,
     this.rodape,
+    this.ultimaAtualizacao,
+    this.actions,
   });
 
   final String title;
   final List<PolicySection> sections;
   final String? rodape;
+
+  /// Data formatada (ex.: Firestore). Se nula, usa o texto estático de backup.
+  final String? ultimaAtualizacao;
+
+  final List<Widget>? actions;
+
+  static const String _ultimaAtualizacaoFallback = 'abril de 2026';
 
   @override
   Widget build(BuildContext context) {
@@ -42,6 +51,7 @@ class PolicyScrollPage extends StatelessWidget {
         elevation: 0,
         surfaceTintColor: Colors.transparent,
         iconTheme: const IconThemeData(color: Colors.white),
+        actions: actions,
       ),
       body: SingleChildScrollView(
         padding: const EdgeInsets.fromLTRB(20, 20, 20, 36),
@@ -84,7 +94,9 @@ class PolicyScrollPage extends StatelessWidget {
               ),
               const SizedBox(height: 6),
               Text(
-                'Última atualização: abril de 2026',
+                ultimaAtualizacao != null && ultimaAtualizacao!.trim().isNotEmpty
+                    ? 'Última atualização: ${ultimaAtualizacao!.trim()}'
+                    : 'Última atualização: $_ultimaAtualizacaoFallback',
                 style: TextStyle(
                   fontSize: 12,
                   color: Colors.grey.shade600,

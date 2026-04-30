@@ -67,6 +67,24 @@ function haversineKm(lat1, lon1, lat2, lon2) {
     return R * 2 * Math.atan2(Math.sqrt(a), Math.sqrt(1 - a));
 }
 
+/**
+ * GPS opcional ao validar código de entrega (monitor/investigação). Não envia FCM.
+ * @returns {null|{lat:number,lng:number,precisao_m:null|number}}
+ */
+function coordsConclusaoEntregaOpcionais(data) {
+    if (!data || typeof data !== "object") return null;
+    const lat = data.latitude != null ? Number(data.latitude) : NaN;
+    const lng = data.longitude != null ? Number(data.longitude) : NaN;
+    if (!Number.isFinite(lat) || !Number.isFinite(lng)) return null;
+    if (lat < -90 || lat > 90 || lng < -180 || lng > 180) return null;
+    let precisao_m = null;
+    if (data.precisao_m != null) {
+        const p = Number(data.precisao_m);
+        if (Number.isFinite(p) && p >= 0 && p < 50000) precisao_m = p;
+    }
+    return { lat, lng, precisao_m };
+}
+
 async function obterCoordenadasLoja(db, pedido) {
     const lojaId = lojaIdStr(pedido);
     if (!lojaId) {
@@ -1566,12 +1584,21 @@ exports.entregadorValidarCodigoEntrega = functions.https.onCall(async (data, con
         if (!tokenValido) return;
 
         if (status !== "entregue") {
-            t.update(ref, {
+            const patch = {
                 status: "entregue",
                 data_entregue: admin.firestore.FieldValue.serverTimestamp(),
                 entrega_token_validado_em: admin.firestore.FieldValue.serverTimestamp(),
                 entrega_confirmada_por_uid: uid,
-            });
+            };
+            const geo = coordsConclusaoEntregaOpcionais(data);
+            if (geo) {
+                patch.entrega_conclusao_latitude = geo.lat;
+                patch.entrega_conclusao_longitude = geo.lng;
+                if (geo.precisao_m != null) {
+                    patch.entrega_conclusao_precisao_m = geo.precisao_m;
+                }
+            }
+            t.update(ref, patch);
         }
     });
 

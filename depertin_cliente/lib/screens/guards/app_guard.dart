@@ -11,6 +11,7 @@ import '../../services/conta_bloqueio_entregador_service.dart';
 import '../../services/conta_bloqueio_lojista_service.dart';
 import '../../services/location_service.dart';
 import '../../services/sessao_timeout_service.dart';
+import '../../services/sessao_erro_interceptor.dart';
 import '../../widgets/entregador_conta_bloqueada_overlay.dart';
 import '../../widgets/lojista_conta_bloqueada_overlay.dart';
 import 'no_internet_screen.dart';
@@ -43,13 +44,14 @@ class _AppGuardState extends State<AppGuard> with WidgetsBindingObserver {
       _encerrandoSessao = false;
       _validarSessaoAuthRemota();
       _validarSessaoExpiradaLocal();
-      // Valida a cada 30s: faz `user.reload()` (conta removida/bloqueada
-      // pelo servidor) e verifica expiração local (sessão > 24h).
+      // Valida a cada 15s (antes era 30s): faz `user.reload()` (conta removida/bloqueada
+      // pelo servidor), verifica expiração local (sessão > 24h), e testa Firestore proativamente.
       _sessaoTimer = Timer.periodic(
-        const Duration(seconds: 30),
+        const Duration(seconds: 15),
         (_) {
           _validarSessaoAuthRemota();
           _validarSessaoExpiradaLocal();
+          _testarAcessoFirestoreProativamente();
         },
       );
     });
@@ -105,6 +107,34 @@ class _AppGuardState extends State<AppGuard> with WidgetsBindingObserver {
     final expirada = await SessaoTimeoutService.sessaoExpirada();
     if (!expirada || !mounted) return;
     await _encerrarSessaoPorExpiracaoLocal();
+  }
+
+  /// Testa proativamente o acesso ao Firestore para detectar sessão expirada
+  /// (permission-denied) ANTES que o usuário tente fazer uma operação
+  /// e veja a tela branca de erro.
+  Future<void> _testarAcessoFirestoreProativamente() async {
+    if (!mounted || _encerrandoSessao) return;
+    final user = FirebaseAuth.instance.currentUser;
+    if (user == null) return;
+
+    try {
+      // Tenta ler o documento do usuário — operação rápida e segura
+      await FirebaseFirestore.instance
+          .collection('users')
+          .doc(user.uid)
+          .get(const GetOptions(source: Source.cache))
+          .timeout(
+            const Duration(seconds: 5),
+            onTimeout: () => throw TimeoutException('Firestore test timeout'),
+          );
+    } on FirebaseException catch (e) {
+      if (e.code.toLowerCase() == 'permission-denied' && mounted) {
+        // Sessão expirou! Processa com o modal elegante
+        await SessaoErroInterceptor.processarErroSessaoExpirada(context);
+      }
+    } catch (_) {
+      // Ignora outros erros (timeout, sem internet, etc)
+    }
   }
 
   Future<void> _encerrarSessaoPorExpiracaoLocal() async {

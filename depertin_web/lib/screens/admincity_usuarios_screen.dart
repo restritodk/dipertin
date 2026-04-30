@@ -1,7 +1,6 @@
 import 'package:cloud_firestore/cloud_firestore.dart';
 import 'package:depertin_web/navigation/painel_navigation_scope.dart';
 import 'package:depertin_web/services/firebase_functions_config.dart';
-import 'package:depertin_web/widgets/botao_suporte_flutuante.dart';
 import 'package:depertin_web/widgets/cidade_atendida_picker.dart';
 import 'package:flutter/material.dart';
 import 'package:google_fonts/google_fonts.dart';
@@ -59,7 +58,6 @@ class _AdminCityUsuariosScreenState extends State<AdminCityUsuariosScreen> {
           ),
         ],
       ),
-      floatingActionButton: const BotaoSuporteFlutuante(),
     );
   }
 

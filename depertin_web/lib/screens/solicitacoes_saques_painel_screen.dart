@@ -9,8 +9,6 @@ import 'package:intl/intl.dart';
 
 import '../theme/painel_admin_theme.dart';
 import '../utils/admin_perfil.dart';
-import '../widgets/botao_suporte_flutuante.dart';
-
 class _MotivoRecusaEscolhido {
   const _MotivoRecusaEscolhido({
     required this.codigo,
@@ -1726,7 +1724,6 @@ class _SolicitacoesSaquesPainelScreenState
 
     return Scaffold(
       backgroundColor: PainelAdminTheme.fundoCanvas,
-      floatingActionButton: const BotaoSuporteFlutuante(),
       body: StreamBuilder<QuerySnapshot<Map<String, dynamic>>>(
         stream: FirebaseFirestore.instance
             .collection('saques_solicitacoes')

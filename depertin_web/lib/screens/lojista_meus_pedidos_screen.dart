@@ -3,7 +3,6 @@ import 'package:depertin_web/constants/tipos_entrega.dart';
 import 'package:depertin_web/services/firebase_functions_config.dart';
 import 'package:depertin_web/theme/painel_admin_theme.dart';
 import 'package:depertin_web/utils/lojista_painel_context.dart';
-import 'package:depertin_web/widgets/botao_suporte_flutuante.dart';
 import 'package:depertin_web/widgets/escolher_tipo_entrega_dialog.dart';
 import 'package:firebase_auth/firebase_auth.dart';
 import 'package:flutter/material.dart';
@@ -173,7 +172,6 @@ class _LojistaMeusPedidosScreenState extends State<LojistaMeusPedidosScreen> {
       builder: (context, authUid, uidLoja, dadosUsuario) {
         return Scaffold(
       backgroundColor: PainelAdminTheme.fundoCanvas,
-      floatingActionButton: const BotaoSuporteFlutuante(),
       body: Column(
         crossAxisAlignment: CrossAxisAlignment.stretch,
         children: [

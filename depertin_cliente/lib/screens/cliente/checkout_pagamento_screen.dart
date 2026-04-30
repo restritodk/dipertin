@@ -5,6 +5,7 @@ import 'dart:convert';
 
 import 'package:cloud_functions/cloud_functions.dart';
 import 'package:depertin_cliente/services/firebase_functions_config.dart';
+import 'package:depertin_cliente/services/wallet_reserva_service.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:flutter_multi_formatter/flutter_multi_formatter.dart';
@@ -283,8 +284,12 @@ class _CheckoutPagamentoScreenState extends State<CheckoutPagamentoScreen> {
             opacity: anim,
             child: _PagamentoAprovadoDialog(
               valorTotal: widget.valorTotal,
-              onContinuar: () {
+              onContinuar: () async {
                 Navigator.of(ctx).pop();
+                
+                // ===== CONFIRMA RESERVA DE SALDO =====
+                await _confirmarReservaDeSaldo();
+                
                 widget.onPagamentoAprovado();
               },
             ),
@@ -292,6 +297,87 @@ class _CheckoutPagamentoScreenState extends State<CheckoutPagamentoScreen> {
         );
       },
     );
+  }
+
+  /// Confirma a reserva de saldo após aprovação de pagamento
+  Future<void> _confirmarReservaDeSaldo() async {
+    try {
+      if (!_temPedidoFirestore) return;
+
+      final userId = FirebaseAuth.instance.currentUser?.uid;
+      if (userId == null) return;
+
+      // Lê o pedido para obter o reservaId
+      final docSnapshot = await FirebaseFirestore.instance
+          .collection('pedidos')
+          .doc(widget.pedidoFirestoreId)
+          .get();
+
+      if (!docSnapshot.exists) return;
+
+      final reservaId = docSnapshot.data()?['reserva_id_saldo'] as String?;
+      if (reservaId == null || reservaId.isEmpty) {
+        // Sem reserva, nada a confirmar
+        return;
+      }
+
+      // Confirma o débito da carteira
+      await WalletReservaService.confirmarDebito(
+        userId: userId,
+        reservaId: reservaId,
+      );
+
+      if (mounted) {
+        print('[CheckoutPagamento] Débito de saldo confirmado: $reservaId');
+      }
+    } catch (e) {
+      if (mounted) {
+        print('[CheckoutPagamento] Erro ao confirmar débito: $e');
+        // Não interrompe o fluxo, apenas loga
+      }
+    }
+  }
+
+  /// Cancela a reserva de saldo em caso de falha de pagamento
+  Future<void> _cancelarReservaDeSaldo({
+    String motivo = 'Pagamento não aprovado',
+  }) async {
+    try {
+      if (!_temPedidoFirestore) return;
+
+      final userId = FirebaseAuth.instance.currentUser?.uid;
+      if (userId == null) return;
+
+      // Lê o pedido para obter o reservaId
+      final docSnapshot = await FirebaseFirestore.instance
+          .collection('pedidos')
+          .doc(widget.pedidoFirestoreId)
+          .get();
+
+      if (!docSnapshot.exists) return;
+
+      final reservaId = docSnapshot.data()?['reserva_id_saldo'] as String?;
+      if (reservaId == null || reservaId.isEmpty) {
+        // Sem reserva, nada a cancelar
+        return;
+      }
+
+      // Cancela a reserva e restaura o saldo
+      await WalletReservaService.cancelarReserva(
+        userId: userId,
+        reservaId: reservaId,
+        motivo: motivo,
+      );
+
+      if (mounted) {
+        print('[CheckoutPagamento] Reserva de saldo cancelada: $reservaId');
+      }
+    } catch (e) {
+      if (mounted) {
+        print('[CheckoutPagamento] Erro ao cancelar reserva: $e');
+        // Não interrompe o fluxo, apenas loga
+      }
+    }
   }
 
   String _somenteDigitos(String valor) => valor.replaceAll(RegExp(r'\D'), '');
@@ -592,6 +678,7 @@ class _CheckoutPagamentoScreenState extends State<CheckoutPagamentoScreen> {
       if (resultado == 'aprovado') {
         _mostrarConfirmacaoPagamento();
       } else if (resultado == 'cancelado') {
+        await _cancelarReservaDeSaldo(motivo: 'Pagamento recusado');
         final msg = await _mensagemRecusaDoPedido(pedidoId);
         await _mostrarPopupPagamentoRecusado(msg);
         _irParaMeusPedidosTodos();
@@ -611,6 +698,7 @@ class _CheckoutPagamentoScreenState extends State<CheckoutPagamentoScreen> {
       }
     } on FirebaseFunctionsException catch (e) {
       if (mounted) Navigator.of(context, rootNavigator: true).pop();
+      await _cancelarReservaDeSaldo(motivo: 'Erro ao processar pagamento: ${e.code}');
       await _cancelarPedidoCartaoNaoConcluido(pedidoId);
       final msg = (e.message ?? '').trim().isNotEmpty
           ? e.message!.trim()
@@ -619,6 +707,7 @@ class _CheckoutPagamentoScreenState extends State<CheckoutPagamentoScreen> {
       _irParaMeusPedidosTodos();
     } catch (e) {
       if (mounted) Navigator.of(context, rootNavigator: true).pop();
+      await _cancelarReservaDeSaldo(motivo: 'Exceção ao processar: $e');
       await _cancelarPedidoCartaoNaoConcluido(pedidoId);
       final msg = await _mensagemRecusaDoPedido(pedidoId);
       await _mostrarPopupPagamentoRecusado(msg);

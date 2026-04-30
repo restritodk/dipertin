@@ -2,7 +2,6 @@ import 'dart:math' show min;
 
 import 'package:cloud_firestore/cloud_firestore.dart';
 import 'package:depertin_web/theme/painel_admin_theme.dart';
-import 'package:depertin_web/widgets/botao_suporte_flutuante.dart';
 import 'package:flutter/material.dart';
 import 'package:intl/intl.dart';
 
@@ -369,7 +368,6 @@ class _ComunicadosScreenState extends State<ComunicadosScreen> {
           Expanded(child: _buildLista()),
         ],
       ),
-      floatingActionButton: const BotaoSuporteFlutuante(),
     );
   }
 

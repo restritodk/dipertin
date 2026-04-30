@@ -10,8 +10,6 @@ import '../navigation/painel_navigation_scope.dart';
 import '../services/firebase_functions_config.dart';
 import '../theme/painel_admin_theme.dart';
 import '../utils/admin_perfil.dart';
-import '../widgets/botao_suporte_flutuante.dart';
-
 /// Filtro do extrato: entradas (lucro), saídas (despesa) ou ambos.
 enum _FiltroExtratoMovimento { todos, lucro, despesa }
 
@@ -246,6 +244,7 @@ class _FinanceiroScreenState extends State<FinanceiroScreen> {
                   'nome_pagador': donoC.text.trim(),
                   'tipo_receita': categoria,
                   'valor_total': valor,
+                  'livro_caixa_manual': true,
                   'data_registro': FieldValue.serverTimestamp(),
                 });
 
@@ -843,8 +842,8 @@ class _FinanceiroScreenState extends State<FinanceiroScreen> {
     final tsFim = (d['data_fim'] ?? d['data_vencimento']) as Timestamp?;
     int dias = 1;
     if (tsInicio != null && tsFim != null) {
-      dias = tsFim.toDate().difference(tsInicio.toDate()).inDays;
-      if (dias <= 0) dias = 1;
+      dias = tsFim.toDate().difference(tsInicio.toDate()).inDays + 1;
+      if (dias < 1) dias = 1;
     }
 
     final modalidade = (d['modalidade_valor'] ?? d['tipo_cobranca'] ?? 'diario').toString();
@@ -884,6 +883,8 @@ class _FinanceiroScreenState extends State<FinanceiroScreen> {
     double totalPremium = 0;
     double totalDestaques = 0;
     double totalVagas = 0;
+    /// Receitas manuais sem KPI dedicado (Assinaturas, Outros).
+    double totalReceitasDiversas = 0;
 
     final historico = <Map<String, dynamic>>[];
     double totalSaidas = 0;
@@ -907,7 +908,9 @@ class _FinanceiroScreenState extends State<FinanceiroScreen> {
       }
     } catch (_) {}
 
-    // Leitura única de receitas_app (usada para KPIs de comissões/taxas + extrato)
+    // Leitura única de receitas_app (KPIs + extrato): comissões, taxas e lançamentos
+    // manuais (destaque, premium, eventos, assinaturas, outros) somam nos KPIs
+    // ou em totalReceitasDiversas, todos incluídos em totalGeral.
     final receitasSnap = await FirebaseFirestore.instance
         .collection('receitas_app')
         .orderBy('data_registro', descending: true)
@@ -923,10 +926,24 @@ class _FinanceiroScreenState extends State<FinanceiroScreen> {
       if (valor <= 0) continue;
       final tipo = (d['tipo_receita'] ?? '') as String;
 
+      // Receitas geradas em Anúncios & Utilidades espelham o valor do anúncio;
+      // o KPI já usa servicos_destaque / telefones_premium / eventos / vagas.
+      final bool manualNoLivroCaixa = d['livro_caixa_manual'] == true;
+
       if (tipo == 'Comissões Lojas') {
         totalComissoes += valor;
       } else if (tipo == 'Taxas Entregadores') {
         totalTaxasEntrega += valor;
+      } else if (tipo == 'Destaques') {
+        if (manualNoLivroCaixa) totalDestaques += valor;
+      } else if (tipo == 'Premium') {
+        if (manualNoLivroCaixa) totalPremium += valor;
+      } else if (tipo == 'Eventos') {
+        if (manualNoLivroCaixa) totalEventos += valor;
+      } else if (tipo == 'Vagas') {
+        if (manualNoLivroCaixa) totalVagas += valor;
+      } else if (tipo == 'Assinaturas' || tipo == 'Outros') {
+        totalReceitasDiversas += valor;
       }
 
       historico.add({
@@ -1047,8 +1064,13 @@ class _FinanceiroScreenState extends State<FinanceiroScreen> {
       (a, b) => (b['data'] as DateTime).compareTo(a['data'] as DateTime),
     );
 
-    final totalGeral =
-        totalComissoes + totalTaxasEntrega + totalDestaques + totalPremium + totalEventos + totalVagas;
+    final totalGeral = totalComissoes +
+        totalTaxasEntrega +
+        totalDestaques +
+        totalPremium +
+        totalEventos +
+        totalVagas +
+        totalReceitasDiversas;
 
     return {
       'totalGeral': totalGeral,
@@ -1059,6 +1081,7 @@ class _FinanceiroScreenState extends State<FinanceiroScreen> {
       'totalPremium': totalPremium,
       'totalDestaques': totalDestaques,
       'totalVagas': totalVagas,
+      'totalReceitasDiversas': totalReceitasDiversas,
       'historico': historico,
     };
   }
@@ -1114,7 +1137,6 @@ class _FinanceiroScreenState extends State<FinanceiroScreen> {
   Widget build(BuildContext context) {
     return Scaffold(
       backgroundColor: PainelAdminTheme.fundoCanvas,
-      floatingActionButton: const BotaoSuporteFlutuante(),
       body: FutureBuilder<Map<String, dynamic>>(
         future: _futureFinanceiro,
         builder: (context, snapshot) {
@@ -1509,14 +1531,11 @@ class _FinanceiroScreenState extends State<FinanceiroScreen> {
 
   Widget _cardLiquido(double entradas, double saidas) {
     final liquido = entradas - saidas;
-    final positivo = liquido >= 0;
     return Container(
       padding: const EdgeInsets.fromLTRB(20, 18, 20, 18),
       decoration: BoxDecoration(
-        gradient: LinearGradient(
-          colors: positivo
-              ? [const Color(0xFF059669), const Color(0xFF047857)]
-              : [const Color(0xFFDC2626), const Color(0xFFB91C1C)],
+        gradient: const LinearGradient(
+          colors: [Color(0xFF059669), Color(0xFF047857)],
           begin: Alignment.topLeft,
           end: Alignment.bottomRight,
         ),
@@ -1530,15 +1549,13 @@ class _FinanceiroScreenState extends State<FinanceiroScreen> {
           Row(
             children: [
               Icon(
-                positivo
-                    ? Icons.trending_up_rounded
-                    : Icons.trending_down_rounded,
+                Icons.account_balance_wallet_rounded,
                 color: Colors.white.withValues(alpha: 0.85),
                 size: 16,
               ),
               const SizedBox(width: 6),
               Text(
-                'Resultado Líquido',
+                'Saldo líquido (período)',
                 style: GoogleFonts.plusJakartaSans(
                   color: Colors.white.withValues(alpha: 0.88),
                   fontSize: 12,
@@ -1550,7 +1567,7 @@ class _FinanceiroScreenState extends State<FinanceiroScreen> {
           ),
           const SizedBox(height: 2),
           Text(
-            'Faturamento − Despesas',
+            'Faturamento menos despesas — o que restou em caixa.',
             style: GoogleFonts.plusJakartaSans(
               color: Colors.white.withValues(alpha: 0.65),
               fontSize: 10.5,
@@ -1575,7 +1592,8 @@ class _FinanceiroScreenState extends State<FinanceiroScreen> {
   }
 
   Widget _gridKpis(Map<String, dynamic> dados, {required int crossAxisCount}) {
-    final itens = <_KpiItem>[
+    const accentDiversas = Color(0xFF7C3AED);
+    final itensPrincipais = <_KpiItem>[
       _KpiItem(
         'Comissões (lojas)',
         dados['totalComissoes'] as double,
@@ -1613,15 +1631,130 @@ class _FinanceiroScreenState extends State<FinanceiroScreen> {
         Icons.work_outline_rounded,
       ),
     ];
+    final itemDiversas = _KpiItem(
+      'Receitas manuais (complemento)',
+      (dados['totalReceitasDiversas'] as double?) ?? 0,
+      accentDiversas,
+      Icons.receipt_long_outlined,
+    );
 
-    return GridView.count(
-      shrinkWrap: true,
-      physics: const NeverScrollableScrollPhysics(),
-      crossAxisCount: crossAxisCount,
-      mainAxisSpacing: 12,
-      crossAxisSpacing: 12,
-      childAspectRatio: crossAxisCount >= 3 ? 2.15 : 1.85,
-      children: itens.map((e) => _kpiCard(e)).toList(),
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.stretch,
+      children: [
+        GridView.count(
+          shrinkWrap: true,
+          physics: const NeverScrollableScrollPhysics(),
+          crossAxisCount: crossAxisCount,
+          mainAxisSpacing: 12,
+          crossAxisSpacing: 12,
+          childAspectRatio: crossAxisCount >= 3 ? 2.15 : 1.85,
+          children: itensPrincipais.map((e) => _kpiCard(e)).toList(),
+        ),
+        const SizedBox(height: 14),
+        _kpiFaixaReceitasManuais(itemDiversas),
+      ],
+    );
+  }
+
+  /// Bloco único full-width: evita o 7º card órfão na última linha da grade.
+  Widget _kpiFaixaReceitasManuais(_KpiItem e) {
+    final borda = e.accent.withValues(alpha: 0.22);
+    return LayoutBuilder(
+      builder: (context, c) {
+        final narrow = c.maxWidth < 520;
+        final chip = Container(
+          padding: const EdgeInsets.all(10),
+          decoration: BoxDecoration(
+            color: e.accent.withValues(alpha: 0.12),
+            borderRadius: BorderRadius.circular(12),
+          ),
+          child: Icon(e.icon, color: e.accent, size: 22),
+        );
+        final titulo = Text(
+          'Receitas manuais',
+          style: GoogleFonts.plusJakartaSans(
+            fontSize: 13,
+            fontWeight: FontWeight.w800,
+            color: PainelAdminTheme.dashboardInk,
+            letterSpacing: -0.2,
+          ),
+        );
+        final legenda = Text(
+          'Assinaturas e Outros em Nova receita. Soma ao faturamento do período.',
+          style: GoogleFonts.plusJakartaSans(
+            fontSize: 11,
+            fontWeight: FontWeight.w500,
+            color: PainelAdminTheme.textoSecundario,
+            height: 1.3,
+          ),
+        );
+        final valor = Text(
+          _brl.format(e.valor),
+          style: GoogleFonts.plusJakartaSans(
+            fontSize: 17,
+            fontWeight: FontWeight.w800,
+            color: e.accent,
+            letterSpacing: -0.35,
+          ),
+        );
+
+        return Container(
+          padding: EdgeInsets.symmetric(
+            horizontal: narrow ? 14 : 18,
+            vertical: narrow ? 12 : 14,
+          ),
+          decoration: BoxDecoration(
+            color: const Color(0xFFF5F3FF),
+            borderRadius: BorderRadius.circular(14),
+            border: Border.all(color: borda),
+            boxShadow: PainelAdminTheme.sombraCardSuave(),
+          ),
+          child: narrow
+              ? Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    Row(
+                      crossAxisAlignment: CrossAxisAlignment.start,
+                      children: [
+                        chip,
+                        const SizedBox(width: 12),
+                        Expanded(
+                          child: Column(
+                            crossAxisAlignment: CrossAxisAlignment.start,
+                            children: [
+                              titulo,
+                              const SizedBox(height: 4),
+                              legenda,
+                            ],
+                          ),
+                        ),
+                      ],
+                    ),
+                    const SizedBox(height: 10),
+                    Align(alignment: Alignment.centerRight, child: valor),
+                  ],
+                )
+              : Row(
+                  crossAxisAlignment: CrossAxisAlignment.center,
+                  children: [
+                    chip,
+                    const SizedBox(width: 16),
+                    Expanded(
+                      child: Column(
+                        crossAxisAlignment: CrossAxisAlignment.start,
+                        children: [
+                          titulo,
+                          const SizedBox(height: 3),
+                          legenda,
+                        ],
+                      ),
+                    ),
+                    const SizedBox(width: 12),
+                    valor,
+                  ],
+                ),
+        );
+      },
     );
   }
 

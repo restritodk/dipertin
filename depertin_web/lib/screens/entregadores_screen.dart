@@ -14,7 +14,6 @@ import '../theme/painel_admin_theme.dart';
 import '../utils/admin_perfil.dart';
 import '../utils/conta_bloqueio_entregador.dart';
 import '../services/firebase_functions_config.dart';
-import '../widgets/botao_suporte_flutuante.dart';
 import '../widgets/entregador_editar_modal.dart';
 import '../widgets/pdf_preview_iframe.dart';
 
@@ -780,7 +779,6 @@ class _EntregadoresScreenState extends State<EntregadoresScreen>
           ),
         ],
       ),
-      floatingActionButton: const BotaoSuporteFlutuante(),
     );
   }
 

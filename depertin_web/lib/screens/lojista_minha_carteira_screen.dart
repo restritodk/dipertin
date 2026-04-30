@@ -8,7 +8,6 @@ import 'package:depertin_web/services/carteira_lojista_extrato.dart';
 import 'package:depertin_web/services/firebase_functions_config.dart';
 import 'package:depertin_web/theme/painel_admin_theme.dart';
 import 'package:depertin_web/utils/lojista_painel_context.dart';
-import 'package:depertin_web/widgets/botao_suporte_flutuante.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:google_fonts/google_fonts.dart';
@@ -1319,7 +1318,6 @@ class _LojistaMinhaCarteiraScreenState
 
     return Scaffold(
       backgroundColor: _cinzaFundo,
-      floatingActionButton: const BotaoSuporteFlutuante(),
       body: LayoutBuilder(
         builder: (context, c) {
           // ── dados usuário ──

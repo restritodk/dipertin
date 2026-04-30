@@ -12,8 +12,6 @@ import 'package:intl/intl.dart';
 import '../navigation/painel_navigation_scope.dart';
 import '../theme/painel_admin_theme.dart';
 import '../utils/admin_perfil.dart';
-import '../widgets/botao_suporte_flutuante.dart';
-
 class DashboardScreen extends StatefulWidget {
   const DashboardScreen({super.key});
 
@@ -158,12 +156,6 @@ class _DashboardScreenState extends State<DashboardScreen> {
       if (entP == null) erros.add('Entregadores pendentes');
       await _yieldEntreQueriesFirestoreWeb();
 
-      final total = await _aggregateCountSeguro(
-        () => db.collection('users').count().get(),
-      );
-      if (total == null) erros.add('Total de usuários');
-      await _yieldEntreQueriesFirestoreWeb();
-
       final cli = await _aggregateCountSeguro(
         () => db
             .collection('users')
@@ -197,10 +189,14 @@ class _DashboardScreenState extends State<DashboardScreen> {
       setState(() {
         _lojasPendentes = lojasP ?? 0;
         _entregadoresPendentes = entP ?? 0;
-        _kpiTotal = total ?? 0;
-        _kpiCliente = cli ?? 0;
-        _kpiLojista = loj ?? 0;
-        _kpiEntregador = ent ?? 0;
+        final nc = cli ?? 0;
+        final nl = loj ?? 0;
+        final ne = ent ?? 0;
+        _kpiCliente = nc;
+        _kpiLojista = nl;
+        _kpiEntregador = ne;
+        /// Total apenas marketplace: cliente + lojista + entregador (exclui master, master_city, etc.).
+        _kpiTotal = nc + nl + ne;
         _dashboardReady = true;
         if (erros.isEmpty) {
           _erroCarregamento = null;
@@ -1671,7 +1667,6 @@ class _DashboardScreenState extends State<DashboardScreen> {
           );
         },
       ),
-      floatingActionButton: const BotaoSuporteFlutuante(),
     );
   }
 

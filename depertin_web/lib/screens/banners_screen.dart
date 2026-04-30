@@ -9,8 +9,6 @@ import 'package:google_fonts/google_fonts.dart';
 
 import '../theme/painel_admin_theme.dart';
 import '../utils/admin_perfil.dart';
-import '../widgets/botao_suporte_flutuante.dart';
-
 class BannersScreen extends StatefulWidget {
   const BannersScreen({super.key});
 
@@ -118,6 +116,28 @@ class _BannersScreenState extends State<BannersScreen> {
                 final valorConvertido =
                     double.tryParse(valorC.text.replaceAll(',', '.')) ?? 0.0;
 
+                int diasBanner = dataFim.difference(dataInicio).inDays + 1;
+                if (diasBanner < 1) diasBanner = 1;
+                double valorTotalBanner = 0;
+                if (valorConvertido > 0) {
+                  switch (tipoCobranca) {
+                    case 'fixo':
+                      valorTotalBanner = valorConvertido;
+                      break;
+                    case 'mensal':
+                      final meses = (diasBanner / 30).ceil().clamp(1, 9999);
+                      valorTotalBanner = valorConvertido * meses;
+                      break;
+                    case 'hora':
+                      valorTotalBanner = valorConvertido * diasBanner * 24;
+                      break;
+                    case 'dia':
+                    default:
+                      valorTotalBanner = valorConvertido * diasBanner;
+                      break;
+                  }
+                }
+
                 final dadosSalvar = <String, dynamic>{
                   'url_imagem': urlDownload,
                   'link_destino': linkC.text.trim(),
@@ -126,6 +146,7 @@ class _BannersScreenState extends State<BannersScreen> {
                   'tipo_cobranca': tipoCobranca,
                   'data_inicio': Timestamp.fromDate(dataInicio),
                   'data_fim': Timestamp.fromDate(dataFim),
+                  'valor_total': valorTotalBanner,
                   'ativo': true,
                   'data_atualizacao': FieldValue.serverTimestamp(),
                 };
@@ -810,28 +831,20 @@ class _BannersScreenState extends State<BannersScreen> {
     return Scaffold(
       backgroundColor: PainelAdminTheme.fundoCanvas,
       floatingActionButton: wide
-          ? const BotaoSuporteFlutuante()
-          : Column(
-              mainAxisSize: MainAxisSize.min,
-              crossAxisAlignment: CrossAxisAlignment.end,
-              children: [
-                const BotaoSuporteFlutuante(),
-                const SizedBox(height: 14),
-                FloatingActionButton.extended(
-                  heroTag: 'btn_novo_banner',
-                  onPressed: () => _mostrarModalBanner(),
-                  backgroundColor: PainelAdminTheme.laranja,
-                  foregroundColor: Colors.white,
-                  icon: const Icon(Icons.add_photo_alternate_outlined, size: 22),
-                  label: Text(
-                    'Novo banner',
-                    style: GoogleFonts.plusJakartaSans(
-                      fontWeight: FontWeight.w800,
-                      fontSize: 14,
-                    ),
-                  ),
+          ? null
+          : FloatingActionButton.extended(
+              heroTag: 'btn_novo_banner',
+              onPressed: () => _mostrarModalBanner(),
+              backgroundColor: PainelAdminTheme.laranja,
+              foregroundColor: Colors.white,
+              icon: const Icon(Icons.add_photo_alternate_outlined, size: 22),
+              label: Text(
+                'Novo banner',
+                style: GoogleFonts.plusJakartaSans(
+                  fontWeight: FontWeight.w800,
+                  fontSize: 14,
                 ),
-              ],
+              ),
             ),
       body: Column(
         crossAxisAlignment: CrossAxisAlignment.stretch,

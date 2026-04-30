@@ -2017,17 +2017,48 @@ class _EntregadorDashboardScreenState extends State<EntregadorDashboardScreen>
     });
   }
 
+  Future<Map<String, dynamic>?> _coordenadasParaConfirmacaoEntrega() async {
+    try {
+      var perm = await Geolocator.checkPermission();
+      if (perm == LocationPermission.denied) {
+        perm = await Geolocator.requestPermission();
+        if (perm == LocationPermission.denied) return null;
+      }
+      if (perm == LocationPermission.deniedForever) return null;
+      final pos = await Geolocator.getCurrentPosition(
+        locationSettings: const LocationSettings(
+          accuracy: LocationAccuracy.high,
+        ),
+      ).timeout(const Duration(seconds: 12));
+      final map = <String, dynamic>{
+        'latitude': pos.latitude,
+        'longitude': pos.longitude,
+      };
+      if (pos.accuracy.isFinite && pos.accuracy > 0 && pos.accuracy < 50000) {
+        map['precisao_m'] = pos.accuracy;
+      }
+      return map;
+    } catch (_) {
+      return null;
+    }
+  }
+
   Future<Map<String, dynamic>> _validarCodigoEntregaBackend({
     required String pedidoId,
     required String codigo,
+    Map<String, dynamic>? coords,
   }) async {
     final callable = appFirebaseFunctions.httpsCallable(
       'entregadorValidarCodigoEntrega',
     );
-    final result = await callable.call<Map<String, dynamic>>(<String, dynamic>{
+    final payload = <String, dynamic>{
       'pedidoId': pedidoId,
       'codigo': codigo,
-    });
+    };
+    if (coords != null && coords.isNotEmpty) {
+      payload.addAll(coords);
+    }
+    final result = await callable.call<Map<String, dynamic>>(payload);
     return Map<String, dynamic>.from(result.data);
   }
 
@@ -2062,9 +2093,11 @@ class _EntregadorDashboardScreenState extends State<EntregadorDashboardScreen>
                   erro = null;
                 });
                 try {
+                  final coords = await _coordenadasParaConfirmacaoEntrega();
                   final resposta = await _validarCodigoEntregaBackend(
                     pedidoId: pedidoId,
                     codigo: codigo,
+                    coords: coords,
                   );
                   if (resposta['tokenValido'] != true) {
                     setDialogState(() {

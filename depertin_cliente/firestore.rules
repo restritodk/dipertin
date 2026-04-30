@@ -791,6 +791,12 @@ service cloud.firestore {
       allow write: if isStaff();
     }
 
+    // Políticas editadas no painel (Conteúdo legal) — leitura pública para o app e cadastro.
+    match /conteudo_legal/{docId} {
+      allow read: if true;
+      allow write: if isStaff();
+    }
+
     // Campanhas push enfileiradas pelo painel → trigger em Functions (Admin SDK ignora regras).
     match /notificacoes_campanhas/{id} {
       allow read, write: if isStaff();

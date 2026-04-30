@@ -1,6 +1,5 @@
 import 'package:cloud_firestore/cloud_firestore.dart';
 import 'package:depertin_web/theme/painel_admin_theme.dart';
-import 'package:depertin_web/widgets/botao_suporte_flutuante.dart';
 import 'package:flutter/material.dart';
 import 'package:intl/intl.dart';
 
@@ -209,7 +208,6 @@ class _NotificacoesScreenState extends State<NotificacoesScreen>
           ),
         ],
       ),
-      floatingActionButton: const BotaoSuporteFlutuante(),
     );
   }
 

@@ -13,7 +13,6 @@ import '../constants/lojista_motivo_recusa.dart';
 import '../theme/painel_admin_theme.dart';
 import '../utils/admin_perfil.dart';
 import '../utils/conta_bloqueio_lojista.dart';
-import '../widgets/botao_suporte_flutuante.dart';
 import '../widgets/pdf_preview_iframe.dart';
 
 class _StatusVisual {
@@ -278,7 +277,6 @@ class _LojasScreenState extends State<LojasScreen>
           ),
         ],
       ),
-      floatingActionButton: const BotaoSuporteFlutuante(),
     );
   }
 

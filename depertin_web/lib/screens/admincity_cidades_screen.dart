@@ -1,5 +1,4 @@
 import 'package:cloud_firestore/cloud_firestore.dart';
-import 'package:depertin_web/widgets/botao_suporte_flutuante.dart';
 import 'package:depertin_web/widgets/cidade_autocomplete_overlay.dart';
 import 'package:flutter/material.dart';
 import 'package:google_fonts/google_fonts.dart';
@@ -62,7 +61,6 @@ class _AdminCityCidadesScreenState extends State<AdminCityCidadesScreen> {
           ),
         ],
       ),
-      floatingActionButton: const BotaoSuporteFlutuante(),
     );
   }
 
