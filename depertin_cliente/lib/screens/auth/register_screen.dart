@@ -1,12 +1,18 @@
 // Arquivo: lib/screens/auth/register_screen.dart
 
-import 'package:flutter/material.dart';
+import 'dart:async';
+
+import 'package:cloud_functions/cloud_functions.dart';
+import 'package:cloud_firestore/cloud_firestore.dart';
 import 'package:firebase_auth/firebase_auth.dart';
 import 'package:firebase_messaging/firebase_messaging.dart';
-import 'package:cloud_firestore/cloud_firestore.dart';
+import 'package:flutter/material.dart';
+import 'package:flutter/services.dart';
 import 'package:flutter_multi_formatter/flutter_multi_formatter.dart';
 import 'package:provider/provider.dart';
+
 import '../../services/cidades_brasil_service.dart';
+import '../../services/firebase_functions_config.dart';
 import '../../services/location_service.dart';
 import '../../utils/cpf_perfil_usuario.dart';
 import 'login_screen.dart';
@@ -27,6 +33,7 @@ class _RegisterScreenState extends State<RegisterScreen> {
   final _nomeController = TextEditingController();
   final _cpfController = TextEditingController();
   final _telefoneController = TextEditingController();
+  final _codigoSmsController = TextEditingController();
   final _cidadeController = TextEditingController();
   final _emailController = TextEditingController();
   final _senhaController = TextEditingController();
@@ -40,6 +47,15 @@ class _RegisterScreenState extends State<RegisterScreen> {
   bool _senhaOculta = true;
   bool _confirmarSenhaOculta = true;
   bool _aceiteTermosPrivacidade = false;
+
+  bool _celularCompletoParaSms = false;
+  bool _smsCodigoEnviado = false;
+  bool _telefoneVerificadoSms = false;
+  String? _ticketVerificacaoSms;
+  bool _enviandoSms = false;
+  bool _validandoCodigoSms = false;
+  int _cooldownReenvioSms = 0;
+  Timer? _timerCooldownSms;
 
   InputDecoration _decorCampo(
     String label,
@@ -84,6 +100,179 @@ class _RegisterScreenState extends State<RegisterScreen> {
     }
   }
 
+  String _digitosTelefone(String texto) {
+    return texto.replaceAll(RegExp(r'\D'), '');
+  }
+
+  void _onTelefoneParaSmsChanged() {
+    final completo = _digitosTelefone(_telefoneController.text).length == 11;
+    if (completo == _celularCompletoParaSms) return;
+    setState(() {
+      _celularCompletoParaSms = completo;
+      if (!completo) {
+        _smsCodigoEnviado = false;
+        _telefoneVerificadoSms = false;
+        _ticketVerificacaoSms = null;
+        _codigoSmsController.clear();
+        _timerCooldownSms?.cancel();
+        _timerCooldownSms = null;
+        _cooldownReenvioSms = 0;
+      }
+    });
+  }
+
+  void _iniciarCooldownReenvioSms() {
+    _timerCooldownSms?.cancel();
+    setState(() => _cooldownReenvioSms = 45);
+    _timerCooldownSms = Timer.periodic(const Duration(seconds: 1), (t) {
+      if (!mounted) {
+        t.cancel();
+        return;
+      }
+      setState(() {
+        _cooldownReenvioSms--;
+        if (_cooldownReenvioSms <= 0) {
+          t.cancel();
+          _timerCooldownSms = null;
+        }
+      });
+    });
+  }
+
+  String _mensagemErroFunctions(Object e) {
+    if (e is FirebaseFunctionsException) {
+      if (e.message != null && e.message!.isNotEmpty) return e.message!;
+      switch (e.code) {
+        case 'resource-exhausted':
+          return 'Muitas tentativas de SMS. Aguarde alguns minutos.';
+        case 'invalid-argument':
+          return 'Dados inválidos. Verifique o código ou o número.';
+        case 'deadline-exceeded':
+          return 'Código ou verificação expirados. Envie um novo SMS.';
+        case 'internal':
+        case 'unavailable':
+          return 'Serviço temporariamente indisponível. Tente mais tarde.';
+        default:
+          return 'Não foi possível concluir. Tente novamente.';
+      }
+    }
+    return 'Erro inesperado. Tente novamente.';
+  }
+
+  Future<void> _enviarCodigoSms() async {
+    if (!_celularCompletoParaSms || _enviandoSms) return;
+    setState(() => _enviandoSms = true);
+    try {
+      final callable = appFirebaseFunctions.httpsCallable(
+        'comteleCadastroTelefoneEnviarCodigo',
+        options: HttpsCallableOptions(timeout: const Duration(seconds: 60)),
+      );
+      await callable.call({'telefone': _telefoneController.text.trim()});
+      if (!mounted) return;
+      setState(() {
+        _smsCodigoEnviado = true;
+        _telefoneVerificadoSms = false;
+        _ticketVerificacaoSms = null;
+        _codigoSmsController.clear();
+      });
+      _iniciarCooldownReenvioSms();
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(
+          content: Text('Código enviado por SMS. Confira suas mensagens.'),
+          backgroundColor: Color(0xFF2E7D32),
+          behavior: SnackBarBehavior.floating,
+        ),
+      );
+    } catch (e) {
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(
+            content: Text(_mensagemErroFunctions(e)),
+            backgroundColor: Colors.red,
+            behavior: SnackBarBehavior.floating,
+          ),
+        );
+      }
+    } finally {
+      if (mounted) setState(() => _enviandoSms = false);
+    }
+  }
+
+  Future<void> _validarCodigoSms() async {
+    final codigo = _digitosTelefone(_codigoSmsController.text);
+    if (codigo.length != 6) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(
+          content: Text('Digite o código de 6 dígitos enviado por SMS.'),
+          backgroundColor: Colors.red,
+          behavior: SnackBarBehavior.floating,
+        ),
+      );
+      return;
+    }
+    setState(() => _validandoCodigoSms = true);
+    try {
+      final callable = appFirebaseFunctions.httpsCallable(
+        'comteleCadastroTelefoneValidarCodigo',
+        options: HttpsCallableOptions(timeout: const Duration(seconds: 45)),
+      );
+      final res = await callable.call({
+        'telefone': _telefoneController.text.trim(),
+        'codigo': codigo,
+      });
+      final raw = res.data;
+      String? ticket;
+      if (raw is Map) {
+        ticket = raw['ticketId'] as String?;
+      }
+      if (!mounted) return;
+      if (ticket == null || ticket.isEmpty) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          const SnackBar(
+            content: Text('Não foi possível confirmar o código. Tente novamente.'),
+            backgroundColor: Colors.red,
+            behavior: SnackBarBehavior.floating,
+          ),
+        );
+        return;
+      }
+      setState(() {
+        _telefoneVerificadoSms = true;
+        _ticketVerificacaoSms = ticket;
+      });
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(
+          content: Text('Celular confirmado. Você já pode concluir o cadastro.'),
+          backgroundColor: Color(0xFF2E7D32),
+          behavior: SnackBarBehavior.floating,
+        ),
+      );
+    } catch (e) {
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(
+            content: Text(_mensagemErroFunctions(e)),
+            backgroundColor: Colors.red,
+            behavior: SnackBarBehavior.floating,
+          ),
+        );
+      }
+    } finally {
+      if (mounted) setState(() => _validandoCodigoSms = false);
+    }
+  }
+
+  Future<void> _reverterCadastro(UserCredential uc) async {
+    final u = uc.user;
+    if (u == null) return;
+    try {
+      await FirebaseFirestore.instance.collection('users').doc(u.uid).delete();
+    } catch (_) {}
+    try {
+      await u.delete();
+    } catch (_) {}
+  }
+
   void _onCidadeChanged() {
     if (_nomeCidadeSelecionada == null) return;
     if (LocationService.normalizar(_cidadeController.text) !=
@@ -100,6 +289,7 @@ class _RegisterScreenState extends State<RegisterScreen> {
     super.initState();
     CidadesBrasilService.precarregar();
     _cidadeController.addListener(_onCidadeChanged);
+    _telefoneController.addListener(_onTelefoneParaSmsChanged);
   }
 
   Future<void> _fazerCadastro() async {
@@ -184,6 +374,21 @@ class _RegisterScreenState extends State<RegisterScreen> {
       return;
     }
 
+    if (!_telefoneVerificadoSms ||
+        _ticketVerificacaoSms == null ||
+        _ticketVerificacaoSms!.isEmpty) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(
+          content: Text(
+            'Confirme seu celular com o código SMS antes de cadastrar.',
+          ),
+          backgroundColor: Colors.red,
+          behavior: SnackBarBehavior.floating,
+        ),
+      );
+      return;
+    }
+
     setState(() => _isLoading = true);
 
     final loc = context.read<LocationService>();
@@ -246,6 +451,41 @@ class _RegisterScreenState extends State<RegisterScreen> {
         }
       } catch (_) {}
 
+      try {
+        final confirmar = appFirebaseFunctions.httpsCallable(
+          'cadastroConfirmarTelefoneVerificadoSms',
+          options: HttpsCallableOptions(timeout: const Duration(seconds: 30)),
+        );
+        await confirmar.call({
+          'ticketId': _ticketVerificacaoSms!,
+          'telefone': _telefoneController.text.trim(),
+        });
+      } on FirebaseFunctionsException catch (e) {
+        await _reverterCadastro(userCredential);
+        if (mounted) {
+          ScaffoldMessenger.of(context).showSnackBar(
+            SnackBar(
+              content: Text(_mensagemErroFunctions(e)),
+              backgroundColor: Colors.red,
+              behavior: SnackBarBehavior.floating,
+            ),
+          );
+        }
+        return;
+      } catch (e) {
+        await _reverterCadastro(userCredential);
+        if (mounted) {
+          ScaffoldMessenger.of(context).showSnackBar(
+            SnackBar(
+              content: Text(_mensagemErroFunctions(e)),
+              backgroundColor: Colors.red,
+              behavior: SnackBarBehavior.floating,
+            ),
+          );
+        }
+        return;
+      }
+
       if (mounted) {
         ScaffoldMessenger.of(context).showSnackBar(
           const SnackBar(
@@ -288,12 +528,178 @@ class _RegisterScreenState extends State<RegisterScreen> {
     }
   }
 
+  Widget _painelVerificacaoSms() {
+    return Container(
+      key: ValueKey<bool>(_telefoneVerificadoSms),
+      padding: const EdgeInsets.all(14),
+      decoration: BoxDecoration(
+        color: Colors.white,
+        borderRadius: BorderRadius.circular(12),
+        border: Border.all(color: const Color(0xFFE0DEE8)),
+        boxShadow: [
+          BoxShadow(
+            color: _diPertinRoxo.withValues(alpha: 0.06),
+            blurRadius: 12,
+            offset: const Offset(0, 4),
+          ),
+        ],
+      ),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.stretch,
+        children: [
+          Row(
+            children: [
+              Icon(
+                _telefoneVerificadoSms
+                    ? Icons.verified_rounded
+                    : Icons.sms_outlined,
+                color: _telefoneVerificadoSms ? Colors.green.shade700 : _diPertinRoxo,
+                size: 22,
+              ),
+              const SizedBox(width: 8),
+              Expanded(
+                child: Text(
+                  _telefoneVerificadoSms
+                      ? 'Celular confirmado por SMS'
+                      : 'Confirme seu celular',
+                  style: TextStyle(
+                    fontWeight: FontWeight.w800,
+                    fontSize: 15,
+                    color: Colors.grey.shade900,
+                  ),
+                ),
+              ),
+            ],
+          ),
+          const SizedBox(height: 8),
+          Text(
+            _telefoneVerificadoSms
+                ? 'Este número foi validado e será associado à sua conta.'
+                : _smsCodigoEnviado
+                    ? 'Digite abaixo o código de 6 dígitos que você recebeu.'
+                    : 'Toque em enviar para receber um código de 6 dígitos por SMS neste número.',
+            style: TextStyle(
+              fontSize: 13,
+              height: 1.35,
+              color: Colors.grey.shade700,
+            ),
+          ),
+          if (!_telefoneVerificadoSms) ...[
+            const SizedBox(height: 12),
+            FilledButton.icon(
+              onPressed: (_isLoading || _enviandoSms || !_celularCompletoParaSms)
+                  ? null
+                  : (_smsCodigoEnviado ? null : _enviarCodigoSms),
+              icon: _enviandoSms
+                  ? const SizedBox(
+                      width: 18,
+                      height: 18,
+                      child: CircularProgressIndicator(strokeWidth: 2, color: Colors.white),
+                    )
+                  : const Icon(Icons.send_rounded, size: 20),
+              label: Text(
+                _smsCodigoEnviado ? 'Código enviado' : 'Enviar código por SMS',
+                style: const TextStyle(fontWeight: FontWeight.w700),
+              ),
+              style: FilledButton.styleFrom(
+                backgroundColor: _diPertinRoxo,
+                foregroundColor: Colors.white,
+                disabledBackgroundColor: _diPertinRoxo.withValues(alpha: 0.4),
+                minimumSize: const Size(double.infinity, 46),
+                shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
+              ),
+            ),
+            if (_smsCodigoEnviado) ...[
+              const SizedBox(height: 14),
+              TextField(
+                controller: _codigoSmsController,
+                keyboardType: TextInputType.number,
+                maxLength: 6,
+                textAlign: TextAlign.center,
+                style: const TextStyle(
+                  fontSize: 22,
+                  letterSpacing: 6,
+                  fontWeight: FontWeight.w800,
+                ),
+                inputFormatters: [FilteringTextInputFormatter.digitsOnly],
+                decoration: _decorCampo('Código SMS (6 dígitos)', Icons.pin_rounded)
+                    .copyWith(counterText: ''),
+                enabled: !_isLoading && !_validandoCodigoSms,
+              ),
+              const SizedBox(height: 12),
+              Row(
+                children: [
+                  Expanded(
+                    child: FilledButton(
+                      onPressed:
+                          (_isLoading || _validandoCodigoSms) ? null : _validarCodigoSms,
+                      style: FilledButton.styleFrom(
+                        backgroundColor: _diPertinLaranja,
+                        foregroundColor: Colors.white,
+                        minimumSize: const Size(double.infinity, 44),
+                        shape: RoundedRectangleBorder(
+                          borderRadius: BorderRadius.circular(12),
+                        ),
+                      ),
+                      child: _validandoCodigoSms
+                          ? const SizedBox(
+                              width: 20,
+                              height: 20,
+                              child: CircularProgressIndicator(
+                                strokeWidth: 2.5,
+                                color: Colors.white,
+                              ),
+                            )
+                          : const Text(
+                              'Validar código',
+                              style: TextStyle(fontWeight: FontWeight.w800),
+                            ),
+                    ),
+                  ),
+                  const SizedBox(width: 10),
+                  Expanded(
+                    child: OutlinedButton(
+                      onPressed: (_isLoading ||
+                              _enviandoSms ||
+                              _cooldownReenvioSms > 0 ||
+                              !_smsCodigoEnviado)
+                          ? null
+                          : _enviarCodigoSms,
+                      style: OutlinedButton.styleFrom(
+                        foregroundColor: _diPertinRoxo,
+                        side: BorderSide(color: _diPertinRoxo.withValues(alpha: 0.55)),
+                        minimumSize: const Size(double.infinity, 44),
+                        shape: RoundedRectangleBorder(
+                          borderRadius: BorderRadius.circular(12),
+                        ),
+                      ),
+                      child: Text(
+                        _cooldownReenvioSms > 0
+                            ? 'Reenviar (${_cooldownReenvioSms}s)'
+                            : 'Reenviar SMS',
+                        textAlign: TextAlign.center,
+                        style: const TextStyle(fontWeight: FontWeight.w700, fontSize: 13),
+                      ),
+                    ),
+                  ),
+                ],
+              ),
+            ],
+          ],
+        ],
+      ),
+    );
+  }
+
   @override
   void dispose() {
+    _timerCooldownSms?.cancel();
     _cidadeController.removeListener(_onCidadeChanged);
+    _telefoneController.removeListener(_onTelefoneParaSmsChanged);
     _nomeController.dispose();
     _cpfController.dispose();
     _telefoneController.dispose();
+    _codigoSmsController.dispose();
     _cidadeController.dispose();
     _emailController.dispose();
     _senhaController.dispose();
@@ -401,6 +807,13 @@ class _RegisterScreenState extends State<RegisterScreen> {
                 decoration: _decorCampo('Telefone (WhatsApp)', Icons.phone_outlined),
                 enabled: !_isLoading,
               ),
+              if (_celularCompletoParaSms) ...[
+                const SizedBox(height: 14),
+                AnimatedSwitcher(
+                  duration: const Duration(milliseconds: 220),
+                  child: _painelVerificacaoSms(),
+                ),
+              ],
               const SizedBox(height: 14),
               RawAutocomplete<CidadeSugestao>(
                 textEditingController: _cidadeController,

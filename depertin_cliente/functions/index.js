@@ -667,6 +667,15 @@ exports.recuperacaoSenhaVerificarOtp = recuperacaoSenha.recuperacaoSenhaVerifica
 exports.recuperacaoSenhaDefinirNovaSenha = recuperacaoSenha.recuperacaoSenhaDefinirNovaSenha;
 exports.recuperacaoSenhaPosAlteracao = recuperacaoSenha.recuperacaoSenhaPosAlteracao;
 
+// Cadastro — verificação de celular por SMS (Comtele). Ver env.comtele.example
+const comteleVerificacaoTelefone = require("./comtele_verificacao_telefone");
+exports.comteleCadastroTelefoneEnviarCodigo =
+    comteleVerificacaoTelefone.comteleCadastroTelefoneEnviarCodigo;
+exports.comteleCadastroTelefoneValidarCodigo =
+    comteleVerificacaoTelefone.comteleCadastroTelefoneValidarCodigo;
+exports.cadastroConfirmarTelefoneVerificadoSms =
+    comteleVerificacaoTelefone.cadastroConfirmarTelefoneVerificadoSms;
+
 // E-mail de boas-vindas (SMTP igual à recuperação)
 const boasVindas = require("./boas_vindas");
 exports.onUsuarioCriadoBoasVindas = boasVindas.onUsuarioCriadoBoasVindas;

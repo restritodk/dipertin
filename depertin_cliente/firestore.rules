@@ -838,6 +838,17 @@ service cloud.firestore {
       allow read, write: if false;
     }
 
+    // Verificação SMS Comtele no cadastro — apenas Cloud Functions (Admin SDK)
+    match /cadastro_telefone_verificado_tickets/{id} {
+      allow read, write: if false;
+    }
+    match /comtele_cadastro_rate_ip/{id} {
+      allow read, write: if false;
+    }
+    match /comtele_cadastro_rate_phone/{id} {
+      allow read, write: if false;
+    }
+
     // Cidades atendidas — CMS operado pelo master no painel AdminCity.
     // Leitura liberada a qualquer usuário autenticado (app precisa mostrar cidades suportadas);
     // escrita apenas para staff (master / master_city) via painel web.
@@ -851,7 +862,10 @@ service cloud.firestore {
       allow read, write: if isStaff()
         && !request.path.matches('databases/{database}/documents/password_reset_tokens/{docId}')
         && !request.path.matches('databases/{database}/documents/password_reset_rate_email/{docId}')
-        && !request.path.matches('databases/{database}/documents/password_reset_rate_ip/{docId}');
+        && !request.path.matches('databases/{database}/documents/password_reset_rate_ip/{docId}')
+        && !request.path.matches('databases/{database}/documents/cadastro_telefone_verificado_tickets/{docId}')
+        && !request.path.matches('databases/{database}/documents/comtele_cadastro_rate_ip/{docId}')
+        && !request.path.matches('databases/{database}/documents/comtele_cadastro_rate_phone/{docId}');
     }
   }
 }
