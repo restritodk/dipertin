@@ -16,6 +16,7 @@ import android.os.VibrationEffect
 import android.os.Vibrator
 import android.os.VibratorManager
 import android.provider.Settings
+import androidx.activity.result.contract.ActivityResultContracts
 import androidx.core.app.NotificationManagerCompat
 import androidx.core.view.WindowCompat
 import androidx.core.view.WindowInsetsCompat
@@ -105,6 +106,15 @@ class MainActivity : FlutterFragmentActivity() {
             }
         }
     }
+
+    /** SMS User Consent: resultado do diálogo do sistema com o texto autorizado. */
+    private val cadastroSmsConsentLauncher =
+        registerForActivityResult(ActivityResultContracts.StartActivityForResult()) { result ->
+            DipertinCadastroSmsConsent.onConsentActivityResult(
+                result.resultCode,
+                result.data,
+            )
+        }
 
     override fun onResume() {
         super.onResume()
@@ -389,7 +399,12 @@ class MainActivity : FlutterFragmentActivity() {
                                 (call.arguments as? Map<*, *>)
                                     ?.get("regex") as? String
                                     ?: "\\d{6}"
-                            DipertinCadastroSmsConsent.start(this, ch, regex)
+                            DipertinCadastroSmsConsent.start(
+                                this,
+                                cadastroSmsConsentLauncher,
+                                ch,
+                                regex,
+                            )
                             result.success(true)
                         }
                         "stopListen" -> {
