@@ -2,6 +2,8 @@
 abstract class PedidoStatus {
   static const aguardandoPagamento = 'aguardando_pagamento';
   static const pendente = 'pendente';
+  /// Entrada da encomenda paga — produção antes do saldo e da logística (Fase 2).
+  static const encomendaEntradaPaga = 'encomenda_entrada_paga';
   static const aceito = 'aceito';
   static const emPreparo = 'em_preparo';
   static const aguardandoEntregador = 'aguardando_entregador';

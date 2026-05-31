@@ -64,6 +64,8 @@ class _LojistaMeusPedidosScreenState extends State<LojistaMeusPedidosScreen> {
     switch (s) {
       case 'pendente':
         return 'Pendente';
+      case 'encomenda_entrada_paga':
+        return 'Encomenda — entrada paga';
       case 'aguardando_pagamento':
         return 'Aguardando pagamento';
       case 'aceito':
@@ -93,6 +95,8 @@ class _LojistaMeusPedidosScreenState extends State<LojistaMeusPedidosScreen> {
       case 'pendente':
       case 'aguardando_pagamento':
         return const Color(0xFFB45309);
+      case 'encomenda_entrada_paga':
+        return const Color(0xFFB7791F);
       case 'entregue':
         return const Color(0xFF15803D);
       case 'cancelado':
@@ -393,6 +397,9 @@ class _LojistaMeusPedidosScreenState extends State<LojistaMeusPedidosScreen> {
                                                     _previewItens(itens),
                                                 corSt: corSt,
                                                 status: status,
+                                                tipoCompra:
+                                                    d['tipo_compra']
+                                                        ?.toString(),
                                               ),
                                             ),
                                             const SizedBox(width: 20),
@@ -427,6 +434,8 @@ class _LojistaMeusPedidosScreenState extends State<LojistaMeusPedidosScreen> {
                                                   _previewItens(itens),
                                               corSt: corSt,
                                               status: status,
+                                              tipoCompra:
+                                                  d['tipo_compra']?.toString(),
                                             ),
                                             const SizedBox(height: 14),
                                             _blocoDireita(
@@ -486,6 +495,7 @@ class _LojistaMeusPedidosScreenState extends State<LojistaMeusPedidosScreen> {
     required String previewItens,
     required Color corSt,
     required String status,
+    String? tipoCompra,
   }) {
     return Column(
       crossAxisAlignment: CrossAxisAlignment.start,
@@ -545,6 +555,24 @@ class _LojistaMeusPedidosScreenState extends State<LojistaMeusPedidosScreen> {
             color: Colors.grey.shade600,
           ),
         ),
+        if (tipoCompra == 'encomenda') ...[
+          const SizedBox(height: 8),
+          Container(
+            padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
+            decoration: BoxDecoration(
+              color: _roxo.withValues(alpha: 0.08),
+              borderRadius: BorderRadius.circular(6),
+            ),
+            child: Text(
+              'Encomenda',
+              style: TextStyle(
+                fontSize: 11,
+                fontWeight: FontWeight.w700,
+                color: _roxo,
+              ),
+            ),
+          ),
+        ],
         const SizedBox(height: 10),
         Row(
           children: [
@@ -663,6 +691,7 @@ const String _kStEntregadorIndoLoja = 'entregador_indo_loja';
 const String _kStSaiuEntrega = 'saiu_entrega';
 const String _kStACaminho = 'a_caminho';
 const String _kStEmRota = 'em_rota';
+const String _kStEncomendaEntradaPaga = 'encomenda_entrada_paga';
 
 /// Detalhe do pedido com ações iguais ao app do lojista.
 class _LojistaPedidoDetalheDialog extends StatefulWidget {
@@ -820,6 +849,25 @@ class _LojistaPedidoDetalheDialogState extends State<_LojistaPedidoDetalheDialog
     }
   }
 
+  Future<void> _acaoGerarSaldoEncomenda(String encomendaId) async {
+    await _run(() async {
+      try {
+        await callFirebaseFunctionSafe(
+          'encomendaLojaCriarPedidoSaldoFinal',
+          parameters: <String, dynamic>{'encomendaId': encomendaId},
+          timeout: const Duration(seconds: 90),
+        );
+        _snack(
+          'Cobrança do saldo criada. O cliente será avisado no app.',
+        );
+      } on CallableHttpException catch (e) {
+        _snack(_msgFn(e), ok: false);
+      } catch (e) {
+        _snack('Erro: $e', ok: false);
+      }
+    });
+  }
+
   Future<void> _acaoSolicitarEntregador() async {
     await _run(() async {
       final aceitos = await _tiposAceitosLojaAtual();
@@ -841,7 +889,7 @@ class _LojistaPedidoDetalheDialogState extends State<_LojistaPedidoDetalheDialog
         'lojistaSolicitarDespachoEntregador',
         parameters: <String, dynamic>{
           'pedidoId': widget.pedidoId,
-          'tipoEntregaSolicitado': ?tipo,
+          'tipoEntregaSolicitado': tipo,
         },
       );
       final rotulo = tipo == null ? '' : ' (${TiposEntrega.rotulo(tipo)})';
@@ -1219,6 +1267,42 @@ class _LojistaPedidoDetalheDialogState extends State<_LojistaPedidoDetalheDialog
       return const Padding(
         padding: EdgeInsets.symmetric(vertical: 16),
         child: Center(child: CircularProgressIndicator(color: _roxo)),
+      );
+    }
+
+    if (status == _kStEncomendaEntradaPaga) {
+      final encId = d['encomenda_id']?.toString().trim() ?? '';
+      return Column(
+        crossAxisAlignment: CrossAxisAlignment.stretch,
+        children: [
+          Container(
+            padding: const EdgeInsets.all(12),
+            decoration: BoxDecoration(
+              color: Colors.amber.shade50,
+              borderRadius: BorderRadius.circular(10),
+              border: Border.all(color: Colors.amber.shade400),
+            ),
+            child: Text(
+              'Encomenda: entrada paga. Produza o pedido e gere a cobrança do '
+              'saldo quando estiver pronto para liberar a logística.',
+              style: TextStyle(
+                fontSize: 13,
+                color: Colors.grey.shade900,
+                height: 1.35,
+              ),
+            ),
+          ),
+          const SizedBox(height: 12),
+          SizedBox(
+            width: double.infinity,
+            child: FilledButton(
+              style: FilledButton.styleFrom(backgroundColor: _roxo),
+              onPressed:
+                  encId.isEmpty ? null : () => _acaoGerarSaldoEncomenda(encId),
+              child: const Text('Gerar cobrança do saldo'),
+            ),
+          ),
+        ],
       );
     }
 

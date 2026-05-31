@@ -43,18 +43,19 @@ class TiposEntrega {
   };
 
   static const Map<String, String> tabelaFretePorTipo = <String, String>{
-    codBicicleta: 'padrao',
-    codMoto: 'padrao',
+    codBicicleta: 'bicicleta',
+    codMoto: 'moto',
     codCarro: 'carro',
     codCarroFrete: 'carro_frete',
   };
 
   static const Map<String, List<String>> cadeiaFallbackTabela =
       <String, List<String>>{
-    codCarroFrete: <String>['carro_frete', 'carro', 'padrao'],
-    codCarro: <String>['carro', 'padrao'],
-    codMoto: <String>['padrao'],
-    codBicicleta: <String>['padrao'],
+    codCarroFrete:
+        <String>['carro_frete', 'carro', 'moto', 'bicicleta', 'padrao'],
+    codCarro: <String>['carro', 'moto', 'bicicleta', 'padrao'],
+    codMoto: <String>['moto', 'padrao', 'bicicleta'],
+    codBicicleta: <String>['bicicleta', 'padrao', 'moto'],
   };
 
   static const Map<String, double> raioKmRecomendado = <String, double>{

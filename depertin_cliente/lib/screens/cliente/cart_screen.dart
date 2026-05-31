@@ -12,12 +12,17 @@ import 'dart:async';
 import 'dart:convert';
 import 'dart:math' show Random, max, min;
 import 'package:http/http.dart' as http;
+import 'package:cloud_functions/cloud_functions.dart';
 import '../../providers/cart_provider.dart';
 import '../../models/cart_item_model.dart';
 import '../../services/firebase_functions_config.dart';
 import '../../services/wallet_reserva_service.dart';
 import '../../utils/loja_pausa.dart';
+import '../../utils/loja_fachada_foto.dart';
 import '../../constants/tipos_entrega.dart';
+import '../../services/location_service.dart';
+import 'cliente_encomenda_detalhe_screen.dart';
+import 'selecionar_endereco_entrega_sheet.dart';
 
 const Color diPertinRoxo = Color(0xFF6A1B9A);
 const Color diPertinLaranja = Color(0xFFFF8F00);
@@ -32,6 +37,10 @@ class CartScreen extends StatefulWidget {
 class _CartScreenState extends State<CartScreen> {
   final TextEditingController _enderecoController = TextEditingController();
   final TextEditingController _cupomController = TextEditingController();
+
+  /// Endereço estruturado do sheet — só frete/geocoding do pedido.
+  /// Não altera [LocationService] (vitrine/busca = GPS do dispositivo).
+  Map<String, dynamic>? _enderecoEntregaMapa;
   String _formaPagamento = 'PIX';
   bool _processandoPedido = false;
   bool _retirarNaLoja = false;
@@ -55,6 +64,10 @@ class _CartScreenState extends State<CartScreen> {
   String _detalheTaxaEntrega = '';
   Timer? _debounceTaxa;
   String _ultimaLojaIdTaxa = '';
+
+  /// Evita que um recálculo antigo (endereço anterior) sobrescreva o frete atual.
+  int _freteRecalcGeracao = 0;
+
   /// Por loja (entrega) — usado no split multi-loja.
   Map<String, double> _taxaEntregaPorLoja = {};
 
@@ -69,7 +82,33 @@ class _CartScreenState extends State<CartScreen> {
   Map<String, List<String>> _tiposEntregaAceitosPorLoja = {};
   int _qtdPedidosUltimoCheckout = 1;
 
+  /// Frete por loja só para itens de encomenda (não entra no total da pronta-entrega).
+  Map<String, double> _taxaEntregaEncomendaPorLoja = {};
+  Map<String, _DetalheFreteLoja> _detalhesFreteEncomendaPorLoja = {};
+  bool _calculandoTaxaEncomenda = false;
+
   double get _taxaEntregaReal => _retirarNaLoja ? 0.0 : _taxaEntregaCalculada;
+
+  double _taxaEntregaEncomendaParaLoja(String lojaId) {
+    if (_retirarNaLoja) return 0.0;
+    final id = lojaId.trim();
+    if (id.isEmpty) return 0.0;
+    return _taxaEntregaEncomendaPorLoja[id] ?? _taxaBaseFallback;
+  }
+
+  Future<void> _abrirSelecaoEndereco() async {
+    final res = await mostrarSelecionarEnderecoEntregaSheet(context);
+    if (res == null || !mounted) return;
+    setState(() {
+      _enderecoController.text = res.textoEntrega;
+      _enderecoEntregaMapa = Map<String, dynamic>.from(res.mapa);
+      _calculandoTaxaEncomenda = true;
+      _calculandoTaxaEntrega = true;
+      _detalhesFreteEncomendaPorLoja = {};
+      _detalhesFretePorLoja = {};
+    });
+    _agendarRecalculoTaxa(atraso: const Duration(milliseconds: 120));
+  }
 
   static Map<String, List<CartItemModel>> _agruparItensCarrinhoPorLoja(
     List<CartItemModel> items,
@@ -116,23 +155,25 @@ class _CartScreenState extends State<CartScreen> {
           .doc(clienteId)
           .get();
       final data = snap.data() ?? const <String, dynamic>{};
-      final nome = (data['nome'] ??
-              data['nomeCompleto'] ??
-              data['nome_completo'] ??
-              data['displayName'] ??
-              '')
-          .toString()
-          .trim();
+      final nome =
+          (data['nome'] ??
+                  data['nomeCompleto'] ??
+                  data['nome_completo'] ??
+                  data['displayName'] ??
+                  '')
+              .toString()
+              .trim();
       final foto = (data['foto_perfil'] ?? data['foto'] ?? '')
           .toString()
           .trim();
-      final telefone = (data['telefone'] ??
-              data['whatsapp'] ??
-              data['celular'] ??
-              data['telefone_contato'] ??
-              '')
-          .toString()
-          .trim();
+      final telefone =
+          (data['telefone'] ??
+                  data['whatsapp'] ??
+                  data['celular'] ??
+                  data['telefone_contato'] ??
+                  '')
+              .toString()
+              .trim();
       return {'nome': nome, 'foto': foto, 'telefone': telefone};
     } catch (_) {
       return const {'nome': '', 'foto': '', 'telefone': ''};
@@ -149,23 +190,11 @@ class _CartScreenState extends State<CartScreen> {
     return '';
   }
 
-  /// Extrai a melhor imagem da loja disponível em `lojas_public` pra gravar
-  /// como `loja_foto` no pedido. Prioriza `foto_perfil` → `foto` → `foto_logo`
-  /// → `foto_capa` → `imagem`.
-  static String _melhorFotoLoja(Map<String, dynamic>? ld) {
-    if (ld == null) return '';
-    for (final k in const [
-      'foto_perfil',
-      'foto',
-      'foto_logo',
-      'foto_capa',
-      'imagem',
-    ]) {
-      final v = (ld[k] ?? '').toString().trim();
-      if (v.isNotEmpty) return v;
-    }
-    return '';
-  }
+  /// Extrai a imagem da loja em `lojas_public` para gravar como `loja_foto` no pedido.
+  /// Prioriza foto de **fachada** (config. operacional): `foto` → `foto_logo` → `imagem`
+  /// → legado `foto_perfil` → `foto_capa`.
+  static String _melhorFotoLoja(Map<String, dynamic>? ld) =>
+      urlFachadaLojaCliente(ld);
 
   static String _normalizarCidadeFrete(String valor) {
     var s = valor.trim().toLowerCase();
@@ -203,6 +232,58 @@ class _CartScreenState extends State<CartScreen> {
     return sb.toString();
   }
 
+  /// Chave de cidade igual ao painel (`tabela_fretes/{cidade}_{slug}`):
+  /// remove acentos e sufixo de UF (ex.: "Toledo — PR" → "toledo").
+  static String _chaveCidadeTabelaFrete(String valor) {
+    final bruto = valor.trim();
+    if (bruto.isEmpty) return '';
+    final nome = LocationService.nomeCidadeParaFiltroAnuncio(bruto);
+    return _normalizarCidadeFrete(nome.isNotEmpty ? nome : bruto);
+  }
+
+  /// Cidade da loja para buscar regras em `tabela_fretes`.
+  static String _cidadeLojaParaFrete(Map<String, dynamic> ld) {
+    for (final k in const [
+      'cidade_normalizada',
+      'cidade',
+      'endereco_cidade',
+    ]) {
+      final chave = _chaveCidadeTabelaFrete((ld[k] ?? '').toString());
+      if (chave.isNotEmpty) return chave;
+    }
+    return '';
+  }
+
+  /// Cidade usada para escolher a linha em `tabela_fretes` (zona de entrega).
+  static String _cidadeEntregaParaTabelaFrete(
+    String enderecoTexto,
+    Map<String, dynamic>? enderecoMap,
+  ) {
+    String cidadeDoTexto() {
+      final texto = enderecoTexto.trim();
+      if (texto.isEmpty) return '';
+      final partes = texto.split(',');
+      if (partes.length >= 2) {
+        final trecho = partes.last.trim();
+        final c = _chaveCidadeTabelaFrete(trecho);
+        if (c.isNotEmpty && c.length > 2) return c;
+      }
+      return '';
+    }
+
+    final doTexto = cidadeDoTexto();
+    if (enderecoMap == null || enderecoMap.isEmpty) return doTexto;
+
+    final doMapa = _chaveCidadeTabelaFrete(
+      (enderecoMap['cidade'] ?? '').toString(),
+    );
+    if (doMapa.isEmpty) return doTexto;
+    if (doTexto.isEmpty) return doMapa;
+    // Texto exibido no carrinho é a fonte mais recente após trocar endereço.
+    if (doMapa != doTexto) return doTexto;
+    return doMapa;
+  }
+
   Future<({double? lat, double? lng})> _resolverViaNominatim(
     String consulta,
   ) async {
@@ -235,11 +316,21 @@ class _CartScreenState extends State<CartScreen> {
   Future<({double? lat, double? lng})> _resolverCoordenadasEntrega({
     required String clienteId,
     required String enderecoTexto,
+    Map<String, dynamic>? enderecoMap,
   }) async {
     String cidade = '';
     String uf = '';
     double? latDoc;
     double? lngDoc;
+
+    final mapa = enderecoMap;
+    if (mapa != null && mapa.isNotEmpty) {
+      cidade = (mapa['cidade'] ?? '').toString().trim();
+      uf = (mapa['estado'] ?? mapa['uf'] ?? '').toString().trim();
+      latDoc = _coordToDouble(mapa['latitude']);
+      lngDoc = _coordToDouble(mapa['longitude']);
+    }
+
     try {
       final clienteSnap = await FirebaseFirestore.instance
           .collection('users')
@@ -249,17 +340,21 @@ class _CartScreenState extends State<CartScreen> {
       final endPadrao =
           dados['endereco_entrega_padrao'] as Map<String, dynamic>?;
 
-      latDoc =
+      latDoc ??=
           _coordToDouble(endPadrao?['latitude']) ??
           _coordToDouble(dados['latitude']);
-      lngDoc =
+      lngDoc ??=
           _coordToDouble(endPadrao?['longitude']) ??
           _coordToDouble(dados['longitude']);
 
-      cidade = (endPadrao?['cidade'] ?? dados['cidade'] ?? '')
-          .toString()
-          .trim();
-      uf = (endPadrao?['estado'] ?? dados['uf'] ?? '').toString().trim();
+      if (cidade.isEmpty) {
+        cidade = (endPadrao?['cidade'] ?? dados['cidade'] ?? '')
+            .toString()
+            .trim();
+      }
+      if (uf.isEmpty) {
+        uf = (endPadrao?['estado'] ?? dados['uf'] ?? '').toString().trim();
+      }
     } catch (e) {
       debugPrint('Coordenadas da entrega não resolvidas: $e');
     }
@@ -315,11 +410,11 @@ class _CartScreenState extends State<CartScreen> {
   /// mestre do projeto: usar o tipo de MAIOR hierarquia aceito pela loja
   /// (carro_frete > carro > moto > bicicleta).
   ///
-  /// Cadeia de fallback (ver [TiposEntrega.cadeiaFallbackTabela]):
-  /// - `carro_frete` → tenta `{cidade}_carro_frete` → `{cidade}_carro` → `{cidade}_padrao`
-  /// - `carro`       → tenta `{cidade}_carro` → `{cidade}_padrao`
-  /// - `moto`        → tenta `{cidade}_padrao`
-  /// - `bicicleta`   → tenta `{cidade}_padrao` (bike e moto compartilham tabela)
+  /// Cadeia de fallback se a linha primária não existir para a cidade.
+  /// - `carro_frete` → carro_frete → carro → moto → bicicleta → padrao
+  /// - `carro`       → carro → moto → bicicleta → padrao
+  /// - `moto`        → moto → padrao → bicicleta
+  /// - `bicicleta`   → bicicleta → padrao → moto (`padrao` agrupa legado combinado).
   ///
   /// `veiculoEfetivo` pode divergir de `veiculoAlvoCanonico` quando a
   /// tabela preferida não existe e caímos em um fallback — é o valor
@@ -329,8 +424,8 @@ class _CartScreenState extends State<CartScreen> {
     String cidadeLoja, {
     required String veiculoAlvoCanonico,
   }) async {
-    final cidadeOriginal = cidadeLoja.trim().toLowerCase();
-    final cidadeNormalizada = _normalizarCidadeFrete(cidadeLoja);
+    final cidadeChave = _chaveCidadeTabelaFrete(cidadeLoja);
+    if (cidadeChave.isEmpty) return null;
     final ref = FirebaseFirestore.instance.collection('tabela_fretes');
     final porId = <String, Map<String, dynamic>>{};
 
@@ -352,10 +447,16 @@ class _CartScreenState extends State<CartScreen> {
       }
     }
 
-    // Carrega todas as combinações por doc-id (compat com esquema atual).
-    // Inclui os 3 sufixos de tabela: `padrao`, `carro`, `carro_frete`.
-    const sufixosTabela = <String>['padrao', 'carro', 'carro_frete'];
-    for (final cidade in <String>{cidadeOriginal, cidadeNormalizada, 'todas'}) {
+    // Carrega combinações por doc-id `{cidade}_{slug}` para todos os níveis da
+    // cadeia (bicicleta, moto, legado combinado padrao, carro, carro_frete).
+    const sufixosTabela = <String>[
+      'bicicleta',
+      'moto',
+      'padrao',
+      'carro',
+      'carro_frete',
+    ];
+    for (final cidade in <String>{cidadeChave, 'todas'}) {
       for (final sufixo in sufixosTabela) {
         final id = '${cidade}_$sufixo';
         final d = await getDoc(id);
@@ -367,7 +468,7 @@ class _CartScreenState extends State<CartScreen> {
 
     // Fallback por query (documentos que têm campo `cidade` mas nome
     // diferente do convencional).
-    for (final cidade in <String>{cidadeOriginal, cidadeNormalizada, 'todas'}) {
+    for (final cidade in <String>{cidadeChave, 'todas'}) {
       final q = await getCidade(cidade);
       for (final doc in q.docs) {
         porId[doc.id] = doc.data();
@@ -376,22 +477,43 @@ class _CartScreenState extends State<CartScreen> {
 
     if (porId.isEmpty) return null;
 
-    // Classifica cada regra por tabela canônica: `padrao` | `carro` | `carro_frete`.
+    // Classifica cada documento pelo campo `tipo_tabela` quando existir; senão,
+    // pelo sufixo do id ou texto legado em `veiculo`.
     String tabelaDaRegra(String id, Map<String, dynamic> dados) {
+      final tc = (dados['tipo_tabela'] ?? '').toString().trim().toLowerCase();
+      if (tc == 'bicicleta' ||
+          tc == 'moto' ||
+          tc == 'padrao' ||
+          tc == 'carro' ||
+          tc == 'carro_frete') {
+        return tc;
+      }
+      if (id.endsWith('_carro_frete')) return 'carro_frete';
+      // `_carro` antes de outros sufixos que contenham «car».
+      if (id.endsWith('_carro')) return 'carro';
+      if (id.endsWith('_bicicleta')) return 'bicicleta';
+      if (id.endsWith('_moto')) return 'moto';
+      if (id.endsWith('_padrao')) return 'padrao';
+
       final campo = (dados['veiculo'] ?? '').toString().toLowerCase();
-      if (campo.contains('frete') || campo.contains('fiorino') ||
-          campo.contains('pick') || campo.contains('kombi') ||
-          campo.contains('utilit') || campo == 'carro_frete') {
+      if (campo.contains('frete') ||
+          campo.contains('fiorino') ||
+          campo.contains('pick') ||
+          campo.contains('kombi') ||
+          campo.contains('utilit') ||
+          campo == 'carro_frete') {
         return 'carro_frete';
       }
       if (campo.contains('carro')) return 'carro';
-      if (campo.contains('moto') || campo.contains('bike') ||
-          campo.contains('padr')) {
-        return 'padrao';
+      final legPadrao =
+          campo.contains('moto/bike') ||
+          campo.contains('moto / bike') ||
+          (campo.contains('padra') && campo.contains('moto'));
+      if (legPadrao) return 'padrao';
+      if (campo.contains('bicicl') || campo.contains('bike')) {
+        return 'bicicleta';
       }
-      // Heurística pelo id: {cidade}_carro_frete | {cidade}_carro | {cidade}_padrao
-      if (id.endsWith('_carro_frete')) return 'carro_frete';
-      if (id.endsWith('_carro')) return 'carro';
+      if (campo.contains('moto')) return 'moto';
       return 'padrao';
     }
 
@@ -399,35 +521,35 @@ class _CartScreenState extends State<CartScreen> {
       MapEntry<String, Map<String, dynamic>> a,
       MapEntry<String, Map<String, dynamic>> b,
     ) {
-      final ta = (a.value['data_atualizacao'] as Timestamp?)
-              ?.millisecondsSinceEpoch ??
+      final ta =
+          (a.value['data_atualizacao'] as Timestamp?)?.millisecondsSinceEpoch ??
           0;
-      final tb = (b.value['data_atualizacao'] as Timestamp?)
-              ?.millisecondsSinceEpoch ??
+      final tb =
+          (b.value['data_atualizacao'] as Timestamp?)?.millisecondsSinceEpoch ??
           0;
       return tb.compareTo(ta);
     }
 
     // Cadeia de preferência por tipo canônico (ver TiposEntrega.cadeiaFallbackTabela).
-    final cadeia = TiposEntrega.cadeiaFallbackTabela[veiculoAlvoCanonico] ??
+    final cadeia =
+        TiposEntrega.cadeiaFallbackTabela[veiculoAlvoCanonico] ??
         const <String>['padrao'];
 
     for (final tabelaPreferida in cadeia) {
-      final candidatas = porId.entries
-          .where((e) => tabelaDaRegra(e.key, e.value) == tabelaPreferida)
-          .toList()
-        ..sort(cmpAtualizacao);
+      final candidatas =
+          porId.entries
+              .where((e) => tabelaDaRegra(e.key, e.value) == tabelaPreferida)
+              .toList()
+            ..sort(cmpAtualizacao);
       if (candidatas.isNotEmpty) {
         // `veiculoEfetivo` mantém o código canônico do alvo se a tabela
         // bate; se caiu em fallback, sinaliza qual tabela foi usada.
-        final efetivo = tabelaPreferida == TiposEntrega.tabelaFretePorTipo[
-                veiculoAlvoCanonico]
+        final efetivo =
+            tabelaPreferida ==
+                TiposEntrega.tabelaFretePorTipo[veiculoAlvoCanonico]
             ? veiculoAlvoCanonico
             : tabelaPreferida;
-        return (
-          regra: candidatas.first.value,
-          veiculoEfetivo: efetivo,
-        );
+        return (regra: candidatas.first.value, veiculoEfetivo: efetivo);
       }
     }
 
@@ -443,6 +565,7 @@ class _CartScreenState extends State<CartScreen> {
     required String clienteId,
     required String lojaId,
     required String enderecoTexto,
+    Map<String, dynamic>? enderecoMap,
     required String veiculoAlvoCanonico,
     required List<String> tiposAceitosLoja,
   }) async {
@@ -453,10 +576,14 @@ class _CartScreenState extends State<CartScreen> {
         .doc(lojaId)
         .get();
     final ld = lojaDoc.data() ?? const <String, dynamic>{};
-    final cidadeLoja = (ld['cidade'] ?? '').toString().trim();
+    final cidadeLoja = _cidadeLojaParaFrete(ld);
+    final cidadeEntrega =
+        _cidadeEntregaParaTabelaFrete(enderecoTexto, enderecoMap);
+    final cidadeTabela =
+        cidadeEntrega.isNotEmpty ? cidadeEntrega : cidadeLoja;
     final lojaLat = _coordToDouble(ld['latitude']);
     final lojaLng = _coordToDouble(ld['longitude']);
-    if (cidadeLoja.isEmpty || lojaLat == null || lojaLng == null) {
+    if (cidadeTabela.isEmpty || lojaLat == null || lojaLng == null) {
       return _DetalheFreteLoja.fallback(
         lojaId: lojaId,
         taxa: _taxaBaseFallback,
@@ -467,16 +594,17 @@ class _CartScreenState extends State<CartScreen> {
     }
 
     final resultado = await _carregarRegraFrete(
-      cidadeLoja,
+      cidadeTabela,
       veiculoAlvoCanonico: veiculoAlvoCanonico,
     );
     if (resultado == null) {
       return _DetalheFreteLoja.fallback(
         lojaId: lojaId,
         taxa: _taxaBaseFallback,
-        motivo: 'Sem tabela de frete para $cidadeLoja '
+        motivo:
+            'Sem tabela de frete para $cidadeTabela '
             '(alvo: ${TiposEntrega.rotulo(veiculoAlvoCanonico)})',
-        cidade: cidadeLoja,
+        cidade: cidadeTabela,
         veiculoAlvo: veiculoAlvoCanonico,
         tiposAceitosLoja: tiposAceitosLoja,
       );
@@ -499,13 +627,14 @@ class _CartScreenState extends State<CartScreen> {
     final coordsEntrega = await _resolverCoordenadasEntrega(
       clienteId: clienteId,
       enderecoTexto: enderecoTexto,
+      enderecoMap: enderecoMap,
     );
     final entLat = coordsEntrega.lat;
     final entLng = coordsEntrega.lng;
     if (entLat == null || entLng == null) {
       return _DetalheFreteLoja(
         lojaId: lojaId,
-        cidade: cidadeLoja,
+        cidade: cidadeTabela,
         veiculoAlvo: veiculoAlvoCanonico,
         veiculoEfetivo: resultado.veiculoEfetivo,
         tiposAceitosLoja: tiposAceitosLoja,
@@ -526,7 +655,7 @@ class _CartScreenState extends State<CartScreen> {
     final taxa = base + (kmExtra * extraKm);
     return _DetalheFreteLoja(
       lojaId: lojaId,
-      cidade: cidadeLoja,
+      cidade: cidadeTabela,
       veiculoAlvo: veiculoAlvoCanonico,
       veiculoEfetivo: resultado.veiculoEfetivo,
       tiposAceitosLoja: tiposAceitosLoja,
@@ -568,115 +697,212 @@ class _CartScreenState extends State<CartScreen> {
       if (config.isNotEmpty) return config;
       debugPrint(
         '[tipos_entrega] lojas_public/$lojaId sem config — '
-        'snapshot ficará vazio e o backend resolverá pela fonte da verdade.',
+        'usando default legado para tabela de frete.',
       );
     } catch (e) {
       debugPrint('[tipos_entrega] erro lendo lojas_public/$lojaId: $e');
     }
-    return const <String>[];
+    final temGrande = itensDaLoja.any((i) => i.requerVeiculoGrande);
+    return TiposEntrega.defaultLegado(
+      temProdutoRequerVeiculoGrande: temGrande,
+    );
   }
 
   Future<void> _recalcularTaxaEntrega() async {
     if (!mounted) return;
+    final geracao = ++_freteRecalcGeracao;
+    bool aindaValido() => mounted && geracao == _freteRecalcGeracao;
+
     final cart = context.read<CartProvider>();
-    final grupos = _agruparItensCarrinhoPorLoja(cart.items);
+    final gruposPronta =
+        _agruparItensCarrinhoPorLoja(cart.itensProntaEntrega);
+    final gruposEncomenda =
+        _agruparItensCarrinhoPorLoja(cart.itensEncomenda);
 
     if (_retirarNaLoja) {
-      if (mounted) {
+      if (aindaValido()) {
         setState(() {
           _taxaEntregaCalculada = 0;
-          _taxaEntregaPorLoja = {for (final id in grupos.keys) id: 0.0};
+          _taxaEntregaPorLoja = {
+            for (final id in {...gruposPronta.keys, ...gruposEncomenda.keys})
+              id: 0.0,
+          };
+          _taxaEntregaEncomendaPorLoja = {
+            for (final id in gruposEncomenda.keys) id: 0.0,
+          };
+          _detalhesFreteEncomendaPorLoja = {};
           _detalhesFretePorLoja = {};
           _detalheTaxaEntrega = 'Retirada na loja';
           _calculandoTaxaEntrega = false;
+          _calculandoTaxaEncomenda = false;
         });
       }
       return;
     }
 
     final user = FirebaseAuth.instance.currentUser;
-    if (user == null || cart.items.isEmpty) return;
+    if (user == null) return;
 
     final endereco = _enderecoController.text.trim();
-    final lojaIds = grupos.keys.toList()..sort();
-    if (lojaIds.isEmpty || endereco.isEmpty) return;
+    final mapaEntrega = _enderecoEntregaMapa == null
+        ? null
+        : Map<String, dynamic>.from(_enderecoEntregaMapa!);
+    final temPronta = cart.itensProntaEntrega.isNotEmpty;
+    final temEncomenda = cart.itensEncomenda.isNotEmpty;
+    if (!temPronta && !temEncomenda) return;
+    if (endereco.isEmpty) return;
 
-    if (mounted) setState(() => _calculandoTaxaEntrega = true);
-
-    final taxas = <String, double>{};
-    final detalhes = <String, _DetalheFreteLoja>{};
-    final tiposPorLoja = <String, List<String>>{};
-    var soma = 0.0;
-    _DetalheFreteLoja? primeiroDetalhe;
-    var qtdFalhas = 0;
-
-    // Multi-loja: cada loja é resolvida ISOLADAMENTE. Se UMA falhar
-    // (timeout, geocoding, etc.), aplicamos fallback _taxaBaseFallback
-    // SÓ pra essa loja e continuamos calculando as demais.
-    for (final lojaId in lojaIds) {
-      final itens = grupos[lojaId] ?? const <CartItemModel>[];
-
-      // Lê os tipos de entrega aceitos pela loja (com fallback legado).
-      final tiposAceitos = await _lerTiposEntregaAceitos(
-        lojaId: lojaId,
-        itensDaLoja: itens,
-      );
-      tiposPorLoja[lojaId] = tiposAceitos;
-
-      // Regra mestre: usa o tipo de MAIOR hierarquia aceito pela loja.
-      // Se loja aceita [bike,moto,carro] → calcula como carro (mais caro).
-      // Se loja aceita só [carro_frete] → calcula como carro_frete.
-      final veiculoAlvoCanonico = TiposEntrega.maiorTipoDaLista(tiposAceitos) ??
-          TiposEntrega.codMoto;
-
-      try {
-        final det = await _resolverTaxaEntregaParaLoja(
-          clienteId: user.uid,
-          lojaId: lojaId,
-          enderecoTexto: endereco,
-          veiculoAlvoCanonico: veiculoAlvoCanonico,
-          tiposAceitosLoja: tiposAceitos,
-        );
-        taxas[lojaId] = det.taxa;
-        detalhes[lojaId] = det;
-        soma += det.taxa;
-        primeiroDetalhe ??= det;
-        if (det.fallback) qtdFalhas++;
-      } catch (e) {
-        qtdFalhas++;
-        taxas[lojaId] = _taxaBaseFallback;
-        final fallbackDet = _DetalheFreteLoja.fallback(
-          lojaId: lojaId,
-          taxa: _taxaBaseFallback,
-          motivo: 'Erro ao calcular frete — usando valor padrão',
-          veiculoAlvo: veiculoAlvoCanonico,
-          tiposAceitosLoja: tiposAceitos,
-        );
-        detalhes[lojaId] = fallbackDet;
-        soma += _taxaBaseFallback;
-        primeiroDetalhe ??= fallbackDet;
-        debugPrint(
-          'Erro ao calcular taxa para loja $lojaId (usando fallback R\$ $_taxaBaseFallback): $e',
-        );
-      }
+    if (aindaValido()) {
+      setState(() {
+        _calculandoTaxaEntrega = temPronta;
+        _calculandoTaxaEncomenda = temEncomenda;
+      });
     }
 
-    if (!mounted) return;
-    setState(() {
-      _taxaEntregaPorLoja = taxas;
-      _detalhesFretePorLoja = detalhes;
-      _tiposEntregaAceitosPorLoja = tiposPorLoja;
-      _taxaEntregaCalculada = _round2(soma);
-      if (lojaIds.length > 1) {
-        final sufixo = qtdFalhas > 0 ? ' (frete padrão em $qtdFalhas)' : '';
-        _detalheTaxaEntrega =
-            '${lojaIds.length} lojas — total frete R\$ ${_taxaEntregaCalculada.toStringAsFixed(2)}$sufixo';
-      } else {
-        _detalheTaxaEntrega = primeiroDetalhe?.resumoCurto() ??
-            (qtdFalhas > 0 ? 'Frete padrão (erro ao calcular)' : 'Frete calculado');
+    Future<({
+      Map<String, double> taxas,
+      Map<String, _DetalheFreteLoja> detalhes,
+    })> calcularGrupo(
+      Map<String, List<CartItemModel>> grupos,
+    ) async {
+      final taxas = <String, double>{};
+      final detalhes = <String, _DetalheFreteLoja>{};
+      final lojaIds = grupos.keys.toList()..sort();
+      for (final lojaId in lojaIds) {
+        final itens = grupos[lojaId] ?? const <CartItemModel>[];
+        final tiposAceitos = await _lerTiposEntregaAceitos(
+          lojaId: lojaId,
+          itensDaLoja: itens,
+        );
+        final veiculoAlvoCanonico =
+            TiposEntrega.maiorTipoDaLista(tiposAceitos) ?? TiposEntrega.codMoto;
+        try {
+          final det = await _resolverTaxaEntregaParaLoja(
+            clienteId: user.uid,
+            lojaId: lojaId,
+            enderecoTexto: endereco,
+            enderecoMap: mapaEntrega,
+            veiculoAlvoCanonico: veiculoAlvoCanonico,
+            tiposAceitosLoja: tiposAceitos,
+          );
+          if (!aindaValido()) return (taxas: taxas, detalhes: detalhes);
+          taxas[lojaId] = det.taxa;
+          detalhes[lojaId] = det;
+        } catch (e) {
+          if (!aindaValido()) return (taxas: taxas, detalhes: detalhes);
+          taxas[lojaId] = _taxaBaseFallback;
+          detalhes[lojaId] = _DetalheFreteLoja.fallback(
+            lojaId: lojaId,
+            taxa: _taxaBaseFallback,
+            motivo: 'Erro ao calcular frete',
+            veiculoAlvo: veiculoAlvoCanonico,
+            tiposAceitosLoja: tiposAceitos,
+          );
+          debugPrint(
+            'Erro frete loja $lojaId (fallback R\$ $_taxaBaseFallback): $e',
+          );
+        }
       }
-      _calculandoTaxaEntrega = false;
-    });
+      return (taxas: taxas, detalhes: detalhes);
+    }
+
+    if (temPronta) {
+      final lojaIds = gruposPronta.keys.toList()..sort();
+      final taxas = <String, double>{};
+      final detalhes = <String, _DetalheFreteLoja>{};
+      final tiposPorLoja = <String, List<String>>{};
+      var soma = 0.0;
+      _DetalheFreteLoja? primeiroDetalhe;
+      var qtdFalhas = 0;
+
+      for (final lojaId in lojaIds) {
+        final itens = gruposPronta[lojaId] ?? const <CartItemModel>[];
+        final tiposAceitos = await _lerTiposEntregaAceitos(
+          lojaId: lojaId,
+          itensDaLoja: itens,
+        );
+        tiposPorLoja[lojaId] = tiposAceitos;
+        final veiculoAlvoCanonico =
+            TiposEntrega.maiorTipoDaLista(tiposAceitos) ?? TiposEntrega.codMoto;
+
+        try {
+          final det = await _resolverTaxaEntregaParaLoja(
+            clienteId: user.uid,
+            lojaId: lojaId,
+            enderecoTexto: endereco,
+            enderecoMap: mapaEntrega,
+            veiculoAlvoCanonico: veiculoAlvoCanonico,
+            tiposAceitosLoja: tiposAceitos,
+          );
+          if (!aindaValido()) return;
+          taxas[lojaId] = det.taxa;
+          detalhes[lojaId] = det;
+          soma += det.taxa;
+          primeiroDetalhe ??= det;
+          if (det.fallback) qtdFalhas++;
+        } catch (e) {
+          if (!aindaValido()) return;
+          qtdFalhas++;
+          taxas[lojaId] = _taxaBaseFallback;
+          final fallbackDet = _DetalheFreteLoja.fallback(
+            lojaId: lojaId,
+            taxa: _taxaBaseFallback,
+            motivo: 'Erro ao calcular frete — usando valor padrão',
+            veiculoAlvo: veiculoAlvoCanonico,
+            tiposAceitosLoja: tiposAceitos,
+          );
+          detalhes[lojaId] = fallbackDet;
+          soma += _taxaBaseFallback;
+          primeiroDetalhe ??= fallbackDet;
+          debugPrint(
+            'Erro ao calcular taxa para loja $lojaId (usando fallback R\$ $_taxaBaseFallback): $e',
+          );
+        }
+      }
+
+      if (!aindaValido()) return;
+      setState(() {
+        _taxaEntregaPorLoja = taxas;
+        _detalhesFretePorLoja = detalhes;
+        _tiposEntregaAceitosPorLoja = tiposPorLoja;
+        _taxaEntregaCalculada = _round2(soma);
+        if (lojaIds.length > 1) {
+          final sufixo = qtdFalhas > 0 ? ' (frete padrão em $qtdFalhas)' : '';
+          _detalheTaxaEntrega =
+              '${lojaIds.length} lojas — total frete R\$ ${_taxaEntregaCalculada.toStringAsFixed(2)}$sufixo';
+        } else {
+          _detalheTaxaEntrega =
+              primeiroDetalhe?.resumoCurto() ??
+              (qtdFalhas > 0
+                  ? 'Frete padrão (erro ao calcular)'
+                  : 'Frete calculado');
+        }
+        _calculandoTaxaEntrega = false;
+      });
+    } else if (aindaValido()) {
+      setState(() {
+        _taxaEntregaCalculada = 0;
+        _taxaEntregaPorLoja = {};
+        _detalhesFretePorLoja = {};
+        _calculandoTaxaEntrega = false;
+      });
+    }
+
+    if (temEncomenda) {
+      final enc = await calcularGrupo(gruposEncomenda);
+      if (!aindaValido()) return;
+      setState(() {
+        _taxaEntregaEncomendaPorLoja = enc.taxas;
+        _detalhesFreteEncomendaPorLoja = enc.detalhes;
+        _calculandoTaxaEncomenda = false;
+      });
+    } else if (aindaValido()) {
+      setState(() {
+        _taxaEntregaEncomendaPorLoja = {};
+        _detalhesFreteEncomendaPorLoja = {};
+        _calculandoTaxaEncomenda = false;
+      });
+    }
   }
 
   @override
@@ -712,17 +938,11 @@ class _CartScreenState extends State<CartScreen> {
 
             if (dados.containsKey('endereco_entrega_padrao') &&
                 dados['endereco_entrega_padrao'] is Map) {
-              var end = dados['endereco_entrega_padrao'];
-              String rua = end['rua'] ?? '';
-              String num = end['numero'] ?? '';
-              String bairro = end['bairro'] ?? '';
-              String cidade = end['cidade'] ?? '';
-              String compl = end['complemento'] ?? '';
-
-              String enderecoMontado = "$rua, $num, $bairro, $cidade";
-              if (compl.isNotEmpty) enderecoMontado += " - $compl";
-
-              _enderecoController.text = enderecoMontado;
+              final end = Map<String, dynamic>.from(
+                dados['endereco_entrega_padrao'] as Map,
+              );
+              _enderecoEntregaMapa = end;
+              _enderecoController.text = formatarEnderecoEntregaMapa(end);
             } else if (dados['endereco'] != null &&
                 dados['endereco'].toString().isNotEmpty) {
               _enderecoController.text = dados['endereco'].toString();
@@ -751,18 +971,19 @@ class _CartScreenState extends State<CartScreen> {
       // cupom restrito a 1 loja se o carrinho tem itens de outras lojas
       // (cupom de loja específica não pode ser dividido entre lojas).
       // `loja_id` continua sendo enviado (compat retroativa) com a primeira.
-      final lojaIds = cart.items
-          .map((e) => e.lojaId.trim())
-          .where((id) => id.isNotEmpty)
-          .toSet()
-          .toList()
-        ..sort();
+      final lojaIds =
+          cart.itensProntaEntrega
+              .map((e) => e.lojaId.trim())
+              .where((id) => id.isNotEmpty)
+              .toSet()
+              .toList()
+            ..sort();
       final lojaIdPrincipal = lojaIds.isNotEmpty ? lojaIds.first : '';
       final result = await appFirebaseFunctions
           .httpsCallable('validarCupom')
           .call<Map<String, dynamic>>({
             'codigo': codigo,
-            'subtotal_produtos': cart.totalAmount,
+            'subtotal_produtos': cart.totalProntaEntrega,
             'loja_id': lojaIdPrincipal,
             'loja_ids': lojaIds,
           });
@@ -812,9 +1033,12 @@ class _CartScreenState extends State<CartScreen> {
     });
   }
 
-  Future<bool> _verificarLojaAberta(CartProvider cart) async {
-    if (cart.items.isEmpty) return true;
-    final lojas = cart.items.map((e) => e.lojaId.trim()).where((id) => id.isNotEmpty).toSet();
+  Future<bool> _verificarLojaAberta(List<CartItemModel> itens) async {
+    if (itens.isEmpty) return true;
+    final lojas = itens
+        .map((e) => e.lojaId.trim())
+        .where((id) => id.isNotEmpty)
+        .toSet();
     for (final lojaId in lojas) {
       try {
         // Fase 3G.2 — verifica se a loja está aberta via `lojas_public`.
@@ -848,6 +1072,381 @@ class _CartScreenState extends State<CartScreen> {
     return true;
   }
 
+  Future<void> _enviarSolicitacaoEncomenda(CartProvider cart) async {
+    final user = FirebaseAuth.instance.currentUser;
+    if (user == null) return;
+
+    final itensEncomenda = cart.itensEncomenda;
+    if (itensEncomenda.isEmpty) return;
+
+    if (!await _verificarLojaAberta(itensEncomenda)) return;
+
+    if (!_retirarNaLoja) {
+      await _recalcularTaxaEntrega();
+    }
+
+    if (!_retirarNaLoja && _enderecoController.text.trim().length < 8) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(
+          content: Text('Informe um endereço de entrega completo.'),
+          backgroundColor: Colors.red,
+        ),
+      );
+      return;
+    }
+
+    final mensagemCtrl = TextEditingController();
+    final confirmar =
+        await showDialog<bool>(
+          context: context,
+          barrierColor: Colors.black.withOpacity(0.45),
+          builder: (ctx) {
+            final media = MediaQuery.of(ctx);
+            final largura = media.size.width;
+            final compacto = largura < 380;
+            return Dialog(
+              insetPadding: EdgeInsets.symmetric(
+                horizontal: compacto ? 14 : 22,
+                vertical: 20,
+              ),
+              backgroundColor: Colors.transparent,
+              child: LayoutBuilder(
+                builder: (context, constraints) {
+                  final maxWidth = constraints.maxWidth > 520
+                      ? 520.0
+                      : constraints.maxWidth;
+                  return Center(
+                    child: ConstrainedBox(
+                      constraints: BoxConstraints(
+                        maxWidth: maxWidth,
+                        maxHeight: media.size.height * 0.88,
+                      ),
+                      child: Container(
+                        decoration: BoxDecoration(
+                          color: Colors.white,
+                          borderRadius: BorderRadius.circular(28),
+                          boxShadow: [
+                            BoxShadow(
+                              color: Colors.black.withOpacity(0.18),
+                              blurRadius: 30,
+                              offset: const Offset(0, 16),
+                            ),
+                          ],
+                        ),
+                        clipBehavior: Clip.antiAlias,
+                        child: SingleChildScrollView(
+                          padding: EdgeInsets.only(
+                            bottom: media.viewInsets.bottom,
+                          ),
+                          child: Column(
+                            mainAxisSize: MainAxisSize.min,
+                            crossAxisAlignment: CrossAxisAlignment.stretch,
+                            children: [
+                              Container(
+                                padding: EdgeInsets.fromLTRB(
+                                  compacto ? 18 : 22,
+                                  22,
+                                  compacto ? 18 : 22,
+                                  20,
+                                ),
+                                decoration: const BoxDecoration(
+                                  gradient: LinearGradient(
+                                    colors: [diPertinRoxo, Color(0xFF8E24AA)],
+                                    begin: Alignment.topLeft,
+                                    end: Alignment.bottomRight,
+                                  ),
+                                ),
+                                child: Row(
+                                  crossAxisAlignment: CrossAxisAlignment.start,
+                                  children: [
+                                    Container(
+                                      padding: const EdgeInsets.all(11),
+                                      decoration: BoxDecoration(
+                                        color: Colors.white.withOpacity(0.16),
+                                        borderRadius: BorderRadius.circular(18),
+                                      ),
+                                      child: const Icon(
+                                        Icons.inventory_2_outlined,
+                                        color: Colors.white,
+                                        size: 28,
+                                      ),
+                                    ),
+                                    const SizedBox(width: 12),
+                                    const Expanded(
+                                      child: Column(
+                                        crossAxisAlignment:
+                                            CrossAxisAlignment.start,
+                                        children: [
+                                          Text(
+                                            'Enviar encomenda',
+                                            style: TextStyle(
+                                              color: Colors.white,
+                                              fontSize: 22,
+                                              fontWeight: FontWeight.w900,
+                                              letterSpacing: -0.4,
+                                            ),
+                                          ),
+                                          SizedBox(height: 5),
+                                          Text(
+                                            'A loja receberá sua lista para negociar valores e prazo.',
+                                            style: TextStyle(
+                                              color: Colors.white70,
+                                              fontSize: 13,
+                                              height: 1.3,
+                                            ),
+                                          ),
+                                        ],
+                                      ),
+                                    ),
+                                  ],
+                                ),
+                              ),
+                              Padding(
+                                padding: EdgeInsets.all(compacto ? 16 : 20),
+                                child: Column(
+                                  crossAxisAlignment:
+                                      CrossAxisAlignment.stretch,
+                                  children: [
+                                    Container(
+                                      padding: const EdgeInsets.all(14),
+                                      decoration: BoxDecoration(
+                                        color: diPertinLaranja.withOpacity(
+                                          0.09,
+                                        ),
+                                        borderRadius: BorderRadius.circular(18),
+                                        border: Border.all(
+                                          color: diPertinLaranja.withOpacity(
+                                            0.22,
+                                          ),
+                                        ),
+                                      ),
+                                      child: Row(
+                                        crossAxisAlignment:
+                                            CrossAxisAlignment.start,
+                                        children: [
+                                          Icon(
+                                            _retirarNaLoja
+                                                ? Icons.storefront
+                                                : Icons.delivery_dining,
+                                            color: diPertinLaranja,
+                                            size: 24,
+                                          ),
+                                          const SizedBox(width: 10),
+                                          Expanded(
+                                            child: Text(
+                                              _retirarNaLoja
+                                                  ? 'Retirada no balcão. A loja verá os itens e sua mensagem.'
+                                                  : 'A cobrança do frete será realizada na etapa final do pedido. O valor de entrada corresponde exclusivamente ao produto.',
+                                              style: const TextStyle(
+                                                color: Color(0xFF2A2030),
+                                                fontWeight: FontWeight.w700,
+                                                height: 1.35,
+                                              ),
+                                            ),
+                                          ),
+                                        ],
+                                      ),
+                                    ),
+                                    const SizedBox(height: 16),
+                                    TextField(
+                                      controller: mensagemCtrl,
+                                      minLines: compacto ? 3 : 4,
+                                      maxLines: compacto ? 5 : 6,
+                                      textCapitalization:
+                                          TextCapitalization.sentences,
+                                      decoration: InputDecoration(
+                                        labelText:
+                                            'Mensagem para a loja (opcional)',
+                                        hintText:
+                                            'Ex.: preciso para sábado, pode confirmar as cores e medidas?',
+                                        alignLabelWithHint: true,
+                                        filled: true,
+                                        fillColor: const Color(0xFFF8F5FA),
+                                        prefixIcon: const Padding(
+                                          padding: EdgeInsets.only(bottom: 58),
+                                          child: Icon(Icons.edit_note),
+                                        ),
+                                        border: OutlineInputBorder(
+                                          borderRadius: BorderRadius.circular(
+                                            18,
+                                          ),
+                                          borderSide: BorderSide.none,
+                                        ),
+                                        focusedBorder: OutlineInputBorder(
+                                          borderRadius: BorderRadius.circular(
+                                            18,
+                                          ),
+                                          borderSide: const BorderSide(
+                                            color: diPertinRoxo,
+                                            width: 2,
+                                          ),
+                                        ),
+                                      ),
+                                    ),
+                                    const SizedBox(height: 18),
+                                    compacto
+                                        ? Column(
+                                            crossAxisAlignment:
+                                                CrossAxisAlignment.stretch,
+                                            children: [
+                                              FilledButton.icon(
+                                                onPressed: () =>
+                                                    Navigator.pop(ctx, true),
+                                                icon: const Icon(Icons.send),
+                                                label: const Text('Enviar'),
+                                                style: FilledButton.styleFrom(
+                                                  backgroundColor:
+                                                      diPertinLaranja,
+                                                  foregroundColor: Colors.white,
+                                                  padding:
+                                                      const EdgeInsets.symmetric(
+                                                        vertical: 14,
+                                                      ),
+                                                  shape: RoundedRectangleBorder(
+                                                    borderRadius:
+                                                        BorderRadius.circular(
+                                                          16,
+                                                        ),
+                                                  ),
+                                                ),
+                                              ),
+                                              const SizedBox(height: 8),
+                                              TextButton(
+                                                onPressed: () =>
+                                                    Navigator.pop(ctx, false),
+                                                child: const Text('Cancelar'),
+                                              ),
+                                            ],
+                                          )
+                                        : Row(
+                                            children: [
+                                              Expanded(
+                                                child: TextButton(
+                                                  onPressed: () =>
+                                                      Navigator.pop(ctx, false),
+                                                  style: TextButton.styleFrom(
+                                                    foregroundColor:
+                                                        diPertinRoxo,
+                                                    padding:
+                                                        const EdgeInsets.symmetric(
+                                                          vertical: 14,
+                                                        ),
+                                                  ),
+                                                  child: const Text('Cancelar'),
+                                                ),
+                                              ),
+                                              const SizedBox(width: 12),
+                                              Expanded(
+                                                child: FilledButton.icon(
+                                                  onPressed: () =>
+                                                      Navigator.pop(ctx, true),
+                                                  icon: const Icon(Icons.send),
+                                                  label: const Text('Enviar'),
+                                                  style: FilledButton.styleFrom(
+                                                    backgroundColor:
+                                                        diPertinLaranja,
+                                                    foregroundColor:
+                                                        Colors.white,
+                                                    padding:
+                                                        const EdgeInsets.symmetric(
+                                                          vertical: 14,
+                                                        ),
+                                                    shape: RoundedRectangleBorder(
+                                                      borderRadius:
+                                                          BorderRadius.circular(
+                                                            16,
+                                                          ),
+                                                    ),
+                                                  ),
+                                                ),
+                                              ),
+                                            ],
+                                          ),
+                                  ],
+                                ),
+                              ),
+                            ],
+                          ),
+                        ),
+                      ),
+                    ),
+                  );
+                },
+              ),
+            );
+          },
+        ) ??
+        false;
+
+    if (!confirmar || !mounted) return;
+
+    setState(() => _processandoPedido = true);
+    try {
+      final lojaId = itensEncomenda.first.lojaId.trim();
+      final itens = itensEncomenda
+          .map(
+            (CartItemModel i) => <String, dynamic>{
+              'id_produto': i.id,
+              'nome': i.nome,
+              'preco_ref': i.preco,
+              'quantidade': i.quantidade,
+              'imagem': i.imagem,
+              'variacoes': i.variacoesSelecionadas,
+              'variacoes_resumo': i.variacoesResumo,
+              'tipo_venda': i.ehEncomenda ? 'encomenda' : 'pronta_entrega',
+            },
+          )
+          .toList();
+
+      final callable = appFirebaseFunctions.httpsCallable(
+        'encomendaClienteCriar',
+        options: HttpsCallableOptions(timeout: const Duration(seconds: 90)),
+      );
+      final res = await callable.call({
+        'loja_id': lojaId,
+        'itens': itens,
+        'mensagem_cliente': mensagemCtrl.text.trim(),
+        'tipo_entrega': _retirarNaLoja ? 'retirada' : 'entrega',
+        'endereco_entrega': _retirarNaLoja
+            ? ''
+            : _enderecoController.text.trim(),
+        'taxa_entrega_snapshot': _taxaEntregaEncomendaParaLoja(lojaId),
+      });
+      final data = Map<String, dynamic>.from(res.data as Map);
+      final encId = data['encomendaId']?.toString() ?? '';
+      if (encId.isEmpty) {
+        throw Exception('Resposta sem encomendaId');
+      }
+
+      cart.removerItensPorTipo(encomenda: true);
+      if (!mounted) return;
+      ScaffoldMessenger.of(
+        context,
+      ).showSnackBar(const SnackBar(content: Text('Solicitação enviada!')));
+      await Navigator.push<void>(
+        context,
+        MaterialPageRoute<void>(
+          builder: (_) => ClienteEncomendaDetalheScreen(encomendaId: encId),
+        ),
+      );
+    } on FirebaseFunctionsException catch (e) {
+      if (!mounted) return;
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(
+          content: Text(e.message ?? 'Não foi possível enviar.'),
+          backgroundColor: Colors.red.shade800,
+        ),
+      );
+    } catch (e) {
+      if (!mounted) return;
+      ScaffoldMessenger.of(
+        context,
+      ).showSnackBar(SnackBar(content: Text('Erro: $e')));
+    } finally {
+      if (mounted) setState(() => _processandoPedido = false);
+    }
+  }
+
   Future<void> _avancarParaPagamento(CartProvider cart) async {
     User? user = FirebaseAuth.instance.currentUser;
     if (user == null) {
@@ -864,7 +1463,10 @@ class _CartScreenState extends State<CartScreen> {
       return;
     }
 
-    if (!await _verificarLojaAberta(cart)) return;
+    // Finaliza apenas os itens de pronta-entrega; a encomenda tem botão próprio.
+    if (!cart.temProntaEntrega) return;
+
+    if (!await _verificarLojaAberta(cart.itensProntaEntrega)) return;
     if (!_retirarNaLoja) {
       await _recalcularTaxaEntrega();
     }
@@ -879,7 +1481,7 @@ class _CartScreenState extends State<CartScreen> {
       return;
     }
 
-    double subtotal = cart.totalAmount;
+    double subtotal = cart.totalProntaEntrega;
     double totalParcial = subtotal + _taxaEntregaReal - _descontoCupom;
     if (totalParcial < 0) totalParcial = 0;
     double valorDesconto = _usarSaldo ? min(_saldoCliente, totalParcial) : 0.0;
@@ -956,7 +1558,7 @@ class _CartScreenState extends State<CartScreen> {
             metodoPreSelecionado: 'PIX',
             pedidoFirestoreId: pedidoId,
             onPagamentoAprovado: () {
-              cart.clearCart();
+              cart.removerItensPorTipo(encomenda: false);
               Navigator.pop(context);
               Navigator.pop(context);
               Navigator.pushReplacementNamed(context, '/meus-pedidos');
@@ -991,7 +1593,7 @@ class _CartScreenState extends State<CartScreen> {
             metodoPreSelecionado: 'Cartão',
             pedidoFirestoreId: pedidoId,
             onPagamentoAprovado: () {
-              cart.clearCart();
+              cart.removerItensPorTipo(encomenda: false);
               Navigator.pop(context);
               Navigator.pop(context);
               Navigator.pushReplacementNamed(context, '/meus-pedidos');
@@ -1070,12 +1672,14 @@ class _CartScreenState extends State<CartScreen> {
     setState(() => _processandoPedido = true);
 
     try {
-      final grupos = _agruparItensCarrinhoPorLoja(cart.items);
+      final grupos = _agruparItensCarrinhoPorLoja(cart.itensProntaEntrega);
       if (grupos.isEmpty) {
         if (mounted) {
           ScaffoldMessenger.of(context).showSnackBar(
             const SnackBar(
-              content: Text('Itens sem loja identificada. Atualize o carrinho e tente de novo.'),
+              content: Text(
+                'Itens sem loja identificada. Atualize o carrinho e tente de novo.',
+              ),
               backgroundColor: Colors.red,
             ),
           );
@@ -1096,7 +1700,7 @@ class _CartScreenState extends State<CartScreen> {
         );
       }
 
-      List<CartItemModel> listaItens = cart.items;
+      List<CartItemModel> listaItens = cart.itensProntaEntrega;
       List<Map<String, dynamic>> itensParaSalvar = listaItens.map((item) {
         return {
           'id_produto': item.id,
@@ -1104,6 +1708,9 @@ class _CartScreenState extends State<CartScreen> {
           'preco': item.preco,
           'quantidade': item.quantidade,
           'imagem': item.imagem,
+          'variacoes': item.variacoesSelecionadas,
+          'variacoes_resumo': item.variacoesResumo,
+          'tipo_venda': item.ehEncomenda ? 'encomenda' : 'pronta_entrega',
         };
       }).toList();
 
@@ -1170,8 +1777,7 @@ class _CartScreenState extends State<CartScreen> {
       }
 
       // Sempre 6 dígitos (100000–999999), alinhado à validação no app do entregador.
-      final tokenGerado =
-          (100000 + Random().nextInt(900000)).toString();
+      final tokenGerado = (100000 + Random().nextInt(900000)).toString();
 
       if (!_retirarNaLoja) {
         await FirebaseFirestore.instance.collection('users').doc(clienteId).set(
@@ -1184,7 +1790,9 @@ class _CartScreenState extends State<CartScreen> {
 
       // Fase 3G.3 — denormaliza identidade do cliente no pedido pra que lojista e
       // entregador não precisem mais ler `users/{cliente_id}` (permite fechar rule).
-      final identidadeCliente = await _lerIdentidadeClienteParaPedido(clienteId);
+      final identidadeCliente = await _lerIdentidadeClienteParaPedido(
+        clienteId,
+      );
 
       final docRef = await FirebaseFirestore.instance.collection('pedidos').add(
         {
@@ -1289,7 +1897,7 @@ class _CartScreenState extends State<CartScreen> {
       // `aguardando_pagamento` e o carrinho só é limpo após aprovação,
       // permitindo que o cliente volte para esta tela e ajuste a compra.
       if (fecharCarrinhoEExibirDialogo) {
-        cart.clearCart();
+        cart.removerItensPorTipo(encomenda: false);
       }
 
       if (mounted) {
@@ -1340,11 +1948,15 @@ class _CartScreenState extends State<CartScreen> {
       if (faltaTaxa) await _recalcularTaxaEntrega();
     }
 
-    final precisaMpUnificado = statusPedido == 'aguardando_pagamento' &&
+    final precisaMpUnificado =
+        statusPedido == 'aguardando_pagamento' &&
         (_formaPagamento == 'PIX' || _formaPagamento == 'Cartão');
 
     final totalParcialCheckout = _round2(
-      (subtotal + _taxaEntregaReal - _descontoCupom).clamp(0.0, double.infinity),
+      (subtotal + _taxaEntregaReal - _descontoCupom).clamp(
+        0.0,
+        double.infinity,
+      ),
     );
 
     final cupoms = List<double>.filled(n, 0);
@@ -1365,12 +1977,16 @@ class _CartScreenState extends State<CartScreen> {
     final parciais = List<double>.filled(n, 0);
     for (var i = 0; i < n; i++) {
       final s = _subtotalItensLista(grupos[lojaKeys[i]]!);
-      final tx = _retirarNaLoja ? 0.0 : (_taxaEntregaPorLoja[lojaKeys[i]] ?? 0.0);
+      final tx = _retirarNaLoja
+          ? 0.0
+          : (_taxaEntregaPorLoja[lojaKeys[i]] ?? 0.0);
       parciais[i] = _round2(s + tx - cupoms[i]);
     }
     var sumP = parciais.fold(0.0, (a, b) => a + b);
     if ((sumP - totalParcialCheckout).abs() > 0.02) {
-      parciais[n - 1] = _round2(parciais[n - 1] + (totalParcialCheckout - sumP));
+      parciais[n - 1] = _round2(
+        parciais[n - 1] + (totalParcialCheckout - sumP),
+      );
     }
 
     final saldos = List<double>.filled(n, 0);
@@ -1378,7 +1994,9 @@ class _CartScreenState extends State<CartScreen> {
       var acc = 0.0;
       for (var i = 0; i < n; i++) {
         if (i < n - 1) {
-          final si = _round2(valorDesconto * (parciais[i] / totalParcialCheckout));
+          final si = _round2(
+            valorDesconto * (parciais[i] / totalParcialCheckout),
+          );
           saldos[i] = si;
           acc += si;
         } else {
@@ -1389,7 +2007,9 @@ class _CartScreenState extends State<CartScreen> {
 
     final totais = List<double>.filled(n, 0);
     for (var i = 0; i < n; i++) {
-      totais[i] = _round2((parciais[i] - saldos[i]).clamp(0.0, double.infinity));
+      totais[i] = _round2(
+        (parciais[i] - saldos[i]).clamp(0.0, double.infinity),
+      );
     }
     var sumT = totais.fold(0.0, (a, b) => a + b);
     if ((sumT - totalFinal).abs() > 0.02) {
@@ -1401,7 +2021,8 @@ class _CartScreenState extends State<CartScreen> {
     // coords, pausa), suficiente para o pedido.
     final lojaSnapshots = await Future.wait(
       lojaKeys.map(
-        (id) => FirebaseFirestore.instance.collection('lojas_public').doc(id).get(),
+        (id) =>
+            FirebaseFirestore.instance.collection('lojas_public').doc(id).get(),
       ),
     );
     final lojaPorId = <String, Map<String, dynamic>>{
@@ -1443,15 +2064,17 @@ class _CartScreenState extends State<CartScreen> {
     final identidadeCliente = await _lerIdentidadeClienteParaPedido(clienteId);
 
     if (!_retirarNaLoja) {
-      await FirebaseFirestore.instance.collection('users').doc(clienteId).set(
-        {'endereco': _enderecoController.text.trim()},
-        SetOptions(merge: true),
-      );
+      await FirebaseFirestore.instance.collection('users').doc(clienteId).set({
+        'endereco': _enderecoController.text.trim(),
+      }, SetOptions(merge: true));
     }
 
     // Pagamento em dinheiro desabilitado na UI — sem troco por loja.
 
-    final checkoutGrupoId = FirebaseFirestore.instance.collection('pedidos').doc().id;
+    final checkoutGrupoId = FirebaseFirestore.instance
+        .collection('pedidos')
+        .doc()
+        .id;
     final refs = lojaKeys
         .map((_) => FirebaseFirestore.instance.collection('pedidos').doc())
         .toList();
@@ -1469,13 +2092,17 @@ class _CartScreenState extends State<CartScreen> {
               'preco': item.preco,
               'quantidade': item.quantidade,
               'imagem': item.imagem,
+              'variacoes': item.variacoesSelecionadas,
+              'variacoes_resumo': item.variacoesResumo,
+              'tipo_venda': item.ehEncomenda ? 'encomenda' : 'pronta_entrega',
             },
           )
           .toList();
 
       final ld = lojaPorId[lojaId]!;
       final lojaNome = (ld['nome_fantasia'] ?? ld['nome'] ?? '').toString();
-      var enderecoDaLoja = ld['endereco']?.toString() ?? 'Endereço não cadastrado';
+      var enderecoDaLoja =
+          ld['endereco']?.toString() ?? 'Endereço não cadastrado';
       if (enderecoDaLoja.isEmpty) enderecoDaLoja = 'Endereço não cadastrado';
 
       double? lojaLat;
@@ -1500,9 +2127,10 @@ class _CartScreenState extends State<CartScreen> {
       // Usado pelo backend para filtrar entregadores compatíveis (Fase 3)
       // e auditoria — mesmo que a loja altere depois, o pedido preserva
       // a regra do momento da compra.
-      final tiposAceitosLoja = _tiposEntregaAceitosPorLoja[lojaId] ??
-          const <String>[];
-      final veiculoAlvoFrete = _detalhesFretePorLoja[lojaId]?.veiculoAlvo ??
+      final tiposAceitosLoja =
+          _tiposEntregaAceitosPorLoja[lojaId] ?? const <String>[];
+      final veiculoAlvoFrete =
+          _detalhesFretePorLoja[lojaId]?.veiculoAlvo ??
           TiposEntrega.maiorTipoDaLista(tiposAceitosLoja) ??
           TiposEntrega.codMoto;
       final freteTabelaEfetiva =
@@ -1542,9 +2170,7 @@ class _CartScreenState extends State<CartScreen> {
         'endereco_entrega': _retirarNaLoja
             ? 'Retirada no Balcão'
             : _enderecoController.text.trim(),
-        'forma_pagamento': totalFinal == 0.0
-            ? 'Saldo do App'
-            : _formaPagamento,
+        'forma_pagamento': totalFinal == 0.0 ? 'Saldo do App' : _formaPagamento,
         'status': statusPedido,
         'data_pedido': FieldValue.serverTimestamp(),
         'checkout_grupo_id': checkoutGrupoId,
@@ -1596,7 +2222,7 @@ class _CartScreenState extends State<CartScreen> {
     // `aguardando_pagamento` e o carrinho só é limpo após aprovação,
     // permitindo que o cliente volte para esta tela e ajuste a compra.
     if (fecharCarrinhoEExibirDialogo) {
-      cart.clearCart();
+      cart.removerItensPorTipo(encomenda: false);
     }
 
     if (mounted) {
@@ -1608,10 +2234,456 @@ class _CartScreenState extends State<CartScreen> {
     return refs.first.id;
   }
 
-  String _textoBotaoCheckout(double totalFinal) {
+  String _textoBotaoCheckout(double totalFinal, bool carrinhoSoEncomenda) {
+    if (carrinhoSoEncomenda) return 'Enviar solicitação';
     if (totalFinal <= 0) return 'Confirmar pedido';
     // DESABILITADO: if (_formaPagamento == 'Dinheiro') return 'Confirmar pedido';
     return 'Ir para pagamento';
+  }
+
+  /// Botão de finalização inline da seção de pronta-entrega.
+  Widget _botaoFinalizarPronta(CartProvider cart, double totalFinal) {
+    return SizedBox(
+      width: double.infinity,
+      height: 54,
+      child: ElevatedButton(
+        onPressed: _processandoPedido
+            ? null
+            : () => _avancarParaPagamento(cart),
+        style: ElevatedButton.styleFrom(
+          backgroundColor: diPertinLaranja,
+          elevation: 0,
+          shape: RoundedRectangleBorder(
+            borderRadius: BorderRadius.circular(14),
+          ),
+        ),
+        child: _processandoPedido
+            ? const SizedBox(
+                height: 24,
+                width: 24,
+                child: CircularProgressIndicator(
+                  color: Colors.white,
+                  strokeWidth: 2.5,
+                ),
+              )
+            : Text(
+                _textoBotaoCheckout(totalFinal, false),
+                style: const TextStyle(
+                  fontSize: 16,
+                  fontWeight: FontWeight.w800,
+                  letterSpacing: 0.2,
+                  color: Colors.white,
+                ),
+              ),
+      ),
+    );
+  }
+
+  /// Tile compacto de item de encomenda (imagem, nome, variações, qtd, remover).
+  Widget _itemEncomendaTile(CartProvider cart, CartItemModel item) {
+    return Padding(
+      padding: const EdgeInsets.fromLTRB(12, 12, 12, 12),
+      child: Row(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          ClipRRect(
+            borderRadius: BorderRadius.circular(8),
+            child: Image.network(
+              item.imagem.isNotEmpty
+                  ? item.imagem
+                  : 'https://via.placeholder.com/50',
+              width: 58,
+              height: 58,
+              fit: BoxFit.cover,
+              errorBuilder: (c, e, s) => Container(
+                width: 58,
+                height: 58,
+                color: Colors.grey[300],
+                child: const Icon(Icons.fastfood, color: Colors.grey),
+              ),
+            ),
+          ),
+          const SizedBox(width: 12),
+          Expanded(
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                Text(
+                  item.lojaNome.trim().isNotEmpty
+                      ? item.lojaNome.trim()
+                      : 'Loja parceira',
+                  style: TextStyle(
+                    fontSize: 12,
+                    fontWeight: FontWeight.w700,
+                    color: Colors.grey[700],
+                  ),
+                  maxLines: 1,
+                  overflow: TextOverflow.ellipsis,
+                ),
+                const SizedBox(height: 4),
+                Text(
+                  item.nome,
+                  style: const TextStyle(
+                    fontWeight: FontWeight.w700,
+                    fontSize: 15,
+                    height: 1.25,
+                  ),
+                  maxLines: 2,
+                  overflow: TextOverflow.ellipsis,
+                ),
+                if (item.variacoesResumo.isNotEmpty) ...[
+                  const SizedBox(height: 6),
+                  Wrap(
+                    spacing: 6,
+                    runSpacing: 6,
+                    children: item.variacoesSelecionadas.entries
+                        .map(
+                          (e) => Container(
+                            padding: const EdgeInsets.symmetric(
+                              horizontal: 8,
+                              vertical: 4,
+                            ),
+                            decoration: BoxDecoration(
+                              color: diPertinRoxo.withOpacity(0.08),
+                              borderRadius: BorderRadius.circular(999),
+                            ),
+                            child: Text(
+                              '${e.key == 'cor' ? 'Cor' : 'Tamanho'}: ${e.value}',
+                              style: const TextStyle(
+                                color: diPertinRoxo,
+                                fontSize: 11,
+                                fontWeight: FontWeight.w800,
+                              ),
+                            ),
+                          ),
+                        )
+                        .toList(),
+                  ),
+                ],
+                const SizedBox(height: 6),
+                Text(
+                  'Qtde. ${item.quantidade} · preço a combinar',
+                  style: TextStyle(fontSize: 13, color: Colors.grey[700]),
+                ),
+                const SizedBox(height: 10),
+                Row(
+                  children: [
+                    Container(
+                      decoration: BoxDecoration(
+                        border: Border.all(color: Colors.grey.shade300),
+                        borderRadius: BorderRadius.circular(10),
+                      ),
+                      child: Row(
+                        mainAxisSize: MainAxisSize.min,
+                        children: [
+                          Material(
+                            color: Colors.transparent,
+                            child: InkWell(
+                              onTap: () => cart.decrementarQuantidade(
+                                item.chaveCarrinho,
+                              ),
+                              borderRadius: const BorderRadius.horizontal(
+                                left: Radius.circular(9),
+                              ),
+                              child: const SizedBox(
+                                width: 42,
+                                height: 42,
+                                child: Icon(
+                                  Icons.remove,
+                                  size: 18,
+                                  color: diPertinRoxo,
+                                ),
+                              ),
+                            ),
+                          ),
+                          Padding(
+                            padding: const EdgeInsets.symmetric(horizontal: 4),
+                            child: Text(
+                              '${item.quantidade}',
+                              style: const TextStyle(
+                                fontWeight: FontWeight.w800,
+                                fontSize: 15,
+                              ),
+                            ),
+                          ),
+                          Material(
+                            color: Colors.transparent,
+                            child: InkWell(
+                              onTap: () => cart.incrementarQuantidade(
+                                item.chaveCarrinho,
+                              ),
+                              borderRadius: const BorderRadius.horizontal(
+                                right: Radius.circular(9),
+                              ),
+                              child: const SizedBox(
+                                width: 42,
+                                height: 42,
+                                child: Icon(
+                                  Icons.add,
+                                  size: 18,
+                                  color: diPertinRoxo,
+                                ),
+                              ),
+                            ),
+                          ),
+                        ],
+                      ),
+                    ),
+                    const Spacer(),
+                    IconButton(
+                      tooltip: 'Remover',
+                      onPressed: () => cart.removeItem(item.chaveCarrinho),
+                      icon: Icon(
+                        Icons.delete_outline_rounded,
+                        color: Colors.red.shade400,
+                      ),
+                    ),
+                  ],
+                ),
+              ],
+            ),
+          ),
+        ],
+      ),
+    );
+  }
+
+  Widget _linhaResumoEncomenda(
+    String rotulo,
+    String valor, {
+    bool destaque = false,
+    Color? valorCor,
+  }) {
+    return Padding(
+      padding: const EdgeInsets.symmetric(vertical: 4),
+      child: Row(
+        mainAxisAlignment: MainAxisAlignment.spaceBetween,
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          Expanded(
+            child: Text(
+              rotulo,
+              style: TextStyle(
+                fontSize: destaque ? 14 : 13,
+                color: destaque ? Colors.grey[900] : Colors.grey[600],
+                fontWeight: destaque ? FontWeight.w800 : FontWeight.w500,
+              ),
+            ),
+          ),
+          const SizedBox(width: 10),
+          Text(
+            valor,
+            style: TextStyle(
+              fontSize: destaque ? 15 : 13,
+              fontWeight: destaque ? FontWeight.w900 : FontWeight.w700,
+              color: valorCor ?? (destaque ? diPertinRoxo : Colors.black87),
+            ),
+          ),
+        ],
+      ),
+    );
+  }
+
+  /// Card Subtotal / valor da encomenda / frete / total (antes da negociação).
+  Widget _cardResumoFinanceiroEncomenda({
+    required List<CartItemModel> itens,
+    required String lojaId,
+    required _DetalheFreteLoja? detFrete,
+  }) {
+    final subtotalRef = _subtotalItensLista(itens);
+    final frete = _retirarNaLoja ? 0.0 : _taxaEntregaEncomendaParaLoja(lojaId);
+    final temReferenciaCatalogo = subtotalRef > 0.009;
+    final totalEstimado = subtotalRef + frete;
+    final textoSubtotal = temReferenciaCatalogo
+        ? 'R\$ ${subtotalRef.toStringAsFixed(2)}'
+        : '—';
+    final textoValorEncomenda = 'A combinar';
+    final textoFrete = _calculandoTaxaEncomenda
+        ? 'Calculando…'
+        : (_retirarNaLoja
+              ? 'Retirada na loja'
+              : 'R\$ ${frete.toStringAsFixed(2)}');
+    final textoTotal = temReferenciaCatalogo
+        ? 'R\$ ${totalEstimado.toStringAsFixed(2)}'
+        : (_retirarNaLoja ? textoValorEncomenda : 'A combinar + frete');
+
+    return Container(
+      width: double.infinity,
+      padding: const EdgeInsets.fromLTRB(14, 12, 14, 12),
+      decoration: BoxDecoration(
+        color: Colors.white,
+        borderRadius: BorderRadius.circular(14),
+        boxShadow: [
+          BoxShadow(
+            color: Colors.black.withValues(alpha: 0.05),
+            blurRadius: 10,
+            offset: const Offset(0, 2),
+          ),
+        ],
+        border: Border.all(color: diPertinRoxo.withValues(alpha: 0.18)),
+      ),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.stretch,
+        children: [
+          Text(
+            'Resumo da encomenda',
+            style: TextStyle(
+              fontSize: 14,
+              fontWeight: FontWeight.w800,
+              color: Colors.grey[900],
+            ),
+          ),
+          const SizedBox(height: 8),
+          _linhaResumoEncomenda('Subtotal', textoSubtotal),
+          _linhaResumoEncomenda('Valor da encomenda', textoValorEncomenda),
+          _linhaResumoEncomenda('Taxa de entrega', textoFrete),
+          if (detFrete?.fallback == true && !_retirarNaLoja) ...[
+            Padding(
+              padding: const EdgeInsets.only(bottom: 6),
+              child: Text(
+                detFrete!.motivo ??
+                    'Frete estimado — confira com a loja após o envio.',
+                style: TextStyle(
+                  fontSize: 11.5,
+                  color: Colors.orange.shade800,
+                  height: 1.3,
+                ),
+              ),
+            ),
+          ],
+          const Divider(height: 16),
+          _linhaResumoEncomenda('Total', textoTotal, destaque: true),
+          const SizedBox(height: 8),
+          Text(
+            'A entrada refere-se apenas ao produto. O frete entra no pagamento final.',
+            style: TextStyle(
+              fontSize: 11.5,
+              height: 1.35,
+              color: Colors.grey.shade700,
+              fontWeight: FontWeight.w600,
+            ),
+          ),
+        ],
+      ),
+    );
+  }
+
+  /// Seção "Por encomenda": banner + itens + botão de envio próprio.
+  Widget _secaoEncomenda(CartProvider cart) {
+    final itens = cart.itensEncomenda;
+    final lojaId = itens.isNotEmpty ? itens.first.lojaId.trim() : '';
+    final detFrete = lojaId.isNotEmpty
+        ? _detalhesFreteEncomendaPorLoja[lojaId]
+        : null;
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.start,
+      children: [
+        Container(
+          width: double.infinity,
+          padding: const EdgeInsets.all(12),
+          decoration: BoxDecoration(
+            color: diPertinRoxo.withValues(alpha: 0.08),
+            borderRadius: BorderRadius.circular(12),
+            border: Border.all(color: diPertinRoxo.withValues(alpha: 0.22)),
+          ),
+          child: Row(
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              const Icon(Icons.handshake_outlined, color: diPertinRoxo),
+              const SizedBox(width: 10),
+              Expanded(
+                child: Text(
+                  'Itens por encomenda: envie a solicitação para a loja '
+                  'negociar preço e entrada. O pagamento pelo app só vale '
+                  'para a entrada depois que você aceitar a proposta.',
+                  style: TextStyle(
+                    fontSize: 13,
+                    height: 1.35,
+                    color: Colors.grey.shade900,
+                  ),
+                ),
+              ),
+            ],
+          ),
+        ),
+        const SizedBox(height: 14),
+        Text(
+          'Itens por encomenda',
+          style: TextStyle(
+            fontSize: 15,
+            fontWeight: FontWeight.w700,
+            color: Colors.grey[900],
+            letterSpacing: -0.3,
+          ),
+        ),
+        const SizedBox(height: 10),
+        Container(
+          decoration: BoxDecoration(
+            color: Colors.white,
+            borderRadius: BorderRadius.circular(16),
+            boxShadow: [
+              BoxShadow(
+                color: Colors.black.withValues(alpha: 0.05),
+                blurRadius: 10,
+                offset: const Offset(0, 2),
+              ),
+            ],
+            border: Border.all(color: Colors.grey.shade200),
+          ),
+          child: ListView.separated(
+            shrinkWrap: true,
+            physics: const NeverScrollableScrollPhysics(),
+            itemCount: itens.length,
+            separatorBuilder: (context, index) =>
+                Divider(height: 1, color: Colors.grey.shade200),
+            itemBuilder: (context, index) =>
+                _itemEncomendaTile(cart, itens[index]),
+          ),
+        ),
+        const SizedBox(height: 14),
+        if (lojaId.isNotEmpty)
+          _cardResumoFinanceiroEncomenda(
+            itens: itens,
+            lojaId: lojaId,
+            detFrete: detFrete,
+          ),
+        const SizedBox(height: 16),
+        SizedBox(
+          width: double.infinity,
+          height: 48,
+          child: ElevatedButton.icon(
+            onPressed: _processandoPedido
+                ? null
+                : () => _enviarSolicitacaoEncomenda(cart),
+            style: ElevatedButton.styleFrom(
+              backgroundColor: diPertinRoxo,
+              elevation: 0,
+              shape: RoundedRectangleBorder(
+                borderRadius: BorderRadius.circular(12),
+              ),
+            ),
+            icon: _processandoPedido
+                ? const SizedBox(
+                    height: 20,
+                    width: 20,
+                    child: CircularProgressIndicator(
+                      color: Colors.white,
+                      strokeWidth: 2.5,
+                    ),
+                  )
+                : const Icon(Icons.send_rounded, color: Colors.white, size: 20),
+            label: const Text(
+              'Enviar encomenda',
+              style: TextStyle(
+                fontSize: 15,
+                fontWeight: FontWeight.w800,
+                color: Colors.white,
+              ),
+            ),
+          ),
+        ),
+      ],
+    );
   }
 
   Widget _pagamentoOpcao({
@@ -1713,11 +2785,11 @@ class _CartScreenState extends State<CartScreen> {
             Text(
               _qtdPedidosUltimoCheckout > 1
                   ? (_retirarNaLoja
-                      ? "As lojas já receberam os seus pedidos. Acompanhe em Meus pedidos."
-                      : "As lojas já receberam os seus pedidos. Acompanhe a entrega pelo app!")
+                        ? "As lojas já receberam os seus pedidos. Acompanhe em Meus pedidos."
+                        : "As lojas já receberam os seus pedidos. Acompanhe a entrega pelo app!")
                   : (_retirarNaLoja
-                      ? "A loja já recebeu o seu pedido. Aguarde a confirmação para ir buscar!"
-                      : "A loja já recebeu o seu pedido. Acompanhe a entrega pelo app!"),
+                        ? "A loja já recebeu o seu pedido. Aguarde a confirmação para ir buscar!"
+                        : "A loja já recebeu o seu pedido. Acompanhe a entrega pelo app!"),
               textAlign: TextAlign.center,
               style: const TextStyle(color: Colors.grey),
             ),
@@ -1743,14 +2815,6 @@ class _CartScreenState extends State<CartScreen> {
       ),
     );
   }
-
-  static const double _alturaBarraCheckout = 56;
-
-  /// Padding vertical do `bottomSheet` (14 acima + 14 abaixo do botão).
-  static const double _paddingVerticalFaixaCheckout = 28;
-
-  /// Espaço extra entre o card do total e a faixa laranja ao rolar até o fim.
-  static const double _folgaEntreConteudoEBarra = 36;
 
   /// Bloco de detalhamento do frete exibido abaixo do valor "Taxa de Entrega"
   /// no card Subtotal. Mostra:
@@ -1780,7 +2844,9 @@ class _CartScreenState extends State<CartScreen> {
         );
       }
       return Icon(
-        veiculoGrande ? Icons.local_shipping_rounded : Icons.two_wheeler_rounded,
+        veiculoGrande
+            ? Icons.local_shipping_rounded
+            : Icons.two_wheeler_rounded,
         size: 16,
         color: veiculoGrande ? diPertinLaranja : Colors.grey[600],
       );
@@ -1810,11 +2876,7 @@ class _CartScreenState extends State<CartScreen> {
         d.fallback
             ? (d.motivo ?? 'Frete padrão aplicado.')
             : 'Frete calculado pela loja conforme a distância até o endereço.',
-        style: TextStyle(
-          fontSize: 12,
-          color: Colors.grey[700],
-          height: 1.35,
-        ),
+        style: TextStyle(fontSize: 12, color: Colors.grey[700], height: 1.35),
       );
     } else {
       final nomesPorLoja = <String, String>{};
@@ -1852,10 +2914,7 @@ class _CartScreenState extends State<CartScreen> {
                 children: [
                   Text(
                     '• ',
-                    style: TextStyle(
-                      fontSize: 12,
-                      color: Colors.grey[700],
-                    ),
+                    style: TextStyle(fontSize: 12, color: Colors.grey[700]),
                   ),
                   Expanded(
                     child: Text(
@@ -1898,10 +2957,7 @@ class _CartScreenState extends State<CartScreen> {
         child: Row(
           crossAxisAlignment: CrossAxisAlignment.start,
           children: [
-            Padding(
-              padding: const EdgeInsets.only(top: 1),
-              child: icone(),
-            ),
+            Padding(padding: const EdgeInsets.only(top: 1), child: icone()),
             const SizedBox(width: 8),
             Expanded(child: conteudo),
           ],
@@ -1921,18 +2977,24 @@ class _CartScreenState extends State<CartScreen> {
       _agendarRecalculoTaxa(atraso: const Duration(milliseconds: 120));
     }
     bool carrinhoVazio = cart.items.isEmpty;
+    final temEncomenda = cart.temEncomenda;
+    final temProntaEntrega = cart.temProntaEntrega;
+    // Mantido para gating de cupom/saldo/pagamento (equivale a !temProntaEntrega
+    // quando a sacola não está vazia).
+    final carrinhoSoEncomenda = temEncomenda && !temProntaEntrega;
     final mq = MediaQuery.of(context);
     final bottomPad = max(mq.padding.bottom, mq.viewPadding.bottom);
-    final scrollBottomPad =
-        _folgaEntreConteudoEBarra +
-        _paddingVerticalFaixaCheckout +
-        _alturaBarraCheckout +
-        bottomPad;
+    // Sem barra fixa de checkout: os botões de finalizar são inline em cada seção.
+    final scrollBottomPad = 24 + bottomPad;
 
-    double subtotal = cart.totalAmount;
-    double totalParcial = subtotal + _taxaEntregaReal - _descontoCupom;
+    double subtotal = cart.totalProntaEntrega;
+    final descontoCupomEfetivo = temProntaEntrega ? _descontoCupom : 0.0;
+    double totalParcial = subtotal + _taxaEntregaReal - descontoCupomEfetivo;
     if (totalParcial < 0) totalParcial = 0;
-    double valorDesconto = _usarSaldo ? min(_saldoCliente, totalParcial) : 0.0;
+    final usarSaldoEfetivo = carrinhoSoEncomenda ? false : _usarSaldo;
+    double valorDesconto = usarSaldoEfetivo
+        ? min(_saldoCliente, totalParcial)
+        : 0.0;
     double totalFinal = totalParcial - valorDesconto;
     if (totalFinal < 0) totalFinal = 0;
 
@@ -2203,6 +3265,7 @@ class _CartScreenState extends State<CartScreen> {
                   ),
                   const SizedBox(height: 28),
 
+                  if (temProntaEntrega) ...[
                   Text(
                     "Itens do pedido",
                     style: TextStyle(
@@ -2234,14 +3297,14 @@ class _CartScreenState extends State<CartScreen> {
                         ListView.separated(
                           shrinkWrap: true,
                           physics: const NeverScrollableScrollPhysics(),
-                          itemCount: cart.items.length,
+                          itemCount: cart.itensProntaEntrega.length,
                           separatorBuilder: (context, index) =>
                               Divider(height: 1, color: Colors.grey.shade200),
                           itemBuilder: (context, index) {
-                            var item = cart.items[index];
+                            var item = cart.itensProntaEntrega[index];
                             final linhaTotal = item.preco * item.quantidade;
                             return Dismissible(
-                              key: Key('cart_${item.id}'),
+                              key: Key('cart_${item.chaveCarrinho}'),
                               direction: DismissDirection.endToStart,
                               background: Container(
                                 alignment: Alignment.centerRight,
@@ -2253,7 +3316,8 @@ class _CartScreenState extends State<CartScreen> {
                                   size: 28,
                                 ),
                               ),
-                              onDismissed: (_) => cart.removeItem(item.id),
+                              onDismissed: (_) =>
+                                  cart.removeItem(item.chaveCarrinho),
                               child: Padding(
                                 padding: const EdgeInsets.fromLTRB(
                                   12,
@@ -2313,6 +3377,45 @@ class _CartScreenState extends State<CartScreen> {
                                             maxLines: 2,
                                             overflow: TextOverflow.ellipsis,
                                           ),
+                                          if (item
+                                              .variacoesResumo
+                                              .isNotEmpty) ...[
+                                            const SizedBox(height: 6),
+                                            Wrap(
+                                              spacing: 6,
+                                              runSpacing: 6,
+                                              children: item
+                                                  .variacoesSelecionadas
+                                                  .entries
+                                                  .map(
+                                                    (e) => Container(
+                                                      padding:
+                                                          const EdgeInsets.symmetric(
+                                                            horizontal: 8,
+                                                            vertical: 4,
+                                                          ),
+                                                      decoration: BoxDecoration(
+                                                        color: diPertinRoxo
+                                                            .withOpacity(0.08),
+                                                        borderRadius:
+                                                            BorderRadius.circular(
+                                                              999,
+                                                            ),
+                                                      ),
+                                                      child: Text(
+                                                        '${e.key == 'cor' ? 'Cor' : 'Tamanho'}: ${e.value}',
+                                                        style: const TextStyle(
+                                                          color: diPertinRoxo,
+                                                          fontSize: 11,
+                                                          fontWeight:
+                                                              FontWeight.w800,
+                                                        ),
+                                                      ),
+                                                    ),
+                                                  )
+                                                  .toList(),
+                                            ),
+                                          ],
                                           const SizedBox(height: 6),
                                           Text(
                                             'R\$ ${item.preco.toStringAsFixed(2)} × ${item.quantidade}',
@@ -2350,7 +3453,7 @@ class _CartScreenState extends State<CartScreen> {
                                                       child: InkWell(
                                                         onTap: () => cart
                                                             .decrementarQuantidade(
-                                                              item.id,
+                                                              item.chaveCarrinho,
                                                             ),
                                                         borderRadius:
                                                             const BorderRadius.horizontal(
@@ -2389,7 +3492,7 @@ class _CartScreenState extends State<CartScreen> {
                                                       child: InkWell(
                                                         onTap: () => cart
                                                             .incrementarQuantidade(
-                                                              item.id,
+                                                              item.chaveCarrinho,
                                                             ),
                                                         borderRadius:
                                                             const BorderRadius.horizontal(
@@ -2450,259 +3553,12 @@ class _CartScreenState extends State<CartScreen> {
                     ),
                   ),
                   const SizedBox(height: 20),
+                  ],
 
-                  // ── Cupom de desconto ──
-                  Container(
-                    padding: const EdgeInsets.all(16),
-                    decoration: BoxDecoration(
-                      color: Colors.white,
-                      borderRadius: BorderRadius.circular(16),
-                      boxShadow: [
-                        BoxShadow(
-                          color: Colors.black.withValues(alpha: 0.05),
-                          blurRadius: 10,
-                          offset: const Offset(0, 2),
-                        ),
-                      ],
-                      border: Border.all(
-                        color: _cupomAplicado
-                            ? Colors.green.shade300
-                            : Colors.grey.shade200,
-                      ),
-                    ),
-                    child: Column(
-                      crossAxisAlignment: CrossAxisAlignment.start,
-                      children: [
-                        Row(
-                          children: [
-                            Container(
-                              padding: const EdgeInsets.all(8),
-                              decoration: BoxDecoration(
-                                color: _cupomAplicado
-                                    ? Colors.green.withValues(alpha: 0.12)
-                                    : diPertinLaranja.withValues(alpha: 0.12),
-                                borderRadius: BorderRadius.circular(10),
-                              ),
-                              child: Icon(
-                                _cupomAplicado
-                                    ? Icons.check_circle_outline_rounded
-                                    : Icons.local_offer_outlined,
-                                color: _cupomAplicado
-                                    ? Colors.green
-                                    : diPertinLaranja,
-                                size: 22,
-                              ),
-                            ),
-                            const SizedBox(width: 12),
-                            Expanded(
-                              child: Text(
-                                _cupomAplicado
-                                    ? 'Cupom aplicado'
-                                    : 'Tem cupom de desconto?',
-                                style: TextStyle(
-                                  fontWeight: FontWeight.w700,
-                                  fontSize: 15,
-                                  color: _cupomAplicado
-                                      ? Colors.green.shade700
-                                      : Colors.grey[900],
-                                ),
-                              ),
-                            ),
-                            if (_cupomAplicado)
-                              GestureDetector(
-                                onTap: _removerCupom,
-                                child: Container(
-                                  padding: const EdgeInsets.symmetric(
-                                    horizontal: 10,
-                                    vertical: 6,
-                                  ),
-                                  decoration: BoxDecoration(
-                                    color: Colors.red.shade50,
-                                    borderRadius: BorderRadius.circular(8),
-                                  ),
-                                  child: Text(
-                                    'Remover',
-                                    style: TextStyle(
-                                      color: Colors.red.shade700,
-                                      fontWeight: FontWeight.w700,
-                                      fontSize: 12,
-                                    ),
-                                  ),
-                                ),
-                              ),
-                          ],
-                        ),
-                        if (!_cupomAplicado) ...[
-                          const SizedBox(height: 14),
-                          Row(
-                            children: [
-                              Expanded(
-                                child: TextField(
-                                  controller: _cupomController,
-                                  textCapitalization:
-                                      TextCapitalization.characters,
-                                  style: const TextStyle(
-                                    fontSize: 15,
-                                    fontWeight: FontWeight.w600,
-                                    letterSpacing: 1.2,
-                                  ),
-                                  decoration: InputDecoration(
-                                    isDense: true,
-                                    hintText: 'Digite o código',
-                                    hintStyle: TextStyle(
-                                      fontSize: 14,
-                                      color: Colors.grey[400],
-                                      fontWeight: FontWeight.normal,
-                                      letterSpacing: 0,
-                                    ),
-                                    filled: true,
-                                    fillColor: const Color(0xFFF8F9FA),
-                                    contentPadding: const EdgeInsets.symmetric(
-                                      horizontal: 14,
-                                      vertical: 14,
-                                    ),
-                                    border: OutlineInputBorder(
-                                      borderRadius: BorderRadius.circular(12),
-                                      borderSide: BorderSide(
-                                        color: Colors.grey.shade300,
-                                      ),
-                                    ),
-                                    enabledBorder: OutlineInputBorder(
-                                      borderRadius: BorderRadius.circular(12),
-                                      borderSide: BorderSide(
-                                        color: Colors.grey.shade300,
-                                      ),
-                                    ),
-                                    focusedBorder: OutlineInputBorder(
-                                      borderRadius: BorderRadius.circular(12),
-                                      borderSide: const BorderSide(
-                                        color: diPertinRoxo,
-                                        width: 1.5,
-                                      ),
-                                    ),
-                                  ),
-                                ),
-                              ),
-                              const SizedBox(width: 10),
-                              SizedBox(
-                                height: 48,
-                                child: ElevatedButton(
-                                  onPressed: _validandoCupom
-                                      ? null
-                                      : () => _validarCupom(cart),
-                                  style: ElevatedButton.styleFrom(
-                                    backgroundColor: diPertinRoxo,
-                                    foregroundColor: Colors.white,
-                                    elevation: 0,
-                                    padding: const EdgeInsets.symmetric(
-                                      horizontal: 18,
-                                    ),
-                                    shape: RoundedRectangleBorder(
-                                      borderRadius: BorderRadius.circular(12),
-                                    ),
-                                  ),
-                                  child: _validandoCupom
-                                      ? const SizedBox(
-                                          width: 20,
-                                          height: 20,
-                                          child: CircularProgressIndicator(
-                                            strokeWidth: 2,
-                                            color: Colors.white,
-                                          ),
-                                        )
-                                      : const Text(
-                                          'Aplicar',
-                                          style: TextStyle(
-                                            fontWeight: FontWeight.w700,
-                                            fontSize: 14,
-                                          ),
-                                        ),
-                                ),
-                              ),
-                            ],
-                          ),
-                        ],
-                        if (_cupomMensagem.isNotEmpty) ...[
-                          const SizedBox(height: 10),
-                          Row(
-                            children: [
-                              Icon(
-                                _cupomErro
-                                    ? Icons.error_outline_rounded
-                                    : Icons.check_circle_outline_rounded,
-                                size: 16,
-                                color: _cupomErro
-                                    ? Colors.red.shade600
-                                    : Colors.green.shade600,
-                              ),
-                              const SizedBox(width: 8),
-                              Expanded(
-                                child: Text(
-                                  _cupomMensagem,
-                                  style: TextStyle(
-                                    fontSize: 13,
-                                    fontWeight: FontWeight.w600,
-                                    color: _cupomErro
-                                        ? Colors.red.shade600
-                                        : Colors.green.shade700,
-                                  ),
-                                ),
-                              ),
-                            ],
-                          ),
-                        ],
-                        if (_cupomAplicado && _descontoCupom > 0) ...[
-                          const SizedBox(height: 8),
-                          Container(
-                            padding: const EdgeInsets.symmetric(
-                              horizontal: 12,
-                              vertical: 8,
-                            ),
-                            decoration: BoxDecoration(
-                              color: Colors.green.shade50,
-                              borderRadius: BorderRadius.circular(10),
-                            ),
-                            child: Row(
-                              children: [
-                                Text(
-                                  _cupomCodigo ?? '',
-                                  style: TextStyle(
-                                    fontWeight: FontWeight.w800,
-                                    fontSize: 14,
-                                    color: Colors.green.shade800,
-                                    letterSpacing: 1,
-                                  ),
-                                ),
-                                const Spacer(),
-                                Text(
-                                  '- R\$ ${_descontoCupom.toStringAsFixed(2)}',
-                                  style: TextStyle(
-                                    fontWeight: FontWeight.w800,
-                                    fontSize: 15,
-                                    color: Colors.green.shade700,
-                                  ),
-                                ),
-                              ],
-                            ),
-                          ),
-                        ],
-                      ],
-                    ),
-                  ),
-                  const SizedBox(height: 28),
-
-                  if (!_retirarNaLoja) ...[
-                    Text(
-                      "Onde devemos entregar?",
-                      style: TextStyle(
-                        fontSize: 16,
-                        fontWeight: FontWeight.w700,
-                        color: Colors.grey[900],
-                        letterSpacing: -0.3,
-                      ),
-                    ),
-                    const SizedBox(height: 12),
+                  if (!carrinhoSoEncomenda) ...[
+                    // ── Cupom de desconto ──
                     Container(
+                      padding: const EdgeInsets.all(16),
                       decoration: BoxDecoration(
                         color: Colors.white,
                         borderRadius: BorderRadius.circular(16),
@@ -2713,51 +3569,298 @@ class _CartScreenState extends State<CartScreen> {
                             offset: const Offset(0, 2),
                           ),
                         ],
+                        border: Border.all(
+                          color: _cupomAplicado
+                              ? Colors.green.shade300
+                              : Colors.grey.shade200,
+                        ),
+                      ),
+                      child: Column(
+                        crossAxisAlignment: CrossAxisAlignment.start,
+                        children: [
+                          Row(
+                            children: [
+                              Container(
+                                padding: const EdgeInsets.all(8),
+                                decoration: BoxDecoration(
+                                  color: _cupomAplicado
+                                      ? Colors.green.withValues(alpha: 0.12)
+                                      : diPertinLaranja.withValues(alpha: 0.12),
+                                  borderRadius: BorderRadius.circular(10),
+                                ),
+                                child: Icon(
+                                  _cupomAplicado
+                                      ? Icons.check_circle_outline_rounded
+                                      : Icons.local_offer_outlined,
+                                  color: _cupomAplicado
+                                      ? Colors.green
+                                      : diPertinLaranja,
+                                  size: 22,
+                                ),
+                              ),
+                              const SizedBox(width: 12),
+                              Expanded(
+                                child: Text(
+                                  _cupomAplicado
+                                      ? 'Cupom aplicado'
+                                      : 'Tem cupom de desconto?',
+                                  style: TextStyle(
+                                    fontWeight: FontWeight.w700,
+                                    fontSize: 15,
+                                    color: _cupomAplicado
+                                        ? Colors.green.shade700
+                                        : Colors.grey[900],
+                                  ),
+                                ),
+                              ),
+                              if (_cupomAplicado)
+                                GestureDetector(
+                                  onTap: _removerCupom,
+                                  child: Container(
+                                    padding: const EdgeInsets.symmetric(
+                                      horizontal: 10,
+                                      vertical: 6,
+                                    ),
+                                    decoration: BoxDecoration(
+                                      color: Colors.red.shade50,
+                                      borderRadius: BorderRadius.circular(8),
+                                    ),
+                                    child: Text(
+                                      'Remover',
+                                      style: TextStyle(
+                                        color: Colors.red.shade700,
+                                        fontWeight: FontWeight.w700,
+                                        fontSize: 12,
+                                      ),
+                                    ),
+                                  ),
+                                ),
+                            ],
+                          ),
+                          if (!_cupomAplicado) ...[
+                            const SizedBox(height: 14),
+                            Row(
+                              children: [
+                                Expanded(
+                                  child: TextField(
+                                    controller: _cupomController,
+                                    textCapitalization:
+                                        TextCapitalization.characters,
+                                    style: const TextStyle(
+                                      fontSize: 15,
+                                      fontWeight: FontWeight.w600,
+                                      letterSpacing: 1.2,
+                                    ),
+                                    decoration: InputDecoration(
+                                      isDense: true,
+                                      hintText: 'Digite o código',
+                                      hintStyle: TextStyle(
+                                        fontSize: 14,
+                                        color: Colors.grey[400],
+                                        fontWeight: FontWeight.normal,
+                                        letterSpacing: 0,
+                                      ),
+                                      filled: true,
+                                      fillColor: const Color(0xFFF8F9FA),
+                                      contentPadding:
+                                          const EdgeInsets.symmetric(
+                                            horizontal: 14,
+                                            vertical: 14,
+                                          ),
+                                      border: OutlineInputBorder(
+                                        borderRadius: BorderRadius.circular(12),
+                                        borderSide: BorderSide(
+                                          color: Colors.grey.shade300,
+                                        ),
+                                      ),
+                                      enabledBorder: OutlineInputBorder(
+                                        borderRadius: BorderRadius.circular(12),
+                                        borderSide: BorderSide(
+                                          color: Colors.grey.shade300,
+                                        ),
+                                      ),
+                                      focusedBorder: OutlineInputBorder(
+                                        borderRadius: BorderRadius.circular(12),
+                                        borderSide: const BorderSide(
+                                          color: diPertinRoxo,
+                                          width: 1.5,
+                                        ),
+                                      ),
+                                    ),
+                                  ),
+                                ),
+                                const SizedBox(width: 10),
+                                SizedBox(
+                                  height: 48,
+                                  child: ElevatedButton(
+                                    onPressed: _validandoCupom
+                                        ? null
+                                        : () => _validarCupom(cart),
+                                    style: ElevatedButton.styleFrom(
+                                      backgroundColor: diPertinRoxo,
+                                      foregroundColor: Colors.white,
+                                      elevation: 0,
+                                      padding: const EdgeInsets.symmetric(
+                                        horizontal: 18,
+                                      ),
+                                      shape: RoundedRectangleBorder(
+                                        borderRadius: BorderRadius.circular(12),
+                                      ),
+                                    ),
+                                    child: _validandoCupom
+                                        ? const SizedBox(
+                                            width: 20,
+                                            height: 20,
+                                            child: CircularProgressIndicator(
+                                              strokeWidth: 2,
+                                              color: Colors.white,
+                                            ),
+                                          )
+                                        : const Text(
+                                            'Aplicar',
+                                            style: TextStyle(
+                                              fontWeight: FontWeight.w700,
+                                              fontSize: 14,
+                                            ),
+                                          ),
+                                  ),
+                                ),
+                              ],
+                            ),
+                          ],
+                          if (_cupomMensagem.isNotEmpty) ...[
+                            const SizedBox(height: 10),
+                            Row(
+                              children: [
+                                Icon(
+                                  _cupomErro
+                                      ? Icons.error_outline_rounded
+                                      : Icons.check_circle_outline_rounded,
+                                  size: 16,
+                                  color: _cupomErro
+                                      ? Colors.red.shade600
+                                      : Colors.green.shade600,
+                                ),
+                                const SizedBox(width: 8),
+                                Expanded(
+                                  child: Text(
+                                    _cupomMensagem,
+                                    style: TextStyle(
+                                      fontSize: 13,
+                                      fontWeight: FontWeight.w600,
+                                      color: _cupomErro
+                                          ? Colors.red.shade600
+                                          : Colors.green.shade700,
+                                    ),
+                                  ),
+                                ),
+                              ],
+                            ),
+                          ],
+                          if (_cupomAplicado && _descontoCupom > 0) ...[
+                            const SizedBox(height: 8),
+                            Container(
+                              padding: const EdgeInsets.symmetric(
+                                horizontal: 12,
+                                vertical: 8,
+                              ),
+                              decoration: BoxDecoration(
+                                color: Colors.green.shade50,
+                                borderRadius: BorderRadius.circular(10),
+                              ),
+                              child: Row(
+                                children: [
+                                  Text(
+                                    _cupomCodigo ?? '',
+                                    style: TextStyle(
+                                      fontWeight: FontWeight.w800,
+                                      fontSize: 14,
+                                      color: Colors.green.shade800,
+                                      letterSpacing: 1,
+                                    ),
+                                  ),
+                                  const Spacer(),
+                                  Text(
+                                    '- R\$ ${_descontoCupom.toStringAsFixed(2)}',
+                                    style: TextStyle(
+                                      fontWeight: FontWeight.w800,
+                                      fontSize: 15,
+                                      color: Colors.green.shade700,
+                                    ),
+                                  ),
+                                ],
+                              ),
+                            ),
+                          ],
+                        ],
+                      ),
+                    ),
+                    const SizedBox(height: 28),
+                  ],
+
+                  if (!_retirarNaLoja) ...[
+                    Text(
+                      "Onde devemos entregar?",
+                      style: TextStyle(
+                        fontSize: 15,
+                        fontWeight: FontWeight.w700,
+                        color: Colors.grey[900],
+                        letterSpacing: -0.3,
+                      ),
+                    ),
+                    const SizedBox(height: 10),
+                    Container(
+                      decoration: BoxDecoration(
+                        color: Colors.white,
+                        borderRadius: BorderRadius.circular(14),
+                        boxShadow: [
+                          BoxShadow(
+                            color: Colors.black.withValues(alpha: 0.05),
+                            blurRadius: 10,
+                            offset: const Offset(0, 2),
+                          ),
+                        ],
                         border: Border.all(color: Colors.grey.shade200),
                       ),
-                      padding: const EdgeInsets.fromLTRB(16, 16, 16, 14),
+                      padding: const EdgeInsets.fromLTRB(14, 12, 14, 10),
                       child: Column(
                         crossAxisAlignment: CrossAxisAlignment.start,
                         children: [
                           Row(
                             crossAxisAlignment: CrossAxisAlignment.start,
                             children: [
-                              Container(
-                                padding: const EdgeInsets.all(10),
-                                decoration: BoxDecoration(
-                                  color: diPertinLaranja.withValues(
-                                    alpha: 0.12,
-                                  ),
-                                  borderRadius: BorderRadius.circular(12),
-                                ),
-                                child: const Icon(
-                                  Icons.location_on_rounded,
-                                  color: diPertinLaranja,
-                                  size: 22,
-                                ),
+                              Icon(
+                                Icons.location_on_rounded,
+                                color: diPertinLaranja.withValues(alpha: 0.9),
+                                size: 20,
                               ),
-                              const SizedBox(width: 14),
+                              const SizedBox(width: 8),
                               Expanded(
                                 child: Column(
                                   crossAxisAlignment: CrossAxisAlignment.start,
                                   children: [
                                     Text(
-                                      'Endereço completo',
+                                      'Endereço de entrega',
                                       style: TextStyle(
                                         fontWeight: FontWeight.w700,
-                                        fontSize: 15,
+                                        fontSize: 14,
                                         color: Colors.grey[900],
-                                        letterSpacing: -0.2,
                                       ),
                                     ),
                                     const SizedBox(height: 4),
                                     Text(
-                                      'Inclua rua, número, bairro e cidade. '
-                                      'Ponto de referência ajuda na entrega.',
+                                      _enderecoController.text.trim().isEmpty
+                                          ? 'Nenhum endereço selecionado'
+                                          : _enderecoController.text.trim(),
                                       style: TextStyle(
-                                        fontSize: 12.5,
+                                        fontSize: 13,
                                         height: 1.35,
-                                        color: Colors.grey[600],
+                                        fontWeight: FontWeight.w600,
+                                        color: _enderecoController.text
+                                                .trim()
+                                                .isEmpty
+                                            ? Colors.grey[500]
+                                            : Colors.grey[900],
                                       ),
                                     ),
                                   ],
@@ -2765,81 +3868,24 @@ class _CartScreenState extends State<CartScreen> {
                               ),
                             ],
                           ),
-                          const SizedBox(height: 16),
-                          TextField(
-                            controller: _enderecoController,
-                            onChanged: (_) {
-                              _agendarRecalculoTaxa();
-                            },
-                            keyboardType: TextInputType.streetAddress,
-                            textCapitalization: TextCapitalization.sentences,
-                            minLines: 2,
-                            maxLines: 4,
-                            style: TextStyle(
-                              fontSize: 15,
-                              height: 1.4,
-                              color: Colors.grey[900],
-                            ),
-                            decoration: InputDecoration(
-                              isDense: true,
-                              alignLabelWithHint: true,
-                              hintText:
-                                  'Ex.: Rua das Flores, 120, Centro, Rondonópolis - MT — apto 302',
-                              hintStyle: TextStyle(
-                                fontSize: 14,
-                                color: Colors.grey[400],
-                                height: 1.4,
-                              ),
-                              filled: true,
-                              fillColor: const Color(0xFFF8F9FA),
-                              contentPadding: const EdgeInsets.symmetric(
-                                horizontal: 14,
-                                vertical: 14,
-                              ),
-                              border: OutlineInputBorder(
-                                borderRadius: BorderRadius.circular(12),
-                                borderSide: BorderSide(
-                                  color: Colors.grey.shade300,
-                                ),
-                              ),
-                              enabledBorder: OutlineInputBorder(
-                                borderRadius: BorderRadius.circular(12),
-                                borderSide: BorderSide(
-                                  color: Colors.grey.shade300,
-                                ),
-                              ),
-                              focusedBorder: OutlineInputBorder(
-                                borderRadius: BorderRadius.circular(12),
-                                borderSide: const BorderSide(
-                                  color: diPertinRoxo,
-                                  width: 1.5,
-                                ),
-                              ),
-                            ),
-                          ),
-                          const SizedBox(height: 12),
-                          Row(
-                            crossAxisAlignment: CrossAxisAlignment.start,
-                            children: [
-                              Icon(
-                                Icons.info_outline_rounded,
+                          const SizedBox(height: 8),
+                          Align(
+                            alignment: Alignment.centerLeft,
+                            child: TextButton.icon(
+                              onPressed: _abrirSelecaoEndereco,
+                              icon: const Icon(
+                                Icons.edit_location_alt_outlined,
                                 size: 18,
-                                color: Colors.grey[500],
                               ),
-                              const SizedBox(width: 8),
-                              Expanded(
-                                child: Text(
-                                  'Alterações aqui valem para este pedido. '
-                                  'Para definir o endereço padrão da conta, '
-                                  'use a tela inicial do app.',
-                                  style: TextStyle(
-                                    fontSize: 12,
-                                    height: 1.35,
-                                    color: Colors.grey[600],
-                                  ),
-                                ),
+                              label: const Text('Trocar endereço'),
+                              style: TextButton.styleFrom(
+                                foregroundColor: diPertinRoxo,
+                                padding: EdgeInsets.zero,
+                                minimumSize: Size.zero,
+                                tapTargetSize: MaterialTapTargetSize.shrinkWrap,
+                                visualDensity: VisualDensity.compact,
                               ),
-                            ],
+                            ),
                           ),
                         ],
                       ),
@@ -2847,7 +3893,7 @@ class _CartScreenState extends State<CartScreen> {
                     const SizedBox(height: 28),
                   ],
 
-                  if (_saldoCliente > 0) ...[
+                  if (_saldoCliente > 0 && !carrinhoSoEncomenda) ...[
                     Container(
                       decoration: BoxDecoration(
                         color: Colors.green[50],
@@ -2874,7 +3920,7 @@ class _CartScreenState extends State<CartScreen> {
                     const SizedBox(height: 28),
                   ],
 
-                  if (totalFinal > 0) ...[
+                  if (totalFinal > 0 && !carrinhoSoEncomenda) ...[
                     Text(
                       "Como quer pagar o restante?",
                       style: TextStyle(
@@ -3020,6 +4066,7 @@ class _CartScreenState extends State<CartScreen> {
                     // ],
                   ],
 
+                  if (temProntaEntrega) ...[
                   Container(
                     padding: const EdgeInsets.symmetric(
                       horizontal: 20,
@@ -3078,7 +4125,7 @@ class _CartScreenState extends State<CartScreen> {
                           ],
                         ),
                         if (!_retirarNaLoja) _blocoDetalheFrete(),
-                        if (_cupomAplicado && _descontoCupom > 0) ...[
+                        if (_cupomAplicado && descontoCupomEfetivo > 0) ...[
                           const SizedBox(height: 10),
                           Row(
                             mainAxisAlignment: MainAxisAlignment.spaceBetween,
@@ -3102,7 +4149,7 @@ class _CartScreenState extends State<CartScreen> {
                                 ],
                               ),
                               Text(
-                                "- R\$ ${_descontoCupom.toStringAsFixed(2)}",
+                                "- R\$ ${descontoCupomEfetivo.toStringAsFixed(2)}",
                                 style: TextStyle(
                                   fontWeight: FontWeight.bold,
                                   color: Colors.green.shade700,
@@ -3155,96 +4202,15 @@ class _CartScreenState extends State<CartScreen> {
                       ],
                     ),
                   ),
-                ],
-              ),
-            ),
-      bottomSheet: carrinhoVazio
-          ? null
-          : Material(
-              elevation: 12,
-              color: Colors.white,
-              shadowColor: Colors.black26,
-              child: Padding(
-                padding: EdgeInsets.fromLTRB(16, 12, 16, 12 + bottomPad),
-                child: Row(
-                  crossAxisAlignment: CrossAxisAlignment.center,
-                  children: [
-                    Expanded(
-                      flex: 2,
-                      child: Column(
-                        mainAxisSize: MainAxisSize.min,
-                        crossAxisAlignment: CrossAxisAlignment.start,
-                        children: [
-                          Text(
-                            'Total',
-                            style: TextStyle(
-                              fontSize: 12,
-                              fontWeight: FontWeight.w600,
-                              color: Colors.grey[600],
-                              letterSpacing: 0.2,
-                            ),
-                          ),
-                          const SizedBox(height: 2),
-                          FittedBox(
-                            fit: BoxFit.scaleDown,
-                            alignment: Alignment.centerLeft,
-                            child: Text(
-                              'R\$ ${totalFinal.toStringAsFixed(2)}',
-                              style: const TextStyle(
-                                fontSize: 22,
-                                fontWeight: FontWeight.w800,
-                                color: diPertinRoxo,
-                                letterSpacing: -0.5,
-                              ),
-                            ),
-                          ),
-                        ],
-                      ),
-                    ),
-                    const SizedBox(width: 12),
-                    Expanded(
-                      flex: 3,
-                      child: SizedBox(
-                        height: _alturaBarraCheckout,
-                        child: ElevatedButton(
-                          onPressed: _processandoPedido
-                              ? null
-                              : () => _avancarParaPagamento(cart),
-                          style: ElevatedButton.styleFrom(
-                            backgroundColor: diPertinLaranja,
-                            elevation: 0,
-                            shadowColor: Colors.transparent,
-                            padding: const EdgeInsets.symmetric(horizontal: 8),
-                            shape: RoundedRectangleBorder(
-                              borderRadius: BorderRadius.circular(14),
-                            ),
-                          ),
-                          child: _processandoPedido
-                              ? const SizedBox(
-                                  height: 24,
-                                  width: 24,
-                                  child: CircularProgressIndicator(
-                                    color: Colors.white,
-                                    strokeWidth: 2.5,
-                                  ),
-                                )
-                              : Text(
-                                  _textoBotaoCheckout(totalFinal),
-                                  textAlign: TextAlign.center,
-                                  maxLines: 2,
-                                  style: const TextStyle(
-                                    fontSize: 15,
-                                    fontWeight: FontWeight.w800,
-                                    letterSpacing: 0.2,
-                                    color: Colors.white,
-                                    height: 1.15,
-                                  ),
-                                ),
-                        ),
-                      ),
-                    ),
+                  const SizedBox(height: 16),
+                  _botaoFinalizarPronta(cart, totalFinal),
                   ],
-                ),
+
+                  if (temEncomenda) ...[
+                    SizedBox(height: temProntaEntrega ? 28 : 0),
+                    _secaoEncomenda(cart),
+                  ],
+                ],
               ),
             ),
     );
@@ -3315,22 +4281,21 @@ class _DetalheFreteLoja {
     required String veiculoAlvo,
     List<String> tiposAceitosLoja = const <String>[],
     String? cidade,
-  }) =>
-      _DetalheFreteLoja(
-        lojaId: lojaId,
-        cidade: cidade,
-        veiculoAlvo: veiculoAlvo,
-        veiculoEfetivo: veiculoAlvo,
-        tiposAceitosLoja: tiposAceitosLoja,
-        base: taxa,
-        distanciaBaseKm: 0,
-        valorKmAdicional: 0,
-        distanciaKm: null,
-        kmExtra: 0,
-        taxa: double.parse(taxa.toStringAsFixed(2)),
-        fallback: true,
-        motivo: motivo,
-      );
+  }) => _DetalheFreteLoja(
+    lojaId: lojaId,
+    cidade: cidade,
+    veiculoAlvo: veiculoAlvo,
+    veiculoEfetivo: veiculoAlvo,
+    tiposAceitosLoja: tiposAceitosLoja,
+    base: taxa,
+    distanciaBaseKm: 0,
+    valorKmAdicional: 0,
+    distanciaKm: null,
+    kmExtra: 0,
+    taxa: double.parse(taxa.toStringAsFixed(2)),
+    fallback: true,
+    motivo: motivo,
+  );
 
   /// Rótulo genérico ao cliente — NUNCA expõe o tipo técnico. O cliente
   /// não precisa saber se é moto, carro ou carro-frete; pra ele isso é

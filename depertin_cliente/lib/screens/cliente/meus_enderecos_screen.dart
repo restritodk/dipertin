@@ -222,12 +222,90 @@ class _MeusEnderecosScreenState extends State<MeusEnderecosScreen> {
     }
   }
 
+  /// Define o endereço [dados] como principal (campo `endereco_entrega_padrao`).
+  /// Preserva o principal anterior na lista, caso ele só existisse no perfil.
+  Future<void> _definirComoPrincipal(
+    String uid,
+    Map<String, dynamic> dados, {
+    required List<Map<String, dynamic>> docsAtuais,
+    Map<String, dynamic>? padraoAtual,
+  }) async {
+    try {
+      final docRef = FirebaseFirestore.instance.collection('users').doc(uid);
+
+      final precisaPreservarAnterior = padraoAtual != null &&
+          (padraoAtual['rua'] ?? '').toString().trim().isNotEmpty &&
+          !_mesmoEndereco(padraoAtual, dados) &&
+          !docsAtuais.any((m) => _mesmoEndereco(m, padraoAtual));
+
+      if (precisaPreservarAnterior) {
+        await docRef.collection('enderecos').add({
+          'cep': (padraoAtual['cep'] ?? '').toString().trim(),
+          'rua': (padraoAtual['rua'] ?? '').toString().trim(),
+          'numero': (padraoAtual['numero'] ?? '').toString().trim(),
+          'bairro': (padraoAtual['bairro'] ?? '').toString().trim(),
+          'cidade':
+              (padraoAtual['cidade'] ?? '').toString().trim().toLowerCase(),
+          'estado': (padraoAtual['estado'] ?? padraoAtual['uf'] ?? '')
+              .toString()
+              .trim()
+              .toUpperCase(),
+          'complemento': (padraoAtual['complemento'] ?? '').toString().trim(),
+          'criado_em': FieldValue.serverTimestamp(),
+          'data_atualizacao': FieldValue.serverTimestamp(),
+        });
+      }
+
+      final estadoUf = (dados['estado'] ?? dados['uf'] ?? '')
+          .toString()
+          .trim()
+          .toUpperCase();
+      final cidade = (dados['cidade'] ?? '').toString().trim();
+
+      final Map<String, dynamic> mapaPadrao = {
+        'cep': (dados['cep'] ?? '').toString().trim(),
+        'rua': (dados['rua'] ?? '').toString().trim(),
+        'numero': (dados['numero'] ?? '').toString().trim(),
+        'bairro': (dados['bairro'] ?? '').toString().trim(),
+        'cidade': cidade.toLowerCase(),
+        'estado': estadoUf,
+        'complemento': (dados['complemento'] ?? '').toString().trim(),
+        'data_atualizacao': FieldValue.serverTimestamp(),
+      };
+
+      // Só entrega padrão — não sobrescreve cidade/UF do perfil (vitrine = GPS).
+      await docRef.update({
+        'endereco_entrega_padrao': mapaPadrao,
+      });
+
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          const SnackBar(
+            content: Text('Endereço definido como principal.'),
+            behavior: SnackBarBehavior.floating,
+          ),
+        );
+      }
+    } catch (e) {
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(
+            content: Text('Não foi possível definir como principal: $e'),
+            backgroundColor: Colors.red,
+            behavior: SnackBarBehavior.floating,
+          ),
+        );
+      }
+    }
+  }
+
   Widget _cardEndereco({
     required String titulo,
     required String subtitulo,
     required IconData icone,
     required bool destaque,
-    VoidCallback? onEditar,
+    VoidCallback? onTap,
+    VoidCallback? onTornarPrincipal,
     VoidCallback? onExcluir,
   }) {
     return Container(
@@ -247,96 +325,103 @@ class _MeusEnderecosScreenState extends State<MeusEnderecosScreen> {
           ),
         ],
       ),
-      child: Padding(
-        padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 10),
-        child: Row(
-          crossAxisAlignment: CrossAxisAlignment.start,
-          children: [
-            Container(
-              padding: const EdgeInsets.all(10),
-              decoration: BoxDecoration(
-                color: (destaque ? _diPertinLaranja : _diPertinRoxo)
-                    .withValues(alpha: 0.12),
-                shape: BoxShape.circle,
-              ),
-              child: Icon(
-                icone,
-                color: destaque ? _diPertinLaranja : _diPertinRoxo,
-                size: 22,
-              ),
-            ),
-            const SizedBox(width: 10),
-            Expanded(
-              child: Column(
-                crossAxisAlignment: CrossAxisAlignment.start,
-                children: [
-                  Row(
+      child: Material(
+        color: Colors.transparent,
+        child: InkWell(
+          onTap: onTap,
+          borderRadius: BorderRadius.circular(16),
+          child: Padding(
+            padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 10),
+            child: Row(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                Container(
+                  padding: const EdgeInsets.all(10),
+                  decoration: BoxDecoration(
+                    color: (destaque ? _diPertinLaranja : _diPertinRoxo)
+                        .withValues(alpha: 0.12),
+                    shape: BoxShape.circle,
+                  ),
+                  child: Icon(
+                    icone,
+                    color: destaque ? _diPertinLaranja : _diPertinRoxo,
+                    size: 22,
+                  ),
+                ),
+                const SizedBox(width: 10),
+                Expanded(
+                  child: Column(
+                    crossAxisAlignment: CrossAxisAlignment.start,
                     children: [
-                      Expanded(
-                        child: Text(
-                          titulo,
-                          style: const TextStyle(
-                            fontWeight: FontWeight.w800,
-                            fontSize: 15,
-                            color: Color(0xFF1A1A2E),
-                          ),
-                        ),
-                      ),
-                      if (destaque) ...[
-                        Container(
-                          padding: const EdgeInsets.symmetric(
-                            horizontal: 8,
-                            vertical: 2,
-                          ),
-                          decoration: BoxDecoration(
-                            color: _diPertinLaranja.withValues(alpha: 0.15),
-                            borderRadius: BorderRadius.circular(8),
-                          ),
-                          child: const Text(
-                            'Principal',
-                            style: TextStyle(
-                              fontSize: 11,
-                              fontWeight: FontWeight.w700,
-                              color: _diPertinLaranja,
+                      Row(
+                        children: [
+                          Expanded(
+                            child: Text(
+                              titulo,
+                              style: const TextStyle(
+                                fontWeight: FontWeight.w800,
+                                fontSize: 15,
+                                color: Color(0xFF1A1A2E),
+                              ),
                             ),
                           ),
+                          if (destaque) ...[
+                            Container(
+                              padding: const EdgeInsets.symmetric(
+                                horizontal: 8,
+                                vertical: 2,
+                              ),
+                              decoration: BoxDecoration(
+                                color: _diPertinLaranja.withValues(alpha: 0.15),
+                                borderRadius: BorderRadius.circular(8),
+                              ),
+                              child: const Text(
+                                'Principal',
+                                style: TextStyle(
+                                  fontSize: 11,
+                                  fontWeight: FontWeight.w700,
+                                  color: _diPertinLaranja,
+                                ),
+                              ),
+                            ),
+                          ],
+                        ],
+                      ),
+                      const SizedBox(height: 6),
+                      Text(
+                        subtitulo,
+                        style: TextStyle(
+                          fontSize: 14,
+                          height: 1.4,
+                          color: Colors.grey.shade800,
                         ),
-                      ],
+                      ),
                     ],
                   ),
-                  const SizedBox(height: 6),
-                  Text(
-                    subtitulo,
-                    style: TextStyle(
-                      fontSize: 14,
-                      height: 1.4,
-                      color: Colors.grey.shade800,
-                    ),
+                ),
+                if (onTornarPrincipal != null || onExcluir != null)
+                  Column(
+                    mainAxisSize: MainAxisSize.min,
+                    children: [
+                      if (onTornarPrincipal != null)
+                        IconButton(
+                          tooltip: 'Tornar principal',
+                          onPressed: onTornarPrincipal,
+                          icon: const Icon(Icons.star_border_rounded),
+                          color: _diPertinLaranja,
+                        ),
+                      if (onExcluir != null)
+                        IconButton(
+                          tooltip: 'Excluir',
+                          onPressed: onExcluir,
+                          icon: const Icon(Icons.delete_outline_rounded),
+                          color: Colors.red.shade700,
+                        ),
+                    ],
                   ),
-                ],
-              ),
+              ],
             ),
-            if (onEditar != null || onExcluir != null)
-              Column(
-                mainAxisSize: MainAxisSize.min,
-                children: [
-                  if (onEditar != null)
-                    IconButton(
-                      tooltip: 'Editar',
-                      onPressed: onEditar,
-                      icon: const Icon(Icons.edit_outlined),
-                      color: _diPertinRoxo,
-                    ),
-                  if (onExcluir != null)
-                    IconButton(
-                      tooltip: 'Excluir',
-                      onPressed: onExcluir,
-                      icon: const Icon(Icons.close_rounded),
-                      color: Colors.red.shade700,
-                    ),
-                ],
-              ),
-          ],
+          ),
         ),
       ),
     );
@@ -441,16 +526,47 @@ class _MeusEnderecosScreenState extends State<MeusEnderecosScreen> {
                     final Map<String, dynamic>? enderecoPadrao =
                         temPadrao ? padrao : null;
 
-                    final docsVisiveis = docs.where((doc) {
-                      if (enderecoPadrao == null) return true;
-                      final m = doc.data() as Map<String, dynamic>;
-                      return !_mesmoEndereco(
-                        Map<String, dynamic>.from(m),
-                        enderecoPadrao,
-                      );
-                    }).toList();
+                    final docsData = docs
+                        .map((d) => (
+                              id: d.id,
+                              data: Map<String, dynamic>.from(d.data()! as Map),
+                            ))
+                        .toList();
 
-                    final vazio = enderecoPadrao == null && docsVisiveis.isEmpty;
+                    // Índice do doc que corresponde ao principal (se houver).
+                    int idxPrincipal = -1;
+                    if (enderecoPadrao != null) {
+                      for (var i = 0; i < docsData.length; i++) {
+                        if (_mesmoEndereco(docsData[i].data, enderecoPadrao)) {
+                          idxPrincipal = i;
+                          break;
+                        }
+                      }
+                    }
+
+                    final List<
+                        ({
+                          String? id,
+                          Map<String, dynamic> data,
+                          bool principal
+                        })> itens = [];
+                    // Principal "legado": existe só no perfil, sem doc na lista.
+                    if (enderecoPadrao != null && idxPrincipal == -1) {
+                      itens.add((id: null, data: enderecoPadrao, principal: true));
+                    }
+                    for (var i = 0; i < docsData.length; i++) {
+                      itens.add((
+                        id: docsData[i].id,
+                        data: docsData[i].data,
+                        principal: i == idxPrincipal,
+                      ));
+                    }
+                    // Principal sempre primeiro.
+                    itens.sort(
+                      (a, b) => (b.principal ? 1 : 0) - (a.principal ? 1 : 0),
+                    );
+
+                    final vazio = itens.isEmpty;
 
                     if (vazio) {
                       return Center(
@@ -501,7 +617,7 @@ class _MeusEnderecosScreenState extends State<MeusEnderecosScreen> {
                         ),
                         const SizedBox(height: 8),
                         Text(
-                          'O endereço padrão é usado nas entregas. Você pode salvar outros endereços na lista.',
+                          'Toque em um endereço para editar. Use a estrela para definir o principal (usado nas entregas) e a lixeira para excluir.',
                           style: TextStyle(
                             fontSize: 13,
                             color: Colors.grey.shade600,
@@ -509,40 +625,44 @@ class _MeusEnderecosScreenState extends State<MeusEnderecosScreen> {
                           ),
                         ),
                         const SizedBox(height: 16),
-                        if (enderecoPadrao != null) ...[
-                          _cardEndereco(
-                            titulo: 'Padrão de entrega',
-                            subtitulo: _formatarEnderecoMap(enderecoPadrao),
-                            icone: Icons.star_rounded,
-                            destaque: true,
-                            onEditar: () => _abrirEditarPadrao(enderecoPadrao),
-                            onExcluir: () => _confirmarRemoverPadrao(user.uid),
-                          ),
-                          const SizedBox(height: 12),
-                        ],
-                        ...docsVisiveis.map((doc) {
-                          final m =
-                              Map<String, dynamic>.from(doc.data()! as Map);
-                          final ehPadrao = enderecoPadrao != null &&
-                              _mesmoEndereco(m, enderecoPadrao);
+                        ...itens.map((item) {
                           return Padding(
                             padding: const EdgeInsets.only(bottom: 12),
                             child: _cardEndereco(
-                              titulo: 'Endereço',
-                              subtitulo: _formatarEnderecoMap(m),
-                              icone: Icons.place_outlined,
-                              destaque: false,
-                              onEditar: () => _abrirEditarDocumento(
-                                doc.id,
-                                m,
-                                ehPadraoAtual: ehPadrao,
-                              ),
-                              onExcluir: () => _confirmarExcluirDocumento(
-                                user.uid,
-                                doc.id,
-                                m,
-                                enderecoPadrao,
-                              ),
+                              titulo: item.principal
+                                  ? 'Padrão de entrega'
+                                  : 'Endereço',
+                              subtitulo: _formatarEnderecoMap(item.data),
+                              icone: item.principal
+                                  ? Icons.star_rounded
+                                  : Icons.place_outlined,
+                              destaque: item.principal,
+                              onTap: item.id == null
+                                  ? () => _abrirEditarPadrao(item.data)
+                                  : () => _abrirEditarDocumento(
+                                        item.id!,
+                                        item.data,
+                                        ehPadraoAtual: item.principal,
+                                      ),
+                              // Só endereços não-principais podem virar principal.
+                              onTornarPrincipal: item.principal
+                                  ? null
+                                  : () => _definirComoPrincipal(
+                                        user.uid,
+                                        item.data,
+                                        docsAtuais: docsData
+                                            .map((e) => e.data)
+                                            .toList(),
+                                        padraoAtual: enderecoPadrao,
+                                      ),
+                              onExcluir: item.id == null
+                                  ? () => _confirmarRemoverPadrao(user.uid)
+                                  : () => _confirmarExcluirDocumento(
+                                        user.uid,
+                                        item.id!,
+                                        item.data,
+                                        enderecoPadrao,
+                                      ),
                             ),
                           );
                         }),

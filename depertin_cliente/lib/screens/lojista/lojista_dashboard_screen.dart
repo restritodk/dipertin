@@ -13,12 +13,14 @@ import 'package:depertin_cliente/constants/tipos_entrega.dart';
 import 'package:depertin_cliente/screens/lojista/configuracoes/tipos_entrega_loja_screen.dart';
 import 'package:depertin_cliente/services/conta_bloqueio_lojista_service.dart';
 import 'package:depertin_cliente/utils/lojista_acesso_app.dart';
+import 'package:depertin_cliente/utils/lojista_contagem_novos.dart';
 import 'package:geolocator/geolocator.dart';
 import 'package:intl/intl.dart';
 import 'package:depertin_cliente/screens/lojista/lojista_avaliacoes_screen.dart';
 import 'lojista_pedidos_screen.dart';
 import 'lojista_produtos_screen.dart';
 import 'lojista_config_screen.dart';
+import 'lojista_encomendas_screen.dart';
 
 const Color diPertinLaranja = Color(0xFFFF8F00);
 const Color diPertinRoxo = Color(0xFF6A1B9A);
@@ -58,9 +60,9 @@ class _LojistaDashboardScreenState extends State<LojistaDashboardScreen> {
 
     final String nomeAtual = dados['nome']?.toString() ?? 'Minha Loja';
     try {
-      await FirebaseFirestore.instance.collection('users').doc(_authUid).update({
-        'loja_nome': nomeAtual,
-      });
+      await FirebaseFirestore.instance.collection('users').doc(_authUid).update(
+        {'loja_nome': nomeAtual},
+      );
       _migracaoRealizada = true;
       if (kDebugMode) {
         debugPrint('Zelador: nome migrado para loja_nome.');
@@ -86,9 +88,7 @@ class _LojistaDashboardScreenState extends State<LojistaDashboardScreen> {
     if (permission == LocationPermission.deniedForever) return;
 
     final Position position = await Geolocator.getCurrentPosition(
-      locationSettings: const LocationSettings(
-        accuracy: LocationAccuracy.high,
-      ),
+      locationSettings: const LocationSettings(accuracy: LocationAccuracy.high),
     );
 
     await FirebaseFirestore.instance.collection('users').doc(_authUid).update({
@@ -232,9 +232,7 @@ class _LojistaDashboardScreenState extends State<LojistaDashboardScreen> {
     final bool? confirmar = await showDialog<bool>(
       context: context,
       builder: (ctx) => AlertDialog(
-        shape: RoundedRectangleBorder(
-          borderRadius: BorderRadius.circular(18),
-        ),
+        shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(18)),
         title: Row(
           children: [
             Container(
@@ -320,27 +318,34 @@ class _LojistaDashboardScreenState extends State<LojistaDashboardScreen> {
       return _construirRecusaComBloqueio(dados, bloqueioAte);
     }
 
-    if (ContaBloqueioLojistaService.lojaRecusadaSomenteCorrecaoCadastro(dados)) {
+    if (ContaBloqueioLojistaService.lojaRecusadaSomenteCorrecaoCadastro(
+      dados,
+    )) {
       return Center(
         child: Padding(
           padding: const EdgeInsets.all(30),
           child: Column(
             mainAxisAlignment: MainAxisAlignment.center,
             children: [
-              Icon(Icons.edit_note_rounded, size: 80, color: Colors.red.shade700),
+              Icon(
+                Icons.edit_note_rounded,
+                size: 80,
+                color: Colors.red.shade700,
+              ),
               const SizedBox(height: 20),
               const Text(
                 'Cadastro precisa de ajustes',
-                style: TextStyle(
-                  fontSize: 22,
-                  fontWeight: FontWeight.bold,
-                ),
+                style: TextStyle(fontSize: 22, fontWeight: FontWeight.bold),
               ),
               const SizedBox(height: 10),
               Text(
                 'Abra o perfil e use «Corrigir cadastro da loja» para enviar os documentos novamente.',
                 textAlign: TextAlign.center,
-                style: TextStyle(color: Colors.grey.shade700, fontSize: 16, height: 1.4),
+                style: TextStyle(
+                  color: Colors.grey.shade700,
+                  fontSize: 16,
+                  height: 1.4,
+                ),
               ),
             ],
           ),
@@ -359,10 +364,7 @@ class _LojistaDashboardScreenState extends State<LojistaDashboardScreen> {
               const SizedBox(height: 20),
               const Text(
                 'Aprovação pendente',
-                style: TextStyle(
-                  fontSize: 24,
-                  fontWeight: FontWeight.bold,
-                ),
+                style: TextStyle(fontSize: 24, fontWeight: FontWeight.bold),
               ),
               const SizedBox(height: 10),
               const Text(
@@ -383,9 +385,7 @@ class _LojistaDashboardScreenState extends State<LojistaDashboardScreen> {
     return CustomScrollView(
       physics: const BouncingScrollPhysics(),
       slivers: [
-        SliverToBoxAdapter(
-          child: _heroHeader(nomeParaExibir, lojaAberta),
-        ),
+        SliverToBoxAdapter(child: _heroHeader(nomeParaExibir, lojaAberta)),
         SliverPadding(
           padding: const EdgeInsets.fromLTRB(20, 20, 20, 28),
           sliver: SliverToBoxAdapter(
@@ -394,51 +394,78 @@ class _LojistaDashboardScreenState extends State<LojistaDashboardScreen> {
                   .collection('pedidos')
                   .where('loja_id', isEqualTo: _uidLoja)
                   .snapshots(),
-              builder: (context, snapshot) {
-                final carregando =
-                    snapshot.connectionState == ConnectionState.waiting &&
-                        !snapshot.hasData;
+              builder: (context, snapshotPedidos) {
+                final carregandoPedidos =
+                    snapshotPedidos.connectionState ==
+                        ConnectionState.waiting &&
+                    !snapshotPedidos.hasData;
 
-                int novos = 0;
+                final pedidosDocs = snapshotPedidos.data?.docs ?? [];
+                int novosPedidos = 0;
                 int andamento = 0;
-                if (!carregando) {
-                  final docs = snapshot.data?.docs ?? [];
-                  for (final doc in docs) {
-                    final m = doc.data() as Map<String, dynamic>;
-                    final s = m['status'] ?? 'pendente';
-                    if (s == 'pendente') {
-                      novos++;
-                    } else if (_statusAndamento.contains(s)) {
-                      andamento++;
-                    }
+                if (!carregandoPedidos) {
+                  novosPedidos = LojistaContagemNovos.contarPedidosNovos(
+                    pedidosDocs,
+                  );
+                  for (final doc in pedidosDocs) {
+                    final s = ((doc.data() as Map)['status'] ?? 'pendente')
+                        .toString();
+                    if (_statusAndamento.contains(s)) andamento++;
                   }
                 }
 
-                final _AlertaIncompat? alertaIncompat =
-                    _AlertaIncompat.deDados(dados);
+                return StreamBuilder<QuerySnapshot<Map<String, dynamic>>>(
+                  stream: FirebaseFirestore.instance
+                      .collection('encomendas')
+                      .where('loja_id', isEqualTo: _uidLoja)
+                      .snapshots(),
+                  builder: (context, snapshotEncomendas) {
+                    final carregandoEncomendas =
+                        snapshotEncomendas.connectionState ==
+                            ConnectionState.waiting &&
+                        !snapshotEncomendas.hasData;
+                    final carregando = carregandoPedidos || carregandoEncomendas;
 
-                return Column(
-                  crossAxisAlignment: CrossAxisAlignment.stretch,
-                  children: [
-                    if (TiposEntrega.lerDeDoc(dados).isEmpty)
-                      _alertaTiposEntregaPendente()
-                    else if (alertaIncompat != null && alertaIncompat.ativo)
-                      _alertaTiposEntregaIncompat(alertaIncompat),
-                    _linhaKpis(
-                      novos: carregando ? null : novos,
-                      andamento: carregando ? null : andamento,
-                    ),
-                    const SizedBox(height: 28),
-                    _tituloSecao('GESTÃO', 'O que você deseja gerenciar?'),
-                    const SizedBox(height: 16),
-                    ..._menusLojistaPorNivel(
-                      dados,
-                      badgeNovos: !carregando && novos > 0 ? novos : null,
-                    ),
-                    const SizedBox(height: 24),
-                    _bannerPainelWeb(),
-                    const SizedBox(height: 12),
-                  ],
+                    final encomendaDocs = snapshotEncomendas.data?.docs ?? [];
+                    final novosEncomendas =
+                        LojistaContagemNovos.contarEncomendasNovas(
+                          encomendaDocs,
+                        );
+                    final novosTotal = novosPedidos + novosEncomendas;
+
+                    final _AlertaIncompat? alertaIncompat =
+                        _AlertaIncompat.deDados(dados);
+                    return Column(
+                      crossAxisAlignment: CrossAxisAlignment.stretch,
+                      children: [
+                        if (TiposEntrega.lerDeDoc(dados).isEmpty)
+                          _alertaTiposEntregaPendente()
+                        else if (alertaIncompat != null && alertaIncompat.ativo)
+                          _alertaTiposEntregaIncompat(alertaIncompat),
+                        _linhaKpis(
+                          novos: carregando ? null : novosTotal,
+                          andamento: carregandoPedidos ? null : andamento,
+                        ),
+                        const SizedBox(height: 28),
+                        _tituloSecao('GESTÃO', 'O que você deseja gerenciar?'),
+                        const SizedBox(height: 16),
+                        Column(
+                          children: _menusLojistaPorNivel(
+                            dados,
+                            badgeNovos: !carregandoPedidos && novosPedidos > 0
+                                ? novosPedidos
+                                : null,
+                            badgeEncomendas: novosEncomendas > 0
+                                ? novosEncomendas
+                                : null,
+                          ),
+                        ),
+                        const SizedBox(height: 24),
+                        _bannerPainelWeb(),
+                        const SizedBox(height: 12),
+                      ],
+                    );
+                  },
                 );
               },
             ),
@@ -528,9 +555,7 @@ class _LojistaDashboardScreenState extends State<LojistaDashboardScreen> {
         height: size,
         decoration: BoxDecoration(
           shape: BoxShape.circle,
-          gradient: RadialGradient(
-            colors: [cor, cor.withValues(alpha: 0)],
-          ),
+          gradient: RadialGradient(colors: [cor, cor.withValues(alpha: 0)]),
         ),
       ),
     );
@@ -792,10 +817,7 @@ class _LojistaDashboardScreenState extends State<LojistaDashboardScreen> {
   /// Não zera o contador — preserva o histórico.
   Future<void> _dispensarAlertaIncompat() async {
     try {
-      await FirebaseFirestore.instance
-          .collection('users')
-          .doc(_uidLoja)
-          .set({
+      await FirebaseFirestore.instance.collection('users').doc(_uidLoja).set({
         'alerta_tipos_entrega_incompat': {
           'dispensado_em': FieldValue.serverTimestamp(),
         },
@@ -809,9 +831,9 @@ class _LojistaDashboardScreenState extends State<LojistaDashboardScreen> {
       );
     } catch (e) {
       if (!mounted) return;
-      ScaffoldMessenger.of(context).showSnackBar(
-        SnackBar(content: Text('Falha ao dispensar: $e')),
-      );
+      ScaffoldMessenger.of(
+        context,
+      ).showSnackBar(SnackBar(content: Text('Falha ao dispensar: $e')));
     }
   }
 
@@ -1031,53 +1053,75 @@ class _LojistaDashboardScreenState extends State<LojistaDashboardScreen> {
   List<Widget> _menusLojistaPorNivel(
     Map<String, dynamic> dados, {
     int? badgeNovos,
+    int? badgeEncomendas,
   }) {
     final itens = <Widget>[];
 
     // Nível 1+: Pedidos (todos veem)
-    itens.add(_buildMenuCard(
-      context,
-      titulo: 'Gestão de pedidos',
-      subtitulo: 'Aceite, recuse e acompanhe entregas',
-      icone: Icons.receipt_long_rounded,
-      cor: const Color(0xFF2E6BE6),
-      telaDestino: LojistaPedidosScreen(uidLoja: _uidLoja),
-      badgeCount: badgeNovos,
-    ));
+    itens.add(
+      _buildMenuCard(
+        context,
+        titulo: 'Gestão de pedidos',
+        subtitulo: 'Aceite, recuse e acompanhe entregas',
+        icone: Icons.receipt_long_rounded,
+        cor: const Color(0xFF2E6BE6),
+        telaDestino: LojistaPedidosScreen(uidLoja: _uidLoja),
+        badgeCount: badgeNovos,
+      ),
+    );
+
+    itens.add(const SizedBox(height: 12));
+    itens.add(
+      _buildMenuCard(
+        context,
+        titulo: 'Encomendas',
+        subtitulo: 'Propostas e mensagens de clientes',
+        icone: Icons.handshake_outlined,
+        cor: const Color(0xFF5E35B1),
+        telaDestino: LojistaEncomendasScreen(uidLoja: _uidLoja),
+        badgeCount: badgeEncomendas,
+      ),
+    );
 
     // Nível 2+: Produtos
     if (_nivel >= 2) {
       itens.add(const SizedBox(height: 12));
-      itens.add(_buildMenuCard(
-        context,
-        titulo: 'Meu estoque',
-        subtitulo: 'Cadastre e edite seus produtos',
-        icone: Icons.inventory_2_rounded,
-        cor: const Color(0xFF0F9D8A),
-        telaDestino: LojistaProdutosScreen(uidLoja: _uidLoja),
-      ));
+      itens.add(
+        _buildMenuCard(
+          context,
+          titulo: 'Meu estoque',
+          subtitulo: 'Cadastre e edite seus produtos',
+          icone: Icons.inventory_2_rounded,
+          cor: const Color(0xFF0F9D8A),
+          telaDestino: LojistaProdutosScreen(uidLoja: _uidLoja),
+        ),
+      );
     }
 
     // Nível 3: Config + Avaliações
     if (_nivel >= 3) {
       itens.add(const SizedBox(height: 12));
-      itens.add(_buildMenuCard(
-        context,
-        titulo: 'Configurações da loja',
-        subtitulo: 'Horários, nome e status de funcionamento',
-        icone: Icons.storefront_rounded,
-        cor: diPertinRoxo,
-        telaDestino: LojistaConfigScreen(dadosAtuaisDaLoja: dados),
-      ));
+      itens.add(
+        _buildMenuCard(
+          context,
+          titulo: 'Configurações da loja',
+          subtitulo: 'Horários, nome e status de funcionamento',
+          icone: Icons.storefront_rounded,
+          cor: diPertinRoxo,
+          telaDestino: LojistaConfigScreen(dadosAtuaisDaLoja: dados),
+        ),
+      );
       itens.add(const SizedBox(height: 12));
-      itens.add(_buildMenuCard(
-        context,
-        titulo: 'Avaliações de clientes',
-        subtitulo: 'Feedbacks e notas da sua loja',
-        icone: Icons.star_rounded,
-        cor: const Color(0xFFE5A21B),
-        telaDestino: LojistaAvaliacoesScreen(uidLoja: _uidLoja),
-      ));
+      itens.add(
+        _buildMenuCard(
+          context,
+          titulo: 'Avaliações de clientes',
+          subtitulo: 'Feedbacks e notas da sua loja',
+          icone: Icons.star_rounded,
+          cor: const Color(0xFFE5A21B),
+          telaDestino: LojistaAvaliacoesScreen(uidLoja: _uidLoja),
+        ),
+      );
     }
 
     return itens;
@@ -1094,7 +1138,9 @@ class _LojistaDashboardScreenState extends State<LojistaDashboardScreen> {
     final codigo = LojistaMotivoRecusa.codigoDoDocumento(dados);
     final rotulo = codigo != null ? LojistaMotivoRecusa.rotulo(codigo) : null;
     final mensagem = (dados['motivo_recusa'] ?? '').toString().trim();
-    final descricao = (dados['motivo_recusa_descricao'] ?? '').toString().trim();
+    final descricao = (dados['motivo_recusa_descricao'] ?? '')
+        .toString()
+        .trim();
 
     return SingleChildScrollView(
       padding: const EdgeInsets.all(24),
@@ -1150,8 +1196,11 @@ class _LojistaDashboardScreenState extends State<LojistaDashboardScreen> {
               children: [
                 Row(
                   children: [
-                    Icon(Icons.info_outline,
-                        color: Colors.red.shade700, size: 20),
+                    Icon(
+                      Icons.info_outline,
+                      color: Colors.red.shade700,
+                      size: 20,
+                    ),
                     const SizedBox(width: 8),
                     Text(
                       'Motivo da recusa',
@@ -1206,16 +1255,17 @@ class _LojistaDashboardScreenState extends State<LojistaDashboardScreen> {
             padding: const EdgeInsets.all(16),
             decoration: BoxDecoration(
               color: diPertinRoxo.withValues(alpha: 0.06),
-              border: Border.all(
-                color: diPertinRoxo.withValues(alpha: 0.25),
-              ),
+              border: Border.all(color: diPertinRoxo.withValues(alpha: 0.25)),
               borderRadius: BorderRadius.circular(12),
             ),
             child: Row(
               crossAxisAlignment: CrossAxisAlignment.start,
               children: [
-                const Icon(Icons.event_available_outlined,
-                    color: diPertinRoxo, size: 22),
+                const Icon(
+                  Icons.event_available_outlined,
+                  color: diPertinRoxo,
+                  size: 22,
+                ),
                 const SizedBox(width: 10),
                 Expanded(
                   child: RichText(
@@ -1365,8 +1415,9 @@ class _LojistaDashboardScreenState extends State<LojistaDashboardScreen> {
                             border: Border.all(color: Colors.white, width: 2),
                             boxShadow: [
                               BoxShadow(
-                                color: const Color(0xFFE53935)
-                                    .withValues(alpha: 0.35),
+                                color: const Color(
+                                  0xFFE53935,
+                                ).withValues(alpha: 0.35),
                                 blurRadius: 8,
                                 offset: const Offset(0, 2),
                               ),
@@ -1551,8 +1602,9 @@ class _AlertaIncompat {
           )
         : <String>[];
     return _AlertaIncompat(
-      totalUltimos30d:
-          (m['total_ultimos_30d'] is num) ? (m['total_ultimos_30d'] as num).toInt() : 0,
+      totalUltimos30d: (m['total_ultimos_30d'] is num)
+          ? (m['total_ultimos_30d'] as num).toInt()
+          : 0,
       ultimoEm: ts(m['ultimo_em']),
       dispensadoEm: ts(m['dispensado_em']),
       ultimoPedidoId: m['ultimo_pedido_id']?.toString() ?? '',

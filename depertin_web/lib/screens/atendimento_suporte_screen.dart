@@ -1,6 +1,8 @@
 // Atendimento / suporte — support_tickets (protocolo, fila, chat em tempo real)
 
 import 'package:cloud_firestore/cloud_firestore.dart';
+import 'package:depertin_web/constants/suporte_categorias.dart';
+import 'package:depertin_web/theme/painel_admin_theme.dart';
 import 'package:depertin_web/utils/admin_perfil.dart';
 import 'package:file_picker/file_picker.dart';
 import 'package:firebase_auth/firebase_auth.dart';
@@ -53,6 +55,42 @@ String iniciaisNomeSuporte(String nome) {
       .toUpperCase();
 }
 
+String _rotuloPerfilSolicitante(String perfil) {
+  switch (perfil.trim().toLowerCase()) {
+    case 'lojista':
+      return 'Lojista';
+    case 'entregador':
+      return 'Entregador';
+    case 'cliente':
+    default:
+      return 'Cliente';
+  }
+}
+
+IconData _iconePerfilSolicitante(String perfil) {
+  switch (perfil.trim().toLowerCase()) {
+    case 'lojista':
+      return Icons.storefront_rounded;
+    case 'entregador':
+      return Icons.delivery_dining_rounded;
+    case 'cliente':
+    default:
+      return Icons.person_rounded;
+  }
+}
+
+Color _corPerfilSolicitante(String perfil) {
+  switch (perfil.trim().toLowerCase()) {
+    case 'lojista':
+      return PainelAdminTheme.roxo;
+    case 'entregador':
+      return const Color(0xFF0F766E);
+    case 'cliente':
+    default:
+      return PainelAdminTheme.laranja;
+  }
+}
+
 class AtendimentoSuporteScreen extends StatefulWidget {
   const AtendimentoSuporteScreen({super.key});
 
@@ -62,8 +100,8 @@ class AtendimentoSuporteScreen extends StatefulWidget {
 }
 
 class _AtendimentoSuporteScreenState extends State<AtendimentoSuporteScreen> {
-  final Color diPertinRoxo = const Color(0xFF6A1B9A);
-  final Color diPertinLaranja = const Color(0xFFFF8F00);
+  static const Color diPertinRoxo = PainelAdminTheme.roxo;
+  static const Color diPertinLaranja = PainelAdminTheme.laranja;
 
   String? _selecionadoId;
   String? _selecionadoNome;
@@ -88,14 +126,18 @@ class _AtendimentoSuporteScreenState extends State<AtendimentoSuporteScreen> {
   Future<void> _buscarDadosDoAdmin() async {
     final user = FirebaseAuth.instance.currentUser;
     if (user != null) {
-      final docSnap =
-          await FirebaseFirestore.instance.collection('users').doc(user.uid).get();
+      final docSnap = await FirebaseFirestore.instance
+          .collection('users')
+          .doc(user.uid)
+          .get();
       if (docSnap.exists) {
         final dados = docSnap.data()!;
         setState(() {
           _tipoUsuarioLogado = perfilAdministrativo(dados);
-          _cidadeLogado =
-              (dados['cidade'] ?? '').toString().trim().toLowerCase();
+          _cidadeLogado = (dados['cidade'] ?? '')
+              .toString()
+              .trim()
+              .toLowerCase();
         });
       }
     }
@@ -106,7 +148,10 @@ class _AtendimentoSuporteScreenState extends State<AtendimentoSuporteScreen> {
         .collection('support_tickets')
         .where('status', isEqualTo: _kWaiting);
     if (_tipoUsuarioLogado == 'master_city') {
-      q = q.where('cidade', isEqualTo: _cidadeLogado.isEmpty ? '—' : _cidadeLogado);
+      q = q.where(
+        'cidade',
+        isEqualTo: _cidadeLogado.isEmpty ? '—' : _cidadeLogado,
+      );
     }
     return q.orderBy('created_at', descending: false);
   }
@@ -116,7 +161,10 @@ class _AtendimentoSuporteScreenState extends State<AtendimentoSuporteScreen> {
         .collection('support_tickets')
         .where('status', isEqualTo: _kInProgress);
     if (_tipoUsuarioLogado == 'master_city') {
-      q = q.where('cidade', isEqualTo: _cidadeLogado.isEmpty ? '—' : _cidadeLogado);
+      q = q.where(
+        'cidade',
+        isEqualTo: _cidadeLogado.isEmpty ? '—' : _cidadeLogado,
+      );
     }
     return q.orderBy('updated_at', descending: true);
   }
@@ -127,7 +175,10 @@ class _AtendimentoSuporteScreenState extends State<AtendimentoSuporteScreen> {
         .collection('support_tickets')
         .where('status', whereIn: _kHistoricoStatuses);
     if (_tipoUsuarioLogado == 'master_city') {
-      q = q.where('cidade', isEqualTo: _cidadeLogado.isEmpty ? '—' : _cidadeLogado);
+      q = q.where(
+        'cidade',
+        isEqualTo: _cidadeLogado.isEmpty ? '—' : _cidadeLogado,
+      );
     }
     return q.orderBy('updated_at', descending: true).limit(400);
   }
@@ -167,8 +218,9 @@ class _AtendimentoSuporteScreenState extends State<AtendimentoSuporteScreen> {
 
     final nomeAdmin = await _nomeAtendente(user.uid);
 
-    final ref =
-        FirebaseFirestore.instance.collection('support_tickets').doc(id);
+    final ref = FirebaseFirestore.instance
+        .collection('support_tickets')
+        .doc(id);
     try {
       await FirebaseFirestore.instance.runTransaction((tx) async {
         final s = await tx.get(ref);
@@ -186,7 +238,8 @@ class _AtendimentoSuporteScreenState extends State<AtendimentoSuporteScreen> {
         final prev = (d['first_message_preview'] ?? '').toString().trim();
         if (cat.isEmpty && prev.isNotEmpty) {
           throw Exception(
-            'Aguarde o cliente escolher a categoria do atendimento no app.',
+            'Categoria ainda não registrada: peça ao cliente para escolher na '
+            'Central de Ajuda ou defina pelo botão «Definir categoria» no painel.',
           );
         }
         tx.update(ref, {
@@ -207,7 +260,119 @@ class _AtendimentoSuporteScreenState extends State<AtendimentoSuporteScreen> {
       });
 
       if (mounted) {
-        mostrarSnackPainel(context, mensagem: 'Atendimento iniciado com sucesso.');
+        mostrarSnackPainel(
+          context,
+          mensagem: 'Atendimento iniciado com sucesso.',
+        );
+      }
+    } catch (e) {
+      if (mounted) {
+        mostrarSnackPainel(context, mensagem: '$e', erro: true);
+      }
+    }
+  }
+
+  Future<void> _definirCategoriaPeloPainel() async {
+    final id = _selecionadoId;
+    if (id == null) return;
+
+    var codigoEscolhido = SuporteCategorias.opcoes.first.codigo;
+
+    final confirmado = await showDialog<bool>(
+      context: context,
+      builder: (ctx) {
+        return StatefulBuilder(
+          builder: (context, setLocal) {
+            return AlertDialog(
+              title: const Text('Definir categoria'),
+              content: ConstrainedBox(
+                constraints: const BoxConstraints(maxWidth: 420),
+                child: Column(
+                  mainAxisSize: MainAxisSize.min,
+                  crossAxisAlignment: CrossAxisAlignment.stretch,
+                  children: [
+                    Text(
+                      'Este chamado tem mensagem do cliente, mas a categoria '
+                      'ainda não foi registrada (fluxo normal da Central de Ajuda '
+                      'no app). Defina a categoria aqui para liberar '
+                      '«Iniciar atendimento».',
+                      style: TextStyle(
+                        fontSize: 14,
+                        height: 1.45,
+                        color: PainelAdminTheme.textoSecundario,
+                      ),
+                    ),
+                    const SizedBox(height: 18),
+                    InputDecorator(
+                      decoration: const InputDecoration(
+                        labelText: 'Categoria',
+                        border: OutlineInputBorder(),
+                        contentPadding: EdgeInsets.symmetric(
+                          horizontal: 12,
+                          vertical: 4,
+                        ),
+                      ),
+                      child: DropdownButtonHideUnderline(
+                        child: DropdownButton<String>(
+                          isExpanded: true,
+                          value: codigoEscolhido,
+                          items: [
+                            for (final o in SuporteCategorias.opcoes)
+                              DropdownMenuItem<String>(
+                                value: o.codigo,
+                                child: Text(o.rotulo),
+                              ),
+                          ],
+                          onChanged: (v) {
+                            if (v != null) {
+                              setLocal(() => codigoEscolhido = v);
+                            }
+                          },
+                        ),
+                      ),
+                    ),
+                  ],
+                ),
+              ),
+              actions: [
+                TextButton(
+                  onPressed: () => Navigator.pop(ctx, false),
+                  child: const Text('Cancelar'),
+                ),
+                FilledButton(
+                  onPressed: () => Navigator.pop(ctx, true),
+                  style: FilledButton.styleFrom(
+                    backgroundColor: PainelAdminTheme.laranja,
+                    foregroundColor: Colors.white,
+                  ),
+                  child: const Text('Salvar'),
+                ),
+              ],
+            );
+          },
+        );
+      },
+    );
+
+    if (confirmado != true || !mounted) return;
+
+    final codigoOk = SuporteCategorias.codigoValido(codigoEscolhido);
+    if (codigoOk == null) return;
+
+    try {
+      await FirebaseFirestore.instance
+          .collection('support_tickets')
+          .doc(id)
+          .update({
+            'categoria_suporte': codigoOk,
+            'categoria_label': SuporteCategorias.rotuloPorCodigo(codigoOk),
+            'updated_at': FieldValue.serverTimestamp(),
+          });
+      if (mounted) {
+        mostrarSnackPainel(
+          context,
+          mensagem: 'Categoria registrada. Você já pode iniciar o atendimento.',
+        );
       }
     } catch (e) {
       if (mounted) {
@@ -217,8 +382,10 @@ class _AtendimentoSuporteScreenState extends State<AtendimentoSuporteScreen> {
   }
 
   Future<String> _nomeAtendente(String uid) async {
-    final doc =
-        await FirebaseFirestore.instance.collection('users').doc(uid).get();
+    final doc = await FirebaseFirestore.instance
+        .collection('users')
+        .doc(uid)
+        .get();
     final n = doc.data()?['nome'];
     if (n != null && n.toString().trim().isNotEmpty) return n.toString().trim();
     return 'Atendente';
@@ -233,8 +400,9 @@ class _AtendimentoSuporteScreenState extends State<AtendimentoSuporteScreen> {
     final uid = FirebaseAuth.instance.currentUser?.uid;
     if (uid == null) return;
 
-    final ticketRef =
-        FirebaseFirestore.instance.collection('support_tickets').doc(id);
+    final ticketRef = FirebaseFirestore.instance
+        .collection('support_tickets')
+        .doc(id);
     final snap = await ticketRef.get();
     if (!snap.exists) return;
     final d = snap.data()!;
@@ -258,9 +426,7 @@ class _AtendimentoSuporteScreenState extends State<AtendimentoSuporteScreen> {
         'is_read': false,
         'created_at': FieldValue.serverTimestamp(),
       });
-      await ticketRef.update({
-        'updated_at': FieldValue.serverTimestamp(),
-      });
+      await ticketRef.update({'updated_at': FieldValue.serverTimestamp()});
     } catch (e) {
       if (mounted) {
         mostrarSnackPainel(context, mensagem: 'Erro ao enviar: $e', erro: true);
@@ -277,8 +443,9 @@ class _AtendimentoSuporteScreenState extends State<AtendimentoSuporteScreen> {
     final uid = FirebaseAuth.instance.currentUser?.uid;
     if (uid == null) return;
 
-    final ticketRef =
-        FirebaseFirestore.instance.collection('support_tickets').doc(id);
+    final ticketRef = FirebaseFirestore.instance
+        .collection('support_tickets')
+        .doc(id);
     final snap = await ticketRef.get();
     if (!snap.exists) return;
     final d = snap.data()!;
@@ -358,9 +525,7 @@ class _AtendimentoSuporteScreenState extends State<AtendimentoSuporteScreen> {
         'anexo_mime': mime,
         'anexo_tamanho': picked.size,
       });
-      await ticketRef.update({
-        'updated_at': FieldValue.serverTimestamp(),
-      });
+      await ticketRef.update({'updated_at': FieldValue.serverTimestamp()});
     } catch (e) {
       if (mounted) {
         mostrarSnackPainel(
@@ -397,7 +562,9 @@ class _AtendimentoSuporteScreenState extends State<AtendimentoSuporteScreen> {
   String _sanitizarNomeSuporte(String nome) {
     final limpo = nome.replaceAll(RegExp(r'[^A-Za-z0-9._-]'), '_');
     if (limpo.length <= 80) return limpo;
-    final ext = limpo.contains('.') ? limpo.substring(limpo.lastIndexOf('.')) : '';
+    final ext = limpo.contains('.')
+        ? limpo.substring(limpo.lastIndexOf('.'))
+        : '';
     return '${limpo.substring(0, 80 - ext.length)}$ext';
   }
 
@@ -432,10 +599,7 @@ class _AtendimentoSuporteScreenState extends State<AtendimentoSuporteScreen> {
         child: ClipRRect(
           borderRadius: BorderRadius.circular(10),
           child: ConstrainedBox(
-            constraints: const BoxConstraints(
-              maxHeight: 260,
-              minWidth: 200,
-            ),
+            constraints: const BoxConstraints(maxHeight: 260, minWidth: 200),
             child: Image.network(
               url,
               fit: BoxFit.cover,
@@ -449,7 +613,7 @@ class _AtendimentoSuporteScreenState extends State<AtendimentoSuporteScreen> {
                   child: const CircularProgressIndicator(strokeWidth: 2),
                 );
               },
-              errorBuilder: (_, __, ___) => Container(
+              errorBuilder: (_, _, _) => Container(
                 height: 140,
                 width: 200,
                 color: Colors.black.withValues(alpha: 0.15),
@@ -461,8 +625,9 @@ class _AtendimentoSuporteScreenState extends State<AtendimentoSuporteScreen> {
         ),
       );
     } else {
-      final corFundo =
-          fg == Colors.white ? Colors.white.withValues(alpha: 0.18) : Colors.grey[300]!;
+      final corFundo = fg == Colors.white
+          ? Colors.white.withValues(alpha: 0.18)
+          : Colors.grey[300]!;
       anexoWidget = InkWell(
         onTap: () => _abrirAnexoSuporte(url),
         borderRadius: BorderRadius.circular(10),
@@ -486,10 +651,7 @@ class _AtendimentoSuporteScreenState extends State<AtendimentoSuporteScreen> {
                       nome,
                       maxLines: 2,
                       overflow: TextOverflow.ellipsis,
-                      style: TextStyle(
-                        color: fg,
-                        fontWeight: FontWeight.w600,
-                      ),
+                      style: TextStyle(color: fg, fontWeight: FontWeight.w600),
                     ),
                     const SizedBox(height: 2),
                     Text(
@@ -546,8 +708,11 @@ class _AtendimentoSuporteScreenState extends State<AtendimentoSuporteScreen> {
             color: Colors.amber.shade50,
             child: Row(
               children: [
-                Icon(Icons.hourglass_bottom,
-                    size: 16, color: Colors.amber[800]),
+                Icon(
+                  Icons.hourglass_bottom,
+                  size: 16,
+                  color: Colors.amber[800],
+                ),
                 const SizedBox(width: 8),
                 Text(
                   'Aguardando avaliação do cliente…',
@@ -574,7 +739,7 @@ class _AtendimentoSuporteScreenState extends State<AtendimentoSuporteScreen> {
           decoration: BoxDecoration(
             color: const Color(0xFFF6F0FB),
             border: Border(
-              bottom: BorderSide(color: diPertinRoxo.withOpacity(0.15)),
+              bottom: BorderSide(color: diPertinRoxo.withValues(alpha: 0.15)),
             ),
           ),
           child: Row(
@@ -602,7 +767,9 @@ class _AtendimentoSuporteScreenState extends State<AtendimentoSuporteScreen> {
                           children: List.generate(5, (i) {
                             final ativa = i < rating;
                             return Icon(
-                              ativa ? Icons.star_rounded : Icons.star_border_rounded,
+                              ativa
+                                  ? Icons.star_rounded
+                                  : Icons.star_border_rounded,
                               color: diPertinLaranja,
                               size: 18,
                             );
@@ -647,6 +814,117 @@ class _AtendimentoSuporteScreenState extends State<AtendimentoSuporteScreen> {
           ),
         );
       },
+    );
+  }
+
+  Widget _chipStatusSuporte(
+    BuildContext context, {
+    required bool aguardando,
+    required bool emAndamento,
+    required bool encerrado,
+  }) {
+    late String rotulo;
+    late Color bg;
+    late Color fg;
+    late IconData ic;
+    if (aguardando) {
+      rotulo = 'Na fila';
+      ic = Icons.schedule_rounded;
+      bg = PainelAdminTheme.laranja.withValues(alpha: 0.14);
+      fg = const Color(0xFFB45309);
+    } else if (emAndamento) {
+      rotulo = 'Em atendimento';
+      ic = Icons.headset_mic_rounded;
+      bg = const Color(0xFFDBEAFE);
+      fg = const Color(0xFF1D4ED8);
+    } else if (encerrado) {
+      rotulo = 'Encerrado';
+      ic = Icons.check_circle_outline_rounded;
+      bg = const Color(0xFFD1FAE5);
+      fg = const Color(0xFF047857);
+    } else {
+      rotulo = 'Status';
+      ic = Icons.info_outline_rounded;
+      bg = Colors.grey.shade200;
+      fg = Colors.grey.shade800;
+    }
+    return Chip(
+      avatar: Icon(ic, size: 16, color: fg),
+      label: Text(
+        rotulo,
+        style: TextStyle(fontSize: 12, fontWeight: FontWeight.w700, color: fg),
+      ),
+      backgroundColor: bg,
+      side: BorderSide.none,
+      visualDensity: VisualDensity.compact,
+      padding: const EdgeInsets.symmetric(horizontal: 8),
+    );
+  }
+
+  Widget _chipPerfilSolicitante(String perfil) {
+    final cor = _corPerfilSolicitante(perfil);
+    return Chip(
+      avatar: Icon(_iconePerfilSolicitante(perfil), size: 16, color: cor),
+      label: Text(
+        _rotuloPerfilSolicitante(perfil),
+        style: TextStyle(fontSize: 12, fontWeight: FontWeight.w700, color: cor),
+      ),
+      backgroundColor: cor.withValues(alpha: 0.10),
+      side: BorderSide.none,
+      visualDensity: VisualDensity.compact,
+      padding: const EdgeInsets.symmetric(horizontal: 8),
+    );
+  }
+
+  Widget _resumoSolicitanteSuporte({
+    required String perfil,
+    required String email,
+    required String telefone,
+    required String documento,
+    required String lojaNome,
+    required String cidade,
+  }) {
+    final itens = <Widget>[
+      if (email.isNotEmpty) _miniDadoSolicitante(Icons.email_outlined, email),
+      if (telefone.isNotEmpty)
+        _miniDadoSolicitante(Icons.phone_outlined, telefone),
+      if (documento.isNotEmpty)
+        _miniDadoSolicitante(
+          Icons.badge_outlined,
+          perfil == 'lojista' ? 'Documento: $documento' : 'CPF: $documento',
+        ),
+      if (perfil == 'lojista' && lojaNome.isNotEmpty)
+        _miniDadoSolicitante(Icons.storefront_outlined, lojaNome),
+      if (cidade.isNotEmpty && cidade != '—')
+        _miniDadoSolicitante(Icons.location_city_outlined, cidade),
+    ];
+    if (itens.isEmpty) return const SizedBox.shrink();
+    return Wrap(spacing: 8, runSpacing: 8, children: itens);
+  }
+
+  Widget _miniDadoSolicitante(IconData icon, String texto) {
+    return Container(
+      padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 6),
+      decoration: BoxDecoration(
+        color: PainelAdminTheme.fundoCanvas,
+        borderRadius: BorderRadius.circular(999),
+        border: Border.all(color: PainelAdminTheme.dashboardBorder),
+      ),
+      child: Row(
+        mainAxisSize: MainAxisSize.min,
+        children: [
+          Icon(icon, size: 14, color: PainelAdminTheme.textoSecundario),
+          const SizedBox(width: 5),
+          Text(
+            texto,
+            style: const TextStyle(
+              fontSize: 12,
+              fontWeight: FontWeight.w600,
+              color: PainelAdminTheme.textoSecundario,
+            ),
+          ),
+        ],
+      ),
     );
   }
 
@@ -695,8 +973,9 @@ class _AtendimentoSuporteScreenState extends State<AtendimentoSuporteScreen> {
     );
     if (confirma != true) return;
 
-    final ref =
-        FirebaseFirestore.instance.collection('support_tickets').doc(id);
+    final ref = FirebaseFirestore.instance
+        .collection('support_tickets')
+        .doc(id);
 
     try {
       // 1) Assume a titularidade como atendente e muda status para in_progress.
@@ -749,8 +1028,9 @@ class _AtendimentoSuporteScreenState extends State<AtendimentoSuporteScreen> {
     final uid = FirebaseAuth.instance.currentUser?.uid;
     if (uid == null) return;
 
-    final ref =
-        FirebaseFirestore.instance.collection('support_tickets').doc(id);
+    final ref = FirebaseFirestore.instance
+        .collection('support_tickets')
+        .doc(id);
     try {
       // Mensagem de sistema ANTES de fechar o ticket: as regras exigem
       // status in_progress para criar mensagem de staff.
@@ -870,7 +1150,9 @@ class _AtendimentoSuporteScreenState extends State<AtendimentoSuporteScreen> {
                             onPressed: () async {
                               try {
                                 await FirebaseAuth.instance
-                                    .sendPasswordResetEmail(email: emailUsuario);
+                                    .sendPasswordResetEmail(
+                                      email: emailUsuario,
+                                    );
                                 if (context.mounted) {
                                   Navigator.pop(context);
                                   mostrarSnackPainel(
@@ -889,7 +1171,10 @@ class _AtendimentoSuporteScreenState extends State<AtendimentoSuporteScreen> {
                                 }
                               }
                             },
-                            icon: const Icon(Icons.lock_reset, color: Colors.red),
+                            icon: const Icon(
+                              Icons.lock_reset,
+                              color: Colors.red,
+                            ),
                             label: const Text(
                               'Enviar link de reset de senha',
                               style: TextStyle(
@@ -922,11 +1207,11 @@ class _AtendimentoSuporteScreenState extends State<AtendimentoSuporteScreen> {
                   .collection('users')
                   .doc(usuarioId)
                   .update({
-                'nome': nomeC.text.trim(),
-                'cpf': cpfC.text.trim(),
-                'telefone': telefoneC.text.trim(),
-                'cidade': cidadeC.text.trim(),
-              });
+                    'nome': nomeC.text.trim(),
+                    'cpf': cpfC.text.trim(),
+                    'telefone': telefoneC.text.trim(),
+                    'cidade': cidadeC.text.trim(),
+                  });
               if (context.mounted) {
                 Navigator.pop(context);
                 mostrarSnackPainel(context, mensagem: 'Perfil atualizado.');
@@ -943,35 +1228,70 @@ class _AtendimentoSuporteScreenState extends State<AtendimentoSuporteScreen> {
   Widget build(BuildContext context) {
     final uid = FirebaseAuth.instance.currentUser?.uid;
 
+    Widget listaTickets() {
+      return ColunaFilaSuporte(
+        diPertinRoxo: diPertinRoxo,
+        diPertinLaranja: diPertinLaranja,
+        queryFila: _queryFila(),
+        queryAndamento: _queryAndamento(),
+        queryHistorico: _queryHistorico(),
+        selecionadoId: _selecionadoId,
+        onSelect: (doc) {
+          final m = doc.data();
+          setState(() {
+            _selecionadoId = doc.id;
+            _selecionadoNome = m['user_nome']?.toString() ?? 'Cliente';
+          });
+        },
+        fmtHora: _fmtHora,
+        tempoEspera: _tempoEspera,
+        posicaoNaFila: _posicaoNaFila,
+      );
+    }
+
+    Widget conversa() {
+      return DecoratedBox(
+        decoration: PainelAdminTheme.dashboardCard(),
+        child: ClipRRect(
+          borderRadius: BorderRadius.circular(16),
+          child: _painelChat(uid),
+        ),
+      );
+    }
+
     return Scaffold(
-      backgroundColor: const Color(0xFFF5F5F7),
-      body: Row(
-        crossAxisAlignment: CrossAxisAlignment.stretch,
-        children: [
-          SizedBox(
-            width: 400,
-            child: ColunaFilaSuporte(
-                    diPertinRoxo: diPertinRoxo,
-                    diPertinLaranja: diPertinLaranja,
-                    queryFila: _queryFila(),
-                    queryAndamento: _queryAndamento(),
-                    queryHistorico: _queryHistorico(),
-                    selecionadoId: _selecionadoId,
-                    onSelect: (doc) {
-                      final m = doc.data();
-                      setState(() {
-                        _selecionadoId = doc.id;
-                        _selecionadoNome =
-                            m['user_nome']?.toString() ?? 'Cliente';
-                      });
-                    },
-                    fmtHora: _fmtHora,
-                    tempoEspera: _tempoEspera,
-                    posicaoNaFila: _posicaoNaFila,
-                  ),
-          ),
-          Expanded(child: _painelChat(uid)),
-        ],
+      backgroundColor: PainelAdminTheme.fundoCanvas,
+      body: SafeArea(
+        child: LayoutBuilder(
+          builder: (context, constraints) {
+            final estreito = constraints.maxWidth < 1000;
+            final pad = estreito ? 12.0 : 22.0;
+            if (estreito) {
+              return Padding(
+                padding: EdgeInsets.all(pad),
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.stretch,
+                  children: [
+                    SizedBox(height: 340, child: listaTickets()),
+                    const SizedBox(height: 14),
+                    Expanded(child: conversa()),
+                  ],
+                ),
+              );
+            }
+            return Padding(
+              padding: EdgeInsets.all(pad),
+              child: Row(
+                crossAxisAlignment: CrossAxisAlignment.stretch,
+                children: [
+                  SizedBox(width: 392, child: listaTickets()),
+                  const SizedBox(width: 22),
+                  Expanded(child: conversa()),
+                ],
+              ),
+            );
+          },
+        ),
       ),
     );
   }
@@ -979,53 +1299,48 @@ class _AtendimentoSuporteScreenState extends State<AtendimentoSuporteScreen> {
   Widget _painelChat(String? uidMeu) {
     if (_selecionadoId == null) {
       return Container(
-        color: const Color(0xFFF5F5F7),
+        color: Colors.white,
         child: Center(
           child: ConstrainedBox(
-            constraints: const BoxConstraints(maxWidth: 420),
+            constraints: const BoxConstraints(maxWidth: 440),
             child: Padding(
-              padding: const EdgeInsets.all(32),
+              padding: const EdgeInsets.all(36),
               child: Column(
                 mainAxisAlignment: MainAxisAlignment.center,
                 children: [
                   Container(
-                    padding: const EdgeInsets.all(28),
+                    padding: const EdgeInsets.all(26),
                     decoration: BoxDecoration(
-                      color: Colors.white,
+                      color: PainelAdminTheme.roxo.withValues(alpha: 0.06),
                       shape: BoxShape.circle,
-                      boxShadow: [
-                        BoxShadow(
-                          color: diPertinRoxo.withValues(alpha: 0.08),
-                          blurRadius: 24,
-                          offset: const Offset(0, 8),
-                        ),
-                      ],
+                      border: Border.all(
+                        color: PainelAdminTheme.roxo.withValues(alpha: 0.12),
+                      ),
                     ),
                     child: Icon(
-                      Icons.chat_bubble_outline_rounded,
-                      size: 56,
-                      color: diPertinRoxo.withValues(alpha: 0.45),
+                      Icons.forum_outlined,
+                      size: 52,
+                      color: PainelAdminTheme.roxo.withValues(alpha: 0.55),
                     ),
                   ),
-                  const SizedBox(height: 28),
+                  const SizedBox(height: 26),
                   Text(
-                    'Nenhum chamado selecionado',
+                    'Selecione um protocolo',
                     textAlign: TextAlign.center,
-                    style: TextStyle(
-                      fontSize: 20,
-                      fontWeight: FontWeight.w700,
-                      color: Colors.grey.shade900,
-                      letterSpacing: -0.3,
+                    style: Theme.of(context).textTheme.headlineSmall?.copyWith(
+                      color: PainelAdminTheme.dashboardInk,
+                      fontWeight: FontWeight.w800,
+                      letterSpacing: -0.4,
                     ),
                   ),
-                  const SizedBox(height: 10),
+                  const SizedBox(height: 12),
                   Text(
-                    'Escolha um ticket na fila de espera, em atendimento ou no histórico para ver a conversa e responder ao cliente.',
+                    'Na coluna ao lado, escolha um chamado na fila, em atendimento '
+                    'ou no histórico para visualizar a conversa e responder ao cliente.',
                     textAlign: TextAlign.center,
-                    style: TextStyle(
-                      fontSize: 14,
-                      height: 1.45,
-                      color: Colors.grey[600],
+                    style: Theme.of(context).textTheme.bodyMedium?.copyWith(
+                      height: 1.5,
+                      color: PainelAdminTheme.textoSecundario,
                     ),
                   ),
                 ],
@@ -1049,147 +1364,357 @@ class _AtendimentoSuporteScreenState extends State<AtendimentoSuporteScreen> {
         final st = d['status']?.toString() ?? '';
         final agentId = d['agent_id']?.toString();
         final userClienteId = d['user_id']?.toString();
-        final protocolo =
-            (d['protocol_number'] ?? '').toString().padLeft(8, '0');
+        final protocolo = (d['protocol_number'] ?? '').toString().padLeft(
+          8,
+          '0',
+        );
         final preview =
             (d['first_message_preview'] ?? '').toString().trim().isEmpty
-                ? '(sem prévia)'
-                : d['first_message_preview'].toString();
+            ? '(sem prévia)'
+            : d['first_message_preview'].toString();
+        final perfilSolicitante = (d['solicitante_perfil'] ?? 'cliente')
+            .toString();
+        final nomeSolicitante = (d['solicitante_nome'] ?? d['user_nome'] ?? '')
+            .toString()
+            .trim();
+        final emailSolicitante = (d['solicitante_email'] ?? '')
+            .toString()
+            .trim();
+        final telefoneSolicitante = (d['solicitante_telefone'] ?? '')
+            .toString()
+            .trim();
+        final documentoSolicitante = (d['solicitante_documento'] ?? '')
+            .toString()
+            .trim();
+        final lojaSolicitante = (d['solicitante_loja_nome'] ?? '')
+            .toString()
+            .trim();
+        final cidadeSolicitante = (d['solicitante_cidade'] ?? d['cidade'] ?? '')
+            .toString()
+            .trim();
 
         final possoResponder =
             st == _kInProgress && uidMeu != null && agentId == uidMeu;
         final aguardando = st == _kWaiting;
         final emAndamento = st == _kInProgress;
-        final encerrado = st == _kClosed ||
-            st == 'finished' ||
-            st == 'cancelled';
+        final encerrado =
+            st == _kClosed || st == 'finished' || st == 'cancelled';
+
+        final nomeTopo = nomeSolicitante.isNotEmpty
+            ? nomeSolicitante
+            : (_selecionadoNome ?? '').trim();
+        final letraAvatar = nomeTopo.isEmpty
+            ? 'C'
+            : nomeTopo.substring(0, 1).toUpperCase();
 
         return Column(
           children: [
-            Container(
-              padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 12),
-              decoration: const BoxDecoration(
-                color: Colors.white,
-                border: Border(bottom: BorderSide(color: Colors.black12)),
-              ),
-              child: Row(
-                children: [
-                  CircleAvatar(
-                    backgroundColor: diPertinRoxo,
-                    child: Text(
-                      (_selecionadoNome ?? 'C').substring(0, 1).toUpperCase(),
-                      style: const TextStyle(color: Colors.white),
-                    ),
+            Material(
+              color: Colors.white,
+              elevation: 0,
+              child: Container(
+                width: double.infinity,
+                padding: const EdgeInsets.fromLTRB(18, 14, 18, 14),
+                decoration: BoxDecoration(
+                  border: Border(
+                    bottom: BorderSide(color: PainelAdminTheme.dashboardBorder),
                   ),
-                  const SizedBox(width: 12),
-                  Expanded(
-                    child: Column(
+                  gradient: LinearGradient(
+                    colors: [
+                      Colors.white,
+                      PainelAdminTheme.fundoCanvas.withValues(alpha: 0.35),
+                    ],
+                    begin: Alignment.topCenter,
+                    end: Alignment.bottomCenter,
+                  ),
+                ),
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    Row(
                       crossAxisAlignment: CrossAxisAlignment.start,
                       children: [
-                        Text(
-                          _selecionadoNome ?? 'Cliente',
-                          style: const TextStyle(
-                            fontSize: 17,
-                            fontWeight: FontWeight.bold,
+                        CircleAvatar(
+                          radius: 22,
+                          backgroundColor: PainelAdminTheme.roxo.withValues(
+                            alpha: 0.12,
                           ),
-                        ),
-                        Text(
-                          'Protocolo $protocolo · $preview',
-                          style: const TextStyle(
-                            fontSize: 12,
-                            color: Colors.black54,
-                          ),
-                          maxLines: 2,
-                          overflow: TextOverflow.ellipsis,
-                        ),
-                        if ((d['categoria_label'] ?? '')
-                            .toString()
-                            .trim()
-                            .isNotEmpty) ...[
-                          const SizedBox(height: 4),
-                          Text(
-                            'Categoria: ${d['categoria_label']}',
-                            style: TextStyle(
-                              fontSize: 12,
-                              fontWeight: FontWeight.w600,
-                              color: Colors.deepPurple.shade800,
+                          child: Text(
+                            letraAvatar,
+                            style: const TextStyle(
+                              color: PainelAdminTheme.roxo,
+                              fontWeight: FontWeight.w800,
+                              fontSize: 18,
                             ),
                           ),
-                        ] else if (aguardando &&
-                            preview != '(sem prévia)') ...[
-                          const SizedBox(height: 4),
-                          Text(
-                            'Categoria: pendente — aguardando escolha do cliente.',
-                            style: TextStyle(
-                              fontSize: 11,
-                              color: Colors.orange.shade900,
-                              fontWeight: FontWeight.w500,
-                            ),
+                        ),
+                        const SizedBox(width: 14),
+                        Expanded(
+                          child: Column(
+                            crossAxisAlignment: CrossAxisAlignment.start,
+                            children: [
+                              Text(
+                                nomeTopo.isEmpty ? 'Cliente' : nomeTopo,
+                                style: Theme.of(context).textTheme.titleLarge
+                                    ?.copyWith(
+                                      fontWeight: FontWeight.w800,
+                                      color: PainelAdminTheme.dashboardInk,
+                                      letterSpacing: -0.3,
+                                    ),
+                              ),
+                              const SizedBox(height: 4),
+                              Text(
+                                'Protocolo $protocolo',
+                                style: Theme.of(context).textTheme.bodySmall
+                                    ?.copyWith(
+                                      fontWeight: FontWeight.w600,
+                                      color: PainelAdminTheme.textoSecundario,
+                                    ),
+                              ),
+                              const SizedBox(height: 4),
+                              Text(
+                                preview,
+                                style: Theme.of(context).textTheme.bodySmall,
+                                maxLines: 2,
+                                overflow: TextOverflow.ellipsis,
+                              ),
+                              const SizedBox(height: 8),
+                              Wrap(
+                                spacing: 8,
+                                runSpacing: 8,
+                                crossAxisAlignment: WrapCrossAlignment.center,
+                                children: [
+                                  _chipStatusSuporte(
+                                    context,
+                                    aguardando: aguardando,
+                                    emAndamento: emAndamento,
+                                    encerrado: encerrado,
+                                  ),
+                                  _chipPerfilSolicitante(perfilSolicitante),
+                                  if ((d['categoria_label'] ?? '')
+                                      .toString()
+                                      .trim()
+                                      .isNotEmpty)
+                                    Chip(
+                                      avatar: Icon(
+                                        Icons.category_outlined,
+                                        size: 16,
+                                        color: PainelAdminTheme.roxo,
+                                      ),
+                                      label: Text(
+                                        d['categoria_label'].toString(),
+                                        style: const TextStyle(
+                                          fontSize: 12,
+                                          fontWeight: FontWeight.w600,
+                                        ),
+                                      ),
+                                      backgroundColor: PainelAdminTheme.roxo
+                                          .withValues(alpha: 0.08),
+                                      side: BorderSide.none,
+                                      visualDensity: VisualDensity.compact,
+                                      padding: const EdgeInsets.symmetric(
+                                        horizontal: 8,
+                                      ),
+                                    )
+                                  else if (aguardando &&
+                                      preview != '(sem prévia)')
+                                    Chip(
+                                      avatar: Icon(
+                                        Icons.hourglass_top_rounded,
+                                        size: 16,
+                                        color: Colors.orange.shade800,
+                                      ),
+                                      label: Text(
+                                        'Categoria pendente no app',
+                                        style: TextStyle(
+                                          fontSize: 12,
+                                          fontWeight: FontWeight.w600,
+                                          color: Colors.orange.shade900,
+                                        ),
+                                      ),
+                                      backgroundColor: Colors.orange.shade50,
+                                      side: BorderSide.none,
+                                      visualDensity: VisualDensity.compact,
+                                    ),
+                                ],
+                              ),
+                              const SizedBox(height: 10),
+                              _resumoSolicitanteSuporte(
+                                perfil: perfilSolicitante,
+                                email: emailSolicitante,
+                                telefone: telefoneSolicitante,
+                                documento: documentoSolicitante,
+                                lojaNome: lojaSolicitante,
+                                cidade: cidadeSolicitante,
+                              ),
+                            ],
                           ),
-                        ],
+                        ),
                       ],
                     ),
-                  ),
-                  if (userClienteId != null)
-                    OutlinedButton.icon(
-                      onPressed: () => _abrirModalEditarUsuario(userClienteId),
-                      icon: const Icon(Icons.manage_accounts, color: Colors.blue),
-                      label: const Text(
-                        'Editar perfil',
-                        style: TextStyle(color: Colors.blue),
-                      ),
-                    ),
-                  const SizedBox(width: 8),
-                  if (aguardando)
-                    Tooltip(
-                      message: (d['categoria_suporte'] ?? '')
-                              .toString()
-                              .trim()
-                              .isEmpty &&
-                          preview != '(sem prévia)'
-                          ? 'O cliente precisa escolher a categoria no app antes de você iniciar.'
-                          : '',
-                      child: ElevatedButton.icon(
-                        onPressed: (d['categoria_suporte'] ?? '')
-                                    .toString()
-                                    .trim()
-                                    .isEmpty &&
-                                preview != '(sem prévia)'
-                            ? null
-                            : _iniciarAtendimentoPainel,
-                        style: ElevatedButton.styleFrom(
-                          backgroundColor: diPertinLaranja,
-                          foregroundColor: Colors.white,
+                    const SizedBox(height: 14),
+                    if (aguardando &&
+                        (d['categoria_suporte'] ?? '')
+                            .toString()
+                            .trim()
+                            .isEmpty &&
+                        preview != '(sem prévia)')
+                      Padding(
+                        padding: const EdgeInsets.only(bottom: 14),
+                        child: DecoratedBox(
+                          decoration: BoxDecoration(
+                            color: Colors.orange.shade50,
+                            borderRadius: BorderRadius.circular(12),
+                            border: Border.all(color: Colors.orange.shade200),
+                          ),
+                          child: Padding(
+                            padding: const EdgeInsets.all(14),
+                            child: Row(
+                              crossAxisAlignment: CrossAxisAlignment.start,
+                              children: [
+                                Icon(
+                                  Icons.info_outline_rounded,
+                                  color: Colors.orange.shade900,
+                                  size: 22,
+                                ),
+                                const SizedBox(width: 12),
+                                Expanded(
+                                  child: Column(
+                                    crossAxisAlignment:
+                                        CrossAxisAlignment.start,
+                                    children: [
+                                      Text(
+                                        'Categoria obrigatória antes de iniciar',
+                                        style: TextStyle(
+                                          fontWeight: FontWeight.w800,
+                                          fontSize: 13,
+                                          color: Colors.orange.shade900,
+                                        ),
+                                      ),
+                                      const SizedBox(height: 6),
+                                      Text(
+                                        'No app, o cliente deve escolher uma '
+                                        'categoria na Central de Ajuda depois '
+                                        'da primeira mensagem. Enquanto isso não '
+                                        'ocorre, «Iniciar» permanece desabilitado. '
+                                        'Use «Definir categoria» se precisar '
+                                        'assumir o chamado agora.',
+                                        style: TextStyle(
+                                          fontSize: 12.5,
+                                          height: 1.4,
+                                          color: Colors.brown.shade800,
+                                        ),
+                                      ),
+                                    ],
+                                  ),
+                                ),
+                              ],
+                            ),
+                          ),
                         ),
-                        icon: const Icon(Icons.play_arrow),
-                        label: const Text('Iniciar atendimento'),
                       ),
-                    ),
-                  if (emAndamento) ...[
-                    const SizedBox(width: 8),
-                    ElevatedButton.icon(
-                      onPressed: _encerrarChamado,
-                      style: ElevatedButton.styleFrom(
-                        backgroundColor: Colors.green,
-                        foregroundColor: Colors.white,
-                      ),
-                      icon: const Icon(Icons.check_circle),
-                      label: const Text('Finalizar atendimento'),
+                    Wrap(
+                      spacing: 10,
+                      runSpacing: 10,
+                      alignment: WrapAlignment.start,
+                      children: [
+                        if (userClienteId != null)
+                          OutlinedButton.icon(
+                            onPressed: () =>
+                                _abrirModalEditarUsuario(userClienteId),
+                            icon: const Icon(
+                              Icons.manage_accounts_outlined,
+                              size: 18,
+                            ),
+                            label: const Text('Ficha do solicitante'),
+                            style: OutlinedButton.styleFrom(
+                              foregroundColor: PainelAdminTheme.roxo,
+                              side: BorderSide(
+                                color: PainelAdminTheme.roxo.withValues(
+                                  alpha: 0.35,
+                                ),
+                              ),
+                            ),
+                          ),
+                        if (aguardando &&
+                            (d['categoria_suporte'] ?? '')
+                                .toString()
+                                .trim()
+                                .isEmpty &&
+                            preview != '(sem prévia)')
+                          OutlinedButton.icon(
+                            onPressed: _definirCategoriaPeloPainel,
+                            icon: const Icon(Icons.category_outlined, size: 20),
+                            label: const Text('Definir categoria'),
+                            style: OutlinedButton.styleFrom(
+                              foregroundColor: PainelAdminTheme.roxo,
+                              side: BorderSide(
+                                color: PainelAdminTheme.roxo.withValues(
+                                  alpha: 0.45,
+                                ),
+                              ),
+                              padding: const EdgeInsets.symmetric(
+                                horizontal: 16,
+                                vertical: 12,
+                              ),
+                            ),
+                          ),
+                        if (aguardando)
+                          Tooltip(
+                            message:
+                                (d['categoria_suporte'] ?? '')
+                                        .toString()
+                                        .trim()
+                                        .isEmpty &&
+                                    preview != '(sem prévia)'
+                                ? 'O cliente precisa registrar a categoria no '
+                                      'app depois da primeira mensagem, ou use '
+                                      '«Definir categoria» ao lado.'
+                                : '',
+                            child: FilledButton.icon(
+                              onPressed:
+                                  (d['categoria_suporte'] ?? '')
+                                          .toString()
+                                          .trim()
+                                          .isEmpty &&
+                                      preview != '(sem prévia)'
+                                  ? null
+                                  : _iniciarAtendimentoPainel,
+                              icon: const Icon(
+                                Icons.play_arrow_rounded,
+                                size: 20,
+                              ),
+                              label: const Text('Iniciar atendimento'),
+                              style: FilledButton.styleFrom(
+                                backgroundColor: PainelAdminTheme.laranja,
+                                foregroundColor: Colors.white,
+                              ),
+                            ),
+                          ),
+                        if (emAndamento)
+                          FilledButton.icon(
+                            onPressed: _encerrarChamado,
+                            icon: const Icon(Icons.task_alt_rounded, size: 20),
+                            label: const Text('Finalizar'),
+                            style: FilledButton.styleFrom(
+                              backgroundColor: const Color(0xFF047857),
+                              foregroundColor: Colors.white,
+                            ),
+                          ),
+                        if (encerrado)
+                          FilledButton.icon(
+                            onPressed: _reabrirChamado,
+                            icon: const Icon(Icons.replay_rounded, size: 20),
+                            label: const Text('Reabrir'),
+                            style: FilledButton.styleFrom(
+                              backgroundColor: PainelAdminTheme.laranja,
+                              foregroundColor: Colors.white,
+                            ),
+                          ),
+                      ],
                     ),
                   ],
-                  if (encerrado) ...[
-                    const SizedBox(width: 8),
-                    ElevatedButton.icon(
-                      onPressed: _reabrirChamado,
-                      style: ElevatedButton.styleFrom(
-                        backgroundColor: diPertinLaranja,
-                        foregroundColor: Colors.white,
-                      ),
-                      icon: const Icon(Icons.replay),
-                      label: const Text('Reabrir atendimento'),
-                    ),
-                  ],
-                ],
+                ),
               ),
             ),
             if (encerrado) _bannerAvaliacaoCliente(_selecionadoId!),
@@ -1206,113 +1731,140 @@ class _AtendimentoSuporteScreenState extends State<AtendimentoSuporteScreen> {
                     return const Center(child: CircularProgressIndicator());
                   }
                   final msgs = snapMsg.data!.docs;
-                  return ListView.builder(
-                    reverse: true,
-                    padding: const EdgeInsets.all(20),
-                    itemCount: msgs.length,
-                    itemBuilder: (context, index) {
-                      final msg = msgs[index].data();
-                      final tipo = msg['sender_type']?.toString() ?? '';
-                      final texto = msg['mensagem']?.toString() ?? '';
-                      final suporteAuto = msg['suporte_auto'] == true;
-                      if (tipo == 'system' || suporteAuto) {
-                        return Center(
-                          child: Container(
-                            margin: const EdgeInsets.symmetric(vertical: 10),
-                            padding: const EdgeInsets.symmetric(
-                              horizontal: 12,
-                              vertical: 10,
-                            ),
-                            constraints: const BoxConstraints(maxWidth: 520),
-                            decoration: BoxDecoration(
-                              color: suporteAuto
-                                  ? diPertinLaranja.withOpacity(0.12)
-                                  : Colors.grey[300],
-                              borderRadius: BorderRadius.circular(10),
-                              border: suporteAuto
-                                  ? Border.all(
-                                      color: diPertinLaranja.withOpacity(0.5),
-                                    )
-                                  : null,
-                            ),
-                            child: Column(
-                              crossAxisAlignment: CrossAxisAlignment.start,
-                              mainAxisSize: MainAxisSize.min,
-                              children: [
-                                if (suporteAuto)
-                                  Padding(
-                                    padding: const EdgeInsets.only(bottom: 6),
-                                    child: Row(
-                                      mainAxisSize: MainAxisSize.min,
-                                      children: [
-                                        Icon(
-                                          Icons.support_agent,
-                                          size: 14,
-                                          color: diPertinLaranja,
+                  return Container(
+                    color: PainelAdminTheme.fundoCanvas.withValues(alpha: 0.5),
+                    child: ListView.builder(
+                      reverse: true,
+                      padding: const EdgeInsets.fromLTRB(18, 16, 18, 20),
+                      itemCount: msgs.length,
+                      itemBuilder: (context, index) {
+                        final msg = msgs[index].data();
+                        final tipo = msg['sender_type']?.toString() ?? '';
+                        final texto = msg['mensagem']?.toString() ?? '';
+                        final suporteAuto = msg['suporte_auto'] == true;
+                        if (tipo == 'system' || suporteAuto) {
+                          return Center(
+                            child: Container(
+                              margin: const EdgeInsets.symmetric(vertical: 10),
+                              padding: const EdgeInsets.symmetric(
+                                horizontal: 12,
+                                vertical: 10,
+                              ),
+                              constraints: const BoxConstraints(maxWidth: 520),
+                              decoration: BoxDecoration(
+                                color: suporteAuto
+                                    ? diPertinLaranja.withValues(alpha: 0.12)
+                                    : Colors.grey[300],
+                                borderRadius: BorderRadius.circular(10),
+                                border: suporteAuto
+                                    ? Border.all(
+                                        color: diPertinLaranja.withValues(
+                                          alpha: 0.5,
                                         ),
-                                        const SizedBox(width: 6),
-                                        Text(
-                                          'Mensagem automática · Central de Ajuda',
-                                          style: TextStyle(
+                                      )
+                                    : null,
+                              ),
+                              child: Column(
+                                crossAxisAlignment: CrossAxisAlignment.start,
+                                mainAxisSize: MainAxisSize.min,
+                                children: [
+                                  if (suporteAuto)
+                                    Padding(
+                                      padding: const EdgeInsets.only(bottom: 6),
+                                      child: Row(
+                                        mainAxisSize: MainAxisSize.min,
+                                        children: [
+                                          Icon(
+                                            Icons.support_agent,
+                                            size: 14,
                                             color: diPertinLaranja,
-                                            fontSize: 11,
-                                            fontWeight: FontWeight.w700,
                                           ),
-                                        ),
-                                      ],
+                                          const SizedBox(width: 6),
+                                          Text(
+                                            'Mensagem automática · Central de Ajuda',
+                                            style: TextStyle(
+                                              color: diPertinLaranja,
+                                              fontSize: 11,
+                                              fontWeight: FontWeight.w700,
+                                            ),
+                                          ),
+                                        ],
+                                      ),
+                                    ),
+                                  Text(
+                                    texto,
+                                    style: TextStyle(
+                                      fontSize: suporteAuto ? 13 : 12,
+                                      fontWeight: suporteAuto
+                                          ? FontWeight.w500
+                                          : FontWeight.bold,
+                                      color: suporteAuto
+                                          ? Colors.black87
+                                          : Colors.black54,
                                     ),
                                   ),
-                                Text(
-                                  texto,
-                                  style: TextStyle(
-                                    fontSize: suporteAuto ? 13 : 12,
-                                    fontWeight: suporteAuto
-                                        ? FontWeight.w500
-                                        : FontWeight.bold,
-                                    color: suporteAuto
-                                        ? Colors.black87
-                                        : Colors.black54,
-                                  ),
+                                ],
+                              ),
+                            ),
+                          );
+                        }
+                        final ehCliente = tipo == 'client';
+                        final alinhamento = ehCliente
+                            ? Alignment.centerLeft
+                            : Alignment.centerRight;
+                        final bg = ehCliente ? Colors.white : diPertinRoxo;
+                        final fg = ehCliente
+                            ? PainelAdminTheme.dashboardInk
+                            : Colors.white;
+                        return Align(
+                          alignment: alinhamento,
+                          child: Container(
+                            margin: const EdgeInsets.only(bottom: 10),
+                            padding: const EdgeInsets.all(12),
+                            constraints: const BoxConstraints(maxWidth: 440),
+                            decoration: BoxDecoration(
+                              color: bg,
+                              borderRadius: BorderRadius.circular(14),
+                              border: ehCliente
+                                  ? Border.all(
+                                      color: PainelAdminTheme.dashboardBorder,
+                                    )
+                                  : null,
+                              boxShadow: [
+                                BoxShadow(
+                                  color: Colors.black.withValues(alpha: 0.05),
+                                  blurRadius: 12,
+                                  offset: const Offset(0, 4),
                                 ),
                               ],
                             ),
+                            child: _bolhaConteudoSuporte(msg, texto, fg),
                           ),
                         );
-                      }
-                      final ehCliente = tipo == 'client';
-                      final alinhamento = ehCliente
-                          ? Alignment.centerLeft
-                          : Alignment.centerRight;
-                      final bg = ehCliente ? Colors.grey[200]! : diPertinRoxo;
-                      final fg = ehCliente ? Colors.black87 : Colors.white;
-                      return Align(
-                        alignment: alinhamento,
-                        child: Container(
-                          margin: const EdgeInsets.only(bottom: 10),
-                          padding: const EdgeInsets.all(10),
-                          constraints: const BoxConstraints(maxWidth: 420),
-                          decoration: BoxDecoration(
-                            color: bg,
-                            borderRadius: BorderRadius.circular(14),
-                            boxShadow: const [
-                              BoxShadow(color: Colors.black12, blurRadius: 4),
-                            ],
-                          ),
-                          child: _bolhaConteudoSuporte(msg, texto, fg),
-                        ),
-                      );
-                    },
+                      },
+                    ),
                   );
                 },
               ),
             ),
             Container(
-              padding: const EdgeInsets.all(16),
-              color: Colors.white,
+              padding: const EdgeInsets.fromLTRB(14, 12, 14, 16),
+              decoration: BoxDecoration(
+                color: Colors.white,
+                border: Border(
+                  top: BorderSide(color: PainelAdminTheme.dashboardBorder),
+                ),
+              ),
               child: Row(
+                crossAxisAlignment: CrossAxisAlignment.end,
                 children: [
                   IconButton(
                     tooltip: 'Anexar arquivo',
+                    style: IconButton.styleFrom(
+                      foregroundColor: possoResponder
+                          ? PainelAdminTheme.roxo
+                          : Colors.grey,
+                    ),
                     icon: _enviandoAnexo
                         ? SizedBox(
                             width: 22,
@@ -1334,22 +1886,41 @@ class _AtendimentoSuporteScreenState extends State<AtendimentoSuporteScreen> {
                     child: TextField(
                       controller: _mensagemController,
                       enabled: possoResponder && !_enviandoAnexo,
+                      minLines: 1,
+                      maxLines: 5,
                       decoration: InputDecoration(
                         hintText: encerrado
                             ? 'Chamado encerrado (somente leitura).'
                             : possoResponder
-                                ? 'Resposta ao cliente...'
-                                : aguardando
-                                    ? 'Inicie o atendimento para responder.'
-                                    : 'Apenas o atendente responsável pode enviar mensagens.',
+                            ? 'Digite sua resposta ao cliente…'
+                            : aguardando
+                            ? 'Inicie o atendimento para responder.'
+                            : 'Apenas o atendente responsável pode enviar mensagens.',
                         filled: true,
-                        fillColor: Colors.grey[100],
+                        fillColor: PainelAdminTheme.fundoCanvas.withValues(
+                          alpha: 0.65,
+                        ),
                         border: OutlineInputBorder(
-                          borderRadius: BorderRadius.circular(28),
-                          borderSide: BorderSide.none,
+                          borderRadius: BorderRadius.circular(14),
+                          borderSide: BorderSide(
+                            color: PainelAdminTheme.dashboardBorder,
+                          ),
+                        ),
+                        enabledBorder: OutlineInputBorder(
+                          borderRadius: BorderRadius.circular(14),
+                          borderSide: BorderSide(
+                            color: PainelAdminTheme.dashboardBorder,
+                          ),
+                        ),
+                        focusedBorder: OutlineInputBorder(
+                          borderRadius: BorderRadius.circular(14),
+                          borderSide: const BorderSide(
+                            color: PainelAdminTheme.roxo,
+                            width: 1.5,
+                          ),
                         ),
                         contentPadding: const EdgeInsets.symmetric(
-                          horizontal: 20,
+                          horizontal: 18,
                           vertical: 14,
                         ),
                       ),
@@ -1358,15 +1929,21 @@ class _AtendimentoSuporteScreenState extends State<AtendimentoSuporteScreen> {
                       },
                     ),
                   ),
-                  const SizedBox(width: 12),
-                  CircleAvatar(
-                    radius: 26,
-                    backgroundColor:
-                        possoResponder ? diPertinLaranja : Colors.grey,
-                    child: IconButton(
-                      icon: const Icon(Icons.send, color: Colors.white),
-                      onPressed: possoResponder ? _enviarMensagem : null,
+                  const SizedBox(width: 10),
+                  FilledButton(
+                    onPressed: possoResponder ? _enviarMensagem : null,
+                    style: FilledButton.styleFrom(
+                      backgroundColor: PainelAdminTheme.laranja,
+                      foregroundColor: Colors.white,
+                      padding: const EdgeInsets.symmetric(
+                        horizontal: 22,
+                        vertical: 14,
+                      ),
+                      shape: RoundedRectangleBorder(
+                        borderRadius: BorderRadius.circular(14),
+                      ),
                     ),
+                    child: const Icon(Icons.send_rounded, size: 22),
                   ),
                 ],
               ),
@@ -1406,20 +1983,30 @@ class ColunaFilaSuporte extends StatefulWidget {
   final int Function(
     List<QueryDocumentSnapshot<Map<String, dynamic>>> filaDocs,
     String id,
-  ) posicaoNaFila;
+  )
+  posicaoNaFila;
 
   @override
   State<ColunaFilaSuporte> createState() => _ColunaFilaSuporteState();
 }
 
-class _ColunaFilaSuporteState extends State<ColunaFilaSuporte> {
+class _ColunaFilaSuporteState extends State<ColunaFilaSuporte>
+    with SingleTickerProviderStateMixin {
   final TextEditingController _filtroNome = TextEditingController();
   final TextEditingController _filtroProtocolo = TextEditingController();
   DateTime? _dataDe;
   DateTime? _dataAte;
+  late TabController _tabController;
+
+  @override
+  void initState() {
+    super.initState();
+    _tabController = TabController(length: 3, vsync: this);
+  }
 
   @override
   void dispose() {
+    _tabController.dispose();
     _filtroNome.dispose();
     _filtroProtocolo.dispose();
     super.dispose();
@@ -1437,8 +2024,10 @@ class _ColunaFilaSuporteState extends State<ColunaFilaSuporte> {
         if (!n.contains(nome)) return false;
       }
       if (proto.isNotEmpty) {
-        final p =
-            (m['protocol_number'] ?? '').toString().replaceAll(RegExp(r'\D'), '');
+        final p = (m['protocol_number'] ?? '').toString().replaceAll(
+          RegExp(r'\D'),
+          '',
+        );
         if (!p.contains(proto)) return false;
       }
       final cr = m['created_at'];
@@ -1484,9 +2073,6 @@ class _ColunaFilaSuporteState extends State<ColunaFilaSuporte> {
     });
   }
 
-  static const Color _azulAndamento = Color(0xFF1565C0);
-  static const Color _verdeHistorico = Color(0xFF00897B);
-
   OutlineInputBorder _inputOutline() {
     return OutlineInputBorder(
       borderRadius: BorderRadius.circular(10),
@@ -1494,42 +2080,44 @@ class _ColunaFilaSuporteState extends State<ColunaFilaSuporte> {
     );
   }
 
-  Widget _cabecalhoPrincipal() {
+  Widget _cabecalhoPainelTickets() {
     final rx = widget.diPertinRoxo;
-    final topo = Color.lerp(rx, Colors.black, 0.14)!;
-    return Container(
-      padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 14),
-      decoration: BoxDecoration(
-        gradient: LinearGradient(
-          colors: [topo, rx],
-          begin: Alignment.topLeft,
-          end: Alignment.bottomRight,
-        ),
-        boxShadow: [
-          BoxShadow(
-            color: rx.withValues(alpha: 0.28),
-            blurRadius: 10,
-            offset: const Offset(0, 3),
-          ),
-        ],
-      ),
+    return Padding(
+      padding: const EdgeInsets.fromLTRB(16, 16, 16, 6),
       child: Row(
+        crossAxisAlignment: CrossAxisAlignment.start,
         children: [
-          Icon(
-            Icons.headset_mic_rounded,
-            color: Colors.white.withValues(alpha: 0.92),
-            size: 24,
+          Container(
+            padding: const EdgeInsets.all(11),
+            decoration: BoxDecoration(
+              color: rx.withValues(alpha: 0.1),
+              borderRadius: BorderRadius.circular(12),
+              border: Border.all(color: rx.withValues(alpha: 0.15)),
+            ),
+            child: Icon(Icons.support_agent_rounded, color: rx, size: 24),
           ),
           const SizedBox(width: 12),
-          const Expanded(
-            child: Text(
-              'Central de atendimento',
-              style: TextStyle(
-                color: Colors.white,
-                fontSize: 18,
-                fontWeight: FontWeight.w700,
-                letterSpacing: -0.2,
-              ),
+          Expanded(
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                Text(
+                  'Central de atendimento',
+                  style: Theme.of(context).textTheme.titleLarge?.copyWith(
+                    fontWeight: FontWeight.w800,
+                    color: PainelAdminTheme.dashboardInk,
+                    letterSpacing: -0.4,
+                  ),
+                ),
+                const SizedBox(height: 3),
+                Text(
+                  'Fila, chamados ativos e histórico em um só lugar.',
+                  style: Theme.of(context).textTheme.bodySmall?.copyWith(
+                    color: PainelAdminTheme.textoSecundario,
+                    height: 1.35,
+                  ),
+                ),
+              ],
             ),
           ),
         ],
@@ -1537,58 +2125,174 @@ class _ColunaFilaSuporteState extends State<ColunaFilaSuporte> {
     );
   }
 
-  Widget _cabecalhoSecao(String titulo, Color accent, IconData icon) {
-    return Padding(
-      padding: const EdgeInsets.fromLTRB(12, 14, 12, 8),
-      child: Container(
-        padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 10),
-        decoration: BoxDecoration(
-          color: const Color(0xFFF3F2F7),
-          borderRadius: BorderRadius.circular(10),
-          border: Border(
-            left: BorderSide(color: accent, width: 4),
+  Widget _corpoListaFila() {
+    return StreamBuilder<QuerySnapshot<Map<String, dynamic>>>(
+      stream: widget.queryFila.snapshots(),
+      builder: (context, snap) {
+        if (snap.connectionState == ConnectionState.waiting) {
+          return _loaderSecao();
+        }
+        final docs = snap.data?.docs ?? [];
+        if (docs.isEmpty) {
+          return SingleChildScrollView(
+            padding: const EdgeInsets.only(top: 8),
+            child: _emptyEstado(
+              'Nenhum cliente aguardando no momento.',
+              icon: Icons.hourglass_empty_rounded,
+            ),
+          );
+        }
+        return ListView.builder(
+          padding: const EdgeInsets.fromLTRB(8, 4, 8, 16),
+          itemCount: docs.length,
+          itemBuilder: (context, i) {
+            final doc = docs[i];
+            final m = doc.data();
+            final pos = widget.posicaoNaFila(docs, doc.id);
+            final sel = widget.selecionadoId == doc.id;
+            return _tile(
+              nome: m['user_nome']?.toString() ?? 'Cliente',
+              protocolo: (m['protocol_number'] ?? '').toString().padLeft(
+                8,
+                '0',
+              ),
+              subtitulo:
+                  '${widget.fmtHora(m['created_at'])} · espera ${widget.tempoEspera(m['created_at'])} · #$pos na fila${_legendaCategoriaNaLista(m)}',
+              preview: (m['first_message_preview'] ?? '').toString(),
+              selecionado: sel,
+              onTap: () => widget.onSelect(doc),
+            );
+          },
+        );
+      },
+    );
+  }
+
+  Widget _corpoListaAndamento() {
+    return StreamBuilder<QuerySnapshot<Map<String, dynamic>>>(
+      stream: widget.queryAndamento.snapshots(),
+      builder: (context, snap) {
+        if (snap.connectionState == ConnectionState.waiting) {
+          return _loaderSecao();
+        }
+        final docs = snap.data?.docs ?? [];
+        if (docs.isEmpty) {
+          return SingleChildScrollView(
+            padding: const EdgeInsets.only(top: 8),
+            child: _emptyEstado(
+              'Nenhum atendimento em curso.',
+              icon: Icons.assignment_ind_outlined,
+            ),
+          );
+        }
+        return ListView.builder(
+          padding: const EdgeInsets.fromLTRB(8, 4, 8, 16),
+          itemCount: docs.length,
+          itemBuilder: (context, i) {
+            final doc = docs[i];
+            final m = doc.data();
+            final sel = widget.selecionadoId == doc.id;
+            final agente = m['agent_nome']?.toString() ?? '—';
+            return _tile(
+              nome: m['user_nome']?.toString() ?? 'Cliente',
+              protocolo: (m['protocol_number'] ?? '').toString().padLeft(
+                8,
+                '0',
+              ),
+              subtitulo: 'Atendente: $agente${_legendaCategoriaNaLista(m)}',
+              preview: (m['first_message_preview'] ?? '').toString(),
+              selecionado: sel,
+              onTap: () => widget.onSelect(doc),
+            );
+          },
+        );
+      },
+    );
+  }
+
+  Widget _corpoListaHistorico() {
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.stretch,
+      children: [
+        Padding(
+          padding: const EdgeInsets.fromLTRB(8, 8, 8, 0),
+          child: _cardFiltros(),
+        ),
+        Expanded(
+          child: StreamBuilder<QuerySnapshot<Map<String, dynamic>>>(
+            stream: widget.queryHistorico.snapshots(),
+            builder: (context, snap) {
+              if (snap.connectionState == ConnectionState.waiting) {
+                return _loaderSecao();
+              }
+              final raw = snap.data?.docs ?? [];
+              final docs = _aplicarFiltrosHistorico(raw);
+              if (raw.isEmpty) {
+                return SingleChildScrollView(
+                  padding: const EdgeInsets.only(top: 8),
+                  child: _emptyEstado(
+                    'Nenhum registro no histórico ainda.',
+                    icon: Icons.folder_open_outlined,
+                  ),
+                );
+              }
+              if (docs.isEmpty) {
+                return SingleChildScrollView(
+                  padding: const EdgeInsets.only(top: 8),
+                  child: _emptyEstado(
+                    'Nenhum resultado com os filtros atuais.',
+                    icon: Icons.search_off_rounded,
+                  ),
+                );
+              }
+              return ListView.builder(
+                padding: const EdgeInsets.fromLTRB(8, 8, 8, 16),
+                itemCount: docs.length,
+                itemBuilder: (context, i) {
+                  final doc = docs[i];
+                  final m = doc.data();
+                  final sel = widget.selecionadoId == doc.id;
+                  final st = m['status']?.toString() ?? '';
+                  return _tile(
+                    nome: m['user_nome']?.toString() ?? 'Cliente',
+                    protocolo: (m['protocol_number'] ?? '').toString().padLeft(
+                      8,
+                      '0',
+                    ),
+                    subtitulo:
+                        '${widget.fmtHora(m['created_at'])} · ${statusLegivelSuporte(st)}${_legendaCategoriaNaLista(m)}',
+                    preview: (m['first_message_preview'] ?? '').toString(),
+                    selecionado: sel,
+                    onTap: () => widget.onSelect(doc),
+                  );
+                },
+              );
+            },
           ),
         ),
-        child: Row(
-          children: [
-            Icon(icon, size: 20, color: accent),
-            const SizedBox(width: 10),
-            Expanded(
-              child: Text(
-                titulo,
-                style: const TextStyle(
-                  fontWeight: FontWeight.w600,
-                  fontSize: 13,
-                  color: Color(0xFF2D2848),
-                  letterSpacing: -0.1,
-                ),
-              ),
-            ),
-          ],
-        ),
-      ),
+      ],
     );
   }
 
   Widget _emptyEstado(String mensagem, {IconData icon = Icons.inbox_outlined}) {
     return Container(
       constraints: const BoxConstraints(minHeight: 76),
-      margin: const EdgeInsets.symmetric(horizontal: 12),
+      margin: const EdgeInsets.symmetric(horizontal: 8),
       padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 14),
       decoration: BoxDecoration(
-        color: const Color(0xFFFAFAFC),
-        borderRadius: BorderRadius.circular(10),
-        border: Border.all(color: Colors.grey.shade200),
+        color: PainelAdminTheme.fundoCanvas.withValues(alpha: 0.65),
+        borderRadius: BorderRadius.circular(12),
+        border: Border.all(color: PainelAdminTheme.dashboardBorder),
       ),
       child: Row(
         children: [
-          Icon(icon, size: 26, color: Colors.grey.shade400),
+          Icon(icon, size: 26, color: PainelAdminTheme.textoSecundario),
           const SizedBox(width: 12),
           Expanded(
             child: Text(
               mensagem,
               style: TextStyle(
-                color: Colors.grey.shade600,
+                color: PainelAdminTheme.textoSecundario,
                 fontSize: 13,
                 height: 1.35,
               ),
@@ -1644,7 +2348,10 @@ class _ColunaFilaSuporteState extends State<ColunaFilaSuporte> {
                   style: OutlinedButton.styleFrom(
                     foregroundColor: rx,
                     side: BorderSide(color: rx.withValues(alpha: 0.45)),
-                    padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 8),
+                    padding: const EdgeInsets.symmetric(
+                      horizontal: 12,
+                      vertical: 8,
+                    ),
                     visualDensity: VisualDensity.compact,
                   ),
                   child: const Text('Limpar'),
@@ -1665,7 +2372,11 @@ class _ColunaFilaSuporteState extends State<ColunaFilaSuporte> {
                 focusedBorder: _inputOutline().copyWith(
                   borderSide: BorderSide(color: rx, width: 1.2),
                 ),
-                prefixIcon: Icon(Icons.person_search_rounded, size: 20, color: Colors.grey.shade600),
+                prefixIcon: Icon(
+                  Icons.person_search_rounded,
+                  size: 20,
+                  color: Colors.grey.shade600,
+                ),
               ),
             ),
             const SizedBox(height: 8),
@@ -1683,7 +2394,11 @@ class _ColunaFilaSuporteState extends State<ColunaFilaSuporte> {
                 focusedBorder: _inputOutline().copyWith(
                   borderSide: BorderSide(color: rx, width: 1.2),
                 ),
-                prefixIcon: Icon(Icons.tag_rounded, size: 20, color: Colors.grey.shade600),
+                prefixIcon: Icon(
+                  Icons.tag_rounded,
+                  size: 20,
+                  color: Colors.grey.shade600,
+                ),
               ),
             ),
             const SizedBox(height: 8),
@@ -1701,7 +2416,10 @@ class _ColunaFilaSuporteState extends State<ColunaFilaSuporte> {
                     ),
                     child: Text(
                       'De: ${_fmtDataCurta(_dataDe)}',
-                      style: TextStyle(fontSize: 12, color: Colors.grey.shade800),
+                      style: TextStyle(
+                        fontSize: 12,
+                        color: Colors.grey.shade800,
+                      ),
                     ),
                   ),
                 ),
@@ -1718,7 +2436,10 @@ class _ColunaFilaSuporteState extends State<ColunaFilaSuporte> {
                     ),
                     child: Text(
                       'Até: ${_fmtDataCurta(_dataAte)}',
-                      style: TextStyle(fontSize: 12, color: Colors.grey.shade800),
+                      style: TextStyle(
+                        fontSize: 12,
+                        color: Colors.grey.shade800,
+                      ),
                     ),
                   ),
                 ),
@@ -1748,154 +2469,41 @@ class _ColunaFilaSuporteState extends State<ColunaFilaSuporte> {
 
   @override
   Widget build(BuildContext context) {
+    final rx = widget.diPertinRoxo;
     return Container(
-      decoration: BoxDecoration(
-        color: Colors.white,
-        boxShadow: [
-          BoxShadow(
-            color: Colors.black.withValues(alpha: 0.07),
-            blurRadius: 16,
-            offset: const Offset(4, 0),
-          ),
-        ],
-      ),
+      decoration: PainelAdminTheme.dashboardCard(),
+      clipBehavior: Clip.antiAlias,
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.stretch,
         children: [
-          _cabecalhoPrincipal(),
-          Expanded(
-            child: SingleChildScrollView(
-              padding: const EdgeInsets.only(bottom: 16),
-              child: Column(
-                crossAxisAlignment: CrossAxisAlignment.stretch,
-                children: [
-                  _cabecalhoSecao(
-                    'Fila de espera',
-                    widget.diPertinLaranja,
-                    Icons.schedule_rounded,
-                  ),
-                  StreamBuilder<QuerySnapshot<Map<String, dynamic>>>(
-                    stream: widget.queryFila.snapshots(),
-                    builder: (context, snap) {
-                      if (snap.connectionState == ConnectionState.waiting) {
-                        return _loaderSecao();
-                      }
-                      final docs = snap.data?.docs ?? [];
-                      if (docs.isEmpty) {
-                        return _emptyEstado(
-                          'Nenhum cliente aguardando no momento.',
-                          icon: Icons.hourglass_empty_rounded,
-                        );
-                      }
-                      return Column(
-                        children: docs.map((doc) {
-                          final m = doc.data();
-                          final pos = widget.posicaoNaFila(docs, doc.id);
-                          final sel = widget.selecionadoId == doc.id;
-                          return _tile(
-                            nome: m['user_nome']?.toString() ?? 'Cliente',
-                            protocolo: (m['protocol_number'] ?? '')
-                                .toString()
-                                .padLeft(8, '0'),
-                            subtitulo:
-                                '${widget.fmtHora(m['created_at'])} · espera ${widget.tempoEspera(m['created_at'])} · #$pos na fila${_legendaCategoriaNaLista(m)}',
-                            preview: (m['first_message_preview'] ?? '')
-                                .toString(),
-                            selecionado: sel,
-                            onTap: () => widget.onSelect(doc),
-                          );
-                        }).toList(),
-                      );
-                    },
-                  ),
-                  _cabecalhoSecao(
-                    'Em atendimento',
-                    _azulAndamento,
-                    Icons.support_agent_rounded,
-                  ),
-                  StreamBuilder<QuerySnapshot<Map<String, dynamic>>>(
-                    stream: widget.queryAndamento.snapshots(),
-                    builder: (context, snap) {
-                      if (snap.connectionState == ConnectionState.waiting) {
-                        return _loaderSecao();
-                      }
-                      final docs = snap.data?.docs ?? [];
-                      if (docs.isEmpty) {
-                        return _emptyEstado(
-                          'Nenhum atendimento em curso.',
-                          icon: Icons.assignment_ind_outlined,
-                        );
-                      }
-                      return Column(
-                        children: docs.map((doc) {
-                          final m = doc.data();
-                          final sel = widget.selecionadoId == doc.id;
-                          final agente = m['agent_nome']?.toString() ?? '—';
-                          return _tile(
-                            nome: m['user_nome']?.toString() ?? 'Cliente',
-                            protocolo: (m['protocol_number'] ?? '')
-                                .toString()
-                                .padLeft(8, '0'),
-                            subtitulo:
-                                'Atendente: $agente${_legendaCategoriaNaLista(m)}',
-                            preview: (m['first_message_preview'] ?? '')
-                                .toString(),
-                            selecionado: sel,
-                            onTap: () => widget.onSelect(doc),
-                          );
-                        }).toList(),
-                      );
-                    },
-                  ),
-                  _cabecalhoSecao(
-                    'Histórico de atendimentos',
-                    _verdeHistorico,
-                    Icons.history_rounded,
-                  ),
-                  _cardFiltros(),
-                  StreamBuilder<QuerySnapshot<Map<String, dynamic>>>(
-                    stream: widget.queryHistorico.snapshots(),
-                    builder: (context, snap) {
-                      if (snap.connectionState == ConnectionState.waiting) {
-                        return _loaderSecao();
-                      }
-                      final raw = snap.data?.docs ?? [];
-                      final docs = _aplicarFiltrosHistorico(raw);
-                      if (raw.isEmpty) {
-                        return _emptyEstado(
-                          'Nenhum registro no histórico ainda.',
-                          icon: Icons.folder_open_outlined,
-                        );
-                      }
-                      if (docs.isEmpty) {
-                        return _emptyEstado(
-                          'Nenhum resultado com os filtros atuais.',
-                          icon: Icons.search_off_rounded,
-                        );
-                      }
-                      return Column(
-                        children: docs.map((doc) {
-                          final m = doc.data();
-                          final sel = widget.selecionadoId == doc.id;
-                          final st = m['status']?.toString() ?? '';
-                          return _tile(
-                            nome: m['user_nome']?.toString() ?? 'Cliente',
-                            protocolo: (m['protocol_number'] ?? '')
-                                .toString()
-                                .padLeft(8, '0'),
-                            subtitulo:
-                                '${widget.fmtHora(m['created_at'])} · ${statusLegivelSuporte(st)}${_legendaCategoriaNaLista(m)}',
-                            preview: (m['first_message_preview'] ?? '')
-                                .toString(),
-                            selecionado: sel,
-                            onTap: () => widget.onSelect(doc),
-                          );
-                        }).toList(),
-                      );
-                    },
-                  ),
-                ],
+          _cabecalhoPainelTickets(),
+          Material(
+            color: Colors.white,
+            child: TabBar(
+              controller: _tabController,
+              indicatorColor: rx,
+              indicatorWeight: 3,
+              labelColor: rx,
+              unselectedLabelColor: PainelAdminTheme.textoSecundario,
+              labelStyle: const TextStyle(
+                fontWeight: FontWeight.w700,
+                fontSize: 13,
               ),
+              tabs: const [
+                Tab(text: 'Fila'),
+                Tab(text: 'Em curso'),
+                Tab(text: 'Histórico'),
+              ],
+            ),
+          ),
+          Expanded(
+            child: TabBarView(
+              controller: _tabController,
+              children: [
+                _corpoListaFila(),
+                _corpoListaAndamento(),
+                _corpoListaHistorico(),
+              ],
             ),
           ),
         ],

@@ -515,6 +515,127 @@ async function enviarEstornoCreditoSaqueRecusado(db, uid, estornoId, d) {
     return { enviado: true };
 }
 
+/**
+ * Negociação de encomenda → cliente (`tipoNotificacao`: encomenda_cliente_<eventKey>).
+ * Não altera payloads dos fluxos legados (pedido/corrida/chat).
+ */
+async function enviarEncomendaParaCliente(
+    db,
+    clienteId,
+    encomendaId,
+    eventKey,
+    titulo,
+    corpo,
+    lojaIdOpt,
+) {
+    if (!clienteId || !encomendaId || !eventKey) {
+        return { enviado: false, motivo: "parametros" };
+    }
+    try {
+        const { token, ok } = await obterTokenValidado(db, clienteId, "cliente");
+        if (!ok || !token) return { enviado: false };
+
+        const tipoNotificacao = `encomenda_cliente_${eventKey}`;
+        const data = dataSoStrings({
+            type: "ENCOMENDA_NEGOCIACAO",
+            tipoNotificacao,
+            segmento: "cliente",
+            evento: String(eventKey),
+            encomenda_id: String(encomendaId),
+            cliente_id: String(clienteId),
+            loja_id: String(lojaIdOpt || ""),
+        });
+
+        const mensagem = {
+            notification: {
+                title: String(titulo || "Encomenda DiPertin").slice(0, 120),
+                body: String(corpo || "").slice(0, 240),
+            },
+            android: {
+                priority: "high",
+                collapseKey: `encomenda_cli_${encomendaId}_${eventKey}`,
+                notification: {
+                    channelId: "high_importance_channel",
+                    sound: "default",
+                    defaultVibrateTimings: true,
+                    visibility: "public",
+                },
+            },
+            apns: FCM_APNS_ALERTA,
+            data,
+            token,
+        };
+
+        await admin.messaging().send(mensagem);
+        console.log(
+            `[dispatcher] ${tipoNotificacao} → cliente ${clienteId} enc=${encomendaId}`,
+        );
+        return { enviado: true };
+    } catch (e) {
+        console.warn("[dispatcher] enviarEncomendaParaCliente", e && e.message ? e.message : e);
+        return { enviado: false };
+    }
+}
+
+/**
+ * Negociação de encomenda → loja (`tipoNotificacao`: encomenda_loja_<eventKey>).
+ */
+async function enviarEncomendaParaLoja(
+    db,
+    lojaId,
+    encomendaId,
+    eventKey,
+    titulo,
+    corpo,
+    clienteIdOpt,
+) {
+    if (!lojaId || !encomendaId || !eventKey) {
+        return { enviado: false, motivo: "parametros" };
+    }
+    try {
+        const { token, ok } = await obterTokenValidado(db, lojaId, "loja");
+        if (!ok || !token) return { enviado: false };
+
+        const tipoNotificacao = `encomenda_loja_${eventKey}`;
+        const data = dataSoStrings({
+            type: "ENCOMENDA_NEGOCIACAO_LOJA",
+            tipoNotificacao,
+            segmento: "loja",
+            evento: String(eventKey),
+            encomenda_id: String(encomendaId),
+            loja_id: String(lojaId),
+            cliente_id: String(clienteIdOpt || ""),
+        });
+
+        const mensagem = {
+            notification: {
+                title: String(titulo || "Encomenda DiPertin").slice(0, 120),
+                body: String(corpo || "").slice(0, 240),
+            },
+            android: {
+                priority: "high",
+                collapseKey: `encomenda_loja_${encomendaId}_${eventKey}`,
+                notification: {
+                    channelId: "loja_novo_pedido",
+                    sound: "pedido",
+                    defaultVibrateTimings: true,
+                    visibility: "public",
+                },
+            },
+            apns: FCM_APNS_ALERTA,
+            data,
+            token,
+        };
+
+        await admin.messaging().send(mensagem);
+        console.log(`[dispatcher] ${tipoNotificacao} → loja ${lojaId} enc=${encomendaId}`);
+        return { enviado: true };
+    } catch (e) {
+        console.warn("[dispatcher] enviarEncomendaParaLoja", e && e.message ? e.message : e);
+        return { enviado: false };
+    }
+}
+
 module.exports = {
     obterTokenValidado,
     dataSoStrings,
@@ -526,5 +647,7 @@ module.exports = {
     enviarClienteConfirmacaoCancelamentoReembolso,
     enviarPedidoEntregueParaLoja,
     enviarEstornoCreditoSaqueRecusado,
+    enviarEncomendaParaCliente,
+    enviarEncomendaParaLoja,
     ROLES,
 };

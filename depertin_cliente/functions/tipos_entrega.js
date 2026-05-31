@@ -26,17 +26,17 @@ const HIERARQUIA = Object.freeze({
 });
 
 const TABELA_FRETE_POR_TIPO = Object.freeze({
-    [COD.BICICLETA]: "padrao",
-    [COD.MOTO]: "padrao",
+    [COD.BICICLETA]: "bicicleta",
+    [COD.MOTO]: "moto",
     [COD.CARRO]: "carro",
     [COD.CARRO_FRETE]: "carro_frete",
 });
 
 const CADEIA_FALLBACK_TABELA = Object.freeze({
-    [COD.CARRO_FRETE]: ["carro_frete", "carro", "padrao"],
-    [COD.CARRO]: ["carro", "padrao"],
-    [COD.MOTO]: ["padrao"],
-    [COD.BICICLETA]: ["padrao"],
+    [COD.CARRO_FRETE]: ["carro_frete", "carro", "moto", "bicicleta", "padrao"],
+    [COD.CARRO]: ["carro", "moto", "bicicleta", "padrao"],
+    [COD.MOTO]: ["moto", "padrao", "bicicleta"],
+    [COD.BICICLETA]: ["bicicleta", "padrao", "moto"],
 });
 
 const RAIO_KM_RECOMENDADO = Object.freeze({

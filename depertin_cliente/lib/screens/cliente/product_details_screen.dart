@@ -34,6 +34,8 @@ class _ProductDetailsScreenState extends State<ProductDetailsScreen> {
   final PageController _pageControllerImagens = PageController();
   int _indiceImagem = 0;
   int _quantidade = 1;
+  String? _corSelecionada;
+  String? _tamanhoSelecionado;
 
   final NumberFormat _fmtMoeda = NumberFormat.currency(
     locale: 'pt_BR',
@@ -119,6 +121,48 @@ class _ProductDetailsScreenState extends State<ProductDetailsScreen> {
     return _estoqueQtd() > 0;
   }
 
+  List<String> _listaVariacao(List<String> campos) {
+    for (final campo in campos) {
+      final raw = widget.produto[campo];
+      if (raw is List) {
+        return raw
+            .map((e) => e.toString().trim())
+            .where((e) => e.isNotEmpty)
+            .toList();
+      }
+    }
+    return const [];
+  }
+
+  List<String> get _coresDisponiveis =>
+      _listaVariacao(['variacoes_cores', 'cores']);
+
+  List<String> get _tamanhosDisponiveis =>
+      _listaVariacao(['variacoes_tamanhos', 'tamanhos', 'numeracoes']);
+
+  bool get _produtoTemVariacoes {
+    return widget.produto['usa_variacoes'] == true ||
+        _coresDisponiveis.isNotEmpty ||
+        _tamanhosDisponiveis.isNotEmpty;
+  }
+
+  bool get _variacoesObrigatoriasOk {
+    if (!_produtoTemVariacoes) return true;
+    final exigeCor = _coresDisponiveis.isNotEmpty;
+    final exigeTamanho = _tamanhosDisponiveis.isNotEmpty;
+    return (!exigeCor || (_corSelecionada ?? '').trim().isNotEmpty) &&
+        (!exigeTamanho || (_tamanhoSelecionado ?? '').trim().isNotEmpty);
+  }
+
+  Map<String, String> _variacoesSelecionadas() {
+    return {
+      if ((_corSelecionada ?? '').trim().isNotEmpty)
+        'cor': _corSelecionada!.trim(),
+      if ((_tamanhoSelecionado ?? '').trim().isNotEmpty)
+        'tamanho': _tamanhoSelecionado!.trim(),
+    };
+  }
+
   void _compartilharProduto() {
     final nome = widget.produto['nome'] ?? 'Produto';
     final preco = _fmtMoeda.format(_precoVenda());
@@ -131,6 +175,18 @@ class _ProductDetailsScreenState extends State<ProductDetailsScreen> {
         : _lojaAbertaReal;
     if (!lojaAberta) return;
     if (!_podeVenderPorEstoque()) return;
+    if (!_variacoesObrigatoriasOk) {
+      ScaffoldMessenger.of(context).clearSnackBars();
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(
+          content: const Text(
+            'Escolha as variações do produto para continuar.',
+          ),
+          backgroundColor: Colors.orange.shade800,
+        ),
+      );
+      return;
+    }
 
     final maxQ = _maxQuantidadePermitida();
     final q = maxQ > 0 ? _quantidade.clamp(1, maxQ) : 1;
@@ -153,9 +209,21 @@ class _ProductDetailsScreenState extends State<ProductDetailsScreen> {
       requerVeiculoGrande:
           widget.produto['requer_veiculo_grande'] == true ||
           widget.produto['carga_maior'] == true,
+      ehEncomenda: _tipoVenda() == 'encomenda',
+      variacoesSelecionadas: _variacoesSelecionadas(),
     );
 
-    cart.addItemWithQuantity(productItem, q);
+    final bloqueio = cart.addItemWithQuantity(productItem, q);
+    if (bloqueio != null) {
+      ScaffoldMessenger.of(context).clearSnackBars();
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(
+          content: Text(bloqueio),
+          backgroundColor: Colors.orange.shade800,
+        ),
+      );
+      return;
+    }
 
     ScaffoldMessenger.of(context).clearSnackBars();
     ScaffoldMessenger.of(context).showSnackBar(
@@ -324,7 +392,8 @@ class _ProductDetailsScreenState extends State<ProductDetailsScreen> {
                           top: 0,
                           left: 0,
                           right: 0,
-                          height: MediaQuery.paddingOf(context).top +
+                          height:
+                              MediaQuery.paddingOf(context).top +
                               kToolbarHeight +
                               12,
                           child: IgnorePointer(
@@ -450,6 +519,10 @@ class _ProductDetailsScreenState extends State<ProductDetailsScreen> {
                     const SizedBox(height: 18),
                     _buildInfoEncomendaEstoque(widget.produto),
                     const SizedBox(height: 16),
+                    if (_produtoTemVariacoes) ...[
+                      _buildSeletorVariacoes(),
+                      const SizedBox(height: 16),
+                    ],
                     if (podeComprar) _buildSeletorQuantidade(maxQ),
                     const SizedBox(height: 20),
                     _cardSecao(
@@ -573,6 +646,98 @@ class _ProductDetailsScreenState extends State<ProductDetailsScreen> {
           ),
         ],
       ),
+    );
+  }
+
+  Widget _buildSeletorVariacoes() {
+    final cores = _coresDisponiveis;
+    final tamanhos = _tamanhosDisponiveis;
+    return _cardSecao(
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          const Row(
+            children: [
+              Icon(Icons.tune, color: diPertinRoxo, size: 20),
+              SizedBox(width: 8),
+              Text(
+                'Escolha as opções',
+                style: TextStyle(
+                  fontSize: 16,
+                  fontWeight: FontWeight.w800,
+                  color: diPertinRoxo,
+                ),
+              ),
+            ],
+          ),
+          const SizedBox(height: 6),
+          Text(
+            'Selecione as variações para adicionar este produto à sacola.',
+            style: TextStyle(color: Colors.grey.shade600, height: 1.35),
+          ),
+          if (cores.isNotEmpty) ...[
+            const SizedBox(height: 14),
+            _grupoOpcoesVariacao(
+              titulo: 'Cor',
+              valores: cores,
+              selecionado: _corSelecionada,
+              onSelect: (v) => setState(() => _corSelecionada = v),
+            ),
+          ],
+          if (tamanhos.isNotEmpty) ...[
+            const SizedBox(height: 14),
+            _grupoOpcoesVariacao(
+              titulo: 'Tamanho / numeração',
+              valores: tamanhos,
+              selecionado: _tamanhoSelecionado,
+              onSelect: (v) => setState(() => _tamanhoSelecionado = v),
+            ),
+          ],
+        ],
+      ),
+    );
+  }
+
+  Widget _grupoOpcoesVariacao({
+    required String titulo,
+    required List<String> valores,
+    required String? selecionado,
+    required ValueChanged<String> onSelect,
+  }) {
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.start,
+      children: [
+        Text(
+          titulo,
+          style: const TextStyle(
+            fontSize: 13,
+            fontWeight: FontWeight.w800,
+            color: Color(0xFF1A1A2E),
+          ),
+        ),
+        const SizedBox(height: 8),
+        Wrap(
+          spacing: 8,
+          runSpacing: 8,
+          children: valores.map((valor) {
+            final ativo = selecionado == valor;
+            return ChoiceChip(
+              label: Text(valor),
+              selected: ativo,
+              onSelected: (_) => onSelect(valor),
+              selectedColor: diPertinRoxo,
+              backgroundColor: const Color(0xFFF5F2F8),
+              labelStyle: TextStyle(
+                color: ativo ? Colors.white : diPertinRoxo,
+                fontWeight: FontWeight.w800,
+              ),
+              side: BorderSide(
+                color: ativo ? diPertinRoxo : diPertinRoxo.withOpacity(0.22),
+              ),
+            );
+          }).toList(),
+        ),
+      ],
     );
   }
 
@@ -826,9 +991,7 @@ class _ProductDetailsScreenState extends State<ProductDetailsScreen> {
         final d = snapUser.data?.data();
         final mediaCache = (d?['rating_media'] as num?)?.toDouble();
         final totalCache = (d?['total_avaliacoes'] as num?)?.toInt() ?? 0;
-        if (totalCache > 0 &&
-            mediaCache != null &&
-            mediaCache > 0) {
+        if (totalCache > 0 && mediaCache != null && mediaCache > 0) {
           return LojaRatingRow(
             media: mediaCache,
             total: totalCache,

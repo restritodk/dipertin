@@ -40,6 +40,12 @@ const Color _azulInfo = Color(0xFF2E6BE6);
         fundo: const Color(0xFFFFF1F2),
         borda: const Color(0xFFFBD5D8),
       );
+    case PedidoStatus.encomendaEntradaPaga:
+      return (
+        principal: _ambarAviso,
+        fundo: const Color(0xFFFFF8E6),
+        borda: const Color(0xFFF1D583),
+      );
     case PedidoStatus.aceito:
     case PedidoStatus.emPreparo:
       return (
@@ -93,6 +99,8 @@ IconData _iconePorStatus(String status) {
   switch (status) {
     case PedidoStatus.pendente:
       return Icons.mark_chat_unread_rounded;
+    case PedidoStatus.encomendaEntradaPaga:
+      return Icons.inventory_2_rounded;
     case PedidoStatus.aceito:
       return Icons.check_circle_outline_rounded;
     case PedidoStatus.emPreparo:
@@ -116,6 +124,24 @@ IconData _iconePorStatus(String status) {
   }
 }
 
+bool _pedidoApareceNaAbaNovos(String status) =>
+    status == PedidoStatus.pendente ||
+    status == PedidoStatus.encomendaEntradaPaga;
+
+bool _pedidoEntradaEncomendaSubstituido(
+  QueryDocumentSnapshot pedido,
+  Set<String> encomendasComSaldo,
+) {
+  final data = pedido.data() as Map;
+  final tipoCompra = (data['tipo_compra'] ?? '').toString();
+  final fase = (data['encomenda_fase_financeira'] ?? '').toString();
+  final encId = (data['encomenda_id'] ?? '').toString().trim();
+  return tipoCompra == 'encomenda' &&
+      fase == 'entrada' &&
+      encId.isNotEmpty &&
+      encomendasComSaldo.contains(encId);
+}
+
 /// Ex.: "agora", "há 5 min", "há 2 h", "ontem", "12/04 às 14:22".
 String _tempoRelativo(Timestamp? ts) {
   if (ts == null) return 'agora';
@@ -125,17 +151,15 @@ String _tempoRelativo(Timestamp? ts) {
   if (diff.inSeconds < 45) return 'agora';
   if (diff.inMinutes < 60) return 'há ${diff.inMinutes} min';
   if (diff.inHours < 12) return 'há ${diff.inHours} h';
-  final mesmaData = agora.year == d.year &&
-      agora.month == d.month &&
-      agora.day == d.day;
+  final mesmaData =
+      agora.year == d.year && agora.month == d.month && agora.day == d.day;
   if (mesmaData) {
     return 'hoje às ${d.hour.toString().padLeft(2, '0')}:'
         '${d.minute.toString().padLeft(2, '0')}';
   }
   final ontem = agora.subtract(const Duration(days: 1));
-  final eraOntem = ontem.year == d.year &&
-      ontem.month == d.month &&
-      ontem.day == d.day;
+  final eraOntem =
+      ontem.year == d.year && ontem.month == d.month && ontem.day == d.day;
   if (eraOntem) {
     return 'ontem às ${d.hour.toString().padLeft(2, '0')}:'
         '${d.minute.toString().padLeft(2, '0')}';
@@ -144,9 +168,7 @@ String _tempoRelativo(Timestamp? ts) {
       'às ${d.hour.toString().padLeft(2, '0')}:${d.minute.toString().padLeft(2, '0')}';
 }
 
-const List<FontFeature> _numerosTabulares = [
-  FontFeature.tabularFigures(),
-];
+const List<FontFeature> _numerosTabulares = [FontFeature.tabularFigures()];
 
 class LojistaPedidosScreen extends StatefulWidget {
   const LojistaPedidosScreen({super.key, this.uidLoja});
@@ -178,6 +200,7 @@ class _LojistaPedidosScreenState extends State<LojistaPedidosScreen> {
   final Set<String> _cancelandoChamadaEmProgresso = <String>{};
   final Set<String> _abrindoConfirmacaoChamarDeNovo = <String>{};
   final Set<String> _chamandoDeNovoEmProgresso = <String>{};
+  final Set<String> _gerandoPedidoSaldoEncEmProgresso = <String>{};
 
   /// Dono (sem `lojista_owner_uid`) = 3. Colaborador = `painel_colaborador_nivel`.
   /// Apenas nível >= 3 (dono + colaborador nível III) pode ver a caixa financeira.
@@ -205,13 +228,13 @@ class _LojistaPedidosScreenState extends State<LojistaPedidosScreen> {
         .doc(_authUid)
         .snapshots()
         .listen((snap) {
-      if (!snap.exists || !mounted) return;
-      final dados = snap.data() as Map<String, dynamic>;
-      final nivel = nivelAcessoLojista(dados);
-      if (nivel != _nivelAcesso) {
-        setState(() => _nivelAcesso = nivel);
-      }
-    });
+          if (!snap.exists || !mounted) return;
+          final dados = snap.data() as Map<String, dynamic>;
+          final nivel = nivelAcessoLojista(dados);
+          if (nivel != _nivelAcesso) {
+            setState(() => _nivelAcesso = nivel);
+          }
+        });
   }
 
   /// Foto + nome do cliente denormalizados no pedido (`cliente_nome` e
@@ -240,10 +263,7 @@ class _LojistaPedidosScreenState extends State<LojistaPedidosScreen> {
             ),
             border: Border.all(color: _bordaSuave),
             image: foto.isNotEmpty
-                ? DecorationImage(
-                    image: NetworkImage(foto),
-                    fit: BoxFit.cover,
-                  )
+                ? DecorationImage(image: NetworkImage(foto), fit: BoxFit.cover)
                 : null,
           ),
           alignment: Alignment.center,
@@ -300,9 +320,7 @@ class _LojistaPedidosScreenState extends State<LojistaPedidosScreen> {
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
           Icon(
-            isRetirada
-                ? Icons.storefront_rounded
-                : Icons.two_wheeler_rounded,
+            isRetirada ? Icons.storefront_rounded : Icons.two_wheeler_rounded,
             color: cor,
             size: 18,
           ),
@@ -379,6 +397,58 @@ class _LojistaPedidosScreenState extends State<LojistaPedidosScreen> {
     } catch (e) {
       if (kDebugMode) {
         debugPrint('Erro ao tocar som: $e');
+      }
+    }
+  }
+
+  Future<void> _gerarPedidoSaldoFinalEnc({
+    required String encomendaId,
+    required String pedidoEntradaId,
+  }) async {
+    if (encomendaId.isEmpty ||
+        _gerandoPedidoSaldoEncEmProgresso.contains(pedidoEntradaId)) {
+      return;
+    }
+    setState(() => _gerandoPedidoSaldoEncEmProgresso.add(pedidoEntradaId));
+    try {
+      final callable = appFirebaseFunctions.httpsCallable(
+        'encomendaLojaCriarPedidoSaldoFinal',
+      );
+      await callable.call(<String, dynamic>{'encomendaId': encomendaId});
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          const SnackBar(
+            content: Text(
+              'Cobrança do saldo criada. O cliente será avisado no app.',
+            ),
+            backgroundColor: Colors.green,
+          ),
+        );
+      }
+    } on FirebaseFunctionsException catch (e) {
+      debugPrint('[encomendaSaldoFinal] Functions: ${e.code} ${e.message}');
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(
+            content: Text(e.message ?? 'Não foi possível gerar o saldo.'),
+            backgroundColor: Colors.red,
+          ),
+        );
+      }
+    } catch (e) {
+      debugPrint('[encomendaSaldoFinal] Erro: $e');
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(content: Text('Erro: $e'), backgroundColor: Colors.red),
+        );
+      }
+    } finally {
+      if (mounted) {
+        setState(
+          () => _gerandoPedidoSaldoEncEmProgresso.remove(pedidoEntradaId),
+        );
+      } else {
+        _gerandoPedidoSaldoEncEmProgresso.remove(pedidoEntradaId);
       }
     }
   }
@@ -905,10 +975,7 @@ class _LojistaPedidosScreenState extends State<LojistaPedidosScreen> {
           Row(
             children: [
               Container(
-                padding: const EdgeInsets.symmetric(
-                  horizontal: 8,
-                  vertical: 4,
-                ),
+                padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
                 decoration: BoxDecoration(
                   color: diPertinRoxo,
                   borderRadius: BorderRadius.circular(6),
@@ -1128,6 +1195,8 @@ class _LojistaPedidosScreenState extends State<LojistaPedidosScreen> {
     switch (status) {
       case PedidoStatus.pendente:
         return 'Pedido recebido';
+      case PedidoStatus.encomendaEntradaPaga:
+        return 'Encomenda — entrada paga';
       case PedidoStatus.aceito:
         return 'Pedido aceito';
       case PedidoStatus.emPreparo:
@@ -1229,7 +1298,26 @@ class _LojistaPedidosScreenState extends State<LojistaPedidosScreen> {
             );
           }
 
-          final todosPedidos = snapshot.data?.docs.toList() ?? [];
+          final docsBrutos = snapshot.data?.docs.toList() ?? [];
+          final encomendasComSaldo = docsBrutos
+              .where((p) {
+                final data = p.data() as Map;
+                final tipoCompra = (data['tipo_compra'] ?? '').toString();
+                final fase = (data['encomenda_fase_financeira'] ?? '')
+                    .toString();
+                final encId = (data['encomenda_id'] ?? '').toString().trim();
+                return tipoCompra == 'encomenda' &&
+                    fase == 'saldo_final' &&
+                    encId.isNotEmpty;
+              })
+              .map((p) => ((p.data() as Map)['encomenda_id'] ?? '').toString())
+              .toSet();
+          final todosPedidos = docsBrutos
+              .where(
+                (p) =>
+                    !_pedidoEntradaEncomendaSubstituido(p, encomendasComSaldo),
+              )
+              .toList();
           todosPedidos.sort((a, b) {
             final Timestamp? tA = (a.data() as Map)['data_pedido'];
             final Timestamp? tB = (b.data() as Map)['data_pedido'];
@@ -1238,7 +1326,11 @@ class _LojistaPedidosScreenState extends State<LojistaPedidosScreen> {
           });
 
           final qtdNovos = todosPedidos
-              .where((p) => (p.data() as Map)['status'] == 'pendente')
+              .where(
+                (p) => _pedidoApareceNaAbaNovos(
+                  ((p.data() as Map)['status'] ?? '').toString(),
+                ),
+              )
               .length;
           final qtdAndamento = todosPedidos
               .where(
@@ -1249,7 +1341,11 @@ class _LojistaPedidosScreenState extends State<LojistaPedidosScreen> {
               .length;
 
           final novos = todosPedidos
-              .where((p) => (p.data() as Map)['status'] == 'pendente')
+              .where(
+                (p) => _pedidoApareceNaAbaNovos(
+                  ((p.data() as Map)['status'] ?? '').toString(),
+                ),
+              )
               .toList();
 
           final andamento = todosPedidos
@@ -1522,53 +1618,55 @@ class _LojistaPedidosScreenState extends State<LojistaPedidosScreen> {
             Expanded(
               child: Padding(
                 padding: const EdgeInsets.all(16),
-              child: Column(
-                crossAxisAlignment: CrossAxisAlignment.start,
-                children: [
-                  _headerPedido(id, pedido, status, isRetirada),
-                  const SizedBox(height: 14),
-                  _cabecalhoClientePedido(pedido),
-                  const SizedBox(height: 12),
-                  _pillEntrega(isRetirada, pedido),
-                  const SizedBox(height: 14),
-                  _listaItensRefinada(itens),
-                  const SizedBox(height: 14),
-                  if (_podeVerFinanceiro) ...[
-                    _caixaFinanceira(pedido, isRetirada),
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    _headerPedido(id, pedido, status, isRetirada),
                     const SizedBox(height: 14),
-                  ] else
-                    _avisoFinanceiroOculto(isRetirada),
-                  if (painelMotivoCliente != null) ...[
-                    painelMotivoCliente,
+                    _cabecalhoClientePedido(pedido),
                     const SizedBox(height: 12),
-                  ],
-                  ChatPedidoBotao(
-                    pedidoId: id,
-                    lojaId: _uid,
-                    lojaNome: (pedido['loja_nome'] ?? '').toString(),
-                    tituloOverride: () {
-                      final n =
-                          (pedido['cliente_nome'] ?? '').toString().trim();
-                      return n.isNotEmpty ? n : 'Cliente';
-                    }(),
-                    subtituloOverride: 'Pedido ${_rotuloPedido(id)}',
-                    rotuloAtivo: 'Chat com o cliente',
-                    rotuloEncerrado: 'Ver conversa do pedido',
-                    encerrado: status == PedidoStatus.entregue ||
-                        status == PedidoStatus.cancelado,
-                  ),
-                  const SizedBox(height: 12),
-                  if (pedido['entregador_id'] != null &&
-                      pedido['entregador_id'].toString().isNotEmpty &&
-                      !isRetirada) ...[
-                    _painelDadosEntregador(pedido),
+                    _pillEntrega(isRetirada, pedido),
+                    const SizedBox(height: 14),
+                    _listaItensRefinada(itens),
+                    const SizedBox(height: 14),
+                    if (_podeVerFinanceiro) ...[
+                      _caixaFinanceira(pedido, isRetirada),
+                      const SizedBox(height: 14),
+                    ] else
+                      _avisoFinanceiroOculto(isRetirada),
+                    if (painelMotivoCliente != null) ...[
+                      painelMotivoCliente,
+                      const SizedBox(height: 12),
+                    ],
+                    ChatPedidoBotao(
+                      pedidoId: id,
+                      lojaId: _uid,
+                      lojaNome: (pedido['loja_nome'] ?? '').toString(),
+                      tituloOverride: () {
+                        final n = (pedido['cliente_nome'] ?? '')
+                            .toString()
+                            .trim();
+                        return n.isNotEmpty ? n : 'Cliente';
+                      }(),
+                      subtituloOverride: 'Pedido ${_rotuloPedido(id)}',
+                      rotuloAtivo: 'Chat com o cliente',
+                      rotuloEncerrado: 'Ver conversa do pedido',
+                      encerrado:
+                          status == PedidoStatus.entregue ||
+                          status == PedidoStatus.cancelado,
+                    ),
                     const SizedBox(height: 12),
+                    if (pedido['entregador_id'] != null &&
+                        pedido['entregador_id'].toString().isNotEmpty &&
+                        !isRetirada) ...[
+                      _painelDadosEntregador(pedido),
+                      const SizedBox(height: 12),
+                    ],
+                    _acoesPorStatus(id, status, isRetirada, pedido),
                   ],
-                  _acoesPorStatus(id, status, isRetirada, pedido),
-                ],
+                ),
               ),
             ),
-          ),
           ],
         ),
       ),
@@ -1662,6 +1760,17 @@ class _LojistaPedidosScreenState extends State<LojistaPedidosScreen> {
           final nome = map['nome']?.toString() ?? '';
           final qtd = map['quantidade'] ?? 1;
           final preco = _precoItem(map['preco']);
+          final variacoesResumo = (map['variacoes_resumo'] ?? '')
+              .toString()
+              .trim();
+          final variacoes = map['variacoes'] is Map
+              ? Map<String, dynamic>.from(map['variacoes'] as Map)
+              : <String, dynamic>{};
+          final cor = (variacoes['cor'] ?? '').toString().trim();
+          final tamanho = (variacoes['tamanho'] ?? '').toString().trim();
+          final tipoCompra = (map['tipo_compra'] ?? map['tipo_venda'] ?? '')
+              .toString()
+              .trim();
           return Padding(
             padding: EdgeInsets.only(top: i == 0 ? 0 : 6),
             child: Row(
@@ -1687,13 +1796,54 @@ class _LojistaPedidosScreenState extends State<LojistaPedidosScreen> {
                 ),
                 const SizedBox(width: 10),
                 Expanded(
-                  child: Text(
-                    nome,
-                    style: const TextStyle(
-                      fontSize: 13.5,
-                      color: _tintaForte,
-                      height: 1.35,
-                    ),
+                  child: Column(
+                    crossAxisAlignment: CrossAxisAlignment.start,
+                    children: [
+                      Text(
+                        nome,
+                        style: const TextStyle(
+                          fontSize: 13.5,
+                          color: _tintaForte,
+                          height: 1.35,
+                        ),
+                      ),
+                      if (variacoesResumo.isNotEmpty ||
+                          cor.isNotEmpty ||
+                          tamanho.isNotEmpty ||
+                          tipoCompra.isNotEmpty) ...[
+                        const SizedBox(height: 5),
+                        Wrap(
+                          spacing: 6,
+                          runSpacing: 6,
+                          children: [
+                            if (cor.isNotEmpty)
+                              _miniInfoItem(
+                                'Cor: $cor',
+                                Icons.palette_outlined,
+                              ),
+                            if (tamanho.isNotEmpty)
+                              _miniInfoItem(
+                                'Tamanho: $tamanho',
+                                Icons.straighten,
+                              ),
+                            if (cor.isEmpty &&
+                                tamanho.isEmpty &&
+                                variacoesResumo.isNotEmpty)
+                              _miniInfoItem(
+                                variacoesResumo,
+                                Icons.tune_outlined,
+                              ),
+                            if (tipoCompra.isNotEmpty)
+                              _miniInfoItem(
+                                tipoCompra == 'encomenda'
+                                    ? 'Sob encomenda'
+                                    : 'Produto normal',
+                                Icons.inventory_2_outlined,
+                              ),
+                          ],
+                        ),
+                      ],
+                    ],
                   ),
                 ),
                 const SizedBox(width: 10),
@@ -1716,22 +1866,49 @@ class _LojistaPedidosScreenState extends State<LojistaPedidosScreen> {
     );
   }
 
+  Widget _miniInfoItem(String texto, IconData icon) {
+    return Container(
+      padding: const EdgeInsets.symmetric(horizontal: 7, vertical: 3),
+      decoration: BoxDecoration(
+        color: diPertinRoxo.withOpacity(0.07),
+        borderRadius: BorderRadius.circular(999),
+      ),
+      child: Row(
+        mainAxisSize: MainAxisSize.min,
+        children: [
+          Icon(icon, size: 12, color: diPertinRoxo),
+          const SizedBox(width: 4),
+          Text(
+            texto,
+            style: const TextStyle(
+              color: diPertinRoxo,
+              fontSize: 10.5,
+              fontWeight: FontWeight.w800,
+            ),
+          ),
+        ],
+      ),
+    );
+  }
+
   /// Caixa financeira premium (Fase 3) — visível apenas para dono + colaborador III.
   Widget _caixaFinanceira(Map<String, dynamic> pedido, bool isRetirada) {
     final double subtotal = (pedido['subtotal'] ?? 0.0).toDouble();
-    final String formaPagamentoBruto = (pedido['forma_pagamento'] ??
-            pedido['metodo_pagamento'] ??
-            pedido['pagamento_metodo'] ??
-            pedido['formaPagamento'] ??
-            '')
-        .toString()
-        .trim();
+    final String formaPagamentoBruto =
+        (pedido['forma_pagamento'] ??
+                pedido['metodo_pagamento'] ??
+                pedido['pagamento_metodo'] ??
+                pedido['formaPagamento'] ??
+                '')
+            .toString()
+            .trim();
     final String formaPagamentoNormalizada = formaPagamentoBruto.toLowerCase();
-    final String formaPagamentoExibicao = formaPagamentoNormalizada == 'dinheiro'
+    final String formaPagamentoExibicao =
+        formaPagamentoNormalizada == 'dinheiro'
         ? 'Dinheiro'
         : formaPagamentoNormalizada == 'pix'
-            ? 'PIX'
-            : formaPagamentoBruto;
+        ? 'PIX'
+        : formaPagamentoBruto;
     final double taxaPlataforma = (pedido['taxa_plataforma'] ?? 0.0).toDouble();
     final double? liquidoSrv = pedido['valor_liquido_lojista'] != null
         ? (pedido['valor_liquido_lojista'] as num).toDouble()
@@ -1768,10 +1945,7 @@ class _LojistaPedidosScreenState extends State<LojistaPedidosScreen> {
               ),
               const Spacer(),
               Container(
-                padding: const EdgeInsets.symmetric(
-                  horizontal: 8,
-                  vertical: 3,
-                ),
+                padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 3),
                 decoration: BoxDecoration(
                   color: Colors.white,
                   borderRadius: BorderRadius.circular(6),
@@ -1826,10 +2000,7 @@ class _LojistaPedidosScreenState extends State<LojistaPedidosScreen> {
             ),
           ],
           const SizedBox(height: 12),
-          Container(
-            height: 1,
-            color: _bordaSuave,
-          ),
+          Container(height: 1, color: _bordaSuave),
           const SizedBox(height: 12),
           Row(
             mainAxisAlignment: MainAxisAlignment.spaceBetween,
@@ -1904,11 +2075,7 @@ class _LojistaPedidosScreenState extends State<LojistaPedidosScreen> {
       ),
       child: Row(
         children: [
-          const Icon(
-            Icons.lock_outline_rounded,
-            color: _tintaSuave,
-            size: 16,
-          ),
+          const Icon(Icons.lock_outline_rounded, color: _tintaSuave, size: 16),
           const SizedBox(width: 8),
           Expanded(
             child: Text(
@@ -1957,9 +2124,42 @@ class _LojistaPedidosScreenState extends State<LojistaPedidosScreen> {
               rotulo: 'Aceitar pedido',
               icone: Icons.check_rounded,
               cor: _verdeSucesso,
-              onPressed: () =>
-                  _atualizarStatusPedido(id, PedidoStatus.aceito),
+              onPressed: () => _atualizarStatusPedido(id, PedidoStatus.aceito),
             ),
+          ),
+        ],
+      );
+    }
+
+    if (status == PedidoStatus.encomendaEntradaPaga) {
+      final encId = (pedido['encomenda_id'] ?? '').toString().trim();
+      final carregando = _gerandoPedidoSaldoEncEmProgresso.contains(id);
+      return Column(
+        crossAxisAlignment: CrossAxisAlignment.stretch,
+        children: [
+          _blocoAviso(
+            cor: _ambarAviso,
+            fundo: const Color(0xFFFFF8E1),
+            borda: const Color(0xFFF1D583),
+            icone: Icons.info_outline_rounded,
+            titulo: 'Encomenda — entrada paga',
+            mensagem:
+                'Produza o pedido. Quando estiver pronto para liberar a logística, gere a cobrança do saldo para o cliente.',
+          ),
+          const SizedBox(height: 10),
+          _botaoPrimario(
+            rotulo: carregando
+                ? 'Gerando cobrança...'
+                : 'Gerar cobrança do saldo',
+            icone: Icons.payments_rounded,
+            cor: diPertinRoxo,
+            carregando: carregando,
+            onPressed: encId.isEmpty || carregando
+                ? null
+                : () => _gerarPedidoSaldoFinalEnc(
+                    encomendaId: encId,
+                    pedidoEntradaId: id,
+                  ),
           ),
         ],
       );
@@ -1970,16 +2170,15 @@ class _LojistaPedidosScreenState extends State<LojistaPedidosScreen> {
         rotulo: 'Iniciar preparo',
         icone: Icons.soup_kitchen_rounded,
         cor: diPertinLaranja,
-        onPressed: () =>
-            _atualizarStatusPedido(id, PedidoStatus.emPreparo),
+        onPressed: () => _atualizarStatusPedido(id, PedidoStatus.emPreparo),
       );
     }
 
     if (status == PedidoStatus.emPreparo) {
-      final bool encerrouSemEntregador = !isRetirada &&
+      final bool encerrouSemEntregador =
+          !isRetirada &&
           pedido['despacho_auto_encerrada_sem_entregador'] == true;
-      final bool carregando =
-          _solicitandoEntregadorEmProgresso.contains(id);
+      final bool carregando = _solicitandoEntregadorEmProgresso.contains(id);
       return Column(
         crossAxisAlignment: CrossAxisAlignment.stretch,
         children: [
@@ -1990,9 +2189,8 @@ class _LojistaPedidosScreenState extends State<LojistaPedidosScreen> {
               borda: const Color(0xFFF1D583),
               icone: Icons.info_outline_rounded,
               titulo: 'Busca encerrada',
-              mensagem: (pedido['despacho_msg_busca_entregador']
-                              ?.toString() ??
-                          '')
+              mensagem:
+                  (pedido['despacho_msg_busca_entregador']?.toString() ?? '')
                       .trim()
                       .isNotEmpty
                   ? pedido['despacho_msg_busca_entregador'].toString()
@@ -2004,8 +2202,8 @@ class _LojistaPedidosScreenState extends State<LojistaPedidosScreen> {
             rotulo: isRetirada
                 ? 'Pronto para retirada'
                 : carregando
-                    ? 'Solicitando entregador...'
-                    : 'Solicitar entregador',
+                ? 'Solicitando entregador...'
+                : 'Solicitar entregador',
             icone: isRetirada
                 ? Icons.storefront_rounded
                 : Icons.two_wheeler_rounded,
@@ -2014,8 +2212,8 @@ class _LojistaPedidosScreenState extends State<LojistaPedidosScreen> {
             onPressed: isRetirada
                 ? () => _atualizarStatusPedido(id, PedidoStatus.pronto)
                 : carregando
-                    ? null
-                    : () => _solicitarEntregador(id),
+                ? null
+                : () => _solicitarEntregador(id),
           ),
         ],
       );
@@ -2029,8 +2227,8 @@ class _LojistaPedidosScreenState extends State<LojistaPedidosScreen> {
           borda: const Color(0xFFF1D583),
           icone: Icons.pause_circle_outline_rounded,
           titulo: 'Decidir o que fazer',
-          mensagem: (pedido['despacho_msg_busca_entregador']?.toString() ??
-                      '')
+          mensagem:
+              (pedido['despacho_msg_busca_entregador']?.toString() ?? '')
                   .trim()
                   .isNotEmpty
               ? pedido['despacho_msg_busca_entregador'].toString()
@@ -2057,14 +2255,12 @@ class _LojistaPedidosScreenState extends State<LojistaPedidosScreen> {
                       : 'Cancelar chamada',
                   icone: Icons.close_rounded,
                   cor: _vermelhoPerigo,
-                  carregando:
-                      _cancelandoChamadaEmProgresso.contains(id),
+                  carregando: _cancelandoChamadaEmProgresso.contains(id),
                   onPressed:
                       (_abrindoConfirmacaoCancelarChamada.contains(id) ||
-                              _cancelandoChamadaEmProgresso
-                                  .contains(id))
-                          ? null
-                          : () => _cancelarChamadaEntregador(id),
+                          _cancelandoChamadaEmProgresso.contains(id))
+                      ? null
+                      : () => _cancelarChamadaEntregador(id),
                 ),
               ),
             ],
@@ -2078,7 +2274,7 @@ class _LojistaPedidosScreenState extends State<LojistaPedidosScreen> {
 
       final String? rodada = pedido['despacho_macro_ciclo_atual'] != null
           ? 'Rodada ${pedido['despacho_macro_ciclo_atual']}/'
-              '${pedido['despacho_busca_extensao_usada'] == true ? '5 (extra)' : '5'}'
+                '${pedido['despacho_busca_extensao_usada'] == true ? '5 (extra)' : '5'}'
           : null;
 
       return Column(
@@ -2101,7 +2297,8 @@ class _LojistaPedidosScreenState extends State<LojistaPedidosScreen> {
             corTexto: _azulInfo,
             corBorda: _azulInfo.withValues(alpha: 0.5),
             carregando: _cancelandoChamadaEmProgresso.contains(id),
-            onPressed: (_abrindoConfirmacaoCancelarChamada.contains(id) ||
+            onPressed:
+                (_abrindoConfirmacaoCancelarChamada.contains(id) ||
                     _cancelandoChamadaEmProgresso.contains(id))
                 ? null
                 : () => _cancelarChamadaEntregador(id),
@@ -2115,20 +2312,21 @@ class _LojistaPedidosScreenState extends State<LojistaPedidosScreen> {
             corTexto: diPertinLaranja,
             corBorda: diPertinLaranja.withValues(alpha: 0.7),
             carregando: _chamandoDeNovoEmProgresso.contains(id),
-            onPressed: (_abrindoConfirmacaoChamarDeNovo.contains(id) ||
+            onPressed:
+                (_abrindoConfirmacaoChamarDeNovo.contains(id) ||
                     _chamandoDeNovoEmProgresso.contains(id))
                 ? null
                 : () => _chamarEntregadorNovamente(
-                      id,
-                      tipoAnteriorCanonico:
-                          TiposEntrega.normalizarTipoSolicitado(
+                    id,
+                    tipoAnteriorCanonico:
+                        TiposEntrega.normalizarTipoSolicitado(
+                          pedido['tipo_entrega_solicitado'],
+                        ).isNotEmpty
+                        ? TiposEntrega.normalizarTipoSolicitado(
                             pedido['tipo_entrega_solicitado'],
-                          ).isNotEmpty
-                          ? TiposEntrega.normalizarTipoSolicitado(
-                              pedido['tipo_entrega_solicitado'],
-                            )
-                          : null,
-                    ),
+                          )
+                        : null,
+                  ),
           ),
         ],
       );
@@ -2139,19 +2337,20 @@ class _LojistaPedidosScreenState extends State<LojistaPedidosScreen> {
         rotulo: 'Confirmar retirada no balcão',
         icone: Icons.task_alt_rounded,
         cor: _verdeSucesso,
-        onPressed: () =>
-            _atualizarStatusPedido(id, PedidoStatus.entregue),
+        onPressed: () => _atualizarStatusPedido(id, PedidoStatus.entregue),
       );
     }
 
-    final bool emRota = !isRetirada &&
+    final bool emRota =
+        !isRetirada &&
         (status == PedidoStatus.aCaminho ||
             status == PedidoStatus.emRota ||
             status == PedidoStatus.saiuEntrega ||
             status == PedidoStatus.entregadorIndoLoja);
 
     if (emRota) {
-      final bool semEntregadorVinculado = pedido['entregador_id'] == null ||
+      final bool semEntregadorVinculado =
+          pedido['entregador_id'] == null ||
           pedido['entregador_id'].toString().isEmpty;
       if (semEntregadorVinculado) {
         return _blocoTokenEntrega(id, pedido);
@@ -2205,8 +2404,10 @@ class _LojistaPedidosScreenState extends State<LojistaPedidosScreen> {
           isDense: true,
           filled: true,
           fillColor: Colors.white,
-          contentPadding:
-              const EdgeInsets.symmetric(horizontal: 14, vertical: 14),
+          contentPadding: const EdgeInsets.symmetric(
+            horizontal: 14,
+            vertical: 14,
+          ),
           border: OutlineInputBorder(
             borderRadius: BorderRadius.circular(12),
             borderSide: const BorderSide(color: _bordaSuave),
@@ -2219,7 +2420,11 @@ class _LojistaPedidosScreenState extends State<LojistaPedidosScreen> {
             borderRadius: BorderRadius.circular(12),
             borderSide: const BorderSide(color: diPertinRoxo, width: 1.5),
           ),
-          prefixIcon: const Icon(Icons.key_rounded, color: _tintaMedia, size: 20),
+          prefixIcon: const Icon(
+            Icons.key_rounded,
+            color: _tintaMedia,
+            size: 20,
+          ),
         ),
         style: const TextStyle(
           fontFamily: 'monospace',
@@ -2374,10 +2579,7 @@ class _ContadorAbaTab extends StatelessWidget {
   final int quantidade;
   final bool destaque;
 
-  const _ContadorAbaTab({
-    required this.quantidade,
-    this.destaque = false,
-  });
+  const _ContadorAbaTab({required this.quantidade, this.destaque = false});
 
   @override
   Widget build(BuildContext context) {
@@ -2392,9 +2594,7 @@ class _ContadorAbaTab extends StatelessWidget {
       alignment: Alignment.center,
       padding: EdgeInsets.symmetric(horizontal: largo ? 6 : 0),
       decoration: BoxDecoration(
-        color: destaque
-            ? Colors.white
-            : Colors.white.withValues(alpha: 0.28),
+        color: destaque ? Colors.white : Colors.white.withValues(alpha: 0.28),
         borderRadius: BorderRadius.circular(altura / 2),
       ),
       child: Text(

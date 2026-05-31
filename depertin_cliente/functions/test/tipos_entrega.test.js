@@ -98,23 +98,29 @@ test("defaultLegado: bicicleta nunca entra em default", () => {
     assert.ok(!com.includes("bicicleta"));
 });
 
-test("CADEIA_FALLBACK_TABELA.carro_frete cobre 3 níveis", () => {
+test("CADEIA_FALLBACK_TABELA.carro_frete cobre até padrao", () => {
     assert.deepEqual(
         T.CADEIA_FALLBACK_TABELA[T.COD.CARRO_FRETE],
-        ["carro_frete", "carro", "padrao"],
+        ["carro_frete", "carro", "moto", "bicicleta", "padrao"],
     );
 });
 
-test("CADEIA_FALLBACK_TABELA.carro cai em padrao", () => {
+test("CADEIA_FALLBACK_TABELA.carro cruza niveis intermediarios", () => {
     assert.deepEqual(
         T.CADEIA_FALLBACK_TABELA[T.COD.CARRO],
-        ["carro", "padrao"],
+        ["carro", "moto", "bicicleta", "padrao"],
     );
 });
 
-test("CADEIA_FALLBACK_TABELA moto e bike usam padrao direto", () => {
-    assert.deepEqual(T.CADEIA_FALLBACK_TABELA[T.COD.MOTO], ["padrao"]);
-    assert.deepEqual(T.CADEIA_FALLBACK_TABELA[T.COD.BICICLETA], ["padrao"]);
+test("CADEIA_FALLBACK_TABELA moto e bike com legado combinado padrao", () => {
+    assert.deepEqual(
+        T.CADEIA_FALLBACK_TABELA[T.COD.MOTO],
+        ["moto", "padrao", "bicicleta"],
+    );
+    assert.deepEqual(
+        T.CADEIA_FALLBACK_TABELA[T.COD.BICICLETA],
+        ["bicicleta", "padrao", "moto"],
+    );
 });
 
 test("HIERARQUIA bike(1)<moto(2)<carro(3)<frete(4)", () => {

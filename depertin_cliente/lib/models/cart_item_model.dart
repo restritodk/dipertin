@@ -23,6 +23,13 @@ class CartItemModel {
   /// da loja (`lojas_public/{lojaId}.tipos_entrega_permitidos`).
   final bool requerVeiculoGrande;
 
+  /// Produto com `tipo_venda == encomenda` (negociação + entrada via fluxo dedicado).
+  final bool ehEncomenda;
+
+  /// Variações escolhidas pelo cliente para este item.
+  /// Ex.: {'cor': 'Azul', 'tamanho': 'G'} ou {'cor': 'Preto', 'tamanho': '42'}.
+  final Map<String, String> variacoesSelecionadas;
+
   CartItemModel({
     required this.id,
     required this.nome,
@@ -32,7 +39,29 @@ class CartItemModel {
     required this.imagem,
     this.quantidade = 1,
     this.requerVeiculoGrande = false,
-  });
+    this.ehEncomenda = false,
+    Map<String, String>? variacoesSelecionadas,
+  }) : variacoesSelecionadas = variacoesSelecionadas ?? const {};
+
+  String get chaveCarrinho {
+    final partes =
+        variacoesSelecionadas.entries
+            .where((e) => e.value.trim().isNotEmpty)
+            .map((e) => '${e.key}:${e.value.trim().toLowerCase()}')
+            .toList()
+          ..sort();
+    return partes.isEmpty ? id : '$id|${partes.join('|')}';
+  }
+
+  String get variacoesResumo {
+    final cor = variacoesSelecionadas['cor']?.trim() ?? '';
+    final tamanho = variacoesSelecionadas['tamanho']?.trim() ?? '';
+    final partes = <String>[
+      if (cor.isNotEmpty) 'Cor: $cor',
+      if (tamanho.isNotEmpty) 'Tamanho: $tamanho',
+    ];
+    return partes.join(' • ');
+  }
 
   Map<String, dynamic> toJson() {
     // Proteção contra hot-reload: instâncias antigas podem não ter o slot
@@ -41,6 +70,14 @@ class CartItemModel {
     bool veiculoGrande = false;
     try {
       veiculoGrande = requerVeiculoGrande;
+    } catch (_) {}
+    bool encomenda = false;
+    try {
+      encomenda = ehEncomenda;
+    } catch (_) {}
+    Map<String, String> variacoes = const {};
+    try {
+      variacoes = variacoesSelecionadas;
     } catch (_) {}
     return {
       'id': id,
@@ -51,10 +88,23 @@ class CartItemModel {
       'imagem': imagem,
       'quantidade': quantidade,
       'requerVeiculoGrande': veiculoGrande,
+      'ehEncomenda': encomenda,
+      'variacoesSelecionadas': variacoes,
+      'variacoes_resumo': variacoesResumo,
+      'chaveCarrinho': chaveCarrinho,
     };
   }
 
   factory CartItemModel.fromJson(Map<String, dynamic> json) {
+    final rawVariacoes = json['variacoesSelecionadas'] ?? json['variacoes'];
+    final variacoes = <String, String>{};
+    if (rawVariacoes is Map) {
+      rawVariacoes.forEach((key, value) {
+        final k = key.toString().trim();
+        final v = value.toString().trim();
+        if (k.isNotEmpty && v.isNotEmpty) variacoes[k] = v;
+      });
+    }
     return CartItemModel(
       id: json['id'],
       nome: json['nome'],
@@ -64,6 +114,8 @@ class CartItemModel {
       imagem: json['imagem'],
       quantidade: json['quantidade'],
       requerVeiculoGrande: json['requerVeiculoGrande'] == true,
+      ehEncomenda: json['ehEncomenda'] == true,
+      variacoesSelecionadas: variacoes,
     );
   }
 }

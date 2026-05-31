@@ -1,4 +1,6 @@
 // Arquivo: lib/screens/auth/login_screen.dart
+import 'dart:async';
+
 import 'package:flutter/material.dart';
 import 'package:firebase_auth/firebase_auth.dart';
 import 'package:cloud_firestore/cloud_firestore.dart';
@@ -6,6 +8,7 @@ import 'package:firebase_messaging/firebase_messaging.dart';
 import 'package:provider/provider.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 import '../../auth/google_auth_helper.dart';
+import '../../services/audit_log_app_service.dart';
 import '../../services/biometria_service.dart';
 import '../../services/conta_bloqueio_entregador_service.dart';
 import '../../services/conta_bloqueio_lojista_service.dart';
@@ -499,6 +502,14 @@ class _LoginScreenState extends State<LoginScreen> {
       // forçar re-login a cada 24h (política de segurança).
       await SessaoTimeoutService.registrarLoginAgora();
 
+      final modoBiometria =
+          vinculo.metodo == BiometriaMetodoLogin.emailSenha
+              ? 'biometria_email_senha'
+              : 'biometria_google';
+      unawaited(
+        AuditLogAppService.instancia.registrarLoginSessaoMobile(modoBiometria),
+      );
+
       if (mounted) {
         ScaffoldMessenger.of(context).showSnackBar(
           const SnackBar(
@@ -727,6 +738,10 @@ class _LoginScreenState extends State<LoginScreen> {
         // Marca o início da sessão — ver SessaoTimeoutService.
         await SessaoTimeoutService.registrarLoginAgora();
 
+        unawaited(
+          AuditLogAppService.instancia.registrarLoginSessaoMobile('email_senha'),
+        );
+
         // Primeiro login autorizado → oferece ativação biométrica.
         final emailLimpo = _emailController.text.trim();
         final senhaLimpa = _senhaController.text.trim();
@@ -944,6 +959,10 @@ class _LoginScreenState extends State<LoginScreen> {
 
       // Marca o início da sessão — ver SessaoTimeoutService.
       await SessaoTimeoutService.registrarLoginAgora();
+
+      unawaited(
+        AuditLogAppService.instancia.registrarLoginSessaoMobile('google_oauth'),
+      );
 
       // Primeiro login Google autorizado → oferece ativação biométrica
       // (sem senha, método google — re-login futuro via signInSilently).

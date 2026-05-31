@@ -229,8 +229,6 @@ class _SobreScreenState extends State<SobreScreen> {
         fontSize: 16,
         fontWeight: FontWeight.w700,
         color: corValor,
-        decoration: onTap != null ? TextDecoration.underline : null,
-        decorationColor: corValor.withValues(alpha: 0.35),
       ),
     );
 

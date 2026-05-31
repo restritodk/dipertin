@@ -9,6 +9,7 @@ import 'package:provider/provider.dart';
 import 'package:url_launcher/url_launcher.dart';
 import 'package:depertin_cliente/widgets/loja_rating_row.dart';
 
+import '../../models/cart_item_model.dart';
 import '../../providers/cart_provider.dart';
 import '../../services/location_service.dart';
 import '../../utils/loja_pausa.dart';
@@ -37,54 +38,27 @@ class _VitrineScreenState extends State<VitrineScreen> {
     return (p['lojista_id'] ?? p['loja_id'] ?? '').toString();
   }
 
-  /// Verifica se a cidade do documento bate EXATAMENTE com a cidade do GPS.
-  /// Sem fallback: documento sem cidade = não visível.
+  /// Loja na região do GPS (texto da cidade ou proximidade das coordenadas).
   bool _cidadeCorresponde(
     Map<String, dynamic> dados,
     String cidadeNorm,
     String ufNorm,
-  ) {
-    final cidadeBanco = dados['cidade_normalizada']?.toString().trim() ??
-        dados['cidade']?.toString().trim() ??
-        dados['endereco_cidade']?.toString().trim();
-    if (cidadeBanco == null || cidadeBanco.isEmpty) return false;
-    final cidadeNormBanco = LocationService.normalizar(cidadeBanco);
-    if (cidadeNormBanco != cidadeNorm) return false;
+    LocationService locationService,
+  ) =>
+      LocationService.lojaPublicaNaRegiaoDoUsuario(
+        dados: dados,
+        cidadeNormUsuario: cidadeNorm,
+        ufNormUsuario: ufNorm,
+        usuarioLat: locationService.ultimaLatitude,
+        usuarioLng: locationService.ultimaLongitude,
+      );
 
-    final ufBanco = dados['uf']?.toString() ?? dados['estado']?.toString();
-    if (ufBanco != null && ufBanco.trim().isNotEmpty) {
-      final ufNormBanco =
-          LocationService.extrairUf(ufBanco) ??
-          LocationService.normalizar(ufBanco);
-      if (ufNormBanco != ufNorm) return false;
-    }
-    return true;
-  }
-
-  /// Produto deve pertencer a uma loja da cidade do GPS.
-  /// Se o produto tiver cidade própria, deve coincidir; senão, depende da loja (já filtrada).
-  bool _produtoNaMesmaRegiao(
-    Map<String, dynamic> p,
-    String cidadeNorm,
-    String ufNorm,
-  ) {
-    final cn = p['cidade_normalizada']?.toString().trim();
-    if (cn != null && cn.isNotEmpty) {
-      return LocationService.normalizar(cn) == cidadeNorm;
-    }
-    final c = p['cidade']?.toString().trim();
-    if (c != null && c.isNotEmpty) {
-      if (LocationService.normalizar(c) != cidadeNorm) return false;
-      final u = p['uf']?.toString() ?? p['estado']?.toString();
-      if (u != null && u.trim().isNotEmpty) {
-        final un =
-            LocationService.extrairUf(u) ?? LocationService.normalizar(u);
-        if (un != ufNorm) return false;
-      }
-      return true;
-    }
-    // Sem cidade no produto: depende exclusivamente do filtro da loja (statusLojas)
-    return true;
+  static bool _lojaStatusAprovadoParaVitrine(Map<String, dynamic> lojaData) {
+    final status =
+        (lojaData['status_loja'] ?? 'pendente').toString().trim().toLowerCase();
+    return status == 'aprovada' ||
+        status == 'aprovado' ||
+        status == 'ativo';
   }
 
   /// Banner dentro do período configurado no painel (alinhado ao uso de datas).
@@ -99,8 +73,7 @@ class _VitrineScreenState extends State<VitrineScreen> {
     }
     if (df is Timestamp) {
       final f = df.toDate();
-      final fimDia =
-          DateTime(f.year, f.month, f.day, 23, 59, 59, 999);
+      final fimDia = DateTime(f.year, f.month, f.day, 23, 59, 59, 999);
       if (now.isAfter(fimDia)) return false;
     }
     return true;
@@ -110,6 +83,7 @@ class _VitrineScreenState extends State<VitrineScreen> {
     List<QueryDocumentSnapshot> banners,
     String cidadeNorm,
     String ufNorm,
+    LocationService locationService,
   ) {
     return banners.where((doc) {
       var data = doc.data() as Map<String, dynamic>;
@@ -119,7 +93,7 @@ class _VitrineScreenState extends State<VitrineScreen> {
           .toLowerCase()
           .trim();
       if (cidadeBanner == 'todas') return true;
-      return _cidadeCorresponde(data, cidadeNorm, ufNorm);
+      return _cidadeCorresponde(data, cidadeNorm, ufNorm, locationService);
     }).toList();
   }
 
@@ -271,6 +245,7 @@ class _VitrineScreenState extends State<VitrineScreen> {
                   snapshot.data!.docs,
                   cidadeNorm,
                   ufNorm,
+                  locationService,
                 );
               }
 
@@ -353,29 +328,43 @@ class _VitrineScreenState extends State<VitrineScreen> {
                   var lojaData = doc.data() as Map<String, dynamic>;
                   dadosLojasPorId[doc.id] = lojaData;
 
-                  if (!_cidadeCorresponde(lojaData, cidadeNorm, ufNorm)) {
+                  if (!_cidadeCorresponde(
+                    lojaData,
+                    cidadeNorm,
+                    ufNorm,
+                    locationService,
+                  )) {
                     continue;
                   }
 
-                  String status = lojaData['status_loja'] ?? 'pendente';
-                  if (status != 'aprovada' &&
-                      status != 'aprovado' &&
-                      status != 'ativo') {
+                  if (!_lojaStatusAprovadoParaVitrine(lojaData)) {
                     continue;
                   }
 
                   statusLojas[doc.id] = _verificarSeLojaEstaAberta(lojaData);
                   nomesLojas[doc.id] = _nomeLojaParaCardVitrine(lojaData);
-                  ratingMediaLojas[doc.id] =
-                      (lojaData['rating_media'] as num?)?.toDouble();
+                  ratingMediaLojas[doc.id] = (lojaData['rating_media'] as num?)
+                      ?.toDouble();
                   totalAvaliacoesLojas[doc.id] =
                       (lojaData['total_avaliacoes'] as num?)?.toInt() ?? 0;
                 }
 
                 if (kDebugMode) {
+                  var rejCidade = 0;
+                  var rejStatus = 0;
+                  for (final doc in snapshotLojas.data!.docs) {
+                    final ld = doc.data() as Map<String, dynamic>;
+                    if (!_cidadeCorresponde(ld, cidadeNorm, ufNorm, locationService)) {
+                      rejCidade++;
+                      continue;
+                    }
+                    if (!_lojaStatusAprovadoParaVitrine(ld)) rejStatus++;
+                  }
                   debugPrint(
-                    '[LOJAS] total: ${snapshotLojas.data!.docs.length} | '
-                    "filtradas '$cidadeExibicao': ${statusLojas.length}",
+                    '[LOJAS] total=${snapshotLojas.data!.docs.length} '
+                    "gps='$cidadeExibicao' norm=$cidadeNorm uf=$ufNorm | "
+                    'ok=${statusLojas.length} rej_cidade=$rejCidade '
+                    'rej_status=$rejStatus',
                   );
                 }
 
@@ -426,14 +415,9 @@ class _VitrineScreenState extends State<VitrineScreen> {
                         List<QueryDocumentSnapshot> produtosFiltrados =
                             snapshotProdutos.data!.docs.where((doc) {
                               var p = doc.data() as Map<String, dynamic>;
-                              if (!statusLojas.containsKey(_donoProduto(p))) {
-                                return false;
-                              }
-                              return _produtoNaMesmaRegiao(
-                                p,
-                                cidadeNorm,
-                                ufNorm,
-                              );
+                              // Loja já validada por cidade/GPS; não repetir filtro
+                              // de cidade no produto (campo pode estar desatualizado).
+                              return statusLojas.containsKey(_donoProduto(p));
                             }).toList();
 
                         if (kDebugMode) {
@@ -459,6 +443,7 @@ class _VitrineScreenState extends State<VitrineScreen> {
                           snapshotBanners.data?.docs ?? [],
                           cidadeNorm,
                           ufNorm,
+                          locationService,
                         );
 
                         return _VitrineListaProdutosComPausa(
@@ -517,12 +502,197 @@ class _VitrineScreenState extends State<VitrineScreen> {
     );
   }
 
+  String _tipoVendaProdutoVitrine(Map<String, dynamic> p) =>
+      (p['tipo_venda'] ?? 'estoque').toString();
+
+  int _estoqueQtdProdutoVitrine(Map<String, dynamic> p) =>
+      (p['estoque_qtd'] as num?)?.toInt() ?? 0;
+
+  bool _vitrineAceitaNovaUnidade(Map<String, dynamic> p) {
+    if (_tipoVendaProdutoVitrine(p) == 'encomenda') return true;
+    return _estoqueQtdProdutoVitrine(p) > 0;
+  }
+
+  List<String> _listaVariacaoProdutoVitrine(
+    Map<String, dynamic> p,
+    List<String> campos,
+  ) {
+    for (final campo in campos) {
+      final raw = p[campo];
+      if (raw is List) {
+        return raw
+            .map((e) => e.toString().trim())
+            .where((e) => e.isNotEmpty)
+            .toList();
+      }
+    }
+    return const [];
+  }
+
+  bool _produtoTemVariacoesVitrine(Map<String, dynamic> p) {
+    final cores = _listaVariacaoProdutoVitrine(p, ['variacoes_cores', 'cores']);
+    final tamanhos = _listaVariacaoProdutoVitrine(p, [
+      'variacoes_tamanhos',
+      'tamanhos',
+      'numeracoes',
+    ]);
+    return p['usa_variacoes'] == true ||
+        cores.isNotEmpty ||
+        tamanhos.isNotEmpty;
+  }
+
+  void _abrirDetalhesProdutoVitrine(
+    BuildContext context,
+    Map<String, dynamic> produto,
+  ) {
+    Navigator.push(
+      context,
+      MaterialPageRoute(
+        builder: (context) => ProductDetailsScreen(produto: produto),
+      ),
+    );
+  }
+
+  int _quantidadeProdutoJaNoCarrinho(CartProvider cart, String productId) {
+    if (productId.isEmpty) return 0;
+    for (final i in cart.items) {
+      if (i.id == productId) return i.quantidade;
+    }
+    return 0;
+  }
+
+  /// Adiciona 1 unidade à sacola sem sair da vitrine (snapshot já traz dados da loja e estoque).
+  void _botaoSacolaVitrineAdicionar(
+    BuildContext context,
+    Map<String, dynamic> produto,
+  ) {
+    if (_produtoTemVariacoesVitrine(produto)) {
+      _abrirDetalhesProdutoVitrine(context, produto);
+      ScaffoldMessenger.maybeOf(context)?.clearSnackBars();
+      ScaffoldMessenger.maybeOf(context)?.showSnackBar(
+        const SnackBar(
+          content: Text('Escolha cor, tamanho ou numeração do produto.'),
+          backgroundColor: diPertinRoxo,
+          duration: Duration(milliseconds: 1600),
+        ),
+      );
+      return;
+    }
+
+    final lojaOk = produto['loja_aberta'] != false;
+    if (!lojaOk) {
+      ScaffoldMessenger.maybeOf(context)?.showSnackBar(
+        const SnackBar(
+          content: Text(
+            'Esta loja está fechada ou em pausa — não é possível adicionar à sacola agora.',
+          ),
+          backgroundColor: Colors.red,
+          duration: Duration(milliseconds: 2400),
+        ),
+      );
+      return;
+    }
+    if (!_vitrineAceitaNovaUnidade(produto)) {
+      ScaffoldMessenger.maybeOf(context)?.showSnackBar(
+        const SnackBar(
+          content: Text('Este produto está sem estoque.'),
+          backgroundColor: Colors.orange,
+          duration: Duration(milliseconds: 2100),
+        ),
+      );
+      return;
+    }
+
+    final cart = context.read<CartProvider>();
+    final String idProduto = '${produto['id_documento'] ?? ''}'.trim();
+    if (idProduto.isEmpty) {
+      ScaffoldMessenger.maybeOf(context)?.showSnackBar(
+        const SnackBar(
+          content: Text(
+            'Não foi possível identificar o produto. Abra os detalhes.',
+          ),
+          backgroundColor: Colors.red,
+        ),
+      );
+      return;
+    }
+
+    if (_tipoVendaProdutoVitrine(produto) != 'encomenda') {
+      final maximo = _estoqueQtdProdutoVitrine(produto);
+      final ja = _quantidadeProdutoJaNoCarrinho(cart, idProduto);
+      if (ja >= maximo) {
+        ScaffoldMessenger.maybeOf(context)?.showSnackBar(
+          SnackBar(
+            content: Text(
+              'Limite de estoque atingido ($maximo ${maximo == 1 ? "unidade" : "unidades"}). '
+              'Altere quantidades na sacola.',
+            ),
+            backgroundColor: Colors.orange,
+            duration: const Duration(milliseconds: 2400),
+          ),
+        );
+        return;
+      }
+    }
+
+    final double? po = (produto['preco'] as num?)?.toDouble();
+    final double? of = (produto['oferta'] as num?)?.toDouble();
+    final bool ofertaOk = of != null && po != null && of < po;
+    final double precoItem = ofertaOk ? of : (of ?? po ?? 0);
+
+    String urlImagem;
+    if (produto.containsKey('imagens') &&
+        produto['imagens'] is List &&
+        (produto['imagens'] as List).isNotEmpty) {
+      urlImagem = produto['imagens'][0].toString();
+    } else {
+      urlImagem = produto['imagem']?.toString() ?? '';
+    }
+
+    final item = CartItemModel(
+      id: idProduto,
+      nome: produto['nome']?.toString() ?? 'Produto',
+      preco: precoItem,
+      imagem: urlImagem,
+      lojaId:
+          produto['lojista_id']?.toString() ??
+          produto['loja_id']?.toString() ??
+          '',
+      lojaNome: produto['loja_nome_vitrine']?.toString() ?? 'Loja parceira',
+      requerVeiculoGrande:
+          produto['requer_veiculo_grande'] == true ||
+          produto['carga_maior'] == true,
+      ehEncomenda: _tipoVendaProdutoVitrine(produto) == 'encomenda',
+    );
+
+    final msg = cart.addItemWithQuantity(item, 1);
+    if (msg != null) {
+      ScaffoldMessenger.maybeOf(context)?.showSnackBar(
+        SnackBar(content: Text(msg), backgroundColor: Colors.orange.shade800),
+      );
+      return;
+    }
+
+    ScaffoldMessenger.maybeOf(context)?.clearSnackBars();
+    ScaffoldMessenger.maybeOf(context)?.showSnackBar(
+      SnackBar(
+        content: Text('${item.nome} adicionado à sacola'),
+        backgroundColor: Colors.green,
+        duration: const Duration(milliseconds: 950),
+      ),
+    );
+  }
+
+  Future<void> _atualizarRegiaoVitrine() async {
+    final loc = context.read<LocationService>();
+    await loc.detectarCidade();
+    await Future<void>.delayed(const Duration(milliseconds: 200));
+  }
+
   Widget _listaComPullParaVazio(Widget painel) {
     return RefreshIndicator(
       color: diPertinLaranja,
-      onRefresh: () async {
-        await Future<void>.delayed(const Duration(milliseconds: 450));
-      },
+      onRefresh: _atualizarRegiaoVitrine,
       child: LayoutBuilder(
         builder: (context, constraints) {
           final h = constraints.maxHeight;
@@ -805,12 +975,17 @@ class _VitrineScreenState extends State<VitrineScreen> {
                         ),
                       ),
                       Padding(
-                        padding: const EdgeInsets.only(left: 4, top: 2, right: 4),
+                        padding: const EdgeInsets.only(
+                          left: 4,
+                          top: 2,
+                          right: 4,
+                        ),
                         child: LojaRatingRow(
-                          media:
-                              (produto['loja_rating_media'] as num?)?.toDouble(),
+                          media: (produto['loja_rating_media'] as num?)
+                              ?.toDouble(),
                           total:
-                              (produto['loja_total_avaliacoes'] as num?)?.toInt() ??
+                              (produto['loja_total_avaliacoes'] as num?)
+                                  ?.toInt() ??
                               0,
                           dense: true,
                           fontSize: 10,
@@ -853,12 +1028,18 @@ class _VitrineScreenState extends State<VitrineScreen> {
                             ),
                           ),
                           Material(
-                            color: diPertinRoxo,
+                            color:
+                                lojaAberta && _vitrineAceitaNovaUnidade(produto)
+                                ? diPertinRoxo
+                                : Colors.grey.shade400,
                             elevation: 2,
                             shadowColor: diPertinRoxo.withValues(alpha: 0.45),
                             borderRadius: BorderRadius.circular(12),
                             child: InkWell(
-                              onTap: abrirDetalhes,
+                              onTap: () => _botaoSacolaVitrineAdicionar(
+                                context,
+                                produto,
+                              ),
                               borderRadius: BorderRadius.circular(12),
                               child: const SizedBox(
                                 width: 40,
@@ -979,8 +1160,9 @@ class _VitrineListaProdutosComPausaState
       prod1['loja_nome_vitrine'] = widget.nomesLojas[idLoja1];
       prod1['loja_aberta'] = statusLojas[idLoja1];
       final dl1 = widget.dadosLojasPorId[idLoja1];
-      prod1['loja_pausa_motivo_publico'] =
-          dl1 != null ? LojaPausa.textoMotivoPublico(dl1) : '';
+      prod1['loja_pausa_motivo_publico'] = dl1 != null
+          ? LojaPausa.textoMotivoPublico(dl1)
+          : '';
       prod1['loja_rating_media'] = widget.ratingMediaLojas[idLoja1];
       prod1['loja_total_avaliacoes'] =
           widget.totalAvaliacoesLojas[idLoja1] ?? 0;
@@ -994,8 +1176,9 @@ class _VitrineListaProdutosComPausaState
         prod2['loja_nome_vitrine'] = widget.nomesLojas[idLoja2];
         prod2['loja_aberta'] = statusLojas[idLoja2];
         final dl2 = widget.dadosLojasPorId[idLoja2];
-        prod2['loja_pausa_motivo_publico'] =
-            dl2 != null ? LojaPausa.textoMotivoPublico(dl2) : '';
+        prod2['loja_pausa_motivo_publico'] = dl2 != null
+            ? LojaPausa.textoMotivoPublico(dl2)
+            : '';
         prod2['loja_rating_media'] = widget.ratingMediaLojas[idLoja2];
         prod2['loja_total_avaliacoes'] =
             widget.totalAvaliacoesLojas[idLoja2] ?? 0;
@@ -1008,9 +1191,7 @@ class _VitrineListaProdutosComPausaState
             height: 280,
             child: Row(
               children: [
-                Expanded(
-                  child: widget.buildCard(context, prod1),
-                ),
+                Expanded(child: widget.buildCard(context, prod1)),
                 const SizedBox(width: 12),
                 Expanded(
                   child: prod2 != null
@@ -1040,6 +1221,7 @@ class _VitrineListaProdutosComPausaState
     return RefreshIndicator(
       color: diPertinLaranja,
       onRefresh: () async {
+        await context.read<LocationService>().detectarCidade();
         try {
           await FirebaseFirestore.instance
               .collection('banners')
@@ -1203,11 +1385,7 @@ class _AutoSlidingBannerState extends State<AutoSlidingBanner> {
                     cacheHeight: cacheH,
                     loadingBuilder: (context, child, loadingProgress) {
                       if (loadingProgress == null) {
-                        return SizedBox(
-                          width: w,
-                          height: h,
-                          child: child,
-                        );
+                        return SizedBox(width: w, height: h, child: child);
                       }
                       return ColoredBox(
                         color: Colors.white,
@@ -1220,7 +1398,7 @@ class _AutoSlidingBannerState extends State<AutoSlidingBanner> {
                               color: diPertinRoxo.withValues(alpha: 0.85),
                               value: loadingProgress.expectedTotalBytes != null
                                   ? loadingProgress.cumulativeBytesLoaded /
-                                      loadingProgress.expectedTotalBytes!
+                                        loadingProgress.expectedTotalBytes!
                                   : null,
                             ),
                           ),
@@ -1296,16 +1474,11 @@ class _AutoSlidingBannerState extends State<AutoSlidingBanner> {
                   final int indexReal = index % _totalItems;
 
                   final Map<String, dynamic> bannerData =
-                      widget.banners[indexReal].data()
-                          as Map<String, dynamic>;
+                      widget.banners[indexReal].data() as Map<String, dynamic>;
                   final String urlImagem =
-                      bannerData['imagem'] ??
-                      bannerData['url_imagem'] ??
-                      '';
+                      bannerData['imagem'] ?? bannerData['url_imagem'] ?? '';
                   final String linkDestino =
-                      bannerData['link'] ??
-                      bannerData['link_destino'] ??
-                      '';
+                      bannerData['link'] ?? bannerData['link_destino'] ?? '';
 
                   return _slideBannerRede(
                     widget.banners[indexReal].id,

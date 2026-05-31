@@ -47,8 +47,19 @@ function truncar(str, max) {
 function descricaoConteudo(msg) {
     const texto = (msg && msg.texto ? String(msg.texto) : "").trim();
     if (texto) return truncar(texto, 140);
+    const anexos = Array.isArray(msg?.anexos) ? msg.anexos : [];
+    if (anexos.length > 0) {
+        const temVideo = anexos.some((a) => {
+            const tipo = String(a?.tipo || "").toLowerCase();
+            const mime = String(a?.mime || "").toLowerCase();
+            return tipo === "video" || mime.startsWith("video/");
+        });
+        if (temVideo) return "🎥 Vídeo";
+        return anexos.length > 1 ? `📷 ${anexos.length} imagens` : "📷 Imagem";
+    }
     const anexoTipo = (msg && msg.anexo_tipo ? String(msg.anexo_tipo) : "").toLowerCase();
     if (anexoTipo === "image") return "📷 Imagem";
+    if (anexoTipo === "video") return "🎥 Vídeo";
     if (anexoTipo === "arquivo") return "📎 Arquivo";
     return "Nova mensagem";
 }
@@ -95,7 +106,11 @@ exports.notificarChatMensagemPedido = functions.firestore
         const remetente = msg.remetente_id != null ? String(msg.remetente_id).trim() : "";
         if (!remetente || (!clienteId && !lojaId)) return null;
 
-        const enviadaPeloCliente = remetente === clienteId;
+        const remetenteTipo = String(msg.remetente_tipo || msg.sender_type || "")
+            .trim()
+            .toLowerCase();
+        const enviadaPeloCliente = remetenteTipo === "cliente" ||
+            (!remetenteTipo && remetente === clienteId);
         // Qualquer mensagem que NÃO seja do cliente é tratada como "loja"
         // (colaboradores também caem aqui).
         const destinoUid = enviadaPeloCliente ? lojaId : clienteId;
@@ -138,6 +153,87 @@ exports.notificarChatMensagemPedido = functions.firestore
                 evento: "chat_mensagem",
                 pedido_id: String(pedidoId),
                 order_id: String(pedidoId),
+                loja_id: lojaId,
+                cliente_id: clienteId,
+                remetente_id: remetente,
+            },
+        };
+
+        await enviarFcm(destinoUid, payload);
+        return null;
+    });
+
+exports.notificarChatMensagemEncomenda = functions.firestore
+    .document("encomendas/{encomendaId}/mensagens/{msgId}")
+    .onCreate(async (snap, context) => {
+        const msg = snap.data() || {};
+        const encomendaId = context.params.encomendaId;
+
+        if (msg.sistema === true || msg.suporte_auto === true) return null;
+
+        const ref = admin.firestore().collection("encomendas").doc(encomendaId);
+        const encSnap = await ref.get();
+        if (!encSnap.exists) return null;
+
+        const encomenda = encSnap.data() || {};
+        const status = String(encomenda.status_negociacao || "").trim().toLowerCase();
+        if (
+            status === "encerrada_recusada_loja" ||
+            status === "encerrada_cancelada_cliente" ||
+            status === "encerrada_cancelada_loja" ||
+            status === "em_execucao_logistica"
+        ) {
+            return null;
+        }
+
+        const clienteId = encomenda.cliente_id != null ? String(encomenda.cliente_id).trim() : "";
+        const lojaId = encomenda.loja_id != null ? String(encomenda.loja_id).trim() : "";
+        const remetente = msg.remetente_id != null ? String(msg.remetente_id).trim() : "";
+        if (!remetente || (!clienteId && !lojaId)) return null;
+
+        const enviadaPeloCliente = remetente === clienteId;
+        const destinoUid = enviadaPeloCliente ? lojaId : clienteId;
+        if (!destinoUid) return null;
+
+        const corpo = descricaoConteudo(msg);
+        const idCurto = encomendaId.length >= 5
+            ? encomendaId.slice(-5).toUpperCase()
+            : encomendaId.toUpperCase();
+
+        let titulo;
+        let tipo;
+        let segmento;
+        if (enviadaPeloCliente) {
+            const nomeCliente = truncar(
+                encomenda.cliente_nome_snapshot || encomenda.cliente_nome || "Cliente",
+                60,
+            );
+            titulo = `${nomeCliente} · Encomenda #${idCurto}`;
+            tipo = "encomenda_loja_chat";
+            segmento = "loja";
+        } else {
+            const nomeLoja = truncar(encomenda.loja_nome || "Loja", 60);
+            titulo = `${nomeLoja} · Encomenda #${idCurto}`;
+            tipo = "encomenda_cliente_chat";
+            segmento = "cliente";
+        }
+
+        const payload = {
+            notification: {
+                title: titulo,
+                body: corpo,
+            },
+            android: {
+                ...CHAT_FCM_ANDROID,
+                collapseKey: `chat_encomenda_${encomendaId}_${segmento}`,
+            },
+            apns: CHAT_FCM_APNS,
+            data: {
+                type: "CHAT_ENCOMENDA",
+                tipoNotificacao: tipo,
+                segmento,
+                evento: "chat_mensagem_encomenda",
+                encomenda_id: String(encomendaId),
                 loja_id: lojaId,
                 cliente_id: clienteId,
                 remetente_id: remetente,

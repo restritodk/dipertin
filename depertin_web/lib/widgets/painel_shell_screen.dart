@@ -12,6 +12,7 @@ import '../screens/lojas_screen.dart';
 import '../screens/entregadores_screen.dart';
 import '../screens/central_clientes_screen.dart';
 import '../screens/banners_screen.dart';
+import '../screens/categorias_screen.dart';
 import '../screens/admincity_cidades_screen.dart';
 import '../screens/admincity_usuarios_screen.dart';
 import '../screens/utilidades_screen.dart';
@@ -23,10 +24,12 @@ import '../screens/atendimento_suporte_screen.dart';
 import '../screens/notificacoes_screen.dart';
 import '../screens/cupons_screen.dart';
 import '../screens/monitor_pedidos_screen.dart';
+import '../screens/centro_operacoes_screen.dart';
 import '../screens/avaliacoes_painel_screen.dart';
 import '../screens/comunicados_screen.dart';
 import '../screens/conteudo_legal_screen.dart';
 import '../screens/lojista_meus_pedidos_screen.dart';
+import '../screens/lojista_negociacoes_encomenda_screen.dart';
 import '../screens/lojista_meu_cardapio_screen.dart';
 import '../screens/lojista_minha_carteira_screen.dart';
 import '../screens/lojista_carteira_financeiro_screen.dart';
@@ -53,8 +56,10 @@ class _PainelShellScreenState extends State<PainelShellScreen> {
 
   /// Uma entrada por aba; evita comparar com um único [SizedBox.shrink] partilhado
   /// (reutilizar a mesma instância em todos os slots do [IndexedStack] pode deixar o conteúdo em branco no web).
-  late final List<bool> _tabMaterializada =
-      List<bool>.filled(PainelRoutes.ordem.length, false);
+  late final List<bool> _tabMaterializada = List<bool>.filled(
+    PainelRoutes.ordem.length,
+    false,
+  );
 
   /// Cache de widgets: uma vez criado, fica aqui para sempre (IndexedStack preserva state).
   late final List<Widget> _tabs = List<Widget>.generate(
@@ -96,63 +101,72 @@ class _PainelShellScreenState extends State<PainelShellScreen> {
         _tabs[i] = BannersScreen();
         break;
       case 5:
-        _tabs[i] = const AdminCityUsuariosScreen();
+        _tabs[i] = const CategoriasScreen();
         break;
       case 6:
-        _tabs[i] = const AdminCityCidadesScreen();
+        _tabs[i] = const AdminCityUsuariosScreen();
         break;
       case 7:
-        _tabs[i] = UtilidadesScreen();
+        _tabs[i] = const AdminCityCidadesScreen();
         break;
       case 8:
-        _tabs[i] = FinanceiroScreen();
+        _tabs[i] = UtilidadesScreen();
         break;
       case 9:
-        _tabs[i] = const SolicitacoesSaquesPainelScreen();
+        _tabs[i] = FinanceiroScreen();
         break;
       case 10:
-        _tabs[i] = const ConfiguracoesPainelSlot();
+        _tabs[i] = const SolicitacoesSaquesPainelScreen();
         break;
       case 11:
-        _tabs[i] = const CadastroAcessoColaboradoresScreen();
+        _tabs[i] = const ConfiguracoesPainelSlot();
         break;
       case 12:
-        _tabs[i] = AtendimentoSuporteScreen();
+        _tabs[i] = const CadastroAcessoColaboradoresScreen();
         break;
       case 13:
-        _tabs[i] = const NotificacoesScreen();
+        _tabs[i] = AtendimentoSuporteScreen();
         break;
       case 14:
-        _tabs[i] = const CuponsScreen();
+        _tabs[i] = const NotificacoesScreen();
         break;
       case 15:
-        _tabs[i] = const MonitorPedidosScreen();
+        _tabs[i] = const CuponsScreen();
         break;
       case 16:
-        _tabs[i] = const AvaliacoesPainelScreen();
+        _tabs[i] = const MonitorPedidosScreen();
         break;
       case 17:
-        _tabs[i] = const ComunicadosScreen();
+        _tabs[i] = const CentroOperacoesScreen();
         break;
       case 18:
-        _tabs[i] = const ConteudoLegalScreen();
+        _tabs[i] = const AvaliacoesPainelScreen();
         break;
       case 19:
-        _tabs[i] = const LojistaMeusPedidosScreen();
+        _tabs[i] = const ComunicadosScreen();
         break;
       case 20:
-        _tabs[i] = const LojistaMeuCardapioScreen();
+        _tabs[i] = const ConteudoLegalScreen();
         break;
       case 21:
-        _tabs[i] = const LojistaMinhaCarteiraScreen();
+        _tabs[i] = const LojistaMeusPedidosScreen();
         break;
       case 22:
-        _tabs[i] = const LojistaCarteiraFinanceiroScreen();
+        _tabs[i] = const LojistaNegociacoesEncomendaScreen();
         break;
       case 23:
-        _tabs[i] = const LojistaCarteiraRelatorioScreen();
+        _tabs[i] = const LojistaMeuCardapioScreen();
         break;
       case 24:
+        _tabs[i] = const LojistaMinhaCarteiraScreen();
+        break;
+      case 25:
+        _tabs[i] = const LojistaCarteiraFinanceiroScreen();
+        break;
+      case 26:
+        _tabs[i] = const LojistaCarteiraRelatorioScreen();
+        break;
+      case 27:
         _tabs[i] = const LojistaCarteiraConfiguracaoScreen();
         break;
       default:
@@ -180,9 +194,12 @@ class _PainelShellScreenState extends State<PainelShellScreen> {
         final idx = PainelRoutes.indexOf(_nav.currentRoute);
         _materializarAba(idx);
 
-        final bloqueado = dadosBloqueio != null &&
+        final bloqueado =
+            dadosBloqueio != null &&
             perfilAdministrativo(dadosBloqueio) == 'lojista' &&
-            ContaBloqueioLojistaHelper.estaBloqueadoParaOperacoes(dadosBloqueio);
+            ContaBloqueioLojistaHelper.estaBloqueadoParaOperacoes(
+              dadosBloqueio,
+            );
 
         return PainelNavigationScope(
           notifier: _nav,
@@ -199,10 +216,14 @@ class _PainelShellScreenState extends State<PainelShellScreen> {
                       onNavegarPainel: _nav.navigateTo,
                     ),
                     Expanded(
-                      child: IndexedStack(
-                        index: idx,
-                        sizing: StackFit.expand,
-                        children: List<Widget>.from(_tabs),
+                      child: Material(
+                        color: PainelAdminTheme.fundoCanvas,
+                        clipBehavior: Clip.none,
+                        child: IndexedStack(
+                          index: idx,
+                          sizing: StackFit.expand,
+                          children: List<Widget>.from(_tabs),
+                        ),
                       ),
                     ),
                   ],
@@ -235,8 +256,10 @@ class _PainelShellScreenState extends State<PainelShellScreen> {
     }
 
     return StreamBuilder<DocumentSnapshot<Map<String, dynamic>>>(
-      stream:
-          FirebaseFirestore.instance.collection('users').doc(uid).snapshots(),
+      stream: FirebaseFirestore.instance
+          .collection('users')
+          .doc(uid)
+          .snapshots(),
       builder: (context, userSnap) {
         Map<String, dynamic>? dados;
         if (userSnap.hasData && userSnap.data!.exists) {

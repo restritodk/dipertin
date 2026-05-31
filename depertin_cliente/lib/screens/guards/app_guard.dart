@@ -141,26 +141,11 @@ class _AppGuardState extends State<AppGuard> with WidgetsBindingObserver {
     if (_encerrandoSessao || !mounted) return;
     _encerrandoSessao = true;
     _sessaoTimer?.cancel();
-    try {
-      await FirebaseAuth.instance.signOut();
-    } catch (_) {}
-    try {
-      await SessaoTimeoutService.limparSessao();
-    } catch (_) {}
     if (!mounted) return;
-    ScaffoldMessenger.of(context).showSnackBar(
-      const SnackBar(
-        content: Text(
-          'Por segurança, sua sessão expirou. Faça login novamente para continuar.',
-        ),
-        backgroundColor: Colors.deepOrange,
-        behavior: SnackBarBehavior.floating,
-        duration: Duration(seconds: 5),
-      ),
-    );
-    Navigator.of(context, rootNavigator: true).pushAndRemoveUntil(
-      MaterialPageRoute<void>(builder: (_) => const LoginScreen()),
-      (route) => false,
+    await SessaoErroInterceptor.processarErroSessaoExpirada(
+      context,
+      mensagem:
+          'Sua sessão expirou por motivos de segurança. Faça login novamente para continuar utilizando o aplicativo.',
     );
   }
 

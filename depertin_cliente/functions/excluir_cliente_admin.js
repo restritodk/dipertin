@@ -168,6 +168,28 @@ exports.excluirClienteAdminMaster = functions.https.onCall(async (data, context)
         }
     }
 
+    // Libera CPF no índice de cadastro (se existir e apontar para este uid).
+    const cpfIdxDig =
+        String((tgt.cpf_digitos || "").replace(/\D/g, "")) ||
+        String((tgt.cpf || "").replace(/\D/g, ""));
+    if (cpfIdxDig.length === 11) {
+        try {
+            const idxRef = db.collection("users_cpf_index").doc(cpfIdxDig);
+            const idxSnap = await idxRef.get();
+            if (
+                idxSnap.exists &&
+                String((idxSnap.data() || {}).uid || "") === targetUid
+            ) {
+                await idxRef.delete();
+            }
+        } catch (e) {
+            console.warn(
+                "[excluirClienteAdminMaster] users_cpf_index:",
+                e.message || e
+            );
+        }
+    }
+
     // 7) Apaga doc principal do cliente.
     await tgtRef.delete();
 

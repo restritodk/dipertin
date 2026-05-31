@@ -40,11 +40,90 @@ class SupportTicketService {
     final doc = await _db.collection('users').doc(uid).get();
     final d = doc.data() ?? {};
     final cidade = (d['cidade'] ?? '').toString().trim().toLowerCase();
+    final perfil = _perfilSuporte(d);
+    final nome = _nomeSuporte(d, perfil);
+    final email =
+        (FirebaseAuth.instance.currentUser?.email ??
+                d['email'] ??
+                d['email_contato'] ??
+                '')
+            .toString()
+            .trim();
+    final telefone = (d['telefone'] ?? d['phone'] ?? d['celular'] ?? '')
+        .toString()
+        .trim();
+    final documento = _documentoSuporte(d, perfil);
+    final lojaNome =
+        (d['loja_nome'] ??
+                d['nome_loja'] ??
+                d['nome_fantasia'] ??
+                d['razao_social'] ??
+                '')
+            .toString()
+            .trim();
     return {
       'uid': uid,
-      'nome': (d['nome'] ?? 'Cliente').toString(),
+      'nome': nome,
       'cidade': cidade.isEmpty ? '—' : cidade,
+      'perfil': perfil,
+      'email': email,
+      'telefone': telefone,
+      'documento': documento,
+      'loja_nome': lojaNome,
     };
+  }
+
+  String _perfilSuporte(Map<String, dynamic> d) {
+    final role = (d['role'] ?? d['tipo'] ?? d['tipoUsuario'] ?? 'cliente')
+        .toString()
+        .trim()
+        .toLowerCase();
+    if (role == 'lojista') return 'lojista';
+    if (role == 'entregador') return 'entregador';
+    if ((d['entregador_status'] ?? '').toString().trim().isNotEmpty) {
+      return 'entregador';
+    }
+    if ((d['status_loja'] ?? '').toString().trim().isNotEmpty ||
+        (d['loja_nome'] ?? '').toString().trim().isNotEmpty) {
+      return 'lojista';
+    }
+    return 'cliente';
+  }
+
+  String _nomeSuporte(Map<String, dynamic> d, String perfil) {
+    if (perfil == 'lojista') {
+      final loja =
+          (d['loja_nome'] ??
+                  d['nome_loja'] ??
+                  d['nome_fantasia'] ??
+                  d['razao_social'] ??
+                  '')
+              .toString()
+              .trim();
+      if (loja.isNotEmpty) return loja;
+    }
+    final nome = (d['nome'] ?? d['nome_completo'] ?? d['displayName'] ?? '')
+        .toString()
+        .trim();
+    return nome.isEmpty ? 'Cliente' : nome;
+  }
+
+  String _documentoSuporte(Map<String, dynamic> d, String perfil) {
+    if (perfil == 'lojista') {
+      final docLoja =
+          (d['loja_documento'] ??
+                  d['cnpj'] ??
+                  d['cpf_cnpj'] ??
+                  d['documento'] ??
+                  d['cpf'] ??
+                  '')
+              .toString()
+              .trim();
+      return docLoja;
+    }
+    return (d['cpf'] ?? d['cpf_digitos'] ?? d['documento'] ?? '')
+        .toString()
+        .trim();
   }
 
   /// Cria chamado em [waiting] sem mensagens (atendimento só após "Iniciar").
@@ -57,6 +136,14 @@ class SupportTicketService {
       'user_id': u['uid'],
       'user_nome': u['nome'],
       'cidade': u['cidade'],
+      'solicitante_uid': u['uid'],
+      'solicitante_nome': u['nome'],
+      'solicitante_perfil': u['perfil'],
+      'solicitante_email': u['email'],
+      'solicitante_telefone': u['telefone'],
+      'solicitante_documento': u['documento'],
+      'solicitante_loja_nome': u['loja_nome'],
+      'solicitante_cidade': u['cidade'],
       'agent_id': null,
       'agent_nome': null,
       'status': SuporteTicketStatus.waiting,
@@ -106,9 +193,7 @@ class SupportTicketService {
         'updated_at': FieldValue.serverTimestamp(),
       });
     } else {
-      batch.update(ticketRef, {
-        'updated_at': FieldValue.serverTimestamp(),
-      });
+      batch.update(ticketRef, {'updated_at': FieldValue.serverTimestamp()});
     }
     await batch.commit();
   }
@@ -181,14 +266,13 @@ class SupportTicketService {
           ? legendaLimpa
           : (tipoAnexo == 'image' ? '📷 Imagem' : '📎 $nomeArquivo');
       batch.update(ticketRef, {
-        'first_message_preview':
-            resumo.length > 120 ? '${resumo.substring(0, 120)}…' : resumo,
+        'first_message_preview': resumo.length > 120
+            ? '${resumo.substring(0, 120)}…'
+            : resumo,
         'updated_at': FieldValue.serverTimestamp(),
       });
     } else {
-      batch.update(ticketRef, {
-        'updated_at': FieldValue.serverTimestamp(),
-      });
+      batch.update(ticketRef, {'updated_at': FieldValue.serverTimestamp()});
     }
     await batch.commit();
   }
@@ -196,7 +280,9 @@ class SupportTicketService {
   String _sanitizarNomeArquivo(String nome) {
     final limpo = nome.replaceAll(RegExp(r'[^A-Za-z0-9._-]'), '_');
     if (limpo.length <= 80) return limpo;
-    final ext = limpo.contains('.') ? limpo.substring(limpo.lastIndexOf('.')) : '';
+    final ext = limpo.contains('.')
+        ? limpo.substring(limpo.lastIndexOf('.'))
+        : '';
     return '${limpo.substring(0, 80 - ext.length)}$ext';
   }
 
@@ -219,7 +305,9 @@ class SupportTicketService {
     if (!snap.exists) throw Exception('Chamado não encontrado.');
     final st = snap.data()?['status']?.toString() ?? '';
     if (st != SuporteTicketStatus.waiting) {
-      throw Exception('Só é possível escolher a categoria enquanto aguarda na fila.');
+      throw Exception(
+        'Só é possível escolher a categoria enquanto aguarda na fila.',
+      );
     }
     if (snap.data()?['user_id']?.toString() != uid) {
       throw Exception('Acesso negado.');
@@ -306,8 +394,8 @@ class SupportTicketService {
         .orderBy('created_at', descending: false)
         .snapshots()
         .map((snap) {
-      final i = snap.docs.indexWhere((d) => d.id == ticketId);
-      return i >= 0 ? i + 1 : 0;
-    });
+          final i = snap.docs.indexWhere((d) => d.id == ticketId);
+          return i >= 0 ? i + 1 : 0;
+        });
   }
 }

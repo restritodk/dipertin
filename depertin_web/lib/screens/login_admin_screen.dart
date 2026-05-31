@@ -13,6 +13,7 @@ import '../theme/painel_admin_theme.dart';
 import '../utils/admin_perfil.dart';
 import '../utils/conta_bloqueio_lojista.dart';
 import '../utils/firestore_web_safe.dart';
+import '../services/login_auditoria_painel.dart';
 import '../services/painel_google_redirect_pending.dart';
 import '../widgets/lojista_conta_bloqueada_overlay.dart';
 
@@ -263,7 +264,11 @@ class _LoginAdminScreenState extends State<LoginAdminScreen> {
         return;
       }
 
-      await _aplicarRegrasPosLoginFirestore(uid, safeWebDocData(docSnap));
+      await _aplicarRegrasPosLoginFirestore(
+        uid,
+        safeWebDocData(docSnap),
+        metodoLogin: 'email',
+      );
     } on FirebaseAuthException catch (e) {
       String mensagem = 'Erro ao conectar (${e.code}). Tente novamente.';
       if (e.code == 'user-not-found' ||
@@ -288,8 +293,9 @@ class _LoginAdminScreenState extends State<LoginAdminScreen> {
   /// Regras de perfil e navegação (e-mail/senha ou após validação Google no servidor).
   Future<void> _aplicarRegrasPosLoginFirestore(
     String uid,
-    Map<String, dynamic> dadosUsuario,
-  ) async {
+    Map<String, dynamic> dadosUsuario, {
+    String metodoLogin = 'email',
+  }) async {
     // Maior privilégio entre campos — evita role legado "cliente" com tipoUsuario "lojista".
     String tipoUsuario = perfilAdministrativoPainel(dadosUsuario);
     bool primeiroAcesso = dadosUsuario['primeiro_acesso'] ?? false;
@@ -312,6 +318,8 @@ class _LoginAdminScreenState extends State<LoginAdminScreen> {
       });
       return;
     }
+
+    unawaited(registrarLoginPainelAuditoria(metodoLogin));
 
     if (primeiroAcesso) {
       setState(() {
@@ -445,7 +453,11 @@ class _LoginAdminScreenState extends State<LoginAdminScreen> {
       return;
     }
 
-    await _aplicarRegrasPosLoginFirestore(uid, dadosFirestore);
+    await _aplicarRegrasPosLoginFirestore(
+      uid,
+      dadosFirestore,
+      metodoLogin: 'google',
+    );
   }
 
   Future<void> _loginComGoogle() async {

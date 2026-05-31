@@ -120,6 +120,19 @@ exports.gravarOperacaoStatusEmPedidoOnCreate =
 exports.gravarOperacaoStatusEmPedidoOnUpdate =
     pedidoOperacaoTimeline.gravarOperacaoStatusEmPedidoOnUpdate;
 
+// Auditoria administrativa → Firestore audit_logs (painel Centro de operações, tempo real)
+const auditLogsPipeline = require("./audit_logs_pipeline");
+exports.auditLogPedidoOnCreate = auditLogsPipeline.auditLogPedidoOnCreate;
+exports.auditLogPedidoOnUpdate = auditLogsPipeline.auditLogPedidoOnUpdate;
+exports.auditLogSupportTicketOnCreate = auditLogsPipeline.auditLogSupportTicketOnCreate;
+exports.auditLogSupportTicketOnUpdate = auditLogsPipeline.auditLogSupportTicketOnUpdate;
+exports.auditLogSaqueOnUpdate = auditLogsPipeline.auditLogSaqueOnUpdate;
+exports.auditLogSaqueOnCreate = auditLogsPipeline.auditLogSaqueOnCreate;
+exports.auditLogUsuarioCriticoOnUpdate = auditLogsPipeline.auditLogUsuarioCriticoOnUpdate;
+exports.auditLogNotificacaoUsuarioItemOnCreate =
+    auditLogsPipeline.auditLogNotificacaoUsuarioItemOnCreate;
+exports.registrarEventoAuditoriaApp = auditLogsPipeline.registrarEventoAuditoriaApp;
+
 // ==========================================
 // Entrega concluída → creditar saldos + notificar loja
 // Dispara quando status muda para 'entregue'.
@@ -241,6 +254,17 @@ exports.processarFinanceiroPedidoOnCreate = functions.firestore
         const d = snap.data();
         const pedidoId = context.params.pedidoId;
         try {
+            if (d.tipo_compra === "encomenda" && d.encomenda_fase_financeira === "entrada") {
+                await snap.ref.update({
+                    financeiro_servidor_ok: true,
+                    financeiro_version: 2,
+                    financeiro_skip_motivo: "encomenda_entrada_sem_split_repasse",
+                    financeiro_processado_em: admin.firestore.FieldValue.serverTimestamp(),
+                });
+                console.log(`[financeiro] pedido ${pedidoId} encomenda entrada — split adiado.`);
+                return null;
+            }
+
             const campos = await repasseFinanceiro.calcularCamposFinanceirosPedido(db, d);
 
             // Incrementa usos_atual do cupom — REGRA: 1 uso por COMPRA do cliente,
@@ -577,6 +601,8 @@ exports.notificarSuporteEncerradoPeloPainel = functions.firestore
 // ==========================================
 const chatPedidoNotificacao = require("./chat_pedido_notificacao");
 exports.notificarChatMensagemPedido = chatPedidoNotificacao.notificarChatMensagemPedido;
+exports.notificarChatMensagemEncomenda =
+    chatPedidoNotificacao.notificarChatMensagemEncomenda;
 
 // ==========================================
 // EXCLUSÃO DE CLIENTE PELO MASTER (hard delete imediato)
@@ -675,6 +701,13 @@ exports.comteleCadastroTelefoneValidarCodigo =
     comteleVerificacaoTelefone.comteleCadastroTelefoneValidarCodigo;
 exports.cadastroConfirmarTelefoneVerificadoSms =
     comteleVerificacaoTelefone.cadastroConfirmarTelefoneVerificadoSms;
+exports.perfilAtualizarTelefoneVerificadoSms =
+    comteleVerificacaoTelefone.perfilAtualizarTelefoneVerificadoSms;
+
+const cadastroClientePerfil = require("./cadastro_cliente_perfil");
+exports.cadastroClienteSalvarPerfilInicial =
+    cadastroClientePerfil.cadastroClienteSalvarPerfilInicial;
+exports.perfilClienteReservarCpf = cadastroClientePerfil.perfilClienteReservarCpf;
 
 // E-mail de boas-vindas (SMTP igual à recuperação)
 const boasVindas = require("./boas_vindas");
@@ -760,12 +793,33 @@ const lojistaEstornoFrete = require("./lojista_estorno_frete");
 exports.lojistaConfirmarRetiradaNaLojaComEstorno =
     lojistaEstornoFrete.lojistaConfirmarRetiradaNaLojaComEstorno;
 
+// Compra por encomenda — negociação e pedido de entrada (avisos via alerta_* no users; sem FCM aqui).
+const encomendasNegociacao = require("./encomendas_negociacao");
+exports.encomendaClienteCriar = encomendasNegociacao.encomendaClienteCriar;
+exports.encomendaLojaAceitarNegociacao =
+    encomendasNegociacao.encomendaLojaAceitarNegociacao;
+exports.encomendaLojaEnviarProposta =
+    encomendasNegociacao.encomendaLojaEnviarProposta;
+exports.encomendaClienteEnviarContraproposta =
+    encomendasNegociacao.encomendaClienteEnviarContraproposta;
+exports.encomendaLojaResponderContraproposta =
+    encomendasNegociacao.encomendaLojaResponderContraproposta;
+exports.encomendaClienteAceitarPropostaECriarPedidoEntrada =
+    encomendasNegociacao.encomendaClienteAceitarPropostaECriarPedidoEntrada;
+exports.encomendaLojaCriarPedidoSaldoFinal =
+    encomendasNegociacao.encomendaLojaCriarPedidoSaldoFinal;
+exports.encomendaClienteCancelarNegociacao =
+    encomendasNegociacao.encomendaClienteCancelarNegociacao;
+exports.encomendaLojaCancelarNegociacao =
+    encomendasNegociacao.encomendaLojaCancelarNegociacao;
+
 // Mercado Pago — webhook + callable vínculo PIX
 const mercadopago = require("./mercadopago_webhook");
 exports.webhookMercadoPago = mercadopago.webhookMercadoPago;
 exports.mpCriarPagamentoPix = mercadopago.mpCriarPagamentoPix;
 exports.mpVincularPagamentoPix = mercadopago.mpVincularPagamentoPix;
 exports.mpProcessarPagamentoCartao = mercadopago.mpProcessarPagamentoCartao;
+exports.mpConsultarParcelamentosCartao = mercadopago.mpConsultarParcelamentosCartao;
 exports.estornarPagamentoPedidoCancelado = mercadopago.estornarPagamentoPedidoCancelado;
 exports.cancelarPedidosPixExpirados = mercadopago.cancelarPedidosPixExpirados;
 exports.cancelarPedidoPixExpirado = mercadopago.cancelarPedidoPixExpirado;

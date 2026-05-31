@@ -48,6 +48,46 @@ function apenasDigitos(s) {
   return String(s || "").replace(/\D/g, "");
 }
 
+/** GSM-7-friendly: remove acentos, caracteres estranhos; limite inicial antes do corte por Prefix. */
+function sanearNomeParaPrefixSms(raw) {
+  let s = String(raw ?? "").trim();
+  if (!s) return "";
+  try {
+    s = s.normalize("NFD").replace(/\p{M}/gu, "");
+  } catch {
+    s = s.normalize("NFD").replace(/[\u0300-\u036f]/g, "");
+  }
+  s = s
+    .replace(/[^a-zA-Z0-9 '\-]/g, " ")
+    .replace(/\s+/g, " ")
+    .trim();
+  if (!s) return "";
+  if (s.length > 48) s = s.slice(0, 48).trim();
+  return s;
+}
+
+/** Se o nome não couber no Prefix (limite da API/SMS), mensagem sem nome — evitar falha de envio. */
+const PREFIX_FALLBACK =
+  "DiPertin - Verificacao de cadastro. Valido 10 min. Nao compartilhe este codigo";
+/** Limite do texto antes do sufixo ": Codigo de Autorizacao {6 digitos}" da Comtele. */
+const PREFIX_MAX_LEN = 135;
+
+/** Comtele concatena: "{Prefix}: Codigo de Autorizacao {XXXXXX}" — GSM-7 (sem acentos). */
+function montarPrefixComtele(nomeSanitizado) {
+  if (!nomeSanitizado) return PREFIX_FALLBACK;
+  const tail =
+    ". Segue o token de validacao do seu cadastro. Valido 10 min. Nao compartilhe este codigo";
+  const head = "DiPertin: Bem-vindo ";
+  let nome = nomeSanitizado;
+  let prefix = head + nome + tail;
+  while (prefix.length > PREFIX_MAX_LEN && nome.length > 0) {
+    nome = nome.slice(0, -1).trimEnd();
+    prefix = head + nome + tail;
+  }
+  if (!nome || prefix.length > PREFIX_MAX_LEN) return PREFIX_FALLBACK;
+  return prefix;
+}
+
 /** Brasil: DDD + 9 + 8 dígitos (11 números), sem +55. */
 function normalizarTelefoneBr(raw) {
   let d = apenasDigitos(raw);
@@ -59,6 +99,17 @@ function normalizarTelefoneBr(raw) {
   if (ddd < 11 || ddd > 99) return null;
   if (d.charAt(2) !== "9") return null;
   return d;
+}
+
+/** Mesmo formato mascarado usado no app ao salvar perfil (celular 11 dígitos). */
+function mascararTelefoneBrParaFirestore(digitos11) {
+  const d = apenasDigitos(digitos11);
+  if (d.length !== 11) {
+    return String(digitos11 || "")
+      .trim()
+      .slice(0, 32);
+  }
+  return `(${d.slice(0, 2)}) ${d.slice(2, 7)}-${d.slice(7)}`;
 }
 
 function extrairIp(request) {
@@ -101,7 +152,7 @@ async function rateLimitDoc(db, col, docId, max, windowMs) {
   });
 }
 
-async function comtelePostEnviar(authKey, phoneDigits) {
+async function comtelePostEnviar(authKey, phoneDigits, prefix) {
   const res = await fetch(COMTELE_TOKEN_URL, {
     method: "POST",
     headers: {
@@ -111,9 +162,7 @@ async function comtelePostEnviar(authKey, phoneDigits) {
     body: JSON.stringify({
       PhoneNumber: phoneDigits,
       // Comtele concatena: "{Prefix}: Codigo de Autorizacao {XXXXXX}"
-      // Texto curto em GSM-7 (sem acentos) para custo/previsibilidade.
-      Prefix:
-        "DiPertin - Verificacao de cadastro. Valido 10 min. Nao compartilhe este codigo",
+      Prefix: prefix,
       EnforceSecureValidation: true,
       ExpireInMinutes: TOKEN_EXPIRE_MINUTES,
     }),
@@ -160,13 +209,23 @@ async function comtelePutValidar(authKey, phoneDigits, tokenCode) {
 exports.comteleCadastroTelefoneEnviarCodigo = onCall(fnOpcoes, async (request) => {
   const authKey = getAuthKey();
   const raw = request.data && request.data.telefone;
+  const nomeRaw = request.data && request.data.nome;
   const phoneDigits = normalizarTelefoneBr(raw);
   if (!phoneDigits) {
     throw new HttpsError(
       "invalid-argument",
-      "Informe um celular válido com DDD (11 dígitos). Ex.: (11) 98765-4321."
+      "Informe um celular válido com DDD (11 dígitos). Ex.: (11) 9xxxx-xxxx."
     );
   }
+
+  const nomeLimpo = sanearNomeParaPrefixSms(nomeRaw);
+  if (!nomeLimpo) {
+    throw new HttpsError(
+      "invalid-argument",
+      "Informe seu nome antes de solicitar o código por SMS."
+    );
+  }
+  const prefix = montarPrefixComtele(nomeLimpo);
 
   const db = admin.firestore();
   const ip = extrairIp(request);
@@ -180,7 +239,7 @@ exports.comteleCadastroTelefoneEnviarCodigo = onCall(fnOpcoes, async (request) =
   );
 
   await sleep(MIN_RESPONSE_MS);
-  await comtelePostEnviar(authKey, phoneDigits);
+  await comtelePostEnviar(authKey, phoneDigits, prefix);
 
   return { ok: true };
 });
@@ -316,6 +375,93 @@ exports.cadastroConfirmarTelefoneVerificadoSms = onCall(fnOpcoes, async (request
     }
 
     tx.update(userRef, {
+      telefone_verificado_sms_em: admin.firestore.FieldValue.serverTimestamp(),
+    });
+  });
+
+  return { ok: true };
+});
+
+/**
+ * Usuário autenticado altera o celular após validar código Comtele (ticket único).
+ */
+exports.perfilAtualizarTelefoneVerificadoSms = onCall(fnOpcoes, async (request) => {
+  if (!request.auth || !request.auth.uid) {
+    throw new HttpsError(
+      "unauthenticated",
+      "Faça login para atualizar o telefone."
+    );
+  }
+
+  const uid = request.auth.uid;
+  const ticketId =
+    request.data &&
+    (typeof request.data.ticketId === "string" ? request.data.ticketId.trim() : "");
+  const rawTel = request.data && request.data.telefone;
+  const phoneDigits = normalizarTelefoneBr(rawTel);
+
+  if (!ticketId || ticketId.length < 16) {
+    throw new HttpsError("invalid-argument", "Sessão de verificação inválida.");
+  }
+  if (!phoneDigits) {
+    throw new HttpsError("invalid-argument", "Telefone inválido.");
+  }
+
+  const db = admin.firestore();
+  const ref = db.collection(COL_TICKETS).doc(ticketId);
+
+  await db.runTransaction(async (tx) => {
+    const snap = await tx.get(ref);
+    if (!snap.exists) {
+      throw new HttpsError(
+        "not-found",
+        "Verificação expirada ou inválida. Valide o celular novamente."
+      );
+    }
+    const d = snap.data();
+    if (d.consumido === true) {
+      throw new HttpsError(
+        "failed-precondition",
+        "Este código de verificação já foi utilizado."
+      );
+    }
+    if (d.telefone_digitos !== phoneDigits) {
+      throw new HttpsError(
+        "invalid-argument",
+        "O telefone não confere com o número verificado."
+      );
+    }
+    const exp = d.expira_em;
+    const expMs =
+      exp && typeof exp.toMillis === "function"
+        ? exp.toMillis()
+        : exp && exp.seconds
+          ? exp.seconds * 1000
+          : 0;
+    if (!expMs || Date.now() > expMs) {
+      throw new HttpsError(
+        "deadline-exceeded",
+        "A verificação do celular expirou. Envie um novo código."
+      );
+    }
+
+    tx.update(ref, {
+      consumido: true,
+      consumido_por_uid: uid,
+      consumido_em: admin.firestore.FieldValue.serverTimestamp(),
+    });
+
+    const userRef = db.collection("users").doc(uid);
+    const userSnap = await tx.get(userRef);
+    if (!userSnap.exists) {
+      throw new HttpsError(
+        "failed-precondition",
+        "Perfil não encontrado."
+      );
+    }
+
+    tx.update(userRef, {
+      telefone: mascararTelefoneBrParaFirestore(phoneDigits),
       telefone_verificado_sms_em: admin.firestore.FieldValue.serverTimestamp(),
     });
   });

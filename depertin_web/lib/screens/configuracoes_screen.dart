@@ -1,9 +1,120 @@
 import 'dart:math' show min;
 
 import 'package:cloud_firestore/cloud_firestore.dart';
+import 'package:depertin_web/constants/tipos_entrega.dart';
 import 'package:depertin_web/theme/painel_admin_theme.dart';
 import 'package:flutter/foundation.dart' show kIsWeb;
 import 'package:flutter/material.dart';
+
+/// Slugs preset em `tabela_fretes/{cidade}_{slug}` (alinha ao carrinho).
+const Set<String> _kSlugsFretePresetPainel = {
+  TiposEntrega.codBicicleta,
+  TiposEntrega.codMoto,
+  'padrao',
+  TiposEntrega.codCarro,
+  TiposEntrega.codCarroFrete,
+};
+
+/// Ordem estável do dropdown "Categoria / tabela" (deve coincidir com o app).
+const List<String> _kFretePresetsOrdenadosPainel = <String>[
+  TiposEntrega.codBicicleta,
+  TiposEntrega.codMoto,
+  'padrao',
+  TiposEntrega.codCarro,
+  TiposEntrega.codCarroFrete,
+];
+
+final RegExp _kRegexSlugFretePersonalizadoPainel = RegExp(r'^[a-z0-9_]{2,48}$');
+
+String _suffixDocFretePainel(String docId) {
+  final id = docId.toLowerCase().trim();
+  if (id.isEmpty) return TiposEntrega.codMoto;
+  final ordenado = _kSlugsFretePresetPainel.toList()
+    ..sort((a, b) => b.length.compareTo(a.length));
+  for (final slug in ordenado) {
+    if (id.endsWith('_$slug')) return slug;
+  }
+  final i = id.lastIndexOf('_');
+  if (i <= 0 || i >= id.length - 1) {
+    return id;
+  }
+  return id.substring(i + 1);
+}
+
+String _rotuloPresetListaFretePainel(String slugPreset) {
+  switch (slugPreset) {
+    case TiposEntrega.codBicicleta:
+      return TiposEntrega.rotulo(TiposEntrega.codBicicleta);
+    case TiposEntrega.codMoto:
+      return TiposEntrega.rotulo(TiposEntrega.codMoto);
+    case 'padrao':
+      return 'Padrão combinado (moto e bike — legado)';
+    case TiposEntrega.codCarro:
+      return TiposEntrega.rotulo(TiposEntrega.codCarro);
+    case TiposEntrega.codCarroFrete:
+      return TiposEntrega.rotulo(TiposEntrega.codCarroFrete);
+    default:
+      return slugPreset;
+  }
+}
+
+String _campoVeiculoLegadoFretePainel({
+  required bool usarPersonalizado,
+  required String tipoTabelaCanon,
+  required String presetOuSlugManual,
+}) {
+  if (usarPersonalizado) {
+    final alvo =
+        _rotuloPresetListaFretePainel(tipoTabelaCanon.toLowerCase());
+    return 'Personalizado (${presetOuSlugManual.trim()}) — no app: $alvo';
+  }
+  return _rotuloPresetListaFretePainel(presetOuSlugManual);
+}
+
+/// Metadados só para UI — ordem deve coincidir com [TabController] (4 abas).
+class _CfgFinanceSecao {
+  const _CfgFinanceSecao({
+    required this.rotuloNavegacao,
+    required this.tituloPainel,
+    required this.descricao,
+    required this.icon,
+  });
+
+  final String rotuloNavegacao;
+  final String tituloPainel;
+  final String descricao;
+  final IconData icon;
+}
+
+const List<_CfgFinanceSecao> _kCfgFinanceSecoes = [
+  _CfgFinanceSecao(
+    rotuloNavegacao: 'Comissões · lojistas',
+    tituloPainel: 'Comissões da plataforma',
+    descricao:
+        'Defina percentuais ou valores fixos por cidade e periodicidade.',
+    icon: Icons.storefront_rounded,
+  ),
+  _CfgFinanceSecao(
+    rotuloNavegacao: 'Comissões · entregadores',
+    tituloPainel: 'Desconto do Entregadores',
+    descricao: 'Taxas por tipo de veículo e cidade para a rede de entregas.',
+    icon: Icons.two_wheeler_rounded,
+  ),
+  _CfgFinanceSecao(
+    rotuloNavegacao: 'Fretes',
+    tituloPainel: 'Tabela de fretes',
+    descricao:
+        'Valor base, distância inclusa e valor por quilômetro adicional.',
+    icon: Icons.route_rounded,
+  ),
+  _CfgFinanceSecao(
+    rotuloNavegacao: 'Pagamentos',
+    tituloPainel: 'Gateways de pagamento',
+    descricao:
+        'Credenciais e gateway ativo utilizados no checkout do aplicativo.',
+    icon: Icons.credit_card_rounded,
+  ),
+];
 
 class ConfiguracoesScreen extends StatefulWidget {
   const ConfiguracoesScreen({super.key});
@@ -69,9 +180,12 @@ class _ConfiguracoesScreenState extends State<ConfiguracoesScreen>
     Widget? suffixIcon,
     String? prefixText,
     String? suffixText,
+    String? helperText,
   }) {
     return InputDecoration(
       labelText: label,
+      helperText: helperText,
+      helperMaxLines: helperText != null ? 4 : null,
       filled: true,
       fillColor: const Color(0xFFF8F7FC),
       contentPadding: const EdgeInsets.symmetric(horizontal: 16, vertical: 14),
@@ -558,8 +672,32 @@ class _ConfiguracoesScreenState extends State<ConfiguracoesScreen>
         ? _capitalizar(dadosEditar['cidade']?.toString() ?? 'Todas')
         : 'Todas';
     String cidadeSelecionada = cidadeInicial;
-    String veiculo =
-        dadosEditar != null ? (dadosEditar['veiculo'] ?? 'Padrão (Moto/Bike)') : 'Padrão (Moto/Bike)';
+    final slugDoDocIni =
+        docIdEditar != null ? _suffixDocFretePainel(docIdEditar) : '';
+    final tipoTblSalvo =
+        dadosEditar?['tipo_tabela']?.toString().trim().toLowerCase();
+    var usarSlugPersonalizado = docIdEditar != null &&
+        slugDoDocIni.isNotEmpty &&
+        !_kSlugsFretePresetPainel.contains(slugDoDocIni);
+    var tipoTabelaFallback =
+        (tipoTblSalvo != null &&
+                _kSlugsFretePresetPainel.contains(tipoTblSalvo))
+            ? tipoTblSalvo
+            : (slugDoDocIni.isNotEmpty &&
+                    _kSlugsFretePresetPainel.contains(slugDoDocIni)
+                ? slugDoDocIni
+                : TiposEntrega.codMoto);
+    var presetSlug = !usarSlugPersonalizado &&
+            slugDoDocIni.isNotEmpty &&
+            _kSlugsFretePresetPainel.contains(slugDoDocIni)
+        ? slugDoDocIni
+        : ((tipoTblSalvo != null &&
+                _kSlugsFretePresetPainel.contains(tipoTblSalvo))
+            ? tipoTblSalvo
+            : TiposEntrega.codMoto);
+    final slugManualCtrl = TextEditingController(
+      text: usarSlugPersonalizado ? slugDoDocIni : '',
+    );
     var isLoading = false;
 
     showDialog<void>(
@@ -585,6 +723,41 @@ class _ConfiguracoesScreenState extends State<ConfiguracoesScreen>
                 );
                 return;
               }
+
+              final slugManualLimpo =
+                  slugManualCtrl.text.trim().toLowerCase();
+
+              if (usarSlugPersonalizado &&
+                  !_kRegexSlugFretePersonalizadoPainel
+                      .hasMatch(slugManualLimpo)) {
+                ScaffoldMessenger.of(context).showSnackBar(
+                  SnackBar(
+                    content: const Text(
+                      "Slug personalizado inválido. Use apenas letras minúsculas, números e sublinhado "
+                      "(2 a 48 caracteres). Reserve palavras-preset (ex.: «moto», «bicicleta»).",
+                    ),
+                    backgroundColor: diPertinRoxo,
+                    behavior: SnackBarBehavior.floating,
+                  ),
+                );
+                return;
+              }
+
+              if (usarSlugPersonalizado &&
+                  _kSlugsFretePresetPainel.contains(slugManualLimpo)) {
+                ScaffoldMessenger.of(context).showSnackBar(
+                  SnackBar(
+                    content: const Text(
+                      "Esse slug é reservado para uma categoria pré-definida. "
+                      "Desative «Identificador personalizado» e escolha a categoria correspondente.",
+                    ),
+                    backgroundColor: diPertinRoxo,
+                    behavior: SnackBarBehavior.floating,
+                  ),
+                );
+                return;
+              }
+
               setState(() => isLoading = true);
               try {
                 final valorBase =
@@ -596,26 +769,74 @@ class _ConfiguracoesScreenState extends State<ConfiguracoesScreen>
                     double.tryParse(valorKmExtraC.text.replaceAll(',', '.')) ??
                     0.0;
 
+                final cidadeChave =
+                    cidadeSelecionada.trim().toLowerCase();
+
+                final String suffixDoc =
+                    usarSlugPersonalizado ? slugManualLimpo : presetSlug;
+                final String tipoTabelaCanon = usarSlugPersonalizado
+                    ? tipoTabelaFallback
+                    : presetSlug;
+
+                final veiculoLegado = _campoVeiculoLegadoFretePainel(
+                  usarPersonalizado: usarSlugPersonalizado,
+                  tipoTabelaCanon: tipoTabelaCanon,
+                  presetOuSlugManual:
+                      usarSlugPersonalizado ? slugManualLimpo : presetSlug,
+                );
+
+                final novoDocId = '${cidadeChave}_$suffixDoc';
+
                 final dados = <String, dynamic>{
-                  'cidade': cidadeSelecionada.trim().toLowerCase(),
-                  'veiculo': veiculo,
+                  'cidade': cidadeChave,
+                  'veiculo': veiculoLegado,
+                  'tipo_tabela': tipoTabelaCanon,
                   'valor_base': valorBase,
                   'distancia_base_km': distBase,
                   'valor_km_adicional': valorKmExtra,
                   'data_atualizacao': FieldValue.serverTimestamp(),
                 };
+
                 if (isEdicao) {
+                  if (novoDocId != docIdEditar) {
+                    if (context.mounted) {
+                      ScaffoldMessenger.of(context).showSnackBar(
+                        const SnackBar(
+                          content: Text(
+                            'Não é possível alterar a cidade nem o identificador (slug) de uma regra existente — '
+                            'exclua e cadastre de novo.',
+                          ),
+                          backgroundColor: Color(0xFFB91C1C),
+                          behavior: SnackBarBehavior.floating,
+                        ),
+                      );
+                    }
+                    return;
+                  }
                   await FirebaseFirestore.instance
                       .collection('tabela_fretes')
                       .doc(docIdEditar)
                       .update(dados);
                 } else {
-                  final docId =
-                      "${cidadeSelecionada.trim().toLowerCase()}_${veiculo.contains('Carro') ? 'carro' : 'padrao'}";
-                  await FirebaseFirestore.instance
+                  final refDoc = FirebaseFirestore.instance
                       .collection('tabela_fretes')
-                      .doc(docId)
-                      .set(dados);
+                      .doc(novoDocId);
+                  final existe = await refDoc.get();
+                  if (existe.exists) {
+                    if (context.mounted) {
+                      ScaffoldMessenger.of(context).showSnackBar(
+                        SnackBar(
+                          content: Text(
+                            'Já existe uma regra com o mesmo identificador: $novoDocId.',
+                          ),
+                          backgroundColor: const Color(0xFFB91C1C),
+                          behavior: SnackBarBehavior.floating,
+                        ),
+                      );
+                    }
+                    return;
+                  }
+                  await refDoc.set(dados);
                 }
                 if (context.mounted) Navigator.pop(context);
               } catch (e) {
@@ -665,7 +886,7 @@ class _ConfiguracoesScreenState extends State<ConfiguracoesScreen>
                       titulo:
                           isEdicao ? "Editar regra de frete" : "Nova regra de frete",
                       subtitulo:
-                          "Valor fixo até uma distância base e acréscimo por quilómetro extra.",
+                          "Valor fixo até uma distância base e acréscimo por quilômetro extra.",
                     ),
                     Expanded(
                       child: SingleChildScrollView(
@@ -700,6 +921,7 @@ class _ConfiguracoesScreenState extends State<ConfiguracoesScreen>
                                 return TextField(
                                   controller: controller,
                                   focusNode: focusNode,
+                                  readOnly: isEdicao,
                                   decoration: _dialogFieldDecoration(
                                     "Cidade",
                                     suffixIcon: Icon(
@@ -712,25 +934,119 @@ class _ConfiguracoesScreenState extends State<ConfiguracoesScreen>
                               },
                             ),
                             const SizedBox(height: 16),
-                            DropdownButtonFormField<String>(
-                              key: ValueKey<String>('dlg_frete_veic_$veiculo'),
-                              initialValue: veiculo,
-                              decoration: _dialogFieldDecoration(
-                                "Categoria do frete",
+                            if (isEdicao) ...[
+                              Text(
+                                'Identificador: $docIdEditar',
+                                style: TextStyle(
+                                  fontSize: 13,
+                                  color: Colors.grey.shade700,
+                                  fontWeight: FontWeight.w600,
+                                ),
                               ),
-                              items: const [
-                                DropdownMenuItem(
-                                  value: 'Padrão (Moto/Bike)',
-                                  child: Text("Padrão (moto / bike)"),
+                              Padding(
+                                padding: const EdgeInsets.only(top: 6, bottom: 4),
+                                child: Text(
+                                  'Cidade e slug do documento não podem mudar ao editar '
+                                  '(exclua esta regra para recadastrar com outra chave).',
+                                  style: TextStyle(
+                                    fontSize: 12,
+                                    height: 1.35,
+                                    color: Colors.grey.shade600,
+                                  ),
                                 ),
-                                DropdownMenuItem(
-                                  value: 'Cargas Maiores (Carro)',
-                                  child: Text("Cargas maiores (carro)"),
+                              ),
+                              const SizedBox(height: 8),
+                            ],
+                            SwitchListTile.adaptive(
+                              contentPadding: EdgeInsets.zero,
+                              title:
+                                  const Text('Identificador personalizado da regra'),
+                              subtitle: Text(
+                                isEdicao
+                                    ? 'Não é possível alternar modo ao editar.'
+                                    : 'Use para várias tarifas paralelas às categorias pré-definidas '
+                                        '(precisa definir quando o carrinho aplica esta linha).',
+                                style: TextStyle(
+                                  fontSize: 12,
+                                  color: Colors.grey.shade600,
                                 ),
-                              ],
-                              onChanged: (val) =>
-                                  setState(() => veiculo = val!),
+                              ),
+                              value: usarSlugPersonalizado,
+                              onChanged: isEdicao
+                                  ? null
+                                  : (v) {
+                                      setState(() {
+                                        usarSlugPersonalizado = v;
+                                        slugManualCtrl.text = '';
+                                      });
+                                    },
                             ),
+                            if (!usarSlugPersonalizado) ...[
+                              DropdownButtonFormField<String>(
+                                key: ValueKey<String>('preset_${presetSlug}_$isEdicao'),
+                                value: presetSlug,
+                                decoration: _dialogFieldDecoration(
+                                  'Categoria do frete (tabela no app)',
+                                  helperText:
+                                      'Bicicleta e moto têm valores separados. «Padrão» cobre '
+                                      'regras antigas que uniam moto e bike.',
+                                ),
+                                items: [
+                                  for (final s in _kFretePresetsOrdenadosPainel)
+                                    DropdownMenuItem<String>(
+                                      value: s,
+                                      child: Text(
+                                        _rotuloPresetListaFretePainel(s),
+                                      ),
+                                    ),
+                                ],
+                                onChanged: isEdicao
+                                    ? null
+                                    : (v) {
+                                        if (v != null) {
+                                          setState(() => presetSlug = v);
+                                        }
+                                      },
+                              ),
+                            ] else ...[
+                              TextField(
+                                controller: slugManualCtrl,
+                                readOnly: isEdicao,
+                                autocorrect: false,
+                                decoration: _dialogFieldDecoration(
+                                  'Slug (identificador do documento)',
+                                  helperText:
+                                      'Nome único sem acento. O ID fica cidade_slug '
+                                      '(apenas minúsculas e _; 2 a 48 caracteres). '
+                                      'Evite slug reservado tipo «moto» ou «bicicleta».',
+                                ),
+                              ),
+                              const SizedBox(height: 12),
+                              DropdownButtonFormField<String>(
+                                key: ValueKey<String>(
+                                  'fallback_${tipoTabelaFallback}_${presetSlug}_${usarSlugPersonalizado}_$isEdicao',
+                                ),
+                                value: tipoTabelaFallback,
+                                decoration: _dialogFieldDecoration(
+                                  'No app conta como',
+                                  helperText:
+                                      'Tipo canônico usado na busca pelo carrinho (cadeia de fallback). '
+                                      'Ao editar, você pode só ajustar este vínculo sem mudar o slug.',
+                                ),
+                                items: [
+                                  for (final s in _kFretePresetsOrdenadosPainel)
+                                    DropdownMenuItem<String>(
+                                      value: s,
+                                      child: Text(_rotuloPresetListaFretePainel(s)),
+                                    ),
+                                ],
+                                onChanged: (v) {
+                                  if (v != null) {
+                                    setState(() => tipoTabelaFallback = v);
+                                  }
+                                },
+                              ),
+                            ],
                             const SizedBox(height: 16),
                             Row(
                               crossAxisAlignment: CrossAxisAlignment.start,
@@ -842,7 +1158,7 @@ class _ConfiguracoesScreenState extends State<ConfiguracoesScreen>
           },
         );
       },
-    );
+    ).whenComplete(slugManualCtrl.dispose);
   }
 
   Future<void> _deletarDocumento(
@@ -1052,7 +1368,7 @@ class _ConfiguracoesScreenState extends State<ConfiguracoesScreen>
                 elevation: 0,
                 shape: RoundedRectangleBorder(
                   borderRadius: BorderRadius.circular(16),
-                  side: BorderSide(color: Colors.grey.shade200),
+                  side: const BorderSide(color: PainelAdminTheme.dashboardBorder),
                 ),
                 clipBehavior: Clip.antiAlias,
                 child: Padding(
@@ -1068,6 +1384,9 @@ class _ConfiguracoesScreenState extends State<ConfiguracoesScreen>
                         decoration: BoxDecoration(
                           color: diPertinRoxo.withValues(alpha: 0.08),
                           borderRadius: BorderRadius.circular(12),
+                          border: Border.all(
+                            color: diPertinRoxo.withValues(alpha: 0.12),
+                          ),
                         ),
                         child: Icon(
                           isLojista ? Icons.storefront_rounded : Icons.moped_rounded,
@@ -1177,16 +1496,21 @@ class _ConfiguracoesScreenState extends State<ConfiguracoesScreen>
                   (dados['distancia_base_km'] as num?)?.toDouble() ?? 0.0;
               final extra =
                   (dados['valor_km_adicional'] as num?)?.toDouble() ?? 0.0;
-              final veiculo = (dados['veiculo'] ?? '—').toString();
               final cidade = (dados['cidade'] ?? '—').toString();
-              final titulo = "$veiculo · ${cidade.toUpperCase()}";
-
+              final tipoTc =
+                  (dados['tipo_tabela'] ?? '').toString().trim().toLowerCase();
+              final slugDoId = _suffixDocFretePainel(doc.id);
+              final rotuloNoApp = tipoTc.isNotEmpty
+                  ? _rotuloPresetListaFretePainel(tipoTc)
+                  : _rotuloPresetListaFretePainel(slugDoId);
+              final cidadeFmt = cidade.toUpperCase();
+              final titulo = '$cidadeFmt · $rotuloNoApp';
               return Material(
                 color: Colors.white,
                 elevation: 0,
                 shape: RoundedRectangleBorder(
                   borderRadius: BorderRadius.circular(16),
-                  side: BorderSide(color: Colors.grey.shade200),
+                  side: const BorderSide(color: PainelAdminTheme.dashboardBorder),
                 ),
                 clipBehavior: Clip.antiAlias,
                 child: Padding(
@@ -1202,6 +1526,9 @@ class _ConfiguracoesScreenState extends State<ConfiguracoesScreen>
                         decoration: BoxDecoration(
                           color: diPertinLaranja.withValues(alpha: 0.12),
                           borderRadius: BorderRadius.circular(12),
+                          border: Border.all(
+                            color: diPertinLaranja.withValues(alpha: 0.22),
+                          ),
                         ),
                         child: Icon(
                           Icons.local_shipping_outlined,
@@ -1220,6 +1547,16 @@ class _ConfiguracoesScreenState extends State<ConfiguracoesScreen>
                                 fontSize: 17,
                                 fontWeight: FontWeight.w700,
                                 letterSpacing: -0.2,
+                              ),
+                            ),
+                            const SizedBox(height: 4),
+                            Text(
+                              doc.id,
+                              style: TextStyle(
+                                fontSize: 12,
+                                height: 1.35,
+                                color: Colors.grey.shade600,
+                                fontWeight: FontWeight.w500,
                               ),
                             ),
                             const SizedBox(height: 10),
@@ -1340,8 +1677,9 @@ class _ConfiguracoesScreenState extends State<ConfiguracoesScreen>
         "Defina abaixo qual gateway estará ativo no app.",
         style: TextStyle(
           fontSize: 13,
-          color: Colors.grey.shade600,
+          color: PainelAdminTheme.textoSecundario,
           fontWeight: FontWeight.w500,
+          height: 1.35,
         ),
       );
     }
@@ -1382,140 +1720,459 @@ class _ConfiguracoesScreenState extends State<ConfiguracoesScreen>
     );
   }
 
-  @override
-  Widget build(BuildContext context) {
-    final theme = Theme.of(context);
-
-    return Scaffold(
-      backgroundColor: PainelAdminTheme.fundoCanvas,
-      body: Column(
-        crossAxisAlignment: CrossAxisAlignment.stretch,
-        children: [
-          Material(
-            color: Colors.white,
-            elevation: 0,
-            child: Column(
-              crossAxisAlignment: CrossAxisAlignment.stretch,
+  Widget _railDestino(int i) {
+    final sel = _tabController.index == i;
+    final m = _kCfgFinanceSecoes[i];
+    return Padding(
+      padding: const EdgeInsets.only(bottom: 6),
+      child: Material(
+        color: Colors.transparent,
+        child: InkWell(
+          borderRadius: BorderRadius.circular(14),
+          onTap: () => _tabController.animateTo(i),
+          hoverColor: diPertinRoxo.withValues(alpha: 0.05),
+          splashColor: diPertinRoxo.withValues(alpha: 0.08),
+          child: AnimatedContainer(
+            duration: const Duration(milliseconds: 220),
+            curve: Curves.easeOutCubic,
+            padding: const EdgeInsets.fromLTRB(10, 12, 14, 12),
+            decoration: BoxDecoration(
+              color: sel ? Colors.white : Colors.transparent,
+              borderRadius: BorderRadius.circular(14),
+              border: Border.all(
+                color: sel
+                    ? diPertinRoxo.withValues(alpha: 0.28)
+                    : PainelAdminTheme.dashboardBorder.withValues(alpha: 0.35),
+              ),
+              boxShadow: sel ? PainelAdminTheme.sombraCardSuave() : null,
+            ),
+            child: Row(
+              crossAxisAlignment: CrossAxisAlignment.start,
               children: [
-                LayoutBuilder(
-                  builder: (context, constraints) {
-                    final narrow = constraints.maxWidth < 720;
-                    final tituloCol = Column(
-                      crossAxisAlignment: narrow
-                          ? CrossAxisAlignment.center
-                          : CrossAxisAlignment.start,
-                      children: [
-                        Text(
-                          "Configurações financeiras",
-                          textAlign: narrow ? TextAlign.center : TextAlign.start,
-                          style: theme.textTheme.headlineSmall?.copyWith(
-                                fontWeight: FontWeight.w800,
-                                color: diPertinRoxo,
-                                letterSpacing: -0.5,
-                              ) ??
-                              TextStyle(
-                                fontSize: 26,
-                                fontWeight: FontWeight.w800,
-                                color: diPertinRoxo,
-                                letterSpacing: -0.5,
-                              ),
+                AnimatedContainer(
+                  duration: const Duration(milliseconds: 220),
+                  width: 3,
+                  height: 38,
+                  decoration: BoxDecoration(
+                    color: sel ? diPertinRoxo : Colors.transparent,
+                    borderRadius: BorderRadius.circular(3),
+                  ),
+                ),
+                const SizedBox(width: 12),
+                Icon(
+                  m.icon,
+                  size: 22,
+                  color: sel
+                      ? diPertinRoxo
+                      : PainelAdminTheme.textoSecundario,
+                ),
+                const SizedBox(width: 12),
+                Expanded(
+                  child: Column(
+                    crossAxisAlignment: CrossAxisAlignment.start,
+                    children: [
+                      Text(
+                        m.rotuloNavegacao,
+                        style: TextStyle(
+                          fontWeight:
+                              sel ? FontWeight.w700 : FontWeight.w600,
+                          fontSize: 13.5,
+                          height: 1.25,
+                          letterSpacing: -0.1,
+                          color: sel
+                              ? PainelAdminTheme.dashboardInk
+                              : PainelAdminTheme.textoSecundario,
                         ),
-                        const SizedBox(height: 6),
-                        Text(
-                          "Taxas por cidade, fretes e gateways de pagamento — tudo num só lugar.",
-                          textAlign: narrow ? TextAlign.center : TextAlign.start,
-                          style: const TextStyle(
-                            color: PainelAdminTheme.textoSecundario,
-                            fontSize: 15,
-                            height: 1.4,
+                      ),
+                      const SizedBox(height: 4),
+                      Text(
+                        m.descricao,
+                        maxLines: 2,
+                        overflow: TextOverflow.ellipsis,
+                        style: TextStyle(
+                          fontSize: 11.5,
+                          height: 1.35,
+                          color: PainelAdminTheme.textoSecundario.withValues(
+                            alpha: sel ? 0.9 : 0.72,
                           ),
                         ),
-                      ],
-                    );
-                    final acao = Align(
-                      alignment: narrow
-                          ? Alignment.center
-                          : Alignment.topRight,
-                      child: _buildAcoesContextuaisTopo(),
-                    );
-                    return Padding(
-                      padding: const EdgeInsets.fromLTRB(28, 28, 28, 0),
-                      child: narrow
-                          ? Column(
-                              crossAxisAlignment: CrossAxisAlignment.stretch,
-                              children: [
-                                tituloCol,
-                                const SizedBox(height: 16),
-                                acao,
-                              ],
-                            )
-                          : Row(
-                              crossAxisAlignment: CrossAxisAlignment.start,
-                              children: [
-                                Expanded(child: tituloCol),
-                                const SizedBox(width: 24),
-                                Flexible(child: acao),
-                              ],
-                            ),
-                    );
-                  },
-                ),
-                const SizedBox(height: 8),
-                TabBar(
-                  controller: _tabController,
-                  isScrollable: true,
-                  tabAlignment: TabAlignment.start,
-                  labelColor: diPertinRoxo,
-                  unselectedLabelColor: PainelAdminTheme.textoSecundario,
-                  indicatorColor: diPertinLaranja,
-                  indicatorWeight: 3,
-                  labelStyle: const TextStyle(
-                    fontWeight: FontWeight.w700,
-                    fontSize: 13,
+                      ),
+                    ],
                   ),
-                  unselectedLabelStyle: const TextStyle(
-                    fontWeight: FontWeight.w600,
-                    fontSize: 13,
-                  ),
-                  tabs: const [
-                    Tab(
-                      icon: Icon(Icons.storefront_rounded),
-                      height: 72,
-                      text: "Comissões da Plataforma",
-                    ),
-                    Tab(
-                      icon: Icon(Icons.two_wheeler_rounded),
-                      height: 72,
-                      text: "Desconto do Entregadores",
-                    ),
-                    Tab(
-                      icon: Icon(Icons.route_rounded),
-                      height: 72,
-                      text: "Tabela de fretes",
-                    ),
-                    Tab(
-                      icon: Icon(Icons.credit_card_rounded),
-                      height: 72,
-                      text: "Pagamentos",
-                    ),
-                  ],
                 ),
-                Divider(height: 1, color: Colors.grey.shade200),
               ],
             ),
           ),
-          Expanded(
-            child: TabBarView(
-              controller: _tabController,
-              children: [
-                _buildListaPlanos('lojista'),
-                _buildListaPlanos('entregador'),
-                _buildListaFretes(),
-                _buildGatewaysPagamento(),
-              ],
+        ),
+      ),
+    );
+  }
+
+  Widget _pillSecao(int i) {
+    final sel = _tabController.index == i;
+    final m = _kCfgFinanceSecoes[i];
+    return Material(
+      color: Colors.transparent,
+      child: InkWell(
+        borderRadius: BorderRadius.circular(999),
+        onTap: () => _tabController.animateTo(i),
+        child: AnimatedContainer(
+          duration: const Duration(milliseconds: 200),
+          curve: Curves.easeOutCubic,
+          padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 10),
+          decoration: BoxDecoration(
+            color: sel ? diPertinRoxo.withValues(alpha: 0.11) : Colors.white,
+            borderRadius: BorderRadius.circular(999),
+            border: Border.all(
+              color: sel
+                  ? diPertinRoxo.withValues(alpha: 0.35)
+                  : PainelAdminTheme.dashboardBorder,
+            ),
+            boxShadow: sel
+                ? [
+                    BoxShadow(
+                      color: diPertinRoxo.withValues(alpha: 0.08),
+                      blurRadius: 12,
+                      offset: const Offset(0, 4),
+                    ),
+                  ]
+                : null,
+          ),
+          child: Row(
+            mainAxisSize: MainAxisSize.min,
+            children: [
+              Icon(
+                m.icon,
+                size: 18,
+                color: sel ? diPertinRoxo : PainelAdminTheme.textoSecundario,
+              ),
+              const SizedBox(width: 8),
+              Text(
+                m.rotuloNavegacao,
+                style: TextStyle(
+                  fontWeight: sel ? FontWeight.w700 : FontWeight.w600,
+                  fontSize: 12,
+                  color: sel
+                      ? PainelAdminTheme.dashboardInk
+                      : PainelAdminTheme.textoSecundario,
+                ),
+              ),
+            ],
+          ),
+        ),
+      ),
+    );
+  }
+
+  Widget _toolbarSecao(
+    ThemeData theme,
+    _CfgFinanceSecao meta, {
+    required bool empilharAcao,
+  }) {
+    final titleBlock = Column(
+      crossAxisAlignment: CrossAxisAlignment.start,
+      children: [
+        Text(
+          meta.tituloPainel,
+          style: theme.textTheme.titleLarge?.copyWith(
+                fontWeight: FontWeight.w800,
+                color: PainelAdminTheme.dashboardInk,
+                letterSpacing: -0.35,
+              ) ??
+              TextStyle(
+                fontSize: 20,
+                fontWeight: FontWeight.w800,
+                color: PainelAdminTheme.dashboardInk,
+                letterSpacing: -0.35,
+              ),
+        ),
+        const SizedBox(height: 6),
+        Text(
+          meta.descricao,
+          style: const TextStyle(
+            color: PainelAdminTheme.textoSecundario,
+            fontSize: 14,
+            height: 1.45,
+          ),
+        ),
+      ],
+    );
+
+    final acao = _buildAcoesContextuaisTopo();
+
+    if (empilharAcao) {
+      return Padding(
+        padding: const EdgeInsets.fromLTRB(20, 20, 20, 16),
+        child: Column(
+          crossAxisAlignment: CrossAxisAlignment.stretch,
+          children: [
+            titleBlock,
+            const SizedBox(height: 16),
+            acao,
+          ],
+        ),
+      );
+    }
+
+    return Padding(
+      padding: const EdgeInsets.fromLTRB(24, 22, 24, 18),
+      child: Row(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          Container(
+            padding: const EdgeInsets.all(11),
+            decoration: BoxDecoration(
+              color: diPertinRoxo.withValues(alpha: 0.07),
+              borderRadius: BorderRadius.circular(13),
+              border: Border.all(
+                color: diPertinRoxo.withValues(alpha: 0.12),
+              ),
+            ),
+            child: Icon(meta.icon, color: diPertinRoxo, size: 24),
+          ),
+          const SizedBox(width: 16),
+          Expanded(child: titleBlock),
+          const SizedBox(width: 20),
+          Flexible(
+            child: Align(
+              alignment: Alignment.topRight,
+              child: acao,
             ),
           ),
         ],
+      ),
+    );
+  }
+
+  Widget _painelConteudoTab(Widget tabView) {
+    return DecoratedBox(
+      decoration: BoxDecoration(
+        color: const Color(0xFFF8F9FC),
+        border: Border(
+          top: BorderSide(color: PainelAdminTheme.dashboardBorder),
+        ),
+      ),
+      child: tabView,
+    );
+  }
+
+  Widget _conteudoAbas({required ScrollPhysics physics}) {
+    return TabBarView(
+      controller: _tabController,
+      physics: physics,
+      children: [
+        _buildListaPlanos('lojista'),
+        _buildListaPlanos('entregador'),
+        _buildListaFretes(),
+        _buildGatewaysPagamento(),
+      ],
+    );
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    final theme = Theme.of(context);
+    final idx = _tabController.index.clamp(0, _kCfgFinanceSecoes.length - 1);
+    final meta = _kCfgFinanceSecoes[idx];
+
+    return Scaffold(
+      backgroundColor: PainelAdminTheme.fundoCanvas,
+      body: LayoutBuilder(
+        builder: (context, constraints) {
+          final useRail = constraints.maxWidth >= 960;
+          final hPad =
+              constraints.maxWidth < 520 ? 12.0 : (constraints.maxWidth < 960 ? 16.0 : 24.0);
+
+          final tabView = _conteudoAbas(
+            physics: useRail
+                ? const NeverScrollableScrollPhysics()
+                : const BouncingScrollPhysics(),
+          );
+
+          if (useRail) {
+            final maxOuter = min(constraints.maxWidth - hPad * 2, 1240.0);
+            return Padding(
+              padding: EdgeInsets.fromLTRB(hPad, 20, hPad, 20),
+              child: Center(
+                child: ConstrainedBox(
+                  constraints: BoxConstraints(maxWidth: maxOuter),
+                  child: Row(
+                    crossAxisAlignment: CrossAxisAlignment.stretch,
+                    children: [
+                      Container(
+                        width: 286,
+                        decoration: PainelAdminTheme.dashboardCard(),
+                        clipBehavior: Clip.antiAlias,
+                        child: Column(
+                          crossAxisAlignment: CrossAxisAlignment.stretch,
+                          children: [
+                            Padding(
+                              padding: const EdgeInsets.fromLTRB(
+                                22,
+                                24,
+                                22,
+                                8,
+                              ),
+                              child: Column(
+                                crossAxisAlignment: CrossAxisAlignment.start,
+                                children: [
+                                  Text(
+                                    'FINANCEIRO',
+                                    style: theme.textTheme.labelSmall?.copyWith(
+                                          fontWeight: FontWeight.w800,
+                                          letterSpacing: 1.35,
+                                          color: diPertinRoxo.withValues(
+                                            alpha: 0.85,
+                                          ),
+                                          fontSize: 11,
+                                        ) ??
+                                        TextStyle(
+                                          fontWeight: FontWeight.w800,
+                                          letterSpacing: 1.35,
+                                          color: diPertinRoxo.withValues(
+                                            alpha: 0.85,
+                                          ),
+                                          fontSize: 11,
+                                        ),
+                                  ),
+                                  const SizedBox(height: 10),
+                                  Text(
+                                    'Configurações',
+                                    style: theme.textTheme.headlineSmall
+                                            ?.copyWith(
+                                              fontWeight: FontWeight.w800,
+                                              color: PainelAdminTheme
+                                                  .dashboardInk,
+                                              letterSpacing: -0.55,
+                                            ) ??
+                                        const TextStyle(
+                                          fontSize: 26,
+                                          fontWeight: FontWeight.w800,
+                                          color: PainelAdminTheme.dashboardInk,
+                                          letterSpacing: -0.55,
+                                        ),
+                                  ),
+                                  const SizedBox(height: 6),
+                                  Text(
+                                    'Comissões, fretes e meios de pagamento.',
+                                    style: TextStyle(
+                                      fontSize: 13,
+                                      height: 1.4,
+                                      color: PainelAdminTheme.textoSecundario,
+                                    ),
+                                  ),
+                                ],
+                              ),
+                            ),
+                            const SizedBox(height: 8),
+                            Expanded(
+                              child: ListView.builder(
+                                padding: const EdgeInsets.fromLTRB(
+                                  12,
+                                  0,
+                                  12,
+                                  16,
+                                ),
+                                itemCount: _kCfgFinanceSecoes.length,
+                                itemBuilder: (context, i) => _railDestino(i),
+                              ),
+                            ),
+                          ],
+                        ),
+                      ),
+                      const SizedBox(width: 22),
+                      Expanded(
+                        child: Container(
+                          decoration: PainelAdminTheme.dashboardCard(),
+                          clipBehavior: Clip.antiAlias,
+                          child: Column(
+                            crossAxisAlignment: CrossAxisAlignment.stretch,
+                            children: [
+                              _toolbarSecao(
+                                theme,
+                                meta,
+                                empilharAcao: false,
+                              ),
+                              Expanded(
+                                child: _painelConteudoTab(tabView),
+                              ),
+                            ],
+                          ),
+                        ),
+                      ),
+                    ],
+                  ),
+                ),
+              ),
+            );
+          }
+
+          return Padding(
+            padding: EdgeInsets.fromLTRB(hPad, 16, hPad, 16),
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.stretch,
+              children: [
+                Text(
+                  'Configurações financeiras',
+                  style: theme.textTheme.headlineSmall?.copyWith(
+                        fontWeight: FontWeight.w800,
+                        color: PainelAdminTheme.dashboardInk,
+                        letterSpacing: -0.45,
+                      ) ??
+                      const TextStyle(
+                        fontSize: 22,
+                        fontWeight: FontWeight.w800,
+                        color: PainelAdminTheme.dashboardInk,
+                      ),
+                ),
+                const SizedBox(height: 4),
+                const Text(
+                  'Escolha uma área abaixo.',
+                  style: TextStyle(
+                    fontSize: 13,
+                    color: PainelAdminTheme.textoSecundario,
+                    height: 1.35,
+                  ),
+                ),
+                const SizedBox(height: 14),
+                SingleChildScrollView(
+                  scrollDirection: Axis.horizontal,
+                  child: Row(
+                    children: [
+                      for (var i = 0; i < _kCfgFinanceSecoes.length; i++)
+                        Padding(
+                          padding: EdgeInsets.only(
+                            right: i == _kCfgFinanceSecoes.length - 1 ? 0 : 10,
+                          ),
+                          child: _pillSecao(i),
+                        ),
+                    ],
+                  ),
+                ),
+                const SizedBox(height: 16),
+                Expanded(
+                  child: Container(
+                    decoration: PainelAdminTheme.dashboardCard(),
+                    clipBehavior: Clip.antiAlias,
+                    child: Column(
+                      crossAxisAlignment: CrossAxisAlignment.stretch,
+                      children: [
+                        _toolbarSecao(
+                          theme,
+                          meta,
+                          empilharAcao: true,
+                        ),
+                        Expanded(
+                          child: _painelConteudoTab(tabView),
+                        ),
+                      ],
+                    ),
+                  ),
+                ),
+              ],
+            ),
+          );
+        },
       ),
     );
   }
@@ -1691,7 +2348,7 @@ class _GatewayConfigCardState extends State<_GatewayConfigCard> {
       shape: RoundedRectangleBorder(
         borderRadius: BorderRadius.circular(16),
         side: BorderSide(
-          color: isAtivo ? widget.laranja : Colors.grey.shade200,
+          color: isAtivo ? widget.laranja : PainelAdminTheme.dashboardBorder,
           width: isAtivo ? 2 : 1,
         ),
       ),

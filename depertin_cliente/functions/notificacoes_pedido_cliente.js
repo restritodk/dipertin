@@ -82,6 +82,11 @@ exports.notificarClienteStatusPedido = functions.firestore
         const sd = depois.status || "";
 
         try {
+            if (sa === "aguardando_pagamento" && sd === "encomenda_entrada_paga") {
+                // Entrada de encomenda — sem push ao cliente (avisos via alerta_encomenda_cliente).
+                return null;
+            }
+
             if (sa === "aguardando_pagamento" && sd === "pendente") {
                 await dispatcher.enviarStatusPedidoParaCliente(
                     db,

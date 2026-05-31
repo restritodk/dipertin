@@ -75,6 +75,14 @@
       ]
     },
     {
+      "collectionGroup": "pedidos",
+      "queryScope": "COLLECTION",
+      "fields": [
+        { "fieldPath": "status", "order": "ASCENDING" },
+        { "fieldPath": "updated_at", "order": "DESCENDING" }
+      ]
+    },
+    {
       "collectionGroup": "users",
       "queryScope": "COLLECTION",
       "fields": [
@@ -180,6 +188,22 @@
       "fields": [
         { "fieldPath": "ticket_id", "order": "ASCENDING" },
         { "fieldPath": "user_id", "order": "ASCENDING" }
+      ]
+    },
+    {
+      "collectionGroup": "encomendas",
+      "queryScope": "COLLECTION",
+      "fields": [
+        { "fieldPath": "cliente_id", "order": "ASCENDING" },
+        { "fieldPath": "atualizado_em", "order": "DESCENDING" }
+      ]
+    },
+    {
+      "collectionGroup": "encomendas",
+      "queryScope": "COLLECTION",
+      "fields": [
+        { "fieldPath": "loja_id", "order": "ASCENDING" },
+        { "fieldPath": "atualizado_em", "order": "DESCENDING" }
       ]
     }
   ],

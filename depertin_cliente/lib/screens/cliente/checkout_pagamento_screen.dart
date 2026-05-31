@@ -11,9 +11,55 @@ import 'package:flutter/services.dart';
 import 'package:flutter_multi_formatter/flutter_multi_formatter.dart';
 import 'package:cloud_firestore/cloud_firestore.dart';
 import 'package:firebase_auth/firebase_auth.dart';
+import 'package:intl/intl.dart';
 
 const Color diPertinRoxo = Color(0xFF6A1B9A);
 const Color diPertinLaranja = Color(0xFFFF8F00);
+
+bool _statusPedidoPago(String status) {
+  final st = status.trim();
+  return st == 'pendente' || st == 'encomenda_entrada_paga';
+}
+
+/// Traduz códigos crus da callable (ex.: UNAVAILABLE) para texto claro ao usuário no checkout com cartão.
+String mensagemAmigavelErroPagamentoCartao(FirebaseFunctionsException e) {
+  final code = e.code.toLowerCase().trim();
+  final raw = (e.message ?? '').trim();
+  final rawUp = raw.toUpperCase();
+
+  if (rawUp == 'UNAVAILABLE' || rawUp.contains('UNAVAILABLE')) {
+    return 'Não foi possível conectar ao serviço de pagamento. Verifique sua internet e tente novamente em instantes.';
+  }
+
+  switch (code) {
+    case 'unavailable':
+      return 'Não foi possível conectar ao serviço de pagamento. Verifique sua internet e tente novamente em instantes.';
+    case 'deadline-exceeded':
+      return 'O pagamento demorou além do esperado e não foi concluído. Confira em Meus pedidos ou tente novamente.';
+    case 'resource-exhausted':
+      return 'O serviço de pagamento está temporariamente sobrecarregado. Aguarde um momento e tente de novo.';
+    case 'unauthenticated':
+      return 'Sua sessão não foi aceita pelo servidor. Faça login novamente e tente outra vez.';
+    case 'permission-denied':
+      return 'Acesso negado ao pagamento. Faça login novamente ou atualize o aplicativo.';
+    case 'failed-precondition':
+    case 'invalid-argument':
+      if (raw.isNotEmpty && raw.length <= 500) {
+        return raw;
+      }
+      return 'Não foi possível concluir o pagamento com cartão. Verifique os dados ou tente outro cartão.';
+    case 'internal':
+      return 'Erro interno no serviço de pagamento. Tente novamente em alguns minutos ou use o PIX.';
+    default:
+      if (raw.isNotEmpty &&
+          rawUp != 'INTERNAL' &&
+          !rawUp.contains('UNAVAILABLE') &&
+          raw.length <= 500) {
+        return raw;
+      }
+      return 'Não foi possível processar o pagamento com cartão. Tente novamente ou use outro meio de pagamento.';
+  }
+}
 
 class CheckoutPagamentoScreen extends StatefulWidget {
   final double valorTotal;
@@ -70,14 +116,25 @@ class _CheckoutPagamentoScreenState extends State<CheckoutPagamentoScreen> {
   String? _bandeiraCartao;
   String _tipoCartaoSelecionado = 'Crédito';
 
+  Timer? _debounceParcelas;
+  bool _consultandoParcelasNoMp = false;
+  String? _erroOpcoesParcelas;
+  List<_OpcaoParcelaCheckout> _opcoesParcelasMp = [];
+  int? _parcelasEscolhidas;
+
   @override
   void initState() {
     super.initState();
     _metodoAtual = widget.metodoPreSelecionado == 'Cartão' ? 'Cartão' : 'PIX';
+    WidgetsBinding.instance.addPostFrameCallback((_) {
+      if (!mounted || _pixGerado || _metodoAtual != 'Cartão') return;
+      _agendarAtualizacaoParcelasMercadoPago();
+    });
   }
 
   @override
   void dispose() {
+    _debounceParcelas?.cancel();
     _pollTimer?.cancel();
     _pedidoSub?.cancel();
     _numCartaoC.dispose();
@@ -86,6 +143,357 @@ class _CheckoutPagamentoScreenState extends State<CheckoutPagamentoScreen> {
     _cvvC.dispose();
     _cpfTitularC.dispose();
     super.dispose();
+  }
+
+  String _formatarMoedaBrlCheckout(double valor) =>
+      NumberFormat.currency(locale: 'pt_BR', symbol: r'R$').format(valor);
+
+  String _mensagemErroParcelasAmigavel(FirebaseFunctionsException e) {
+    final codigo = e.code.toLowerCase().trim();
+    final msgRaw = (e.message ?? '').toLowerCase();
+    if (codigo == 'unauthenticated' || msgRaw.contains('unauthenticated')) {
+      return 'Para carregar parcelas é preciso validar o app com o App Check '
+          'do Firebase. Em modo debug, registre o token de debug '
+          '(Logcat/console) em Firebase Console → App Check para este app.';
+    }
+    if (codigo == 'permission-denied') {
+      return 'Pedido não pertence ao seu usuário ou não está disponível.';
+    }
+    if (codigo == 'deadline-exceeded' || codigo == 'unavailable') {
+      return 'Serviço temporariamente indisponível. Verifique sua conexão '
+          'e toque em Atualizar parcelas.';
+    }
+    final m = e.message?.trim();
+    return (m != null && m.isNotEmpty)
+        ? m
+        : 'Não foi possível carregar as parcelas.';
+  }
+
+  /// Decoração unificada dos campos da tela (visual mais sóbrio/profissional).
+  InputDecoration _decorCheckoutCampo(
+    String label, {
+    String? hintText,
+    Widget? prefixIcon,
+  }) {
+    return InputDecoration(
+      labelText: label,
+      hintText: hintText,
+      prefixIcon: prefixIcon,
+      filled: true,
+      fillColor: Colors.white,
+      contentPadding: const EdgeInsets.symmetric(horizontal: 16, vertical: 14),
+      labelStyle: TextStyle(
+        color: Colors.grey.shade700,
+        fontWeight: FontWeight.w500,
+      ),
+      border: OutlineInputBorder(borderRadius: BorderRadius.circular(14)),
+      enabledBorder: OutlineInputBorder(
+        borderRadius: BorderRadius.circular(14),
+        borderSide: BorderSide(color: Colors.grey.shade300),
+      ),
+      focusedBorder: OutlineInputBorder(
+        borderRadius: BorderRadius.circular(14),
+        borderSide: const BorderSide(color: diPertinRoxo, width: 2),
+      ),
+    );
+  }
+
+  _OpcaoParcelaCheckout? _opcaoParcelaAtualOuNull() {
+    final n = _parcelasParaCheckoutCartao();
+    if (n == null || _opcoesParcelasMp.isEmpty) return null;
+    for (final o in _opcoesParcelasMp) {
+      if (o.parcelas == n) return o;
+    }
+    return _opcoesParcelasMp.first;
+  }
+
+  String _resumoLinhaParcelaAtual() {
+    final o = _opcaoParcelaAtualOuNull();
+    if (o == null) return '--';
+    final t = o.textoLinha.trim();
+    return t.isEmpty ? '--' : t;
+  }
+
+  Future<void> _abrirSeletorParcelasMercadoPago() async {
+    if (_opcoesParcelasMp.isEmpty) return;
+    final escolhaInicial =
+        _parcelasEscolhidas ?? _opcoesParcelasMp.first.parcelas;
+
+    await showModalBottomSheet<void>(
+      context: context,
+      isScrollControlled: true,
+      backgroundColor: Colors.transparent,
+      builder: (sheetContext) {
+        final altura = MediaQuery.sizeOf(context).height * 0.58;
+        return SafeArea(
+          child: Padding(
+            padding: const EdgeInsets.fromLTRB(12, 0, 12, 12),
+            child: SizedBox(
+              height: altura,
+              child: DecoratedBox(
+                decoration: const BoxDecoration(
+                  color: Colors.white,
+                  borderRadius: BorderRadius.vertical(top: Radius.circular(22)),
+                  boxShadow: [
+                    BoxShadow(
+                      blurRadius: 24,
+                      offset: Offset(0, -4),
+                      color: Color(0x22000000),
+                    ),
+                  ],
+                ),
+                child: Column(
+                  children: [
+                    Padding(
+                      padding: const EdgeInsets.only(top: 12, bottom: 8),
+                      child: Container(
+                        width: 44,
+                        height: 5,
+                        decoration: BoxDecoration(
+                          color: Colors.grey.shade300,
+                          borderRadius: BorderRadius.circular(999),
+                        ),
+                      ),
+                    ),
+                    Padding(
+                      padding: const EdgeInsets.fromLTRB(20, 4, 20, 4),
+                      child: Row(
+                        children: [
+                          Icon(
+                            Icons.calendar_month_rounded,
+                            color: diPertinRoxo,
+                            size: 26,
+                          ),
+                          const SizedBox(width: 10),
+                          const Expanded(
+                            child: Text(
+                              'Escolha o parcelamento',
+                              style: TextStyle(
+                                fontSize: 17,
+                                fontWeight: FontWeight.w800,
+                                color: Color(0xFF1A1A2E),
+                                letterSpacing: -0.3,
+                              ),
+                            ),
+                          ),
+                        ],
+                      ),
+                    ),
+                    Padding(
+                      padding: const EdgeInsets.fromLTRB(20, 0, 20, 8),
+                      child: Align(
+                        alignment: Alignment.centerLeft,
+                        child: Text(
+                          'Os valores são informados pelo Mercado Pago para o seu cartão.',
+                          style: TextStyle(
+                            fontSize: 12.5,
+                            height: 1.35,
+                            color: Colors.grey.shade600,
+                          ),
+                        ),
+                      ),
+                    ),
+                    Expanded(
+                      child: ListView.builder(
+                        padding: const EdgeInsets.only(bottom: 12),
+                        itemCount: _opcoesParcelasMp.length,
+                        itemBuilder: (_, index) {
+                          final o = _opcoesParcelasMp[index];
+                          final selec = escolhaInicial == o.parcelas;
+                          return ListTile(
+                            contentPadding: const EdgeInsets.symmetric(
+                              horizontal: 20,
+                            ),
+                            tileColor: selec
+                                ? diPertinRoxo.withValues(alpha: 0.06)
+                                : null,
+                            shape: RoundedRectangleBorder(
+                              borderRadius: BorderRadius.circular(12),
+                            ),
+                            leading: Icon(
+                              selec
+                                  ? Icons.check_circle_rounded
+                                  : Icons.radio_button_off_rounded,
+                              color: selec
+                                  ? diPertinRoxo
+                                  : Colors.grey.shade400,
+                            ),
+                            title: Text(
+                              o.textoLinha,
+                              style: TextStyle(
+                                fontSize: 14,
+                                height: 1.3,
+                                fontWeight: selec
+                                    ? FontWeight.w700
+                                    : FontWeight.w500,
+                              ),
+                            ),
+                            onTap: () {
+                              Navigator.of(sheetContext).pop();
+                              setState(() => _parcelasEscolhidas = o.parcelas);
+                            },
+                          );
+                        },
+                      ),
+                    ),
+                  ],
+                ),
+              ),
+            ),
+          ),
+        );
+      },
+    );
+  }
+
+  void _agendarAtualizacaoParcelasMercadoPago() {
+    _debounceParcelas?.cancel();
+    _debounceParcelas = Timer(const Duration(milliseconds: 450), () {
+      if (!mounted) return;
+      unawaited(_atualizarParcelasMercadoPagoCheckout());
+    });
+  }
+
+  /// Crédito: consulta o backend (Mercado Pago). Débito: só à vista no estado local.
+  Future<void> _atualizarParcelasMercadoPagoCheckout() async {
+    if (_metodoAtual != 'Cartão') return;
+
+    final pedidoId = widget.pedidoFirestoreId?.trim();
+    final digitos = _somenteDigitos(_numCartaoC.text);
+    final pmid = digitos.length >= 6
+        ? _resolverPaymentMethodIdCartao(digitos)
+        : null;
+
+    if (pedidoId == null || pedidoId.isEmpty) {
+      return;
+    }
+
+    if (digitos.length < 6) {
+      setState(() {
+        _opcoesParcelasMp = [];
+        _parcelasEscolhidas = null;
+        _erroOpcoesParcelas = null;
+        _consultandoParcelasNoMp = false;
+      });
+      return;
+    }
+
+    if (_tipoCartaoSelecionado == 'Débito') {
+      final v = widget.valorTotal;
+      setState(() {
+        _consultandoParcelasNoMp = false;
+        _erroOpcoesParcelas = null;
+        _opcoesParcelasMp = [
+          _OpcaoParcelaCheckout(
+            parcelas: 1,
+            valorParcela: v,
+            valorTotalCobrado: v,
+            textoLinha:
+                '1x de ${_formatarMoedaBrlCheckout(v)} (débito à vista)',
+          ),
+        ];
+        _parcelasEscolhidas = 1;
+      });
+      return;
+    }
+
+    setState(() {
+      _consultandoParcelasNoMp = true;
+      _erroOpcoesParcelas = null;
+    });
+
+    try {
+      final callable = appFirebaseFunctions.httpsCallable(
+        'mpConsultarParcelamentosCartao',
+        options: HttpsCallableOptions(timeout: const Duration(seconds: 45)),
+      );
+      final payload = <String, dynamic>{
+        'pedidoId': pedidoId,
+        'bin': digitos.length > 16 ? digitos.substring(0, 16) : digitos,
+        'tipoCartao': 'credito',
+      };
+      if (pmid != null) {
+        payload['paymentMethodId'] = pmid;
+      }
+      final resposta = await callable.call<Map<String, dynamic>>(payload);
+
+      final data = Map<String, dynamic>.from(resposta.data);
+      final rawLista = data['opcoes'];
+      final lista = <_OpcaoParcelaCheckout>[];
+      if (rawLista is List) {
+        for (final item in rawLista) {
+          if (item is! Map) continue;
+          final m = Map<String, dynamic>.from(item);
+          lista.add(_OpcaoParcelaCheckout.doMapMercadoPago(m));
+        }
+      }
+      if (!mounted) return;
+
+      List<_OpcaoParcelaCheckout> opcoesFinais = lista;
+      if (opcoesFinais.isEmpty) {
+        final v = widget.valorTotal;
+        opcoesFinais = [
+          _OpcaoParcelaCheckout(
+            parcelas: 1,
+            valorParcela: v,
+            valorTotalCobrado: v,
+            textoLinha:
+                '1x de ${_formatarMoedaBrlCheckout(v)} (crédito à vista)',
+          ),
+        ];
+      }
+
+      opcoesFinais.sort((a, b) => a.parcelas.compareTo(b.parcelas));
+
+      setState(() {
+        _consultandoParcelasNoMp = false;
+        _opcoesParcelasMp = opcoesFinais;
+        final idsValidos = opcoesFinais.map((o) => o.parcelas).toSet();
+        if (_parcelasEscolhidas != null &&
+            idsValidos.contains(_parcelasEscolhidas)) {
+          // mantém escolha
+        } else {
+          _parcelasEscolhidas = opcoesFinais.first.parcelas;
+        }
+      });
+    } on FirebaseFunctionsException catch (e) {
+      if (!mounted) return;
+      final msg = _mensagemErroParcelasAmigavel(e);
+      setState(() {
+        _consultandoParcelasNoMp = false;
+        _erroOpcoesParcelas = msg;
+        _opcoesParcelasMp = [];
+        _parcelasEscolhidas = null;
+      });
+    } catch (e) {
+      if (!mounted) return;
+      setState(() {
+        _consultandoParcelasNoMp = false;
+        _erroOpcoesParcelas = 'Falha ao consultar parcelas: $e';
+        _opcoesParcelasMp = [];
+        _parcelasEscolhidas = null;
+      });
+    }
+  }
+
+  int? _parcelasParaCheckoutCartao() {
+    if (_tipoCartaoSelecionado == 'Débito') return 1;
+    if (_opcoesParcelasMp.isEmpty) return null;
+    final validos = _opcoesParcelasMp.map((o) => o.parcelas).toSet();
+    if (_parcelasEscolhidas != null && validos.contains(_parcelasEscolhidas)) {
+      return _parcelasEscolhidas!;
+    }
+    return _opcoesParcelasMp.first.parcelas;
+  }
+
+  bool _habilitarBotaoPagarInferiorCheckout() {
+    if (_pixGerado || _metodoAtual != 'Cartão') return true;
+    if (_tipoCartaoSelecionado == 'Crédito') {
+      return !_consultandoParcelasNoMp &&
+          _erroOpcoesParcelas == null &&
+          _parcelasParaCheckoutCartao() != null;
+    }
+    return !_consultandoParcelasNoMp;
   }
 
   bool get _temPedidoFirestore =>
@@ -196,7 +604,8 @@ class _CheckoutPagamentoScreenState extends State<CheckoutPagamentoScreen> {
         .collection('pedidos')
         .doc(pid)
         .get();
-    if (snap.exists && snap.data()?['status'] == 'pendente') {
+    final status = (snap.data()?['status'] ?? '').toString();
+    if (snap.exists && _statusPedidoPago(status)) {
       _finalizarPixComSucesso();
     }
   }
@@ -226,7 +635,7 @@ class _CheckoutPagamentoScreenState extends State<CheckoutPagamentoScreen> {
               return;
             }
           }
-          if (d['status'] == 'pendente') {
+          if (_statusPedidoPago((d['status'] ?? '').toString())) {
             _finalizarPixComSucesso();
           }
         });
@@ -275,8 +684,8 @@ class _CheckoutPagamentoScreenState extends State<CheckoutPagamentoScreen> {
       barrierDismissible: false,
       barrierColor: Colors.black54,
       transitionDuration: const Duration(milliseconds: 400),
-      pageBuilder: (_, __, ___) => const SizedBox.shrink(),
-      transitionBuilder: (ctx, anim, _, __) {
+      pageBuilder: (_, _, _) => const SizedBox.shrink(),
+      transitionBuilder: (ctx, anim, _, _) {
         final curved = CurvedAnimation(parent: anim, curve: Curves.easeOutBack);
         return ScaleTransition(
           scale: curved,
@@ -286,10 +695,10 @@ class _CheckoutPagamentoScreenState extends State<CheckoutPagamentoScreen> {
               valorTotal: widget.valorTotal,
               onContinuar: () async {
                 Navigator.of(ctx).pop();
-                
+
                 // ===== CONFIRMA RESERVA DE SALDO =====
                 await _confirmarReservaDeSaldo();
-                
+
                 widget.onPagamentoAprovado();
               },
             ),
@@ -328,11 +737,13 @@ class _CheckoutPagamentoScreenState extends State<CheckoutPagamentoScreen> {
       );
 
       if (mounted) {
-        print('[CheckoutPagamento] Débito de saldo confirmado: $reservaId');
+        debugPrint(
+          '[CheckoutPagamento] Débito de saldo confirmado: $reservaId',
+        );
       }
     } catch (e) {
       if (mounted) {
-        print('[CheckoutPagamento] Erro ao confirmar débito: $e');
+        debugPrint('[CheckoutPagamento] Erro ao confirmar débito: $e');
         // Não interrompe o fluxo, apenas loga
       }
     }
@@ -370,11 +781,13 @@ class _CheckoutPagamentoScreenState extends State<CheckoutPagamentoScreen> {
       );
 
       if (mounted) {
-        print('[CheckoutPagamento] Reserva de saldo cancelada: $reservaId');
+        debugPrint(
+          '[CheckoutPagamento] Reserva de saldo cancelada: $reservaId',
+        );
       }
     } catch (e) {
       if (mounted) {
-        print('[CheckoutPagamento] Erro ao cancelar reserva: $e');
+        debugPrint('[CheckoutPagamento] Erro ao cancelar reserva: $e');
         // Não interrompe o fluxo, apenas loga
       }
     }
@@ -397,6 +810,7 @@ class _CheckoutPagamentoScreenState extends State<CheckoutPagamentoScreen> {
       final resto = (soma * 10) % 11;
       return resto == 10 ? 0 : resto;
     }
+
     return calcDigito(9) == int.parse(digitos[9]) &&
         calcDigito(10) == int.parse(digitos[10]);
   }
@@ -445,7 +859,7 @@ class _CheckoutPagamentoScreenState extends State<CheckoutPagamentoScreen> {
         .listen((snap) {
           if (!snap.exists || completer.isCompleted) return;
           final status = (snap.data()?['status'] ?? '').toString();
-          if (status == 'pendente') {
+          if (_statusPedidoPago(status)) {
             completer.complete('aprovado');
           } else if (status == 'cancelado') {
             completer.complete('cancelado');
@@ -462,7 +876,13 @@ class _CheckoutPagamentoScreenState extends State<CheckoutPagamentoScreen> {
     return resultado;
   }
 
-  Future<void> _cancelarPedidoCartaoNaoConcluido(String pedidoId) async {
+  Future<void> _cancelarPedidoCartaoNaoConcluido(
+    String pedidoId, {
+    required String mensagemParaUsuario,
+  }) async {
+    final msg = mensagemParaUsuario.trim();
+    if (msg.isEmpty) return;
+    final msgGravar = msg.length > 600 ? msg.substring(0, 600) : msg;
     try {
       final ref = FirebaseFirestore.instance
           .collection('pedidos')
@@ -490,6 +910,7 @@ class _CheckoutPagamentoScreenState extends State<CheckoutPagamentoScreen> {
             'status': 'cancelado',
             'cancelado_motivo': 'cartao_nao_concluido',
             'cancelado_em': FieldValue.serverTimestamp(),
+            'pagamento_recusado_mensagem': msgGravar,
           });
         }
       }
@@ -611,7 +1032,9 @@ class _CheckoutPagamentoScreenState extends State<CheckoutPagamentoScreen> {
     if (!_cpfValido(cpf)) {
       ScaffoldMessenger.of(context).showSnackBar(
         const SnackBar(
-          content: Text('CPF do titular inválido. Verifique os números digitados.'),
+          content: Text(
+            'CPF do titular inválido. Verifique os números digitados.',
+          ),
           backgroundColor: Colors.red,
         ),
       );
@@ -620,7 +1043,9 @@ class _CheckoutPagamentoScreenState extends State<CheckoutPagamentoScreen> {
     if (validade == null) {
       ScaffoldMessenger.of(context).showSnackBar(
         const SnackBar(
-          content: Text('Validade do cartão inválida ou expirada. Use o formato MM/AA.'),
+          content: Text(
+            'Validade do cartão inválida ou expirada. Use o formato MM/AA.',
+          ),
           backgroundColor: Colors.red,
         ),
       );
@@ -630,6 +1055,19 @@ class _CheckoutPagamentoScreenState extends State<CheckoutPagamentoScreen> {
       ScaffoldMessenger.of(context).showSnackBar(
         const SnackBar(
           content: Text('Não foi possível identificar a bandeira do cartão.'),
+          backgroundColor: Colors.red,
+        ),
+      );
+      return;
+    }
+
+    final parcelasEnvioCheckout = _parcelasParaCheckoutCartao();
+    if (_tipoCartaoSelecionado == 'Crédito' && parcelasEnvioCheckout == null) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(
+          content: Text(
+            'Escolha o parcelamento ou aguarde o carregamento das opções.',
+          ),
           backgroundColor: Colors.red,
         ),
       );
@@ -658,7 +1096,7 @@ class _CheckoutPagamentoScreenState extends State<CheckoutPagamentoScreen> {
         'cpf': cpf,
         'paymentMethodId': paymentMethodId,
         'tipoCartao': _tipoCartaoSelecionado == 'Débito' ? 'debito' : 'credito',
-        'parcelas': 1,
+        'parcelas': parcelasEnvioCheckout ?? 1,
         'email': FirebaseAuth.instance.currentUser?.email,
       });
 
@@ -687,7 +1125,8 @@ class _CheckoutPagamentoScreenState extends State<CheckoutPagamentoScreen> {
         // NÃO cancela o pedido — o webhook do MP atualizará quando decidir.
         // Se o MP decidir rejeitar, o pedido é cancelado automaticamente lá.
         final statusPedido = statusMp.isNotEmpty ? statusMp : 'in_process';
-        final emAnalise = statusPedido == 'in_process' || statusPedido == 'pending';
+        final emAnalise =
+            statusPedido == 'in_process' || statusPedido == 'pending';
         if (emAnalise) {
           await _mostrarPopupPagamentoEmAnalise();
         } else {
@@ -698,19 +1137,26 @@ class _CheckoutPagamentoScreenState extends State<CheckoutPagamentoScreen> {
       }
     } on FirebaseFunctionsException catch (e) {
       if (mounted) Navigator.of(context, rootNavigator: true).pop();
-      await _cancelarReservaDeSaldo(motivo: 'Erro ao processar pagamento: ${e.code}');
-      await _cancelarPedidoCartaoNaoConcluido(pedidoId);
-      final msg = (e.message ?? '').trim().isNotEmpty
-          ? e.message!.trim()
-          : await _mensagemRecusaDoPedido(pedidoId);
-      await _mostrarPopupPagamentoRecusado(msg);
+      final msgErro = mensagemAmigavelErroPagamentoCartao(e);
+      await _cancelarReservaDeSaldo(
+        motivo: 'Erro ao processar pagamento: ${e.code}',
+      );
+      await _cancelarPedidoCartaoNaoConcluido(
+        pedidoId,
+        mensagemParaUsuario: msgErro,
+      );
+      await _mostrarPopupPagamentoRecusado(msgErro);
       _irParaMeusPedidosTodos();
     } catch (e) {
       if (mounted) Navigator.of(context, rootNavigator: true).pop();
+      const msgErro =
+          'Ocorreu um erro inesperado ao processar o cartão. Tente novamente ou escolha PIX.';
       await _cancelarReservaDeSaldo(motivo: 'Exceção ao processar: $e');
-      await _cancelarPedidoCartaoNaoConcluido(pedidoId);
-      final msg = await _mensagemRecusaDoPedido(pedidoId);
-      await _mostrarPopupPagamentoRecusado(msg);
+      await _cancelarPedidoCartaoNaoConcluido(
+        pedidoId,
+        mensagemParaUsuario: msgErro,
+      );
+      await _mostrarPopupPagamentoRecusado(msgErro);
       _irParaMeusPedidosTodos();
     } finally {
       if (mounted) setState(() => _isProcessando = false);
@@ -833,140 +1279,218 @@ class _CheckoutPagamentoScreenState extends State<CheckoutPagamentoScreen> {
 
   @override
   Widget build(BuildContext context) {
+    const checkoutFundo = Color(0xFFF4F2F9);
     return Scaffold(
-      backgroundColor: Colors.grey[100],
+      backgroundColor: checkoutFundo,
       appBar: AppBar(
+        elevation: 0,
         title: const Text(
-          "Pagamento Seguro",
-          style: TextStyle(color: Colors.white, fontWeight: FontWeight.bold),
+          'Pagamento seguro',
+          style: TextStyle(
+            color: Colors.white,
+            fontWeight: FontWeight.w700,
+            letterSpacing: 0.2,
+          ),
         ),
         backgroundColor: diPertinRoxo,
         iconTheme: const IconThemeData(color: Colors.white),
       ),
       body: Column(
         children: [
-          // CABEÇALHO DO VALOR
           Container(
             width: double.infinity,
-            padding: const EdgeInsets.all(25),
-            decoration: const BoxDecoration(
-              color: Colors.white,
-              border: Border(bottom: BorderSide(color: Colors.black12)),
+            decoration: BoxDecoration(
+              gradient: LinearGradient(
+                begin: Alignment.topCenter,
+                end: Alignment.bottomCenter,
+                colors: [
+                  diPertinRoxo,
+                  diPertinRoxo.withValues(alpha: 0.94),
+                  checkoutFundo,
+                ],
+                stops: const [0, 0.42, 1],
+              ),
             ),
-            child: Column(
-              children: [
-                const Text(
-                  "Total a pagar",
-                  style: TextStyle(color: Colors.grey, fontSize: 16),
-                ),
-                const SizedBox(height: 5),
-                Text(
-                  "R\$ ${widget.valorTotal.toStringAsFixed(2)}",
-                  style: const TextStyle(
-                    fontSize: 32,
-                    fontWeight: FontWeight.bold,
-                    color: diPertinLaranja,
-                  ),
-                ),
-              ],
-            ),
-          ),
-
-          // SELETOR SÓ APARECE SE O PIX AINDA NÃO FOI GERADO
-          if (!_pixGerado)
-            Padding(
-              padding: const EdgeInsets.all(20),
-              child: Row(
+            child: Padding(
+              padding: EdgeInsets.fromLTRB(18, 8, 18, _pixGerado ? 14 : 6),
+              child: Column(
                 children: [
-                  Expanded(
-                    child: GestureDetector(
-                      onTap: () => setState(() => _metodoAtual = 'PIX'),
-                      child: Container(
-                        padding: const EdgeInsets.symmetric(vertical: 15),
-                        decoration: BoxDecoration(
-                          color: _metodoAtual == 'PIX'
-                              ? Colors.green
-                              : Colors.white,
-                          borderRadius: BorderRadius.circular(10),
-                          border: Border.all(
-                            color: _metodoAtual == 'PIX'
-                                ? Colors.green
-                                : Colors.grey.shade300,
-                          ),
+                  Container(
+                    width: double.infinity,
+                    padding: const EdgeInsets.symmetric(
+                      horizontal: 20,
+                      vertical: 22,
+                    ),
+                    decoration: BoxDecoration(
+                      color: Colors.white,
+                      borderRadius: BorderRadius.circular(18),
+                      boxShadow: [
+                        BoxShadow(
+                          blurRadius: 28,
+                          offset: const Offset(0, 14),
+                          color: Colors.black.withValues(alpha: 0.08),
                         ),
-                        child: Column(
-                          children: [
-                            Icon(
-                              Icons.qr_code,
-                              color: _metodoAtual == 'PIX'
-                                  ? Colors.white
-                                  : Colors.grey,
-                              size: 28,
-                            ),
-                            const SizedBox(height: 5),
-                            Text(
-                              "PIX",
-                              style: TextStyle(
-                                color: _metodoAtual == 'PIX'
-                                    ? Colors.white
-                                    : Colors.grey,
-                                fontWeight: FontWeight.bold,
-                              ),
-                            ),
-                          ],
-                        ),
+                      ],
+                      border: Border.all(
+                        color: diPertinRoxo.withValues(alpha: 0.08),
                       ),
                     ),
-                  ),
-                  const SizedBox(width: 15),
-                  Expanded(
-                    child: GestureDetector(
-                      onTap: () => setState(() => _metodoAtual = 'Cartão'),
-                      child: Container(
-                        padding: const EdgeInsets.symmetric(vertical: 15),
-                        decoration: BoxDecoration(
-                          color: _metodoAtual == 'Cartão'
-                              ? diPertinRoxo
-                              : Colors.white,
-                          borderRadius: BorderRadius.circular(10),
-                          border: Border.all(
-                            color: _metodoAtual == 'Cartão'
-                                ? diPertinRoxo
-                                : Colors.grey.shade300,
+                    child: Column(
+                      children: [
+                        Text(
+                          'Total a pagar',
+                          style: TextStyle(
+                            color: Colors.grey.shade600,
+                            fontSize: 14,
+                            fontWeight: FontWeight.w600,
                           ),
                         ),
-                        child: Column(
-                          children: [
-                            Icon(
-                              Icons.credit_card,
-                              color: _metodoAtual == 'Cartão'
-                                  ? Colors.white
-                                  : Colors.grey,
-                              size: 28,
-                            ),
-                            const SizedBox(height: 5),
-                            Text(
-                              "Cartão",
-                              style: TextStyle(
-                                color: _metodoAtual == 'Cartão'
-                                    ? Colors.white
-                                    : Colors.grey,
-                                fontWeight: FontWeight.bold,
-                              ),
-                            ),
-                          ],
+                        const SizedBox(height: 6),
+                        Text(
+                          _formatarMoedaBrlCheckout(widget.valorTotal),
+                          style: const TextStyle(
+                            fontSize: 30,
+                            fontWeight: FontWeight.w800,
+                            color: diPertinLaranja,
+                            letterSpacing: -0.6,
+                          ),
                         ),
-                      ),
+                      ],
                     ),
                   ),
+                  if (!_pixGerado) ...[
+                    const SizedBox(height: 14),
+                    Row(
+                      children: [
+                        Expanded(
+                          child: Material(
+                            color: Colors.transparent,
+                            child: InkWell(
+                              borderRadius: BorderRadius.circular(16),
+                              onTap: () => setState(() => _metodoAtual = 'PIX'),
+                              child: Ink(
+                                padding: const EdgeInsets.symmetric(
+                                  vertical: 16,
+                                  horizontal: 8,
+                                ),
+                                decoration: BoxDecoration(
+                                  color: _metodoAtual == 'PIX'
+                                      ? Colors.green.shade600
+                                      : Colors.white,
+                                  borderRadius: BorderRadius.circular(16),
+                                  boxShadow: [
+                                    if (_metodoAtual == 'PIX')
+                                      BoxShadow(
+                                        blurRadius: 16,
+                                        color: Colors.green.withValues(
+                                          alpha: 0.35,
+                                        ),
+                                        offset: const Offset(0, 8),
+                                      ),
+                                  ],
+                                  border: Border.all(
+                                    color: _metodoAtual == 'PIX'
+                                        ? Colors.transparent
+                                        : Colors.grey.shade300,
+                                  ),
+                                ),
+                                child: Column(
+                                  children: [
+                                    Icon(
+                                      Icons.qr_code_2_rounded,
+                                      color: _metodoAtual == 'PIX'
+                                          ? Colors.white
+                                          : Colors.grey.shade600,
+                                      size: 28,
+                                    ),
+                                    const SizedBox(height: 6),
+                                    Text(
+                                      'PIX',
+                                      style: TextStyle(
+                                        color: _metodoAtual == 'PIX'
+                                            ? Colors.white
+                                            : Colors.grey.shade700,
+                                        fontWeight: FontWeight.w800,
+                                      ),
+                                    ),
+                                  ],
+                                ),
+                              ),
+                            ),
+                          ),
+                        ),
+                        const SizedBox(width: 12),
+                        Expanded(
+                          child: Material(
+                            color: Colors.transparent,
+                            child: InkWell(
+                              borderRadius: BorderRadius.circular(16),
+                              onTap: () {
+                                setState(() => _metodoAtual = 'Cartão');
+                                _agendarAtualizacaoParcelasMercadoPago();
+                              },
+                              child: Ink(
+                                padding: const EdgeInsets.symmetric(
+                                  vertical: 16,
+                                  horizontal: 8,
+                                ),
+                                decoration: BoxDecoration(
+                                  color: _metodoAtual == 'Cartão'
+                                      ? diPertinLaranja
+                                      : Colors.white,
+                                  borderRadius: BorderRadius.circular(16),
+                                  boxShadow: [
+                                    if (_metodoAtual == 'Cartão')
+                                      BoxShadow(
+                                        blurRadius: 16,
+                                        color: diPertinLaranja.withValues(
+                                          alpha: 0.35,
+                                        ),
+                                        offset: const Offset(0, 8),
+                                      ),
+                                  ],
+                                  border: Border.all(
+                                    color: _metodoAtual == 'Cartão'
+                                        ? Colors.transparent
+                                        : Colors.grey.shade300,
+                                  ),
+                                ),
+                                child: Column(
+                                  children: [
+                                    Icon(
+                                      Icons.credit_card_rounded,
+                                      color: _metodoAtual == 'Cartão'
+                                          ? Colors.white
+                                          : Colors.grey.shade600,
+                                      size: 28,
+                                    ),
+                                    const SizedBox(height: 6),
+                                    Text(
+                                      'Cartão',
+                                      style: TextStyle(
+                                        color: _metodoAtual == 'Cartão'
+                                            ? Colors.white
+                                            : Colors.grey.shade700,
+                                        fontWeight: FontWeight.w800,
+                                      ),
+                                    ),
+                                  ],
+                                ),
+                              ),
+                            ),
+                          ),
+                        ),
+                      ],
+                    ),
+                  ],
                 ],
               ),
             ),
+          ),
 
-          // ÁREA DINÂMICA
           Expanded(
             child: SingleChildScrollView(
-              padding: const EdgeInsets.symmetric(horizontal: 20, vertical: 10),
+              padding: const EdgeInsets.symmetric(horizontal: 18, vertical: 8),
               child: _pixGerado
                   ? _buildPixGeradoOficial()
                   : (_metodoAtual == 'PIX'
@@ -993,7 +1517,11 @@ class _CheckoutPagamentoScreenState extends State<CheckoutPagamentoScreen> {
               child: SizedBox(
                 height: 55,
                 child: ElevatedButton(
-                  onPressed: _isProcessando ? null : _processarPagamento,
+                  onPressed:
+                      (_isProcessando ||
+                          !_habilitarBotaoPagarInferiorCheckout())
+                      ? null
+                      : _processarPagamento,
                   style: ElevatedButton.styleFrom(
                     backgroundColor: _metodoAtual == 'PIX'
                         ? Colors.green
@@ -1297,12 +1825,13 @@ class _CheckoutPagamentoScreenState extends State<CheckoutPagamentoScreen> {
     return Column(
       crossAxisAlignment: CrossAxisAlignment.start,
       children: [
-        const Text(
-          "Dados do Cartão",
+        Text(
+          'Dados do cartão',
           style: TextStyle(
-            fontWeight: FontWeight.bold,
-            fontSize: 16,
-            color: Colors.black87,
+            fontWeight: FontWeight.w800,
+            fontSize: 17,
+            color: Colors.grey.shade900,
+            letterSpacing: -0.2,
           ),
         ),
         const SizedBox(height: 12),
@@ -1312,45 +1841,72 @@ class _CheckoutPagamentoScreenState extends State<CheckoutPagamentoScreen> {
           children: [
             ChoiceChip(
               label: const Text('Crédito'),
+              selectedColor: diPertinRoxo.withValues(alpha: 0.15),
+              labelStyle: TextStyle(
+                fontWeight: FontWeight.w700,
+                color: _tipoCartaoSelecionado == 'Crédito'
+                    ? diPertinRoxo
+                    : Colors.grey.shade700,
+              ),
+              shape: RoundedRectangleBorder(
+                borderRadius: BorderRadius.circular(12),
+                side: BorderSide(
+                  color: _tipoCartaoSelecionado == 'Crédito'
+                      ? diPertinRoxo
+                      : Colors.grey.shade300,
+                ),
+              ),
+              showCheckmark: true,
               selected: _tipoCartaoSelecionado == 'Crédito',
               onSelected: (_) {
                 setState(() => _tipoCartaoSelecionado = 'Crédito');
+                _agendarAtualizacaoParcelasMercadoPago();
               },
             ),
             ChoiceChip(
               label: const Text('Débito'),
+              selectedColor: diPertinRoxo.withValues(alpha: 0.15),
+              labelStyle: TextStyle(
+                fontWeight: FontWeight.w700,
+                color: _tipoCartaoSelecionado == 'Débito'
+                    ? diPertinRoxo
+                    : Colors.grey.shade700,
+              ),
+              shape: RoundedRectangleBorder(
+                borderRadius: BorderRadius.circular(12),
+                side: BorderSide(
+                  color: _tipoCartaoSelecionado == 'Débito'
+                      ? diPertinRoxo
+                      : Colors.grey.shade300,
+                ),
+              ),
+              showCheckmark: true,
               selected: _tipoCartaoSelecionado == 'Débito',
               onSelected: (_) {
                 setState(() => _tipoCartaoSelecionado = 'Débito');
+                _agendarAtualizacaoParcelasMercadoPago();
               },
             ),
           ],
         ),
         const SizedBox(height: 15),
 
-        // Campo Número do Cartão com Formatação Automática
         TextFormField(
           controller: _numCartaoC,
           keyboardType: TextInputType.number,
           inputFormatters: [CreditCardNumberInputFormatter()],
           onChanged: (valor) {
-            // Detecta a bandeira automaticamente enquanto o cliente digita!
             setState(() {
               _bandeiraCartao = getCardSystemData(valor)?.system;
             });
+            _agendarAtualizacaoParcelasMercadoPago();
           },
-          decoration: InputDecoration(
-            labelText: "Número do Cartão",
-            hintText: "0000 0000 0000 0000",
+          decoration: _decorCheckoutCampo(
+            'Número do cartão',
+            hintText: '0000 0000 0000 0000',
             prefixIcon: Padding(
               padding: const EdgeInsets.all(12.0),
               child: iconeBandeira,
-            ),
-            filled: true,
-            fillColor: Colors.white,
-            border: OutlineInputBorder(
-              borderRadius: BorderRadius.circular(10),
-              borderSide: BorderSide(color: Colors.grey.shade300),
             ),
           ),
         ),
@@ -1359,15 +1915,9 @@ class _CheckoutPagamentoScreenState extends State<CheckoutPagamentoScreen> {
         TextFormField(
           controller: _nomeTitularC,
           textCapitalization: TextCapitalization.characters,
-          decoration: InputDecoration(
-            labelText: "Nome impresso no Cartão",
+          decoration: _decorCheckoutCampo(
+            'Nome impresso no cartão',
             prefixIcon: const Icon(Icons.person_outline, color: diPertinRoxo),
-            filled: true,
-            fillColor: Colors.white,
-            border: OutlineInputBorder(
-              borderRadius: BorderRadius.circular(10),
-              borderSide: BorderSide(color: Colors.grey.shade300),
-            ),
           ),
         ),
         const SizedBox(height: 15),
@@ -1379,16 +1929,10 @@ class _CheckoutPagamentoScreenState extends State<CheckoutPagamentoScreen> {
             FilteringTextInputFormatter.digitsOnly,
             LengthLimitingTextInputFormatter(11),
           ],
-          decoration: InputDecoration(
-            labelText: "CPF do titular",
-            hintText: "Somente números",
+          decoration: _decorCheckoutCampo(
+            'CPF do titular',
+            hintText: 'Somente números',
             prefixIcon: const Icon(Icons.badge_outlined, color: diPertinRoxo),
-            filled: true,
-            fillColor: Colors.white,
-            border: OutlineInputBorder(
-              borderRadius: BorderRadius.circular(10),
-              borderSide: BorderSide(color: Colors.grey.shade300),
-            ),
           ),
         ),
         const SizedBox(height: 15),
@@ -1399,63 +1943,302 @@ class _CheckoutPagamentoScreenState extends State<CheckoutPagamentoScreen> {
               child: TextFormField(
                 controller: _validadeC,
                 keyboardType: TextInputType.number,
-                inputFormatters: [
-                  CreditCardExpirationDateFormatter(),
-                ], // Coloca a barra MM/AA
-                decoration: InputDecoration(
-                  labelText: "Validade",
-                  hintText: "MM/AA",
-                  filled: true,
-                  fillColor: Colors.white,
-                  border: OutlineInputBorder(
-                    borderRadius: BorderRadius.circular(10),
-                    borderSide: BorderSide(color: Colors.grey.shade300),
-                  ),
-                ),
+                inputFormatters: [CreditCardExpirationDateFormatter()],
+                decoration: _decorCheckoutCampo('Validade', hintText: 'MM/AA'),
               ),
             ),
-            const SizedBox(width: 15),
+            const SizedBox(width: 14),
             Expanded(
               child: TextFormField(
                 controller: _cvvC,
                 keyboardType: TextInputType.number,
                 obscureText: true,
-                inputFormatters: [
-                  CreditCardCvcInputFormatter(),
-                ], // Limita a 3 ou 4 dígitos
-                decoration: InputDecoration(
-                  labelText: "CVV",
-                  hintText: "123",
-                  filled: true,
-                  fillColor: Colors.white,
-                  border: OutlineInputBorder(
-                    borderRadius: BorderRadius.circular(10),
-                    borderSide: BorderSide(color: Colors.grey.shade300),
-                  ),
-                ),
+                inputFormatters: [CreditCardCvcInputFormatter()],
+                decoration: _decorCheckoutCampo('CVV', hintText: '•••'),
               ),
             ),
           ],
         ),
 
-        const SizedBox(height: 20),
+        if (_tipoCartaoSelecionado == 'Crédito')
+          Padding(
+            padding: const EdgeInsets.only(top: 22, bottom: 6),
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                if (_consultandoParcelasNoMp) ...[
+                  Container(
+                    width: double.infinity,
+                    padding: const EdgeInsets.symmetric(
+                      vertical: 16,
+                      horizontal: 16,
+                    ),
+                    decoration: BoxDecoration(
+                      color: Colors.white,
+                      borderRadius: BorderRadius.circular(16),
+                      border: Border.all(color: Colors.grey.shade300),
+                    ),
+                    child: Row(
+                      children: [
+                        const SizedBox(
+                          width: 24,
+                          height: 24,
+                          child: CircularProgressIndicator(strokeWidth: 2.2),
+                        ),
+                        const SizedBox(width: 14),
+                        Expanded(
+                          child: Text(
+                            'Consultando opções para o seu cartão…',
+                            style: TextStyle(
+                              fontSize: 13.5,
+                              color: Colors.grey.shade700,
+                              fontWeight: FontWeight.w600,
+                            ),
+                          ),
+                        ),
+                      ],
+                    ),
+                  ),
+                ] else if (_erroOpcoesParcelas != null) ...[
+                  Container(
+                    width: double.infinity,
+                    padding: const EdgeInsets.all(14),
+                    decoration: BoxDecoration(
+                      color: Colors.amber.shade50,
+                      borderRadius: BorderRadius.circular(14),
+                      border: Border.all(color: Colors.amber.shade200),
+                    ),
+                    child: Column(
+                      crossAxisAlignment: CrossAxisAlignment.start,
+                      children: [
+                        Row(
+                          crossAxisAlignment: CrossAxisAlignment.start,
+                          children: [
+                            Icon(
+                              Icons.info_outline_rounded,
+                              color: Colors.amber.shade900,
+                            ),
+                            const SizedBox(width: 10),
+                            Expanded(
+                              child: Text(
+                                _erroOpcoesParcelas!,
+                                style: TextStyle(
+                                  fontSize: 13,
+                                  height: 1.4,
+                                  color: Colors.grey.shade900,
+                                ),
+                              ),
+                            ),
+                          ],
+                        ),
+                        const SizedBox(height: 10),
+                        Align(
+                          alignment: Alignment.centerRight,
+                          child: TextButton.icon(
+                            onPressed: _consultandoParcelasNoMp
+                                ? null
+                                : () {
+                                    _agendarAtualizacaoParcelasMercadoPago();
+                                  },
+                            icon: const Icon(Icons.refresh_rounded),
+                            label: const Text(
+                              'Atualizar parcelas',
+                              style: TextStyle(fontWeight: FontWeight.w700),
+                            ),
+                          ),
+                        ),
+                      ],
+                    ),
+                  ),
+                ] else ...[
+                  if (_somenteDigitos(_numCartaoC.text).length < 6)
+                    Padding(
+                      padding: const EdgeInsets.only(bottom: 10),
+                      child: Row(
+                        children: [
+                          Icon(
+                            Icons.credit_card_outlined,
+                            size: 18,
+                            color: Colors.grey.shade600,
+                          ),
+                          const SizedBox(width: 8),
+                          Expanded(
+                            child: Text(
+                              'Digite o número completo para ver e escolher o parcelamento.',
+                              style: TextStyle(
+                                fontSize: 13,
+                                color: Colors.grey.shade700,
+                                height: 1.35,
+                              ),
+                            ),
+                          ),
+                        ],
+                      ),
+                    ),
+                  Material(
+                    color: Colors.transparent,
+                    child: InkWell(
+                      borderRadius: BorderRadius.circular(16),
+                      onTap:
+                          _opcoesParcelasMp.isEmpty || _consultandoParcelasNoMp
+                          ? null
+                          : _abrirSeletorParcelasMercadoPago,
+                      child: Ink(
+                        padding: const EdgeInsets.symmetric(
+                          horizontal: 16,
+                          vertical: 16,
+                        ),
+                        decoration: BoxDecoration(
+                          color: Colors.white,
+                          borderRadius: BorderRadius.circular(16),
+                          border: Border.all(
+                            color:
+                                _opcoesParcelasMp.isEmpty &&
+                                    _somenteDigitos(_numCartaoC.text).length >=
+                                        6
+                                ? Colors.orange.shade200
+                                : diPertinRoxo.withValues(alpha: 0.22),
+                          ),
+                          boxShadow: [
+                            BoxShadow(
+                              blurRadius: 12,
+                              offset: const Offset(0, 6),
+                              color: Colors.black.withValues(alpha: 0.05),
+                            ),
+                          ],
+                        ),
+                        child: Row(
+                          crossAxisAlignment: CrossAxisAlignment.center,
+                          children: [
+                            Container(
+                              padding: const EdgeInsets.all(8),
+                              decoration: BoxDecoration(
+                                color: diPertinRoxo.withValues(alpha: 0.1),
+                                borderRadius: BorderRadius.circular(11),
+                              ),
+                              child: const Icon(
+                                Icons.calendar_month_rounded,
+                                color: diPertinRoxo,
+                                size: 22,
+                              ),
+                            ),
+                            const SizedBox(width: 14),
+                            Expanded(
+                              child: Column(
+                                crossAxisAlignment: CrossAxisAlignment.start,
+                                children: [
+                                  Text(
+                                    _opcoesParcelasMp.isEmpty &&
+                                            _somenteDigitos(
+                                                  _numCartaoC.text,
+                                                ).length >=
+                                                6
+                                        ? 'Aguardando dados do parcelamento…'
+                                        : 'Toque para escolher as parcelas',
+                                    style: TextStyle(
+                                      fontSize: 11.5,
+                                      fontWeight: FontWeight.w600,
+                                      letterSpacing: 0.05,
+                                      color: Colors.grey.shade600,
+                                    ),
+                                  ),
+                                  const SizedBox(height: 5),
+                                  Text(
+                                    _resumoLinhaParcelaAtual(),
+                                    style: const TextStyle(
+                                      fontSize: 14,
+                                      height: 1.25,
+                                      fontWeight: FontWeight.w700,
+                                      color: Color(0xFF1A1A2E),
+                                    ),
+                                  ),
+                                ],
+                              ),
+                            ),
+                            if (_opcoesParcelasMp.length > 1)
+                              Icon(
+                                Icons.keyboard_arrow_down_rounded,
+                                color: Colors.grey.shade700,
+                                size: 30,
+                              ),
+                          ],
+                        ),
+                      ),
+                    ),
+                  ),
+                  if (_somenteDigitos(_numCartaoC.text).length >= 6 &&
+                      _opcoesParcelasMp.isNotEmpty) ...[
+                    const SizedBox(height: 12),
+                    Center(
+                      child: TextButton.icon(
+                        icon: Icon(
+                          Icons.tune_rounded,
+                          color: diPertinRoxo,
+                          size: 22,
+                        ),
+                        label: const Text(
+                          'Ver todas as opções',
+                          style: TextStyle(fontWeight: FontWeight.w700),
+                        ),
+                        onPressed: () => _abrirSeletorParcelasMercadoPago(),
+                      ),
+                    ),
+                  ],
+                ],
+              ],
+            ),
+          ),
+
+        const SizedBox(height: 22),
 
         Row(
           mainAxisAlignment: MainAxisAlignment.center,
           children: [
-            const Icon(Icons.lock, size: 14, color: Colors.green),
-            const SizedBox(width: 5),
+            Icon(Icons.lock_rounded, size: 14, color: Colors.green.shade700),
+            const SizedBox(width: 6),
             Text(
-              "Ambiente 100% seguro",
+              'Pagamento criptografado · Mercado Pago',
               style: TextStyle(
-                fontSize: 12,
-                color: Colors.green.shade700,
-                fontWeight: FontWeight.bold,
+                fontSize: 11.8,
+                color: Colors.grey.shade600,
+                fontWeight: FontWeight.w600,
               ),
             ),
           ],
         ),
       ],
+    );
+  }
+}
+
+/// Opções de parcelamento (valores vindos da consulta Mercado Pago na Cloud Function).
+class _OpcaoParcelaCheckout {
+  final int parcelas;
+  final double valorParcela;
+  final double valorTotalCobrado;
+  final String textoLinha;
+
+  _OpcaoParcelaCheckout({
+    required this.parcelas,
+    required this.valorParcela,
+    required this.valorTotalCobrado,
+    required this.textoLinha,
+  });
+
+  factory _OpcaoParcelaCheckout.doMapMercadoPago(Map<String, dynamic> m) {
+    final p = (m['parcelas'] as num?)?.toInt() ?? 1;
+    final vp = (m['valorParcela'] as num?)?.toDouble() ?? 0;
+    final vt = (m['valorTotalCobrado'] as num?)?.toDouble() ?? vp;
+    var texto = (m['texto'] ?? '').toString().trim();
+    if (texto.isEmpty) {
+      final nf = NumberFormat.currency(locale: 'pt_BR', symbol: r'R$');
+      texto = '${p}x de ${nf.format(vp)} · total ${nf.format(vt)}';
+    }
+    return _OpcaoParcelaCheckout(
+      parcelas: p,
+      valorParcela: vp,
+      valorTotalCobrado: vt,
+      textoLinha: texto,
     );
   }
 }

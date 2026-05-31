@@ -13,6 +13,7 @@ import 'package:firebase_auth/firebase_auth.dart';
 import 'chat_suporte_screen.dart';
 import '../auth/login_screen.dart';
 import '../../services/location_service.dart';
+import '../../utils/loja_fachada_foto.dart';
 
 const Color diPertinRoxo = Color(0xFF6A1B9A);
 const Color diPertinLaranja = Color(0xFFFF8F00);
@@ -222,15 +223,23 @@ class _SearchScreenState extends State<SearchScreen> {
                     ),
                     const Text(
                       'Como deseja entrar em contato?',
-                      style: TextStyle(fontWeight: FontWeight.w700, fontSize: 16, color: Color(0xFF1E1B4B)),
+                      style: TextStyle(
+                        fontWeight: FontWeight.w700,
+                        fontSize: 16,
+                        color: Color(0xFF1E1B4B),
+                      ),
                     ),
                     const SizedBox(height: 16),
                     Row(
                       children: [
                         Expanded(
                           child: Material(
-                            color: const Color(0xFF25D366).withValues(alpha: 0.08),
-                            shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(14)),
+                            color: const Color(
+                              0xFF25D366,
+                            ).withValues(alpha: 0.08),
+                            shape: RoundedRectangleBorder(
+                              borderRadius: BorderRadius.circular(14),
+                            ),
                             child: InkWell(
                               onTap: () {
                                 Navigator.pop(context);
@@ -241,9 +250,20 @@ class _SearchScreenState extends State<SearchScreen> {
                                 padding: EdgeInsets.symmetric(vertical: 18),
                                 child: Column(
                                   children: [
-                                    Icon(Icons.wechat, color: Color(0xFF25D366), size: 28),
+                                    Icon(
+                                      Icons.wechat,
+                                      color: Color(0xFF25D366),
+                                      size: 28,
+                                    ),
                                     SizedBox(height: 6),
-                                    Text('WhatsApp', style: TextStyle(fontWeight: FontWeight.w700, fontSize: 13, color: Color(0xFF25D366))),
+                                    Text(
+                                      'WhatsApp',
+                                      style: TextStyle(
+                                        fontWeight: FontWeight.w700,
+                                        fontSize: 13,
+                                        color: Color(0xFF25D366),
+                                      ),
+                                    ),
                                   ],
                                 ),
                               ),
@@ -254,7 +274,9 @@ class _SearchScreenState extends State<SearchScreen> {
                         Expanded(
                           child: Material(
                             color: diPertinRoxo.withValues(alpha: 0.08),
-                            shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(14)),
+                            shape: RoundedRectangleBorder(
+                              borderRadius: BorderRadius.circular(14),
+                            ),
                             child: InkWell(
                               onTap: () {
                                 Navigator.pop(context);
@@ -265,9 +287,20 @@ class _SearchScreenState extends State<SearchScreen> {
                                 padding: EdgeInsets.symmetric(vertical: 18),
                                 child: Column(
                                   children: [
-                                    Icon(Icons.phone_rounded, color: diPertinRoxo, size: 28),
+                                    Icon(
+                                      Icons.phone_rounded,
+                                      color: diPertinRoxo,
+                                      size: 28,
+                                    ),
                                     SizedBox(height: 6),
-                                    Text('Ligar', style: TextStyle(fontWeight: FontWeight.w700, fontSize: 13, color: diPertinRoxo)),
+                                    Text(
+                                      'Ligar',
+                                      style: TextStyle(
+                                        fontWeight: FontWeight.w700,
+                                        fontSize: 13,
+                                        color: diPertinRoxo,
+                                      ),
+                                    ),
                                   ],
                                 ),
                               ),
@@ -367,27 +400,53 @@ class _SearchScreenState extends State<SearchScreen> {
                       ),
                     ),
                   ),
+                  IconButton(
+                    icon: Icon(
+                      Icons.my_location,
+                      color: loc.detectandoCidade
+                          ? Colors.white38
+                          : Colors.white,
+                      size: 22,
+                    ),
+                    tooltip: 'Atualizar cidade pelo GPS',
+                    onPressed: loc.detectandoCidade
+                        ? null
+                        : () => loc.detectarCidade(),
+                  ),
                   if (cidadeExibicao.isNotEmpty)
-                    Container(
-                      padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 5),
-                      decoration: BoxDecoration(
-                        color: Colors.white.withValues(alpha: 0.15),
-                        borderRadius: BorderRadius.circular(20),
-                      ),
-                      child: Row(
-                        mainAxisSize: MainAxisSize.min,
-                        children: [
-                          const Icon(Icons.place, color: Colors.white70, size: 14),
-                          const SizedBox(width: 4),
-                          Text(
-                            cidadeExibicao,
-                            style: const TextStyle(
-                              color: Colors.white,
-                              fontSize: 12,
-                              fontWeight: FontWeight.w600,
+                    Flexible(
+                      child: Container(
+                        padding: const EdgeInsets.symmetric(
+                          horizontal: 10,
+                          vertical: 5,
+                        ),
+                        decoration: BoxDecoration(
+                          color: Colors.white.withValues(alpha: 0.15),
+                          borderRadius: BorderRadius.circular(20),
+                        ),
+                        child: Row(
+                          mainAxisSize: MainAxisSize.min,
+                          children: [
+                            const Icon(
+                              Icons.place,
+                              color: Colors.white70,
+                              size: 14,
                             ),
-                          ),
-                        ],
+                            const SizedBox(width: 4),
+                            Flexible(
+                              child: Text(
+                                cidadeExibicao,
+                                style: const TextStyle(
+                                  color: Colors.white,
+                                  fontSize: 12,
+                                  fontWeight: FontWeight.w600,
+                                ),
+                                maxLines: 1,
+                                overflow: TextOverflow.ellipsis,
+                              ),
+                            ),
+                          ],
+                        ),
                       ),
                     ),
                 ],
@@ -408,15 +467,31 @@ class _SearchScreenState extends State<SearchScreen> {
                 child: TextField(
                   controller: _searchController,
                   autofocus: false,
-                  onChanged: (val) => setState(() => _buscaNome = val.toLowerCase()),
-                  style: const TextStyle(fontSize: 15, fontWeight: FontWeight.w500),
+                  onChanged: (val) =>
+                      setState(() => _buscaNome = val.toLowerCase()),
+                  style: const TextStyle(
+                    fontSize: 15,
+                    fontWeight: FontWeight.w500,
+                  ),
                   decoration: InputDecoration(
                     hintText: 'Lojas, produtos ou categorias…',
-                    hintStyle: TextStyle(color: Colors.grey[400], fontWeight: FontWeight.w400, fontSize: 14),
-                    prefixIcon: Icon(Icons.search_rounded, color: Colors.grey[500], size: 22),
+                    hintStyle: TextStyle(
+                      color: Colors.grey[400],
+                      fontWeight: FontWeight.w400,
+                      fontSize: 14,
+                    ),
+                    prefixIcon: Icon(
+                      Icons.search_rounded,
+                      color: Colors.grey[500],
+                      size: 22,
+                    ),
                     suffixIcon: _isPesquisando
                         ? IconButton(
-                            icon: Icon(Icons.close_rounded, color: Colors.grey[500], size: 20),
+                            icon: Icon(
+                              Icons.close_rounded,
+                              color: Colors.grey[500],
+                              size: 20,
+                            ),
                             onPressed: _limparFiltros,
                           )
                         : null,
@@ -433,7 +508,10 @@ class _SearchScreenState extends State<SearchScreen> {
                     ),
                     focusedBorder: OutlineInputBorder(
                       borderRadius: BorderRadius.circular(14),
-                      borderSide: const BorderSide(color: diPertinLaranja, width: 1.5),
+                      borderSide: const BorderSide(
+                        color: diPertinLaranja,
+                        width: 1.5,
+                      ),
                     ),
                   ),
                 ),
@@ -451,20 +529,46 @@ class _SearchScreenState extends State<SearchScreen> {
       child: Column(
         children: [
           SizedBox(
-            height: 96,
+            height: 82,
             child: StreamBuilder<QuerySnapshot>(
               stream: FirebaseFirestore.instance
                   .collection('categorias')
-                  .orderBy('nome')
+                  .where('ativo', isEqualTo: true)
                   .snapshots(),
               builder: (context, snapshot) {
                 if (!snapshot.hasData) {
-                  return const Center(child: LinearProgressIndicator(color: diPertinLaranja));
+                  return const Center(
+                    child: LinearProgressIndicator(color: diPertinLaranja),
+                  );
                 }
-                var categorias = snapshot.data!.docs;
+                final todasCategorias = snapshot.data!.docs.toList()
+                  ..sort((a, b) {
+                    final ma = a.data() as Map<String, dynamic>;
+                    final mb = b.data() as Map<String, dynamic>;
+                    final oa = (ma['ordem'] as num?)?.toInt() ?? 999;
+                    final ob = (mb['ordem'] as num?)?.toInt() ?? 999;
+                    if (oa != ob) return oa.compareTo(ob);
+                    return (ma['nome'] ?? '').toString().compareTo(
+                      (mb['nome'] ?? '').toString(),
+                    );
+                  });
+                final destaques = todasCategorias
+                    .where(
+                      (d) =>
+                          ((d.data() as Map<String, dynamic>)['destaque']) ==
+                          true,
+                    )
+                    .toList();
+                final categorias =
+                    (destaques.isNotEmpty ? destaques : todasCategorias)
+                        .take(24)
+                        .toList();
                 return ListView.builder(
                   scrollDirection: Axis.horizontal,
-                  padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 10),
+                  padding: const EdgeInsets.symmetric(
+                    horizontal: 12,
+                    vertical: 8,
+                  ),
                   itemCount: categorias.length,
                   itemBuilder: (context, index) {
                     var cat = categorias[index].data() as Map<String, dynamic>;
@@ -473,47 +577,66 @@ class _SearchScreenState extends State<SearchScreen> {
                     bool sel = _categoriaSelecionada == nome;
                     return GestureDetector(
                       onTap: () {
-                        setState(() => _categoriaSelecionada = sel ? null : nome);
+                        setState(
+                          () => _categoriaSelecionada = sel ? null : nome,
+                        );
                         FocusScope.of(context).unfocus();
                       },
                       child: AnimatedContainer(
                         duration: const Duration(milliseconds: 200),
-                        width: 72,
-                        margin: const EdgeInsets.symmetric(horizontal: 4),
+                        width: 62,
+                        margin: const EdgeInsets.symmetric(horizontal: 3),
                         child: Column(
                           children: [
                             Container(
-                              width: 52,
-                              height: 52,
+                              width: 44,
+                              height: 44,
                               decoration: BoxDecoration(
                                 shape: BoxShape.circle,
                                 border: Border.all(
-                                  color: sel ? diPertinLaranja : Colors.grey.shade200,
+                                  color: sel
+                                      ? diPertinLaranja
+                                      : Colors.grey.shade200,
                                   width: sel ? 2.5 : 1.5,
                                 ),
                                 boxShadow: sel
-                                    ? [BoxShadow(color: diPertinLaranja.withValues(alpha: 0.25), blurRadius: 8)]
+                                    ? [
+                                        BoxShadow(
+                                          color: diPertinLaranja.withValues(
+                                            alpha: 0.25,
+                                          ),
+                                          blurRadius: 8,
+                                        ),
+                                      ]
                                     : [],
                               ),
                               child: CircleAvatar(
-                                radius: 24,
-                                backgroundImage: imagem.isNotEmpty ? NetworkImage(imagem) : null,
-                                backgroundColor: sel ? diPertinLaranja.withValues(alpha: 0.08) : Colors.grey[100],
+                                radius: 20,
+                                backgroundImage: imagem.isNotEmpty
+                                    ? NetworkImage(imagem)
+                                    : null,
+                                backgroundColor: sel
+                                    ? diPertinLaranja.withValues(alpha: 0.08)
+                                    : Colors.grey[100],
                                 child: imagem.isEmpty
                                     ? Icon(
                                         _iconeDaCategoria(nome),
-                                        color: sel ? diPertinLaranja : Colors.grey[500],
-                                        size: 22,
+                                        color: sel
+                                            ? diPertinLaranja
+                                            : Colors.grey[500],
+                                        size: 19,
                                       )
                                     : null,
                               ),
                             ),
-                            const SizedBox(height: 6),
+                            const SizedBox(height: 5),
                             Text(
                               nome,
                               style: TextStyle(
-                                fontSize: 10.5,
-                                fontWeight: sel ? FontWeight.w700 : FontWeight.w500,
+                                fontSize: 9.5,
+                                fontWeight: sel
+                                    ? FontWeight.w700
+                                    : FontWeight.w500,
                                 color: sel ? diPertinLaranja : Colors.grey[700],
                               ),
                               textAlign: TextAlign.center,
@@ -569,7 +692,11 @@ class _SearchScreenState extends State<SearchScreen> {
                 if (subtitle != null)
                   Text(
                     subtitle,
-                    style: TextStyle(fontSize: 12, color: Colors.grey[500], height: 1.4),
+                    style: TextStyle(
+                      fontSize: 12,
+                      color: Colors.grey[500],
+                      height: 1.4,
+                    ),
                   ),
               ],
             ),
@@ -618,13 +745,14 @@ class _SearchScreenState extends State<SearchScreen> {
                 final inicio = (data['data_inicio'] as Timestamp).toDate();
                 final vencimento = (data['data_fim'] as Timestamp).toDate();
 
-                final passaCidade = LocationService.anuncioCidadeCorrespondeUsuario(
-                  cidadeNormalizada: data['cidade_normalizada']?.toString(),
-                  cidade: data['cidade']?.toString(),
-                  cidadeNormUsuario: cidadeNorm,
-                  ufNormUsuario: ufNorm,
-                  globalSeVazio: true,
-                );
+                final passaCidade =
+                    LocationService.anuncioCidadeCorrespondeUsuario(
+                      cidadeNormalizada: data['cidade_normalizada']?.toString(),
+                      cidade: data['cidade']?.toString(),
+                      cidadeNormUsuario: cidadeNorm,
+                      ufNormUsuario: ufNorm,
+                      globalSeVazio: true,
+                    );
 
                 return agora.isAfter(inicio) &&
                     agora.isBefore(vencimento) &&
@@ -711,7 +839,7 @@ class _SearchScreenState extends State<SearchScreen> {
                                           width: 36,
                                           height: 36,
                                           fit: BoxFit.cover,
-                                          errorBuilder: (_, __, ___) =>
+                                          errorBuilder: (_, _, _) =>
                                               const SizedBox.shrink(),
                                         ),
                                       ),
@@ -733,9 +861,14 @@ class _SearchScreenState extends State<SearchScreen> {
                                 ),
                                 const SizedBox(height: 4),
                                 Container(
-                                  padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 2),
+                                  padding: const EdgeInsets.symmetric(
+                                    horizontal: 8,
+                                    vertical: 2,
+                                  ),
                                   decoration: BoxDecoration(
-                                    color: diPertinLaranja.withValues(alpha: 0.1),
+                                    color: diPertinLaranja.withValues(
+                                      alpha: 0.1,
+                                    ),
                                     borderRadius: BorderRadius.circular(6),
                                   ),
                                   child: Text(
@@ -753,12 +886,19 @@ class _SearchScreenState extends State<SearchScreen> {
                                   const SizedBox(height: 4),
                                   Row(
                                     children: [
-                                      Icon(Icons.place, size: 11, color: Colors.grey[400]),
+                                      Icon(
+                                        Icons.place,
+                                        size: 11,
+                                        color: Colors.grey[400],
+                                      ),
                                       const SizedBox(width: 2),
                                       Expanded(
                                         child: Text(
                                           cidadeCard,
-                                          style: TextStyle(fontSize: 10.5, color: Colors.grey[500]),
+                                          style: TextStyle(
+                                            fontSize: 10.5,
+                                            color: Colors.grey[500],
+                                          ),
                                           maxLines: 1,
                                           overflow: TextOverflow.ellipsis,
                                         ),
@@ -768,15 +908,24 @@ class _SearchScreenState extends State<SearchScreen> {
                                 ],
                                 const Spacer(),
                                 Container(
-                                  padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 5),
+                                  padding: const EdgeInsets.symmetric(
+                                    horizontal: 10,
+                                    vertical: 5,
+                                  ),
                                   decoration: BoxDecoration(
-                                    color: const Color(0xFF25D366).withValues(alpha: 0.1),
+                                    color: const Color(
+                                      0xFF25D366,
+                                    ).withValues(alpha: 0.1),
                                     borderRadius: BorderRadius.circular(8),
                                   ),
                                   child: const Row(
                                     mainAxisSize: MainAxisSize.min,
                                     children: [
-                                      Icon(Icons.wechat, color: Color(0xFF25D366), size: 14),
+                                      Icon(
+                                        Icons.wechat,
+                                        color: Color(0xFF25D366),
+                                        size: 14,
+                                      ),
                                       SizedBox(width: 4),
                                       Text(
                                         'Chamar',
@@ -879,13 +1028,14 @@ class _SearchScreenState extends State<SearchScreen> {
                 DateTime vencimento = (data['data_vencimento'] as Timestamp)
                     .toDate();
 
-                bool passaCidade = LocationService.anuncioCidadeCorrespondeUsuario(
-                  cidadeNormalizada: data['cidade_normalizada']?.toString(),
-                  cidade: data['cidade']?.toString(),
-                  cidadeNormUsuario: cidadeNorm,
-                  ufNormUsuario: ufNorm,
-                  globalSeVazio: true,
-                );
+                bool passaCidade =
+                    LocationService.anuncioCidadeCorrespondeUsuario(
+                      cidadeNormalizada: data['cidade_normalizada']?.toString(),
+                      cidade: data['cidade']?.toString(),
+                      cidadeNormUsuario: cidadeNorm,
+                      ufNormUsuario: ufNorm,
+                      globalSeVazio: true,
+                    );
 
                 return agora.isAfter(inicio) &&
                     agora.isBefore(vencimento) &&
@@ -931,7 +1081,10 @@ class _SearchScreenState extends State<SearchScreen> {
                       ),
                       borderRadius: BorderRadius.circular(14),
                       child: Padding(
-                        padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 10),
+                        padding: const EdgeInsets.symmetric(
+                          horizontal: 12,
+                          vertical: 10,
+                        ),
                         child: Row(
                           children: [
                             telImg.isNotEmpty
@@ -942,14 +1095,22 @@ class _SearchScreenState extends State<SearchScreen> {
                                       width: 32,
                                       height: 32,
                                       fit: BoxFit.cover,
-                                      errorBuilder: (_, __, ___) => Container(
+                                      errorBuilder: (_, _, _) => Container(
                                         width: 32,
                                         height: 32,
                                         decoration: BoxDecoration(
-                                          color: diPertinRoxo.withValues(alpha: 0.08),
-                                          borderRadius: BorderRadius.circular(8),
+                                          color: diPertinRoxo.withValues(
+                                            alpha: 0.08,
+                                          ),
+                                          borderRadius: BorderRadius.circular(
+                                            8,
+                                          ),
                                         ),
-                                        child: const Icon(Icons.phone_forwarded_rounded, color: diPertinRoxo, size: 16),
+                                        child: const Icon(
+                                          Icons.phone_forwarded_rounded,
+                                          color: diPertinRoxo,
+                                          size: 16,
+                                        ),
                                       ),
                                     ),
                                   )
@@ -957,10 +1118,16 @@ class _SearchScreenState extends State<SearchScreen> {
                                     width: 32,
                                     height: 32,
                                     decoration: BoxDecoration(
-                                      color: diPertinRoxo.withValues(alpha: 0.08),
+                                      color: diPertinRoxo.withValues(
+                                        alpha: 0.08,
+                                      ),
                                       borderRadius: BorderRadius.circular(8),
                                     ),
-                                    child: const Icon(Icons.phone_forwarded_rounded, color: diPertinRoxo, size: 16),
+                                    child: const Icon(
+                                      Icons.phone_forwarded_rounded,
+                                      color: diPertinRoxo,
+                                      size: 16,
+                                    ),
                                   ),
                             const SizedBox(width: 10),
                             Expanded(
@@ -970,14 +1137,22 @@ class _SearchScreenState extends State<SearchScreen> {
                                 children: [
                                   Text(
                                     tel['titulo'] ?? '',
-                                    style: const TextStyle(fontSize: 12, fontWeight: FontWeight.w700, color: Color(0xFF1E1B4B)),
+                                    style: const TextStyle(
+                                      fontSize: 12,
+                                      fontWeight: FontWeight.w700,
+                                      color: Color(0xFF1E1B4B),
+                                    ),
                                     maxLines: 1,
                                     overflow: TextOverflow.ellipsis,
                                   ),
                                   const SizedBox(height: 1),
                                   Text(
                                     tel['telefone'] ?? '',
-                                    style: const TextStyle(fontSize: 12, color: diPertinRoxo, fontWeight: FontWeight.w600),
+                                    style: const TextStyle(
+                                      fontSize: 12,
+                                      color: diPertinRoxo,
+                                      fontWeight: FontWeight.w600,
+                                    ),
                                   ),
                                 ],
                               ),
@@ -1053,7 +1228,11 @@ class _SearchScreenState extends State<SearchScreen> {
         color: Colors.white,
         shape: RoundedRectangleBorder(
           borderRadius: BorderRadius.circular(16),
-          side: BorderSide(color: diPertinLaranja.withValues(alpha: 0.3), width: 1.5, strokeAlign: BorderSide.strokeAlignInside),
+          side: BorderSide(
+            color: diPertinLaranja.withValues(alpha: 0.3),
+            width: 1.5,
+            strokeAlign: BorderSide.strokeAlignInside,
+          ),
         ),
         clipBehavior: Clip.antiAlias,
         child: InkWell(
@@ -1072,12 +1251,20 @@ class _SearchScreenState extends State<SearchScreen> {
                     color: diPertinLaranja.withValues(alpha: 0.1),
                     borderRadius: BorderRadius.circular(10),
                   ),
-                  child: const Icon(Icons.campaign_rounded, color: diPertinLaranja, size: 20),
+                  child: const Icon(
+                    Icons.campaign_rounded,
+                    color: diPertinLaranja,
+                    size: 20,
+                  ),
                 ),
                 const SizedBox(height: 10),
                 const Text(
                   'Anuncie aqui',
-                  style: TextStyle(fontWeight: FontWeight.w700, fontSize: 13.5, color: diPertinLaranja),
+                  style: TextStyle(
+                    fontWeight: FontWeight.w700,
+                    fontSize: 13.5,
+                    color: diPertinLaranja,
+                  ),
                 ),
                 const SizedBox(height: 2),
                 Text(
@@ -1097,7 +1284,11 @@ class _SearchScreenState extends State<SearchScreen> {
       color: Colors.white,
       shape: RoundedRectangleBorder(
         borderRadius: BorderRadius.circular(14),
-        side: BorderSide(color: const Color(0xFF059669).withValues(alpha: 0.3), width: 1.5, strokeAlign: BorderSide.strokeAlignInside),
+        side: BorderSide(
+          color: const Color(0xFF059669).withValues(alpha: 0.3),
+          width: 1.5,
+          strokeAlign: BorderSide.strokeAlignInside,
+        ),
       ),
       clipBehavior: Clip.antiAlias,
       child: InkWell(
@@ -1114,7 +1305,11 @@ class _SearchScreenState extends State<SearchScreen> {
                   color: const Color(0xFF059669).withValues(alpha: 0.1),
                   borderRadius: BorderRadius.circular(8),
                 ),
-                child: const Icon(Icons.add_call, color: Color(0xFF059669), size: 18),
+                child: const Icon(
+                  Icons.add_call,
+                  color: Color(0xFF059669),
+                  size: 18,
+                ),
               ),
               const SizedBox(width: 10),
               Expanded(
@@ -1122,8 +1317,18 @@ class _SearchScreenState extends State<SearchScreen> {
                   crossAxisAlignment: CrossAxisAlignment.start,
                   mainAxisAlignment: MainAxisAlignment.center,
                   children: [
-                    const Text('Seu disk aqui', style: TextStyle(fontSize: 12, fontWeight: FontWeight.w700, color: Color(0xFF059669))),
-                    Text('Patrocinar espaço', style: TextStyle(fontSize: 10, color: Colors.grey[500])),
+                    const Text(
+                      'Seu disk aqui',
+                      style: TextStyle(
+                        fontSize: 12,
+                        fontWeight: FontWeight.w700,
+                        color: Color(0xFF059669),
+                      ),
+                    ),
+                    Text(
+                      'Patrocinar espaço',
+                      style: TextStyle(fontSize: 10, color: Colors.grey[500]),
+                    ),
                   ],
                 ),
               ),
@@ -1148,7 +1353,9 @@ class _SearchScreenState extends State<SearchScreen> {
       backgroundColor: Colors.transparent,
       builder: (ctx) {
         return Padding(
-          padding: EdgeInsets.only(bottom: MediaQuery.of(ctx).viewInsets.bottom),
+          padding: EdgeInsets.only(
+            bottom: MediaQuery.of(ctx).viewInsets.bottom,
+          ),
           child: Container(
             decoration: const BoxDecoration(
               color: Colors.white,
@@ -1221,7 +1428,11 @@ class _SearchScreenState extends State<SearchScreen> {
                   const SizedBox(height: 20),
                   Text(
                     descricao,
-                    style: TextStyle(fontSize: 14.5, height: 1.5, color: Colors.grey[700]),
+                    style: TextStyle(
+                      fontSize: 14.5,
+                      height: 1.5,
+                      color: Colors.grey[700],
+                    ),
                   ),
                   const SizedBox(height: 12),
                   Container(
@@ -1232,12 +1443,20 @@ class _SearchScreenState extends State<SearchScreen> {
                     ),
                     child: Row(
                       children: [
-                        Icon(Icons.info_outline_rounded, size: 16, color: Colors.amber.shade800),
+                        Icon(
+                          Icons.info_outline_rounded,
+                          size: 16,
+                          color: Colors.amber.shade800,
+                        ),
                         const SizedBox(width: 8),
                         Expanded(
                           child: Text(
                             'Em emergência real, mantenha a calma e informe o local com clareza.',
-                            style: TextStyle(fontSize: 12, height: 1.35, color: Colors.amber.shade900),
+                            style: TextStyle(
+                              fontSize: 12,
+                              height: 1.35,
+                              color: Colors.amber.shade900,
+                            ),
                           ),
                         ),
                       ],
@@ -1251,10 +1470,18 @@ class _SearchScreenState extends State<SearchScreen> {
                           onPressed: () => Navigator.pop(ctx),
                           style: OutlinedButton.styleFrom(
                             padding: const EdgeInsets.symmetric(vertical: 14),
-                            shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
+                            shape: RoundedRectangleBorder(
+                              borderRadius: BorderRadius.circular(12),
+                            ),
                             side: BorderSide(color: Colors.grey.shade300),
                           ),
-                          child: Text('Fechar', style: TextStyle(color: Colors.grey[700], fontWeight: FontWeight.w600)),
+                          child: Text(
+                            'Fechar',
+                            style: TextStyle(
+                              color: Colors.grey[700],
+                              fontWeight: FontWeight.w600,
+                            ),
+                          ),
                         ),
                       ),
                       const SizedBox(width: 12),
@@ -1265,13 +1492,25 @@ class _SearchScreenState extends State<SearchScreen> {
                             Navigator.pop(ctx);
                             _abrirContato(numero, 'ligacao');
                           },
-                          icon: const Icon(Icons.phone_rounded, color: Colors.white, size: 20),
-                          label: const Text('Ligar agora', style: TextStyle(fontWeight: FontWeight.w700, fontSize: 15)),
+                          icon: const Icon(
+                            Icons.phone_rounded,
+                            color: Colors.white,
+                            size: 20,
+                          ),
+                          label: const Text(
+                            'Ligar agora',
+                            style: TextStyle(
+                              fontWeight: FontWeight.w700,
+                              fontSize: 15,
+                            ),
+                          ),
                           style: FilledButton.styleFrom(
                             backgroundColor: cor,
                             foregroundColor: Colors.white,
                             padding: const EdgeInsets.symmetric(vertical: 14),
-                            shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
+                            shape: RoundedRectangleBorder(
+                              borderRadius: BorderRadius.circular(12),
+                            ),
                           ),
                         ),
                       ),
@@ -1326,13 +1565,21 @@ class _SearchScreenState extends State<SearchScreen> {
               const SizedBox(height: 8),
               Text(
                 titulo,
-                style: const TextStyle(fontSize: 12, fontWeight: FontWeight.w700, color: Color(0xFF1E1B4B)),
+                style: const TextStyle(
+                  fontSize: 12,
+                  fontWeight: FontWeight.w700,
+                  color: Color(0xFF1E1B4B),
+                ),
                 textAlign: TextAlign.center,
               ),
               const SizedBox(height: 2),
               Text(
                 numero,
-                style: TextStyle(fontSize: 11, fontWeight: FontWeight.w600, color: cor),
+                style: TextStyle(
+                  fontSize: 11,
+                  fontWeight: FontWeight.w600,
+                  color: cor,
+                ),
               ),
             ],
           ),
@@ -1380,14 +1627,25 @@ class _SearchScreenState extends State<SearchScreen> {
                     children: [
                       Text(
                         titulo,
-                        style: const TextStyle(fontWeight: FontWeight.w700, fontSize: 14.5, color: Color(0xFF1E1B4B)),
+                        style: const TextStyle(
+                          fontWeight: FontWeight.w700,
+                          fontSize: 14.5,
+                          color: Color(0xFF1E1B4B),
+                        ),
                       ),
                       const SizedBox(height: 2),
-                      Text(subtitulo, style: TextStyle(fontSize: 12, color: Colors.grey[500])),
+                      Text(
+                        subtitulo,
+                        style: TextStyle(fontSize: 12, color: Colors.grey[500]),
+                      ),
                     ],
                   ),
                 ),
-                Icon(Icons.chevron_right_rounded, size: 20, color: Colors.grey[400]),
+                Icon(
+                  Icons.chevron_right_rounded,
+                  size: 20,
+                  color: Colors.grey[400],
+                ),
               ],
             ),
           ),
@@ -1421,15 +1679,12 @@ class _SearchScreenState extends State<SearchScreen> {
               if (snapshotLojas.hasData) {
                 for (final doc in snapshotLojas.data!.docs) {
                   final l = doc.data() as Map<String, dynamic>;
-                  final cidadeLoja = (l['cidade_normalizada'] ??
-                          l['cidade'] ??
-                          l['endereco_cidade'] ??
-                          '')
-                      .toString();
-                  if (LocationService.cidadeCampoCorrespondeUsuario(
-                    campoCidade: cidadeLoja,
+                  if (LocationService.lojaPublicaNaRegiaoDoUsuario(
+                    dados: l,
                     cidadeNormUsuario: cidadeNorm,
                     ufNormUsuario: ufNorm,
+                    usuarioLat: loc.ultimaLatitude,
+                    usuarioLng: loc.ultimaLongitude,
                   )) {
                     lojasIdsDaCidade.add(doc.id);
                   }
@@ -1457,7 +1712,10 @@ class _SearchScreenState extends State<SearchScreen> {
                     children: [
                       Padding(
                         padding: const EdgeInsets.fromLTRB(16, 16, 16, 8),
-                        child: _sectionTitle('Lojas encontradas', Icons.store_rounded),
+                        child: _sectionTitle(
+                          'Lojas encontradas',
+                          Icons.store_rounded,
+                        ),
                       ),
                       SizedBox(
                         height: 120,
@@ -1472,7 +1730,7 @@ class _SearchScreenState extends State<SearchScreen> {
                             String lojaId = lojasEncontradas[index].id;
                             String nome =
                                 loja['loja_nome'] ?? loja['nome'] ?? 'Loja';
-                            String foto = loja['foto'] ?? loja['imagem'] ?? '';
+                            String foto = urlFachadaLojaCliente(loja);
 
                             return GestureDetector(
                               onTap: () => Navigator.push(
@@ -1486,11 +1744,16 @@ class _SearchScreenState extends State<SearchScreen> {
                               ),
                               child: Container(
                                 width: 130,
-                                margin: const EdgeInsets.symmetric(horizontal: 5, vertical: 4),
+                                margin: const EdgeInsets.symmetric(
+                                  horizontal: 5,
+                                  vertical: 4,
+                                ),
                                 decoration: BoxDecoration(
                                   color: Colors.white,
                                   borderRadius: BorderRadius.circular(16),
-                                  border: Border.all(color: Colors.grey.shade200),
+                                  border: Border.all(
+                                    color: Colors.grey.shade200,
+                                  ),
                                 ),
                                 child: Column(
                                   mainAxisAlignment: MainAxisAlignment.center,
@@ -1498,21 +1761,40 @@ class _SearchScreenState extends State<SearchScreen> {
                                     Container(
                                       decoration: BoxDecoration(
                                         shape: BoxShape.circle,
-                                        border: Border.all(color: diPertinLaranja.withValues(alpha: 0.3), width: 2),
+                                        border: Border.all(
+                                          color: diPertinLaranja.withValues(
+                                            alpha: 0.3,
+                                          ),
+                                          width: 2,
+                                        ),
                                       ),
                                       child: CircleAvatar(
                                         radius: 24,
                                         backgroundColor: Colors.grey[100],
-                                        backgroundImage: foto.isNotEmpty ? NetworkImage(foto) : null,
-                                        child: foto.isEmpty ? Icon(Icons.store_rounded, color: Colors.grey[400], size: 22) : null,
+                                        backgroundImage: foto.isNotEmpty
+                                            ? NetworkImage(foto)
+                                            : null,
+                                        child: foto.isEmpty
+                                            ? Icon(
+                                                Icons.store_rounded,
+                                                color: Colors.grey[400],
+                                                size: 22,
+                                              )
+                                            : null,
                                       ),
                                     ),
                                     const SizedBox(height: 8),
                                     Padding(
-                                      padding: const EdgeInsets.symmetric(horizontal: 8),
+                                      padding: const EdgeInsets.symmetric(
+                                        horizontal: 8,
+                                      ),
                                       child: Text(
                                         nome,
-                                        style: const TextStyle(fontWeight: FontWeight.w700, fontSize: 12, color: Color(0xFF1E1B4B)),
+                                        style: const TextStyle(
+                                          fontWeight: FontWeight.w700,
+                                          fontSize: 12,
+                                          color: Color(0xFF1E1B4B),
+                                        ),
                                         maxLines: 2,
                                         textAlign: TextAlign.center,
                                         overflow: TextOverflow.ellipsis,
@@ -1588,7 +1870,10 @@ class _SearchScreenState extends State<SearchScreen> {
 
                       if (docs.isEmpty) {
                         return Padding(
-                          padding: const EdgeInsets.symmetric(vertical: 40, horizontal: 30),
+                          padding: const EdgeInsets.symmetric(
+                            vertical: 40,
+                            horizontal: 30,
+                          ),
                           child: Column(
                             children: [
                               Container(
@@ -1598,17 +1883,28 @@ class _SearchScreenState extends State<SearchScreen> {
                                   color: Colors.grey.shade100,
                                   borderRadius: BorderRadius.circular(20),
                                 ),
-                                child: Icon(Icons.search_off_rounded, size: 32, color: Colors.grey[400]),
+                                child: Icon(
+                                  Icons.search_off_rounded,
+                                  size: 32,
+                                  color: Colors.grey[400],
+                                ),
                               ),
                               const SizedBox(height: 14),
                               Text(
                                 'Nenhum produto encontrado',
-                                style: TextStyle(fontWeight: FontWeight.w600, fontSize: 15, color: Colors.grey[700]),
+                                style: TextStyle(
+                                  fontWeight: FontWeight.w600,
+                                  fontSize: 15,
+                                  color: Colors.grey[700],
+                                ),
                               ),
                               const SizedBox(height: 4),
                               Text(
                                 'Tente buscar com outros termos',
-                                style: TextStyle(fontSize: 13, color: Colors.grey[500]),
+                                style: TextStyle(
+                                  fontSize: 13,
+                                  color: Colors.grey[500],
+                                ),
                               ),
                             ],
                           ),
@@ -1646,7 +1942,8 @@ class _SearchScreenState extends State<SearchScreen> {
                               onTap: () => Navigator.push(
                                 context,
                                 MaterialPageRoute(
-                                  builder: (context) => ProductDetailsScreen(produto: p),
+                                  builder: (context) =>
+                                      ProductDetailsScreen(produto: p),
                                 ),
                               ),
                               borderRadius: BorderRadius.circular(16),
@@ -1655,33 +1952,53 @@ class _SearchScreenState extends State<SearchScreen> {
                                 children: [
                                   Expanded(
                                     child: ClipRRect(
-                                      borderRadius: const BorderRadius.vertical(top: Radius.circular(16)),
+                                      borderRadius: const BorderRadius.vertical(
+                                        top: Radius.circular(16),
+                                      ),
                                       child: Image.network(
                                         img,
                                         width: double.infinity,
                                         fit: BoxFit.cover,
                                         errorBuilder: (c, e, s) => Container(
                                           color: Colors.grey[100],
-                                          child: Icon(Icons.image_not_supported_outlined, color: Colors.grey[300], size: 32),
+                                          child: Icon(
+                                            Icons.image_not_supported_outlined,
+                                            color: Colors.grey[300],
+                                            size: 32,
+                                          ),
                                         ),
                                       ),
                                     ),
                                   ),
                                   Padding(
-                                    padding: const EdgeInsets.fromLTRB(10, 10, 10, 12),
+                                    padding: const EdgeInsets.fromLTRB(
+                                      10,
+                                      10,
+                                      10,
+                                      12,
+                                    ),
                                     child: Column(
-                                      crossAxisAlignment: CrossAxisAlignment.start,
+                                      crossAxisAlignment:
+                                          CrossAxisAlignment.start,
                                       children: [
                                         Text(
                                           p['nome'] ?? '',
-                                          style: const TextStyle(fontWeight: FontWeight.w700, fontSize: 13, color: Color(0xFF1E1B4B)),
+                                          style: const TextStyle(
+                                            fontWeight: FontWeight.w700,
+                                            fontSize: 13,
+                                            color: Color(0xFF1E1B4B),
+                                          ),
                                           maxLines: 2,
                                           overflow: TextOverflow.ellipsis,
                                         ),
                                         const SizedBox(height: 4),
                                         Text(
                                           "R\$ ${(p['preco'] ?? 0.0).toStringAsFixed(2)}",
-                                          style: const TextStyle(color: diPertinLaranja, fontWeight: FontWeight.w800, fontSize: 14.5),
+                                          style: const TextStyle(
+                                            color: diPertinLaranja,
+                                            fontWeight: FontWeight.w800,
+                                            fontSize: 14.5,
+                                          ),
                                         ),
                                       ],
                                     ),

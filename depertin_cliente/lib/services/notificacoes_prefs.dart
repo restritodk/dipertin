@@ -85,8 +85,8 @@ class NotificacoesPrefs {
       return await chatAtendimentoFinalizado();
     }
 
-    // Lojista: novo pedido na loja
-    if (t == 'novo_pedido') {
+    // Lojista: novo pedido + encomendas (mesmo canal “negócio na loja”).
+    if (t == 'novo_pedido' || t.startsWith('encomenda_loja_')) {
       return await lojaNovosPedidos();
     }
 
@@ -99,6 +99,7 @@ class NotificacoesPrefs {
 
     // Cliente: status de pedido, preparo, envio, etc. (quando o backend enviar)
     if (t.startsWith('pedido_') ||
+        t.startsWith('encomenda_cliente_') ||
         t == 'pedido' ||
         t == 'status_pedido' ||
         t == 'compra' ||

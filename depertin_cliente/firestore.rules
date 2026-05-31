@@ -129,11 +129,13 @@ service cloud.firestore {
         );
     }
 
-    // Loja “efetiva”: dono = auth.uid; colaborador do painel = users.lojista_owner_uid
+    // Loja “efetiva”: dono = auth.uid; colaborador = users.lojista_owner_uid não vazio.
+    // Paridade com uidLojaEfetivo (Dart) / uidLojaOperacional (Functions): se o campo
+    // existir como string vazia, não usar — senão idLoja vira "" e queries em pedidos/
+    // encomendas falham com permission-denied.
     function idLojaUsuarioLogado() {
-      return userExists()
-        ? userData().get('lojista_owner_uid', request.auth.uid)
-        : request.auth.uid;
+      let o = userExists() ? userData().get('lojista_owner_uid', '') : '';
+      return (userExists() && o is string && o.size() > 0) ? o : request.auth.uid;
     }
 
     function dadosDonoLojaParaBloqueio() {
@@ -412,6 +414,29 @@ service cloud.firestore {
             .hasOnly(['status', 'cancelado_motivo', 'cancelado_em']);
       }
 
+      // Checkout cartão: falha de rede/callable ou exceção antes de concluir — app cancela com mensagem para o usuário.
+      function clienteCancelaPedidoCartaoInterrompidoNoCheckout() {
+        return p().cliente_id == request.auth.uid
+          && p().status == 'aguardando_pagamento'
+          && request.resource.data.status == 'cancelado'
+          && request.resource.data.cancelado_motivo == 'cartao_nao_concluido'
+          && request.resource.data.cliente_id == p().cliente_id
+          && request.resource.data.loja_id == p().loja_id
+          && (
+            !('lojista_id' in p())
+            || request.resource.data.lojista_id == p().lojista_id
+          )
+          && request.resource.data.pagamento_recusado_mensagem is string
+          && request.resource.data.pagamento_recusado_mensagem.size() >= 1
+          && request.resource.data.pagamento_recusado_mensagem.size() <= 600
+          && request.resource.data.diff(resource.data).affectedKeys().hasOnly([
+            'status',
+            'cancelado_motivo',
+            'cancelado_em',
+            'pagamento_recusado_mensagem',
+          ]);
+      }
+
       function detalheCancelamentoClienteOk() {
         let cod = request.resource.data.cancelado_cliente_codigo;
         return cod in ['desistencia', 'demora_loja', 'outro']
@@ -467,6 +492,7 @@ service cloud.firestore {
         isStaff() ||
         (lojistaDonoDoPedido() && lojistaLojaPodeOperar()) ||
         clienteCancelaPedidoPixPendente() ||
+        clienteCancelaPedidoCartaoInterrompidoNoCheckout() ||
         clienteCancelaPedidoEmAndamento() ||
         entregadorAceitandoCorrida() ||
         (isEntregador() && entregadorAtribuido() && request.auth.uid == p().entregador_id)
@@ -503,7 +529,84 @@ service cloud.firestore {
           isStaff()
         )
         && pedidoPai().status != 'entregue'
-        && pedidoPai().status != 'cancelado';
+        && pedidoPai().status != 'cancelado'
+        && request.resource.data.remetente_id == request.auth.uid
+        && (
+          (
+            request.resource.data.texto is string
+            && request.resource.data.texto.size() > 0
+            && request.resource.data.texto.size() <= 2000
+          )
+          || (
+            request.resource.data.anexos is list
+            && request.resource.data.anexos.size() > 0
+            && request.resource.data.anexos.size() <= 50
+          )
+        );
+        allow update, delete: if isStaff();
+      }
+    }
+
+    // Encomendas — escrita apenas via Cloud Functions (Admin SDK).
+    // Várias cláusulas `allow read` (OU implícito): listagens com
+    // `where('loja_id', ==, …)` alinham só à regra da loja; com um único
+    // `allow` usando `||` entre cliente e loja, o Firestore costuma negar a
+    // query inteira com permission-denied (requisitos de query vs OR).
+    match /encomendas/{encId} {
+      allow read: if signedIn() && resource.data.cliente_id == request.auth.uid;
+      allow read: if signedIn() && resource.data.loja_id == idLojaUsuarioLogado();
+      allow read: if signedIn()
+        && 'lojista_id' in resource.data
+        && resource.data.lojista_id == idLojaUsuarioLogado();
+      allow read: if isStaff();
+      allow create, update, delete: if false;
+
+      match /mensagens/{msgId} {
+        function encomendaPai() {
+          return get(/databases/$(database)/documents/encomendas/$(encId)).data;
+        }
+
+        function lojaDaEncomenda() {
+          return encomendaPai().loja_id == idLojaUsuarioLogado()
+            || (
+              'lojista_id' in encomendaPai()
+              && encomendaPai().lojista_id == idLojaUsuarioLogado()
+            );
+        }
+
+        function participanteEncomenda() {
+          return signedIn() && (
+            encomendaPai().cliente_id == request.auth.uid ||
+            lojaDaEncomenda() ||
+            isStaff()
+          );
+        }
+
+        function encomendaChatAberto() {
+          return !(encomendaPai().status_negociacao in [
+            'encerrada_recusada_loja',
+            'encerrada_cancelada_cliente',
+            'encerrada_cancelada_loja',
+            'em_execucao_logistica'
+          ]);
+        }
+
+        allow read: if participanteEncomenda();
+        allow create: if participanteEncomenda()
+          && encomendaChatAberto()
+          && request.resource.data.remetente_id == request.auth.uid
+          && (
+            (
+              request.resource.data.texto is string
+              && request.resource.data.texto.size() > 0
+              && request.resource.data.texto.size() <= 2000
+            )
+            || (
+              request.resource.data.anexos is list
+              && request.resource.data.anexos.size() > 0
+              && request.resource.data.anexos.size() <= 50
+            )
+          );
         allow update, delete: if isStaff();
       }
     }
@@ -527,8 +630,25 @@ service cloud.firestore {
     }
 
     match /sugestoes_categorias/{id} {
-      allow read: if signedIn();
-      allow write: if isStaff();
+      allow read: if isStaff();
+      allow create: if signedIn()
+        && request.resource.data.nome is string
+        && request.resource.data.nome.size() >= 2
+        && request.resource.data.nome.size() <= 60
+        && (
+          request.resource.data.lojista_id == idLojaUsuarioLogado()
+          || request.resource.data.lojista_id == request.auth.uid
+        )
+        && request.resource.data.status == 'pendente'
+        && request.resource.data.keys().hasOnly([
+          'nome',
+          'lojista_id',
+          'status',
+          'origem',
+          'data',
+          'criada_em'
+        ]);
+      allow update, delete: if isStaff();
     }
 
     match /banners/{id} {
@@ -700,7 +820,20 @@ service cloud.firestore {
         && request.resource.data.keys().hasAll([
           'protocol_number', 'user_id', 'user_nome', 'cidade', 'status',
           'created_at', 'updated_at'
-        ]);
+        ])
+        && request.resource.data.keys().hasOnly([
+          'protocol_number', 'user_id', 'user_nome', 'cidade', 'status',
+          'created_at', 'updated_at', 'agent_id', 'agent_nome',
+          'queue_position', 'first_message_preview', 'started_at',
+          'finished_at', 'closed_by', 'solicitante_uid',
+          'solicitante_nome', 'solicitante_perfil', 'solicitante_email',
+          'solicitante_telefone', 'solicitante_documento',
+          'solicitante_loja_nome', 'solicitante_cidade'
+        ])
+        && request.resource.data.solicitante_uid == request.auth.uid
+        && request.resource.data.solicitante_perfil in [
+          'cliente', 'lojista', 'entregador'
+        ];
 
       // Cliente: pode cancelar ou atualizar prévia/updated_at; não pode assumir atendimento
       allow update: if isStaff() || (
@@ -708,6 +841,14 @@ service cloud.firestore {
         && request.resource.data.user_id == resource.data.user_id
         && request.resource.data.protocol_number == resource.data.protocol_number
         && request.resource.data.created_at == resource.data.created_at
+        && request.resource.data.solicitante_uid == resource.data.solicitante_uid
+        && request.resource.data.solicitante_nome == resource.data.solicitante_nome
+        && request.resource.data.solicitante_perfil == resource.data.solicitante_perfil
+        && request.resource.data.solicitante_email == resource.data.solicitante_email
+        && request.resource.data.solicitante_telefone == resource.data.solicitante_telefone
+        && request.resource.data.solicitante_documento == resource.data.solicitante_documento
+        && request.resource.data.solicitante_loja_nome == resource.data.solicitante_loja_nome
+        && request.resource.data.solicitante_cidade == resource.data.solicitante_cidade
         && request.resource.data.agent_id == resource.data.agent_id
         && request.resource.data.agent_nome == resource.data.agent_nome
         && (
@@ -849,12 +990,28 @@ service cloud.firestore {
       allow read, write: if false;
     }
 
+    // Índice CPF → uid no cadastro inicial — apenas Cloud Functions (Admin SDK).
+    match /users_cpf_index/{cpfDigitos} {
+      allow read, write: if false;
+    }
+
     // Cidades atendidas — CMS operado pelo master no painel AdminCity.
     // Leitura liberada a qualquer usuário autenticado (app precisa mostrar cidades suportadas);
     // escrita apenas para staff (master / master_city) via painel web.
     match /cidades_atendidas/{id} {
       allow read: if signedIn();
       allow write: if isStaff();
+    }
+
+    // Auditoria administrativa (painel Centro de operações — leitura staff).
+    match /audit_logs/{id} {
+      allow read: if isStaff();
+      allow write: if isStaff();
+    }
+
+    // Agenda operacional staff (Centro de operações — calendário na web).
+    match /centro_ops_agenda/{id} {
+      allow read, write: if isStaff();
     }
 
     match /{document=**} {
@@ -865,7 +1022,8 @@ service cloud.firestore {
         && !request.path.matches('databases/{database}/documents/password_reset_rate_ip/{docId}')
         && !request.path.matches('databases/{database}/documents/cadastro_telefone_verificado_tickets/{docId}')
         && !request.path.matches('databases/{database}/documents/comtele_cadastro_rate_ip/{docId}')
-        && !request.path.matches('databases/{database}/documents/comtele_cadastro_rate_phone/{docId}');
+        && !request.path.matches('databases/{database}/documents/comtele_cadastro_rate_phone/{docId}')
+        && !request.path.matches('databases/{database}/documents/users_cpf_index/{docId}');
     }
   }
 }

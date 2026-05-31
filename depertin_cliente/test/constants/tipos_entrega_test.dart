@@ -132,28 +132,34 @@ void main() {
   });
 
   group('TiposEntrega.cadeiaFallbackTabela', () {
-    test('carro_frete → carro_frete → carro → padrao', () {
+    test('carro_frete → carro_frete → … → padrao', () {
       expect(
         TiposEntrega.cadeiaFallbackTabela[TiposEntrega.codCarroFrete],
-        const <String>['carro_frete', 'carro', 'padrao'],
+        const <String>[
+          'carro_frete',
+          'carro',
+          'moto',
+          'bicicleta',
+          'padrao',
+        ],
       );
     });
 
-    test('carro → carro → padrao', () {
+    test('carro → car → … → padrao', () {
       expect(
         TiposEntrega.cadeiaFallbackTabela[TiposEntrega.codCarro],
-        const <String>['carro', 'padrao'],
+        const <String>['carro', 'moto', 'bicicleta', 'padrao'],
       );
     });
 
-    test('moto e bicicleta caem em padrao diretamente', () {
+    test('moto e bicicleta têm fallback cruzando legado combinado padrao', () {
       expect(
         TiposEntrega.cadeiaFallbackTabela[TiposEntrega.codMoto],
-        const <String>['padrao'],
+        const <String>['moto', 'padrao', 'bicicleta'],
       );
       expect(
         TiposEntrega.cadeiaFallbackTabela[TiposEntrega.codBicicleta],
-        const <String>['padrao'],
+        const <String>['bicicleta', 'padrao', 'moto'],
       );
     });
   });
@@ -275,9 +281,9 @@ void main() {
       expect(TiposEntrega.hierarquia['carro_frete'], 4);
     });
 
-    test('tabela de frete mapeia corretamente', () {
-      expect(TiposEntrega.tabelaFretePorTipo['bicicleta'], 'padrao');
-      expect(TiposEntrega.tabelaFretePorTipo['moto'], 'padrao');
+    test('tabela de frete mapeia bicicleta e moto em slugs próprios', () {
+      expect(TiposEntrega.tabelaFretePorTipo['bicicleta'], 'bicicleta');
+      expect(TiposEntrega.tabelaFretePorTipo['moto'], 'moto');
       expect(TiposEntrega.tabelaFretePorTipo['carro'], 'carro');
       expect(TiposEntrega.tabelaFretePorTipo['carro_frete'], 'carro_frete');
     });

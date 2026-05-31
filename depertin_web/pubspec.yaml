@@ -55,6 +55,7 @@ dependencies:
   pdf: ^3.11.3
   printing: ^5.14.2
   google_sign_in: ^6.3.0
+  table_calendar: ^3.2.0
 
 dev_dependencies:
   flutter_test:

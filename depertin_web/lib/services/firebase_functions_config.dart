@@ -17,6 +17,17 @@ class CallableHttpException implements Exception {
   String toString() => 'CallableHttpException($code, $message)';
 }
 
+/// Mensagem legível quando uma callable (via HTTP no web) falhar.
+String mensagemCallableHttpException(CallableHttpException e) {
+  final c = e.code.toLowerCase();
+  if (c.contains('not_found') || c == 'not-found') {
+    return 'Serviço não encontrado. Publique as Cloud Functions mais recentes.';
+  }
+  final m = e.message.trim();
+  if (m.isNotEmpty) return m;
+  return e.code;
+}
+
 /// Região do deploy das Cloud Functions (`firebase deploy --only functions`).
 const String kFirebaseFunctionsRegion = 'us-central1';
 
@@ -102,6 +113,13 @@ Future<Map<String, dynamic>> callFirebaseFunctionSafe(
         ? (err['message'] ?? 'Erro no servidor.').toString()
         : err.toString();
     throw CallableHttpException(code, message);
+  }
+
+  if (response.statusCode == 404) {
+    throw CallableHttpException(
+      'not-found',
+      'Função não encontrada no servidor (deploy pendente?).',
+    );
   }
 
   throw CallableHttpException(

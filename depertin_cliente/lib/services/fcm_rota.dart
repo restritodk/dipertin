@@ -1,4 +1,64 @@
+import 'package:flutter/material.dart';
+
+import '../app_navigator_key.dart';
+import '../screens/cliente/cliente_encomenda_detalhe_screen.dart';
+import '../screens/lojista/lojista_encomenda_detalhe_screen.dart';
 import 'fcm_notification_eventos.dart';
+
+/// Abre a tela certa a partir do payload FCM (push, cold start ou notificação local).
+/// Encomendas usam [MaterialPageRoute] com `encomenda_id` / `loja_id` no payload.
+void navegarPorPayloadFcm({
+  NavigatorState? navigator,
+  bool pushReplacement = false,
+  required Map<String, dynamic> data,
+}) {
+  final nav = navigator ?? navigatorKey.currentState;
+  if (nav == null) return;
+
+  String ds(String k) => data[k]?.toString() ?? '';
+  final tipo = ds('tipoNotificacao').toLowerCase();
+  final encId = ds('encomenda_id').trim();
+  final lojaId = ds('loja_id').trim();
+
+  void applyRoute(Route<void> route) {
+    if (pushReplacement) {
+      nav.pushReplacement(route);
+    } else {
+      nav.push(route);
+    }
+  }
+
+  if (tipo.startsWith('encomenda_cliente_') && encId.isNotEmpty) {
+    applyRoute(
+      MaterialPageRoute<void>(
+        builder: (_) => ClienteEncomendaDetalheScreen(encomendaId: encId),
+        settings: const RouteSettings(name: '/cliente-encomenda'),
+      ),
+    );
+    return;
+  }
+  if (tipo.startsWith('encomenda_loja_') &&
+      encId.isNotEmpty &&
+      lojaId.isNotEmpty) {
+    applyRoute(
+      MaterialPageRoute<void>(
+        builder: (_) => LojistaEncomendaDetalheScreen(
+          encomendaId: encId,
+          uidLoja: lojaId,
+        ),
+        settings: const RouteSettings(name: '/loja-encomenda'),
+      ),
+    );
+    return;
+  }
+
+  final rota = rotaPorPayloadFcm(data);
+  if (pushReplacement) {
+    nav.pushReplacementNamed(rota);
+  } else {
+    nav.pushNamed(rota);
+  }
+}
 
 /// Rota nomeada alinhada ao payload FCM (`data.type`, `tipoNotificacao`, `segmento`).
 String rotaPorPayloadFcm(Map<String, dynamic> data) {

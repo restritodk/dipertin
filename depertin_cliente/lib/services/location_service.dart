@@ -15,8 +15,11 @@ enum LocationStatus {
   permissaoNegadaPermanente,
 }
 
-/// Localização do usuário exposta ao app: apenas **cidade** e **UF**, normalizados.
-/// Coordenadas ficam encapsuladas só para leitura GPS e geocodificação reversa.
+/// Localização do usuário para **vitrine, busca, serviços e anúncios** — somente GPS
+/// (SharedPreferences `cidade_vitrine*`). Não usar endereço de entrega do carrinho
+/// nem `users.cidade` / `endereco_entrega_padrao` para filtrar lojas.
+///
+/// Endereço de entrega: apenas frete e snapshot do pedido (ver `cart_screen.dart`).
 class LocationService extends ChangeNotifier {
   LocationStatus _status = LocationStatus.desconhecido;
   bool _initialized = false;
@@ -30,6 +33,10 @@ class LocationService extends ChangeNotifier {
   double? _ultimaLat;
   double? _ultimaLng;
   bool _detectandoCidade = false;
+
+  /// Última posição GPS usada na detecção de cidade (vitrine/busca por proximidade).
+  double? get ultimaLatitude => _ultimaLat;
+  double? get ultimaLongitude => _ultimaLng;
 
   /// Só fica true após uma detecção bem-sucedida **nesta execução** (não basta cache em disco).
   bool _deteccaoSessaoConfirmada = false;
@@ -274,6 +281,67 @@ class LocationService extends ChangeNotifier {
       ufNormUsuario: ufNormUsuario,
       globalSeVazio: globalSeVazio,
     );
+  }
+
+  static double? coordenadaDoc(dynamic valor) {
+    if (valor == null) return null;
+    if (valor is num) return valor.toDouble();
+    return double.tryParse(valor.toString());
+  }
+
+  /// Raio (~70 km) para exibir loja quando o texto da cidade no Firestore
+  /// está desatualizado mas as coordenadas batem com o GPS do cliente.
+  static const double _raioLojaProximaKm = 70;
+
+  static bool lojaPublicaProximaPorCoordenadas({
+    required Map<String, dynamic> dados,
+    required double usuarioLat,
+    required double usuarioLng,
+    double raioKm = _raioLojaProximaKm,
+  }) {
+    final lojaLat = coordenadaDoc(dados['latitude']);
+    final lojaLng = coordenadaDoc(dados['longitude']);
+    if (lojaLat == null || lojaLng == null) return false;
+    final metros = Geolocator.distanceBetween(
+      usuarioLat,
+      usuarioLng,
+      lojaLat,
+      lojaLng,
+    );
+    return metros <= raioKm * 1000;
+  }
+
+  /// `lojas_public` / vitrine / busca: cidade do **GPS** do usuário.
+  /// 1) Texto em `cidade` / `cidade_normalizada` / `endereco_cidade`.
+  /// 2) Fallback: loja a ≤70 km do GPS (corrige cadastro com cidade errada).
+  static bool lojaPublicaNaRegiaoDoUsuario({
+    required Map<String, dynamic> dados,
+    required String cidadeNormUsuario,
+    required String ufNormUsuario,
+    double? usuarioLat,
+    double? usuarioLng,
+  }) {
+    for (final key in const ['cidade', 'cidade_normalizada', 'endereco_cidade']) {
+      final s = (dados[key] ?? '').toString().trim();
+      if (s.isEmpty) continue;
+      if (cidadeCampoCorrespondeUsuario(
+        campoCidade: s,
+        cidadeNormUsuario: cidadeNormUsuario,
+        ufNormUsuario: ufNormUsuario,
+      )) {
+        return true;
+      }
+    }
+    if (usuarioLat != null &&
+        usuarioLng != null &&
+        lojaPublicaProximaPorCoordenadas(
+          dados: dados,
+          usuarioLat: usuarioLat,
+          usuarioLng: usuarioLng,
+        )) {
+      return true;
+    }
+    return false;
   }
 
   LocationService() {

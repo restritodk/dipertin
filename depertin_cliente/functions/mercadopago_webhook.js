@@ -15,6 +15,7 @@ const { onCall, HttpsError } = require("firebase-functions/v2/https");
 const admin = require("firebase-admin");
 const notificationDispatcher = require("./notification_dispatcher");
 const repasseFinanceiro = require("./repasse_financeiro");
+const encomendasNegociacao = require("./encomendas_negociacao");
 
 const MP_API = "https://api.mercadopago.com";
 
@@ -504,6 +505,121 @@ function roundMoneyMp(v) {
     return Math.round(n * 100) / 100;
 }
 
+/** Regra DiPertin — máximo de parcelas no cartão de crédito (juros para o cliente pelo MP). */
+function parcelasMaximasNegocioDipertin(transactionAmount) {
+    const v = roundMoneyMp(transactionAmount);
+    if (v <= 80) return 1;
+    if (v <= 300) return 3;
+    if (v <= 500) return 6;
+    return 10;
+}
+
+function formatoMoedaBrMp(n) {
+    const x = roundMoneyMp(n);
+    try {
+        return x.toLocaleString("pt-BR", { style: "currency", currency: "BRL" });
+    } catch (_) {
+        return `R$ ${x.toFixed(2)}`.replace(".", ",");
+    }
+}
+
+/**
+ * Consulta parcelas com custo ao pagador (API MP).
+ * @returns {Promise<Array<{installments:number, installment_amount:number, total_amount:number, recommended_message?:string}>>}
+ */
+async function consultarParcelamentosMercadoPago(accessToken, { paymentMethodId, amount, issuerId }) {
+    const amt = roundMoneyMp(amount);
+    const pmid = String(paymentMethodId || "").trim().toLowerCase();
+    if (!accessToken || !pmid || !(amt > 0)) {
+        return [];
+    }
+    /** @type {Array<{ issuer_id?: string }>} */
+    const tentativas = [];
+    const iss = issuerId != null ? String(issuerId).trim() : "";
+    if (iss) {
+        tentativas.push({ issuer_id: iss });
+        tentativas.push({ issuer_dot: iss });
+    }
+    tentativas.push({});
+    for (const extra of tentativas) {
+        const params = new URLSearchParams({
+            payment_method_id: pmid,
+            amount: String(amt),
+        });
+        if (extra.issuer_id) params.append("issuer_id", extra.issuer_id);
+        if (extra.issuer_dot) params.append("issuer.id", extra.issuer_dot);
+        const url = `${MP_API}/v1/payment_methods/installments?${params.toString()}`;
+        try {
+            const res = await fetch(url, {
+                method: "GET",
+                headers: {
+                    Authorization: `Bearer ${accessToken}`,
+                    "Content-Type": "application/json",
+                },
+            });
+            const body = await res.json().catch(() => ([]));
+            if (!res.ok) {
+                console.warn("[mp] installments GET", res.status, body?.message || body?.error || "");
+                continue;
+            }
+            const lista = Array.isArray(body) ? body : [];
+            const payerCosts =
+                lista[0] && Array.isArray(lista[0].payer_costs)
+                    ? lista[0].payer_costs
+                    : [];
+            if (payerCosts.length) return payerCosts;
+        } catch (e) {
+            console.warn("[mp] installments fetch:", e.message || e);
+        }
+    }
+    return [];
+}
+
+/**
+ * Filtra opcões pela regra DiPertin + deduplica número de parcelas.
+ */
+function montarOpcoesParcelasParaCliente(payerCosts, valorPedidoMp, maxParcelasNegocio) {
+    const vPed = roundMoneyMp(valorPedidoMp);
+    const maxN =
+        Number.isFinite(maxParcelasNegocio) && maxParcelasNegocio >= 1
+            ? Math.floor(maxParcelasNegocio)
+            : 1;
+    /** @type {Map<number, {parcelas:number, valorParcela:number, valorTotalCobrado:number, texto:string}>} */
+    const map = new Map();
+    for (const p of payerCosts || []) {
+        const n = Math.floor(Number(p.installments || 0));
+        if (!(n >= 1) || n > maxN) continue;
+        const installmentAmount = roundMoneyMp(p.installment_amount);
+        const totalAmount = roundMoneyMp(p.total_amount);
+        let texto =
+            typeof p.recommended_message === "string" && String(p.recommended_message).trim()
+                ? String(p.recommended_message).trim()
+                : `${n}x de ${formatoMoedaBrMp(installmentAmount)} · total ${formatoMoedaBrMp(totalAmount)}`;
+        if (
+            !map.has(n) ||
+            roundMoneyMp(map.get(n).valorTotalCobrado) > totalAmount
+        ) {
+            map.set(n, {
+                parcelas: n,
+                valorParcela: installmentAmount,
+                valorTotalCobrado: totalAmount,
+                texto,
+            });
+        }
+    }
+    const ordem = [...map.keys()].sort((a, b) => a - b);
+    const lista = ordem.map((k) => map.get(k));
+    if (lista.length) return lista;
+    return [
+        {
+            parcelas: 1,
+            valorParcela: vPed,
+            valorTotalCobrado: vPed,
+            texto: `1x de ${formatoMoedaBrMp(vPed)} (${formatoMoedaBrMp(vPed)} — crédito à vista)`,
+        },
+    ];
+}
+
 /** Valor ainda reembolsável no pagamento (considera estornos já feitos no MP). */
 function valorMaximoReembolsavelApartirDoPagamentoMp(payment) {
     const tx = roundMoneyMp(payment.transaction_amount);
@@ -806,38 +922,75 @@ async function processarPagamentoMercadoPago(payment) {
         if (ped.status === "pendente" && String(ped.mp_payment_id) === String(paymentId)) {
             return { ok: true, already: true };
         }
+        if (ped.status === "encomenda_entrada_paga" && String(ped.mp_payment_id) === String(paymentId)) {
+            return { ok: true, already: true };
+        }
         if (ped.status !== "aguardando_pagamento") {
             console.warn("[mp] Pedido não está aguardando pagamento:", ped.status, extRef);
             return { ok: false, reason: "invalid_pedido_state" };
         }
 
+        const encEntrada =
+            ped.tipo_compra === "encomenda" &&
+            ped.encomenda_fase_financeira === "entrada";
+        const encSaldo =
+            ped.tipo_compra === "encomenda" &&
+            ped.encomenda_fase_financeira === "saldo_final";
+        const novoStatus = encEntrada
+            ? "encomenda_entrada_paga"
+            : (encSaldo ? "em_preparo" : "pendente");
+
         await pedidoRef.update({
             ...baseUpdate,
-            status: "pendente",
+            status: novoStatus,
             forma_pagamento: ped.forma_pagamento || "PIX",
             pagamento_confirmado_em: admin.firestore.FieldValue.serverTimestamp(),
         });
 
-        // Push ao cliente: disparado por notificarClienteStatusPedido (aguardando_pagamento → pendente).
-        // Push à loja (novo pedido + som pedido): mesmo payload que notificarNovoPedido — aqui garantido
-        // no mesmo fluxo do MP (o trigger Firestore onUpdate pode falhar silenciosamente em edge cases).
+        const depoisMerge = {
+            ...ped,
+            ...baseUpdate,
+            status: novoStatus,
+            forma_pagamento: ped.forma_pagamento || "PIX",
+        };
+
+        // Encomenda — entrada paga: não dispara "novo pedido" à loja (evita som/push de pedido cheio).
+        // Fase logística só após o saldo. Sincroniza `encomendas` + alertas in-app.
         const lojaIdFcm = ped.loja_id || ped.lojista_id;
-        if (lojaIdFcm) {
-            const pedidoParaFcm = {
-                ...ped,
-                ...baseUpdate,
-                status: "pendente",
-                forma_pagamento: ped.forma_pagamento || "PIX",
-            };
+        if (lojaIdFcm && !encEntrada && !encSaldo) {
             try {
                 await notificationDispatcher.enviarNovoPedidoParaLoja(
                     db,
                     String(lojaIdFcm),
                     extRef,
-                    pedidoParaFcm,
+                    depoisMerge,
                 );
             } catch (e) {
                 console.error("[mp] enviarNovoPedidoParaLoja pós-PIX:", e.message || e);
+            }
+        }
+
+        if (encEntrada) {
+            try {
+                await encomendasNegociacao.sincronizarEncomendaAposPagamentoEntrada(
+                    db,
+                    extRef,
+                    depoisMerge,
+                );
+            } catch (e) {
+                console.error("[mp] sincronizarEncomendaEntrada:", e.message || e);
+            }
+        }
+
+        if (encSaldo) {
+            try {
+                await encomendasNegociacao.sincronizarEncomendaAposPagamentoSaldoFinal(
+                    db,
+                    extRef,
+                    depoisMerge,
+                );
+            } catch (e) {
+                console.error("[mp] sincronizarEncomendaSaldo:", e.message || e);
             }
         }
 
@@ -1107,6 +1260,131 @@ exports.mpVincularPagamentoPix = onCall(
 );
 
 /**
+ * Callable (v2): lista opções de parcelamento (custos ao pagador) via API MP,
+ * já filtradas pelas faixas DiPertin. Não expõe access_token ao app.
+ */
+exports.mpConsultarParcelamentosCartao = onCall(
+    PAYMENT_CALLABLE_OPTIONS,
+    async (request) => {
+        if (!request.auth) {
+            throw new HttpsError("unauthenticated", "Login necessário.");
+        }
+        const data = request.data || {};
+        const pedidoId = data.pedidoId != null ? String(data.pedidoId).trim() : "";
+        const binLimpo =
+            String(
+                data.bin != null ? data.bin : "",
+            ).replace(/\D/g, "").slice(0, 8);
+        const tipoCartaoRaw = String(data.tipoCartao || "credito").trim().toLowerCase();
+        const isDebito = tipoCartaoRaw === "debito" || tipoCartaoRaw === "debit";
+        const paymentMethodIdHint =
+            data.paymentMethodId != null ? String(data.paymentMethodId).trim().toLowerCase() : "";
+
+        if (!pedidoId || binLimpo.length < 6) {
+            throw new HttpsError(
+                "invalid-argument",
+                "pedidoId e pelo menos 6 dígitos do cartão são obrigatórios.",
+            );
+        }
+
+        const uid = request.auth.uid;
+        const db = admin.firestore();
+        const pedRef = db.collection("pedidos").doc(pedidoId);
+        const pedSnap = await pedRef.get();
+        if (!pedSnap.exists) {
+            throw new HttpsError("not-found", "Pedido não encontrado.");
+        }
+        const ped = pedSnap.data() || {};
+        if (ped.cliente_id !== uid) {
+            throw new HttpsError("permission-denied", "Pedido de outro usuário.");
+        }
+        if (ped.status !== "aguardando_pagamento") {
+            throw new HttpsError(
+                "failed-precondition",
+                "Pedido não está aguardando pagamento.",
+            );
+        }
+
+        const valorMp = valorMercadoPagoEsperadoNoPedido(ped);
+        const maxParcelasNegocio = parcelasMaximasNegocioDipertin(valorMp);
+        if (!(valorMp > 0)) {
+            throw new HttpsError("failed-precondition", "Valor do pedido inválido para parcelamento.");
+        }
+
+        if (isDebito) {
+            const vRound = roundMoneyMp(valorMp);
+            const opcoes = [
+                {
+                    parcelas: 1,
+                    valorParcela: vRound,
+                    valorTotalCobrado: vRound,
+                    texto: `1x de ${formatoMoedaBrMp(valorMp)} (débito à vista)`,
+                },
+            ];
+            return {
+                ok: true,
+                tipoCartao: "debito",
+                valorPedidoMercadoPago: vRound,
+                maxParcelasLoja: 1,
+                opcoes,
+            };
+        }
+
+        const gateway = await getMercadoPagoGatewayConfig();
+        if (!gateway || !gateway.accessToken) {
+            throw new HttpsError("failed-precondition", "Gateway Mercado Pago indisponível.");
+        }
+
+        let metodoResolvido = null;
+        try {
+            metodoResolvido = await resolverMetodoPagamentoPorBinMp({
+                accessToken: gateway.accessToken,
+                publicKey: gateway.publicKey,
+                bin: binLimpo,
+                tipoPreferido: "credito",
+            });
+        } catch (e) {
+            console.warn("[mp consulta parcelas] BIN:", e.message || e);
+        }
+
+        const paymentMethodIdMp =
+            (metodoResolvido && metodoResolvido.payment_method_id) || paymentMethodIdHint;
+        if (!paymentMethodIdMp) {
+            throw new HttpsError(
+                "failed-precondition",
+                "Não foi possível identificar a bandeira. Digite mais dígitos do cartão.",
+            );
+        }
+
+        const issuerParaConsulta =
+            metodoResolvido && metodoResolvido.issuer_id != null
+                ? metodoResolvido.issuer_id
+                : null;
+
+        const payerCosts = await consultarParcelamentosMercadoPago(gateway.accessToken, {
+            paymentMethodId: paymentMethodIdMp,
+            amount: valorMp,
+            issuerId: issuerParaConsulta,
+        });
+
+        const opcoes = montarOpcoesParcelasParaCliente(
+            payerCosts,
+            valorMp,
+            maxParcelasNegocio,
+        );
+
+        return {
+            ok: true,
+            tipoCartao: "credito",
+            valorPedidoMercadoPago: roundMoneyMp(valorMp),
+            maxParcelasLoja: maxParcelasNegocio,
+            payment_method_id_mp: paymentMethodIdMp,
+            opcoes,
+        };
+    },
+);
+
+/**
  * Callable (v2): processa pagamento com cartão no Mercado Pago.
  * Mantém o mesmo fluxo de confirmação já existente: status do pedido
  * muda para `pendente` quando o MP confirmar.
@@ -1320,7 +1598,19 @@ exports.mpProcessarPagamentoCartao = onCall(
             );
             const issuerIdRaw = issuerIdResolvido || cardToken?.issuer?.id;
             const issuerId = issuerIdRaw != null ? String(issuerIdRaw).trim() : "";
-            const parcelasFinal = isDebito ? 1 : (Number.isFinite(parcelas) && parcelas > 0 ? parcelas : 1);
+            const parcelasFinal = isDebito
+                ? 1
+                : (Number.isFinite(parcelas) && parcelas > 0 ? Math.floor(parcelas) : 1);
+            const valorMpPedidoCheckout = valorMercadoPagoEsperadoNoPedido(ped);
+            if (!isDebito) {
+                const limiteParcelasNegocio = parcelasMaximasNegocioDipertin(valorMpPedidoCheckout);
+                if (parcelasFinal < 1 || parcelasFinal > limiteParcelasNegocio) {
+                    throw new HttpsError(
+                        "invalid-argument",
+                        `Número de parcelas não permitido para este valor (máximo ${limiteParcelasNegocio}x).`,
+                    );
+                }
+            }
             // Quebra o nome do titular em primeiro + sobrenome para o payer.
             // O MP tem regras antifraude que conferem o nome do titular; enviar
             // `first_name` e `last_name` melhora a taxa de aprovação.
@@ -1330,7 +1620,7 @@ exports.mpProcessarPagamentoCartao = onCall(
                 ? partesNome.slice(1).join(" ")
                 : "";
             payment = await criarPagamentoMpComCartao(gateway.accessToken, {
-                transaction_amount: valorMercadoPagoEsperadoNoPedido(ped),
+                transaction_amount: valorMpPedidoCheckout,
                 token: cardToken.id,
                 installments: parcelasFinal,
                 payment_method_id: paymentMethodEnviar,

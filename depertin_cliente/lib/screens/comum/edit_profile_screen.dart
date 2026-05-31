@@ -1,6 +1,9 @@
 // Arquivo: lib/screens/comum/edit_profile_screen.dart
 
+import 'dart:async';
 import 'dart:io';
+
+import 'package:cloud_functions/cloud_functions.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:cloud_firestore/cloud_firestore.dart';
@@ -11,6 +14,8 @@ import 'package:geocoding/geocoding.dart';
 import 'package:image_picker/image_picker.dart';
 import 'package:firebase_storage/firebase_storage.dart';
 import 'package:flutter_multi_formatter/flutter_multi_formatter.dart';
+import '../../services/cadastro_sms_consent_android.dart';
+import '../../services/firebase_functions_config.dart';
 import '../../services/location_service.dart';
 import '../../services/permissoes_app_service.dart';
 import '../../utils/cpf_perfil_usuario.dart';
@@ -52,6 +57,19 @@ class _EditProfileScreenState extends State<EditProfileScreen> {
   bool _cpfAlteracaoBloqueada = false;
   String _ufCapturado = '';
 
+  /// Último telefone considerado “gravado” (Firestore ao carregar ou após SMS).
+  String _baselineDigitosServidor = '';
+  String _ultimoDigitoConfirmadoPorSms = '';
+
+  final TextEditingController _codigoSmsController = TextEditingController();
+  bool _smsCodigoEnviado = false;
+  bool _telefoneVerificadoSms = false;
+  bool _enviandoSms = false;
+  bool _validandoCodigoSms = false;
+  int _cooldownReenvioSms = 0;
+  Timer? _timerCooldownSms;
+  bool _celularCompletoParaSms = false;
+
   // === VARIÁVEIS DA FOTO ===
   File? _imagemSelecionada;
   String _urlFotoAtual = '';
@@ -61,6 +79,7 @@ class _EditProfileScreenState extends State<EditProfileScreen> {
   void initState() {
     super.initState();
     _nomeController = TextEditingController(text: widget.nomeAtual);
+    _telefoneController.addListener(_onTelefoneChangedParaSms);
     _carregarDadosDoBanco();
   }
 
@@ -109,6 +128,11 @@ class _EditProfileScreenState extends State<EditProfileScreen> {
             } else if (telefoneSalvo.isNotEmpty) {
               _telefoneController.text = telefoneSalvo;
             }
+
+            final dBase = _digitosTelefone(_telefoneController.text);
+            _baselineDigitosServidor = dBase;
+            _ultimoDigitoConfirmadoPorSms = dBase;
+            _celularCompletoParaSms = dBase.length == 11;
           });
         }
       } catch (e) {
@@ -290,6 +314,473 @@ class _EditProfileScreenState extends State<EditProfileScreen> {
     }
   }
 
+  String _digitosTelefone(String texto) {
+    return texto.replaceAll(RegExp(r'\D'), '');
+  }
+
+  bool _celular11Comtele(String d) {
+    if (d.length != 11) return false;
+    final ddd = int.tryParse(d.substring(0, 2));
+    if (ddd == null || ddd < 11 || ddd > 99) return false;
+    return d[2] == '9';
+  }
+
+  bool get _mostrarPainelSmsAlteracao {
+    final d = _digitosTelefone(_telefoneController.text);
+    if (!_celularCompletoParaSms) return false;
+    if (d == _baselineDigitosServidor) return false;
+    return _celular11Comtele(d);
+  }
+
+  bool _telefoneOkParaSalvar() {
+    final d = _digitosTelefone(_telefoneController.text);
+    if (d.isEmpty) return true;
+    if (d == _baselineDigitosServidor) return true;
+    if (!_celular11Comtele(d)) return false;
+    return _telefoneVerificadoSms && d == _ultimoDigitoConfirmadoPorSms;
+  }
+
+  void _onTelefoneChangedParaSms() {
+    final d = _digitosTelefone(_telefoneController.text);
+    final completo = d.length == 11;
+    final mudouVersusUltimo = d != _ultimoDigitoConfirmadoPorSms;
+    setState(() {
+      _celularCompletoParaSms = completo;
+      if (mudouVersusUltimo) {
+        _smsCodigoEnviado = false;
+        _telefoneVerificadoSms = false;
+        _codigoSmsController.clear();
+        _timerCooldownSms?.cancel();
+        _timerCooldownSms = null;
+        _cooldownReenvioSms = 0;
+        CadastroSmsConsentAndroid.parar();
+      }
+    });
+  }
+
+  void _iniciarCooldownReenvioSms() {
+    _timerCooldownSms?.cancel();
+    setState(() => _cooldownReenvioSms = 45);
+    _timerCooldownSms = Timer.periodic(const Duration(seconds: 1), (t) {
+      if (!mounted) {
+        t.cancel();
+        return;
+      }
+      setState(() {
+        _cooldownReenvioSms--;
+        if (_cooldownReenvioSms <= 0) {
+          t.cancel();
+          _timerCooldownSms = null;
+        }
+      });
+    });
+  }
+
+  String _mensagemErroFunctions(Object e) {
+    if (e is FirebaseFunctionsException) {
+      if (e.message != null && e.message!.isNotEmpty) return e.message!;
+      switch (e.code) {
+        case 'resource-exhausted':
+          return 'Muitas tentativas de SMS. Aguarde alguns minutos.';
+        case 'invalid-argument':
+          return 'Dados inválidos. Verifique o código ou o número.';
+        case 'deadline-exceeded':
+          return 'Código ou verificação expirados. Envie um novo SMS.';
+        case 'internal':
+        case 'unavailable':
+          return 'Serviço temporariamente indisponível. Tente mais tarde.';
+        default:
+          return 'Não foi possível concluir. Tente novamente.';
+      }
+    }
+    return 'Erro inesperado. Tente novamente.';
+  }
+
+  Future<void> _iniciarOuRenovarEscutaSmsConsent() async {
+    if (!CadastroSmsConsentAndroid.disponivel) return;
+    if (!_smsCodigoEnviado || _telefoneVerificadoSms) return;
+    await CadastroSmsConsentAndroid.iniciar(
+      regex: r'\d{6}',
+      onCodigo: (codigo) {
+        if (!mounted || _telefoneVerificadoSms || !_smsCodigoEnviado) return;
+        _codigoSmsController.value = TextEditingValue(text: codigo);
+        setState(() {});
+        Future.microtask(_validarCodigoSmsPerfil);
+      },
+    );
+  }
+
+  Future<void> _enviarCodigoSmsPerfil() async {
+    if (!_celularCompletoParaSms || _enviandoSms || _salvando) return;
+    final nomeTrim = _nomeController.text.trim();
+    if (nomeTrim.isEmpty) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(
+          content: Text(
+            'Preencha seu nome antes de solicitar o código por SMS.',
+          ),
+          backgroundColor: Colors.red,
+          behavior: SnackBarBehavior.floating,
+        ),
+      );
+      return;
+    }
+    setState(() => _enviandoSms = true);
+    try {
+      final callable = appFirebaseFunctions.httpsCallable(
+        'comteleCadastroTelefoneEnviarCodigo',
+        options: HttpsCallableOptions(timeout: const Duration(seconds: 60)),
+      );
+      await callable.call({
+        'telefone': _telefoneController.text.trim(),
+        'nome': nomeTrim,
+      });
+      if (!mounted) return;
+      setState(() {
+        _smsCodigoEnviado = true;
+        _telefoneVerificadoSms = false;
+        _codigoSmsController.clear();
+      });
+      _iniciarCooldownReenvioSms();
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(
+          content: Text('Código enviado por SMS. Confira suas mensagens.'),
+          backgroundColor: Color(0xFF2E7D32),
+          behavior: SnackBarBehavior.floating,
+        ),
+      );
+      await _iniciarOuRenovarEscutaSmsConsent();
+    } catch (e) {
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(
+            content: Text(_mensagemErroFunctions(e)),
+            backgroundColor: Colors.red,
+            behavior: SnackBarBehavior.floating,
+          ),
+        );
+      }
+    } finally {
+      if (mounted) setState(() => _enviandoSms = false);
+    }
+  }
+
+  Future<void> _validarCodigoSmsPerfil() async {
+    await CadastroSmsConsentAndroid.parar();
+    if (!mounted) return;
+    final codigo = _digitosTelefone(_codigoSmsController.text);
+    if (codigo.length != 6) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(
+          content: Text('Digite o código de 6 dígitos enviado por SMS.'),
+          backgroundColor: Colors.red,
+          behavior: SnackBarBehavior.floating,
+        ),
+      );
+      return;
+    }
+    setState(() => _validandoCodigoSms = true);
+    try {
+      final callableVal = appFirebaseFunctions.httpsCallable(
+        'comteleCadastroTelefoneValidarCodigo',
+        options: HttpsCallableOptions(timeout: const Duration(seconds: 45)),
+      );
+      final res = await callableVal.call({
+        'telefone': _telefoneController.text.trim(),
+        'codigo': codigo,
+      });
+      final raw = res.data;
+      String? ticket;
+      if (raw is Map) {
+        ticket = raw['ticketId'] as String?;
+      }
+      if (!mounted) return;
+      if (ticket == null || ticket.isEmpty) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          const SnackBar(
+            content: Text(
+              'Não foi possível confirmar o código. Tente novamente.',
+            ),
+            backgroundColor: Colors.red,
+            behavior: SnackBarBehavior.floating,
+          ),
+        );
+        return;
+      }
+
+      final callablePerfil = appFirebaseFunctions.httpsCallable(
+        'perfilAtualizarTelefoneVerificadoSms',
+        options: HttpsCallableOptions(timeout: const Duration(seconds: 45)),
+      );
+      await callablePerfil.call({
+        'ticketId': ticket,
+        'telefone': _telefoneController.text.trim(),
+      });
+
+      if (!mounted) return;
+      final d = _digitosTelefone(_telefoneController.text);
+      setState(() {
+        _telefoneVerificadoSms = true;
+        _ultimoDigitoConfirmadoPorSms = d;
+        _baselineDigitosServidor = d;
+        _smsCodigoEnviado = false;
+        _codigoSmsController.clear();
+      });
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(
+          content: Text(
+            'Número confirmado. Você já pode salvar as demais alterações do perfil.',
+          ),
+          backgroundColor: Color(0xFF2E7D32),
+          behavior: SnackBarBehavior.floating,
+        ),
+      );
+    } catch (e) {
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(
+            content: Text(_mensagemErroFunctions(e)),
+            backgroundColor: Colors.red,
+            behavior: SnackBarBehavior.floating,
+          ),
+        );
+      }
+    } finally {
+      if (mounted) setState(() => _validandoCodigoSms = false);
+    }
+  }
+
+  Widget _painelVerificacaoSmsAlteracao() {
+    final ok = _telefoneVerificadoSms &&
+        _digitosTelefone(_telefoneController.text) ==
+            _ultimoDigitoConfirmadoPorSms &&
+        _digitosTelefone(_telefoneController.text) ==
+            _baselineDigitosServidor;
+
+    InputDecoration decorCodigo(String label, IconData icon) {
+      const radius = 12.0;
+      final borderBase = OutlineInputBorder(
+        borderRadius: BorderRadius.circular(radius),
+        borderSide: const BorderSide(color: Color(0xFFE0DEE8)),
+      );
+      return InputDecoration(
+        labelText: label,
+        prefixIcon: Icon(icon, color: diPertinRoxo.withValues(alpha: 0.9), size: 22),
+        filled: true,
+        fillColor: Colors.white,
+        contentPadding: const EdgeInsets.symmetric(horizontal: 14, vertical: 14),
+        enabledBorder: borderBase,
+        focusedBorder: OutlineInputBorder(
+          borderRadius: BorderRadius.circular(radius),
+          borderSide: const BorderSide(color: diPertinLaranja, width: 2),
+        ),
+        floatingLabelStyle: const TextStyle(
+          color: diPertinRoxo,
+          fontWeight: FontWeight.w700,
+        ),
+      );
+    }
+
+    return Container(
+      key: ValueKey<bool>(_telefoneVerificadoSms),
+      padding: const EdgeInsets.all(14),
+      decoration: BoxDecoration(
+        color: Colors.white,
+        borderRadius: BorderRadius.circular(12),
+        border: Border.all(color: const Color(0xFFE0DEE8)),
+        boxShadow: [
+          BoxShadow(
+            color: diPertinRoxo.withValues(alpha: 0.06),
+            blurRadius: 12,
+            offset: const Offset(0, 4),
+          ),
+        ],
+      ),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.stretch,
+        children: [
+          Row(
+            children: [
+              Icon(
+                ok ? Icons.verified_rounded : Icons.sms_outlined,
+                color: ok ? Colors.green.shade700 : diPertinRoxo,
+                size: 22,
+              ),
+              const SizedBox(width: 8),
+              Expanded(
+                child: Text(
+                  ok ? 'Novo número confirmado' : 'Confirmar novo celular',
+                  style: TextStyle(
+                    fontWeight: FontWeight.w800,
+                    fontSize: 15,
+                    color: Colors.grey.shade900,
+                  ),
+                ),
+              ),
+            ],
+          ),
+          const SizedBox(height: 8),
+          Text(
+            ok
+                ? 'Este número foi validado por SMS e já está salvo na sua conta.'
+                : _smsCodigoEnviado
+                    ? 'Digite o código de 6 dígitos que você recebeu.'
+                    : 'Enviamos um código por SMS para este número. Toque em enviar para começar.',
+            style: TextStyle(
+              fontSize: 13,
+              height: 1.35,
+              color: Colors.grey.shade700,
+            ),
+          ),
+          if (!ok) ...[
+            const SizedBox(height: 12),
+            FilledButton.icon(
+              onPressed:
+                  (_salvando || _enviandoSms || !_celularCompletoParaSms)
+                      ? null
+                      : (_smsCodigoEnviado ? null : _enviarCodigoSmsPerfil),
+              icon: _enviandoSms
+                  ? const SizedBox(
+                      width: 18,
+                      height: 18,
+                      child: CircularProgressIndicator(
+                        strokeWidth: 2,
+                        color: Colors.white,
+                      ),
+                    )
+                  : const Icon(Icons.send_rounded, size: 20),
+              label: Text(
+                _smsCodigoEnviado ? 'Código enviado' : 'Enviar código por SMS',
+                style: const TextStyle(fontWeight: FontWeight.w700),
+              ),
+              style: FilledButton.styleFrom(
+                backgroundColor: diPertinRoxo,
+                foregroundColor: Colors.white,
+                disabledBackgroundColor: diPertinRoxo.withValues(alpha: 0.4),
+                minimumSize: const Size(double.infinity, 46),
+                shape: RoundedRectangleBorder(
+                  borderRadius: BorderRadius.circular(12),
+                ),
+              ),
+            ),
+            if (_smsCodigoEnviado) ...[
+              const SizedBox(height: 14),
+              TextField(
+                controller: _codigoSmsController,
+                keyboardType: TextInputType.number,
+                maxLength: 6,
+                textAlign: TextAlign.center,
+                style: const TextStyle(
+                  fontSize: 22,
+                  letterSpacing: 6,
+                  fontWeight: FontWeight.w800,
+                ),
+                inputFormatters: [FilteringTextInputFormatter.digitsOnly],
+                autofillHints: CadastroSmsConsentAndroid.disponivel
+                    ? const [AutofillHints.oneTimeCode]
+                    : null,
+                decoration: decorCodigo('Código SMS (6 dígitos)', Icons.pin_rounded)
+                    .copyWith(counterText: ''),
+                enabled: !_salvando && !_validandoCodigoSms,
+              ),
+              if (CadastroSmsConsentAndroid.disponivel) ...[
+                const SizedBox(height: 8),
+                Text(
+                  'Ao receber o SMS, o sistema pode pedir autorização para usar o código '
+                  'neste aplicativo (SMS User Consent). Você pode recusar e digitar manualmente.',
+                  style: TextStyle(
+                    fontSize: 11.5,
+                    height: 1.35,
+                    color: Colors.grey.shade600,
+                  ),
+                ),
+              ],
+              const SizedBox(height: 12),
+              Row(
+                children: [
+                  Expanded(
+                    child: FilledButton(
+                      onPressed: (_salvando || _validandoCodigoSms)
+                          ? null
+                          : _validarCodigoSmsPerfil,
+                      style: FilledButton.styleFrom(
+                        backgroundColor: diPertinLaranja,
+                        foregroundColor: Colors.white,
+                        minimumSize: const Size(double.infinity, 44),
+                        shape: RoundedRectangleBorder(
+                          borderRadius: BorderRadius.circular(12),
+                        ),
+                      ),
+                      child: _validandoCodigoSms
+                          ? const SizedBox(
+                              width: 20,
+                              height: 20,
+                              child: CircularProgressIndicator(
+                                strokeWidth: 2.5,
+                                color: Colors.white,
+                              ),
+                            )
+                          : const Text(
+                              'Validar código',
+                              style: TextStyle(fontWeight: FontWeight.w800),
+                            ),
+                    ),
+                  ),
+                  const SizedBox(width: 10),
+                  Expanded(
+                    child: OutlinedButton(
+                      onPressed: (_salvando ||
+                              _enviandoSms ||
+                              _cooldownReenvioSms > 0 ||
+                              !_smsCodigoEnviado)
+                          ? null
+                          : _enviarCodigoSmsPerfil,
+                      style: OutlinedButton.styleFrom(
+                        foregroundColor: diPertinRoxo,
+                        side: BorderSide(
+                          color: diPertinRoxo.withValues(alpha: 0.55),
+                        ),
+                        minimumSize: const Size(double.infinity, 44),
+                        shape: RoundedRectangleBorder(
+                          borderRadius: BorderRadius.circular(12),
+                        ),
+                      ),
+                      child: Text(
+                        _cooldownReenvioSms > 0
+                            ? 'Reenviar (${_cooldownReenvioSms}s)'
+                            : 'Reenviar SMS',
+                        textAlign: TextAlign.center,
+                        style: const TextStyle(
+                          fontWeight: FontWeight.w700,
+                          fontSize: 13,
+                        ),
+                      ),
+                    ),
+                  ),
+                ],
+              ),
+            ],
+          ],
+        ],
+      ),
+    );
+  }
+
+  String _mensagemErroReservarCpf(FirebaseFunctionsException e) {
+    final msg = e.message?.trim();
+    if (msg != null && msg.isNotEmpty) return msg;
+    switch (e.code) {
+      case 'already-exists':
+        return 'Já existe um cadastro com este CPF.';
+      case 'invalid-argument':
+        return 'CPF inválido. Verifique os 11 dígitos.';
+      case 'failed-precondition':
+        return 'Não foi possível salvar o CPF neste momento.';
+      default:
+        return 'Não foi possível salvar o CPF. Tente novamente.';
+    }
+  }
+
   // === LÓGICA TURBINADA DE SALVAR (PRONTA PARA O PAINEL WEB) ===
   Future<void> _salvarPerfil() async {
     if (_nomeController.text.isEmpty ||
@@ -320,7 +811,9 @@ class _EditProfileScreenState extends State<EditProfileScreen> {
     }
 
     final telefoneBruto = _telefoneController.text.trim();
-    if (telefoneBruto.isNotEmpty && !_telefoneValido(telefoneBruto)) {
+    final dTel = _digitosTelefone(telefoneBruto);
+
+    if (dTel.isNotEmpty && !_telefoneValido(telefoneBruto)) {
       ScaffoldMessenger.of(context).showSnackBar(
         const SnackBar(
           content: Text(
@@ -332,10 +825,64 @@ class _EditProfileScreenState extends State<EditProfileScreen> {
       return;
     }
 
+    if (dTel.isNotEmpty &&
+        dTel != _baselineDigitosServidor &&
+        !_celular11Comtele(dTel)) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(
+          content: Text(
+            'Para alterar o número, informe um celular com DDD e 9 dígitos (11 números).',
+          ),
+          backgroundColor: Colors.red,
+          behavior: SnackBarBehavior.floating,
+        ),
+      );
+      return;
+    }
+
+    if (!_telefoneOkParaSalvar()) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(
+          content: Text(
+            'Confirme o novo número com o código SMS antes de salvar o perfil.',
+          ),
+          backgroundColor: Colors.red,
+          behavior: SnackBarBehavior.floating,
+        ),
+      );
+      return;
+    }
+
     setState(() => _salvando = true);
     try {
       final user = FirebaseAuth.instance.currentUser;
       if (user != null) {
+        if (!_cpfAlteracaoBloqueada) {
+          final digReserva = CpfPerfilUsuario.somenteDigitos(_cpfController.text);
+          if (digReserva.isNotEmpty) {
+            try {
+              final callable = appFirebaseFunctions.httpsCallable(
+                'perfilClienteReservarCpf',
+                options: HttpsCallableOptions(
+                  timeout: const Duration(seconds: 45),
+                ),
+              );
+              await callable.call({'cpf': _cpfController.text.trim()});
+            } on FirebaseFunctionsException catch (e) {
+              if (mounted) {
+                ScaffoldMessenger.of(context).showSnackBar(
+                  SnackBar(
+                    content: Text(_mensagemErroReservarCpf(e)),
+                    backgroundColor: Colors.red,
+                    behavior: SnackBarBehavior.floating,
+                  ),
+                );
+              }
+              return;
+            }
+          }
+        }
+
         String linkDaFoto = _urlFotoAtual;
 
         // SE O CLIENTE ESCOLHEU UMA FOTO NOVA, FAZEMOS O UPLOAD!
@@ -389,13 +936,7 @@ class _EditProfileScreenState extends State<EditProfileScreen> {
           dadosParaSalvar['foto_perfil'] = '';
         }
 
-        if (!_cpfAlteracaoBloqueada) {
-          final dig = CpfPerfilUsuario.somenteDigitos(_cpfController.text);
-          if (dig.isNotEmpty) {
-            dadosParaSalvar['cpf'] = CpfPerfilUsuario.comMascara11(dig);
-            dadosParaSalvar['cpf_alteracao_bloqueada'] = true;
-          }
-        }
+        // CPF (primeira vez): já persistido por perfilClienteReservarCpf antes do update.
 
         await FirebaseFirestore.instance
             .collection('users')
@@ -492,6 +1033,16 @@ class _EditProfileScreenState extends State<EditProfileScreen> {
       padding: const EdgeInsets.all(18),
       child: child,
     );
+  }
+
+  @override
+  void dispose() {
+    CadastroSmsConsentAndroid.parar();
+    _timerCooldownSms?.cancel();
+    _telefoneController.removeListener(_onTelefoneChangedParaSms);
+    _nomeController.dispose();
+    _codigoSmsController.dispose();
+    super.dispose();
   }
 
   @override
@@ -674,7 +1225,8 @@ class _EditProfileScreenState extends State<EditProfileScreen> {
                             bottom: 2,
                           ),
                           child: Text(
-                            'Usado pelo entregador para entrar em contato durante a entrega.',
+                            'Usado pelo entregador para entrar em contato durante a entrega. '
+                            'Ao alterar o celular, confirme com o código SMS.',
                             style: TextStyle(
                               fontSize: 12,
                               color: Colors.grey.shade700,
@@ -682,6 +1234,13 @@ class _EditProfileScreenState extends State<EditProfileScreen> {
                             ),
                           ),
                         ),
+                        if (_mostrarPainelSmsAlteracao) ...[
+                          const SizedBox(height: 14),
+                          AnimatedSwitcher(
+                            duration: const Duration(milliseconds: 220),
+                            child: _painelVerificacaoSmsAlteracao(),
+                          ),
+                        ],
                       ],
                     ),
                   ),

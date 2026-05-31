@@ -1,15 +1,20 @@
 // Arquivo: lib/screens/lojista/lojista_config_screen.dart
 
+import 'dart:io';
+
 import 'package:cloud_firestore/cloud_firestore.dart';
 import 'package:firebase_auth/firebase_auth.dart';
+import 'package:firebase_storage/firebase_storage.dart';
 import 'package:flutter/foundation.dart';
 import 'package:flutter/material.dart';
 import 'package:geocoding/geocoding.dart';
 import 'package:geolocator/geolocator.dart';
+import 'package:image_picker/image_picker.dart';
 
 import '../../constants/tipos_entrega.dart';
 import '../../services/location_service.dart';
 import '../../services/permissoes_app_service.dart';
+import '../../utils/loja_fachada_foto.dart';
 import '../../utils/loja_pausa.dart';
 import '../../widgets/loja_pausa_motivo_dialog.dart';
 import 'configuracoes/tipos_entrega_loja_screen.dart';
@@ -38,6 +43,12 @@ class _LojistaConfigScreenState extends State<LojistaConfigScreen> {
   Timestamp? _pausaVoltaAt;
   String _cidadeCapturada = '';
   String _ufCapturado = '';
+
+  /// Após novo upload mantém pré-visualização até o pai recarregar o stream.
+  String? _urlFachadaLojaOverride;
+
+  final ImagePicker _pickerLogo = ImagePicker();
+  bool _enviandoFotoFachada = false;
 
   final Map<String, String> _nomesDias = {
     'segunda': 'Segunda',
@@ -136,6 +147,154 @@ class _LojistaConfigScreenState extends State<LojistaConfigScreen> {
         }
       });
     }
+  }
+
+  String get _urlFachadaLojaExibicao =>
+      _urlFachadaLojaOverride ??
+      urlFachadaLojaCliente(widget.dadosAtuaisDaLoja);
+
+  Future<void> _escolherFonteFotoFachada(ImageSource fonte) async {
+    final ResultadoPermissao pr = fonte == ImageSource.camera
+        ? await PermissoesAppService.garantirCamera()
+        : await PermissoesAppService.garantirGaleriaFotos();
+    if (!mounted) return;
+    if (pr != ResultadoPermissao.concedida) {
+      if (fonte == ImageSource.camera) {
+        PermissoesFeedback.camera(context, pr);
+      } else {
+        PermissoesFeedback.galeria(context, pr);
+      }
+      return;
+    }
+    try {
+      final XFile? x = await _pickerLogo.pickImage(
+        source: fonte,
+        maxWidth: 1000,
+        maxHeight: 1000,
+        imageQuality: 82,
+      );
+      if (x == null || !mounted) return;
+      await _enviarLogoVitrineArquivo(File(x.path));
+    } catch (e) {
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          const SnackBar(
+            content: Text('Não foi possível selecionar a imagem.'),
+            backgroundColor: Colors.red,
+          ),
+        );
+      }
+    }
+  }
+
+  Future<void> _enviarLogoVitrineArquivo(File file) async {
+    final User? user = FirebaseAuth.instance.currentUser;
+    if (user == null || !mounted) return;
+
+    setState(() => _enviandoFotoFachada = true);
+    try {
+      final String nome =
+          'logo_vitrine_${DateTime.now().millisecondsSinceEpoch}.jpg';
+      final ref = FirebaseStorage.instance
+          .ref()
+          .child('documentos_lojistas')
+          .child(user.uid)
+          .child(nome);
+
+      await ref.putFile(
+        file,
+        SettableMetadata(contentType: 'image/jpeg'),
+      );
+      final String url = await ref.getDownloadURL();
+
+      await FirebaseFirestore.instance.collection('users').doc(user.uid).update(
+        <String, dynamic>{
+          'foto': url,
+          'foto_logo': url,
+          'imagem': url,
+        },
+      );
+
+      if (!mounted) return;
+      setState(() => _urlFachadaLojaOverride = url);
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(
+          content: const Text(
+            'Logo da vitrine atualizado. Pode levar alguns segundos para aparecer em todos os cards.',
+          ),
+          backgroundColor: Colors.green.shade700,
+          behavior: SnackBarBehavior.floating,
+          shape:
+              RoundedRectangleBorder(borderRadius: BorderRadius.circular(10)),
+        ),
+      );
+    } catch (e) {
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(
+            content: Text('Erro ao enviar foto: $e'),
+            backgroundColor: Colors.red,
+          ),
+        );
+      }
+    } finally {
+      if (mounted) setState(() => _enviandoFotoFachada = false);
+    }
+  }
+
+  void _menuTrocarFotoFachadaLoja() {
+    showModalBottomSheet<void>(
+      context: context,
+      shape: const RoundedRectangleBorder(
+        borderRadius: BorderRadius.vertical(top: Radius.circular(20)),
+      ),
+      builder: (ctx) {
+        return SafeArea(
+          child: Wrap(
+            children: [
+              const Padding(
+                padding: EdgeInsets.fromLTRB(18, 16, 18, 4),
+                child: Align(
+                  alignment: Alignment.centerLeft,
+                  child: Text(
+                    'Logo / foto na vitrine',
+                    style: TextStyle(
+                      fontSize: 17,
+                      fontWeight: FontWeight.w800,
+                      letterSpacing: -0.2,
+                      color: diPertinRoxo,
+                    ),
+                  ),
+                ),
+              ),
+              ListTile(
+                leading:
+                    const Icon(Icons.photo_camera, color: diPertinLaranja),
+                title: const Text('Tirar foto'),
+                onTap: () async {
+                  Navigator.pop(ctx);
+                  await Future<void>.delayed(const Duration(milliseconds: 200));
+                  if (mounted) await _escolherFonteFotoFachada(ImageSource.camera);
+                },
+              ),
+              ListTile(
+                leading: const Icon(
+                  Icons.photo_library_rounded,
+                  color: diPertinLaranja,
+                ),
+                title: const Text('Escolher da galeria'),
+                onTap: () async {
+                  Navigator.pop(ctx);
+                  await Future<void>.delayed(const Duration(milliseconds: 200));
+                  if (mounted) await _escolherFonteFotoFachada(ImageSource.gallery);
+                },
+              ),
+              const SizedBox(height: 8),
+            ],
+          ),
+        );
+      },
+    );
   }
 
   @override
@@ -518,6 +677,117 @@ class _LojistaConfigScreenState extends State<LojistaConfigScreen> {
     );
   }
 
+  Widget _blocoLogoVitrine() {
+    final String url = _urlFachadaLojaExibicao;
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.start,
+      children: [
+        const Text(
+          'Logo ou foto da loja na vitrine',
+          style: TextStyle(fontWeight: FontWeight.w700),
+        ),
+        const SizedBox(height: 4),
+        Text(
+          'Esta imagem aparece na busca e no perfil da loja.',
+          style: TextStyle(fontSize: 12, color: Colors.grey.shade700, height: 1.3),
+        ),
+        const SizedBox(height: 12),
+        Row(
+          crossAxisAlignment: CrossAxisAlignment.center,
+          children: [
+            Material(
+              color: Colors.transparent,
+              child: InkWell(
+                onTap: _enviandoFotoFachada ? null : _menuTrocarFotoFachadaLoja,
+                borderRadius: BorderRadius.circular(16),
+                child: Ink(
+                  width: 92,
+                  height: 92,
+                  decoration: BoxDecoration(
+                    color: Colors.grey.shade100,
+                    borderRadius: BorderRadius.circular(16),
+                    border: Border.all(color: Colors.grey.shade300),
+                  ),
+                  child: _enviandoFotoFachada
+                      ? const Center(
+                          child: SizedBox(
+                            width: 28,
+                            height: 28,
+                            child:
+                                CircularProgressIndicator(strokeWidth: 2),
+                          ),
+                        )
+                      : url.isEmpty
+                          ? Icon(Icons.add_photo_alternate_outlined,
+                              size: 40, color: Colors.grey.shade500)
+                          : ClipRRect(
+                              borderRadius: BorderRadius.circular(14),
+                              child: Image.network(
+                                url,
+                                fit: BoxFit.cover,
+                                width: double.infinity,
+                                height: double.infinity,
+                                loadingBuilder:
+                                    (_, child, loadingProgress) {
+                                  if (loadingProgress == null) {
+                                    return child;
+                                  }
+                                  return Center(
+                                    child: CircularProgressIndicator(
+                                      strokeWidth: 2,
+                                      value: loadingProgress
+                                                  .expectedTotalBytes !=
+                                              null
+                                          ? loadingProgress
+                                                  .cumulativeBytesLoaded /
+                                              loadingProgress
+                                                  .expectedTotalBytes!
+                                          : null,
+                                    ),
+                                  );
+                                },
+                                errorBuilder:
+                                    (_, Object? error, StackTrace? _) {
+                                  return Icon(
+                                    Icons.storefront_outlined,
+                                    size: 40,
+                                    color: Colors.grey.shade500,
+                                  );
+                                },
+                              ),
+                            ),
+                ),
+              ),
+            ),
+            const SizedBox(width: 14),
+            Expanded(
+              child: Column(
+                crossAxisAlignment: CrossAxisAlignment.stretch,
+                children: [
+                  OutlinedButton.icon(
+                    onPressed: _enviandoFotoFachada
+                        ? null
+                        : _menuTrocarFotoFachadaLoja,
+                    icon: const Icon(Icons.edit_outlined, size: 18),
+                    label: Text(url.isEmpty ? 'Adicionar imagem' : 'Trocar imagem'),
+                    style: OutlinedButton.styleFrom(
+                      foregroundColor: diPertinRoxo,
+                      side: BorderSide(color: diPertinRoxo.withValues(alpha: 0.45)),
+                      padding: const EdgeInsets.symmetric(
+                        vertical: 12,
+                        horizontal: 12,
+                      ),
+                    ),
+                  ),
+                ],
+              ),
+            ),
+          ],
+        ),
+      ],
+    );
+  }
+
   Widget _cardTiposEntregaAtalho() {
     final List<String> tiposAtuais = TiposEntrega.lerDeDoc(
       widget.dadosAtuaisDaLoja,
@@ -659,6 +929,8 @@ class _LojistaConfigScreenState extends State<LojistaConfigScreen> {
                       icon: Icons.phone_outlined,
                     ),
                   ),
+                  const SizedBox(height: 18),
+                  _blocoLogoVitrine(),
                   const SizedBox(height: 16),
                   Row(
                     children: [

@@ -53,9 +53,6 @@ class NotificacoesHistoricoService {
           .toString()
           .trim();
 
-      // Evita gravar payloads vazios (keepalive/topics sem mensagem visual).
-      if (titulo.isEmpty && corpo.isEmpty) return;
-
       final tipoNotificacao = (dados['tipoNotificacao'] ?? dados['type'] ?? '')
           .toString()
           .trim();
@@ -71,9 +68,20 @@ class NotificacoesHistoricoService {
         if (jaExiste.docs.isNotEmpty) return;
       }
 
+      if (titulo.isEmpty && corpo.isEmpty && dados.isEmpty) return;
+
+      final tituloFinal = titulo.isEmpty
+          ? '(notificação apenas dados — sem título/corpo)'
+          : titulo;
+      final previewDados =
+          dados.entries.take(5).map((e) => '${e.key}=${e.value}').join(' · ');
+      final corpoFinal = corpo.isEmpty
+          ? (previewDados.isNotEmpty ? previewDados : '(payload de dados)')
+          : corpo;
+
       await _itemsRef(uid).add({
-        'titulo': titulo,
-        'corpo': corpo,
+        'titulo': tituloFinal,
+        'corpo': corpoFinal,
         'tipo_notificacao': tipoNotificacao,
         'segmento': segmento,
         'dados': dados,

@@ -13,11 +13,7 @@ import 'package:flutter/material.dart';
 /// Colapsado : 64 px  (só ícones + tooltips).
 /// Toggle    : botão "chevron" no cabeçalho, animação 220 ms easeInOut.
 class SidebarMenu extends StatefulWidget {
-  const SidebarMenu({
-    super.key,
-    required this.rotaAtual,
-    this.onNavegarPainel,
-  });
+  const SidebarMenu({super.key, required this.rotaAtual, this.onNavegarPainel});
 
   final String rotaAtual;
   final void Function(String route)? onNavegarPainel;
@@ -52,8 +48,10 @@ class _SidebarMenuState extends State<SidebarMenu> {
     }
 
     return StreamBuilder<DocumentSnapshot<Map<String, dynamic>>>(
-      stream:
-          FirebaseFirestore.instance.collection('users').doc(uid).snapshots(),
+      stream: FirebaseFirestore.instance
+          .collection('users')
+          .doc(uid)
+          .snapshots(),
       builder: (context, snap) {
         if (snap.connectionState == ConnectionState.waiting && !snap.hasData) {
           return _sidebarCarregando();
@@ -66,8 +64,9 @@ class _SidebarMenuState extends State<SidebarMenu> {
         if (dados.isEmpty) return _sidebarCarregando();
         final perfil = perfilAdministrativoPainel(dados);
         final lojista = perfil == 'lojista';
-        final int? nivelPainel =
-            lojista ? nivelAcessoPainelLojista(dados) : null;
+        final int? nivelPainel = lojista
+            ? nivelAcessoPainelLojista(dados)
+            : null;
 
         if (!lojista) {
           return _SidebarNovo(
@@ -168,14 +167,17 @@ class _SidebarNovo extends StatelessWidget {
   });
 
   final String perfil;
+
   /// `null` se não for lojista (master/staff). 1–3 para colaboradores/dono.
   final int? nivelPainelLojista;
+
   /// Nome comercial da loja (doc. do dono: `loja_nome` ou `nome`). Só lojista.
   final String? nomeLoja;
   final String rotaAtual;
   final bool collapsed;
   final VoidCallback onToggleColapso;
-  final void Function(BuildContext context, String rota, bool jaAtivo) onTapItem;
+  final void Function(BuildContext context, String rota, bool jaAtivo)
+  onTapItem;
 
   @override
   Widget build(BuildContext context) {
@@ -230,8 +232,7 @@ class _SidebarNovo extends StatelessWidget {
             icon: Icons.people_alt_rounded,
             rotaAtual: rotaAtual,
             collapsed: collapsed,
-            onTap: (c) =>
-                onTapItem(c, '/clientes', rotaAtual == '/clientes'),
+            onTap: (c) => onTapItem(c, '/clientes', rotaAtual == '/clientes'),
           ),
         _NavRow(
           rota: '/monitor_pedidos',
@@ -243,13 +244,28 @@ class _SidebarNovo extends StatelessWidget {
               onTapItem(c, '/monitor_pedidos', rotaAtual == '/monitor_pedidos'),
         ),
         _NavRow(
+          rota: '/centro_operacoes',
+          label: 'Centro de operações',
+          icon: Icons.hub_outlined,
+          rotaAtual: rotaAtual,
+          collapsed: collapsed,
+          onTap: (c) => onTapItem(
+            c,
+            '/centro_operacoes',
+            rotaAtual == '/centro_operacoes',
+          ),
+        ),
+        _NavRow(
           rota: '/avaliacoes_painel',
           label: 'Avaliações',
           icon: Icons.star,
           rotaAtual: rotaAtual,
           collapsed: collapsed,
           onTap: (c) => onTapItem(
-              c, '/avaliacoes_painel', rotaAtual == '/avaliacoes_painel'),
+            c,
+            '/avaliacoes_painel',
+            rotaAtual == '/avaliacoes_painel',
+          ),
         ),
         _NavRow(
           rota: '/banners',
@@ -258,6 +274,14 @@ class _SidebarNovo extends StatelessWidget {
           rotaAtual: rotaAtual,
           collapsed: collapsed,
           onTap: (c) => onTapItem(c, '/banners', rotaAtual == '/banners'),
+        ),
+        _NavRow(
+          rota: '/categorias',
+          label: 'Categorias',
+          icon: Icons.category_rounded,
+          rotaAtual: rotaAtual,
+          collapsed: collapsed,
+          onTap: (c) => onTapItem(c, '/categorias', rotaAtual == '/categorias'),
         ),
       ]);
     }
@@ -273,6 +297,18 @@ class _SidebarNovo extends StatelessWidget {
           collapsed: collapsed,
           onTap: (c) =>
               onTapItem(c, '/meus_pedidos', rotaAtual == '/meus_pedidos'),
+        ),
+        _NavRow(
+          rota: '/negociacoes_encomenda',
+          label: 'Negociações de encomenda',
+          icon: Icons.handshake_outlined,
+          rotaAtual: rotaAtual,
+          collapsed: collapsed,
+          onTap: (c) => onTapItem(
+            c,
+            '/negociacoes_encomenda',
+            rotaAtual == '/negociacoes_encomenda',
+          ),
         ),
         if (showMeuCardapio)
           _NavRow(
@@ -308,8 +344,7 @@ class _SidebarNovo extends StatelessWidget {
           icon: Icons.campaign,
           rotaAtual: rotaAtual,
           collapsed: collapsed,
-          onTap: (c) =>
-              onTapItem(c, '/utilidades', rotaAtual == '/utilidades'),
+          onTap: (c) => onTapItem(c, '/utilidades', rotaAtual == '/utilidades'),
         ),
         _NavRow(
           rota: '/financeiro',
@@ -317,8 +352,7 @@ class _SidebarNovo extends StatelessWidget {
           icon: Icons.menu_book_outlined,
           rotaAtual: rotaAtual,
           collapsed: collapsed,
-          onTap: (c) =>
-              onTapItem(c, '/financeiro', rotaAtual == '/financeiro'),
+          onTap: (c) => onTapItem(c, '/financeiro', rotaAtual == '/financeiro'),
         ),
         _NavRowSaquesComContador(
           rotaAtual: rotaAtual,
@@ -394,7 +428,10 @@ class _SidebarNovo extends StatelessWidget {
           rotaAtual: rotaAtual,
           collapsed: collapsed,
           onTap: (c) => onTapItem(
-              c, '/atendimento_suporte', rotaAtual == '/atendimento_suporte'),
+            c,
+            '/atendimento_suporte',
+            rotaAtual == '/atendimento_suporte',
+          ),
         ),
         _NavRow(
           rota: '/conteudo_legal',
@@ -417,16 +454,12 @@ class _SidebarNovo extends StatelessWidget {
         return AnimatedContainer(
           duration: const Duration(milliseconds: 220),
           curve: Curves.easeInOut,
-          width: collapsed
-              ? SidebarMenu.larguraColapsada
-              : SidebarMenu.largura,
+          width: collapsed ? SidebarMenu.larguraColapsada : SidebarMenu.largura,
           height: h,
           clipBehavior: Clip.hardEdge,
           decoration: const BoxDecoration(
             color: _TemaNav.fundo,
-            border: Border(
-              right: BorderSide(color: _TemaNav.borda, width: 1),
-            ),
+            border: Border(right: BorderSide(color: _TemaNav.borda, width: 1)),
           ),
           child: DefaultTextStyle.merge(
             style: _TemaNav.semSublinhado,
@@ -466,8 +499,11 @@ class _SidebarNovo extends StatelessWidget {
                         ),
                         title: Row(
                           children: [
-                            Icon(Icons.logout_rounded,
-                                color: Colors.red.shade400, size: 24),
+                            Icon(
+                              Icons.logout_rounded,
+                              color: Colors.red.shade400,
+                              size: 24,
+                            ),
                             const SizedBox(width: 10),
                             const Text(
                               'Sair do painel',
@@ -535,6 +571,7 @@ class _TopoMarca extends StatelessWidget {
   });
 
   final String perfil;
+
   /// Exibido abaixo do badge (ex.: LOJISTA) quando for lojista.
   final String? nomeLoja;
   final bool collapsed;
@@ -586,8 +623,11 @@ class _TopoMarca extends StatelessWidget {
             color: _TemaNav.borda,
             borderRadius: BorderRadius.circular(10),
           ),
-          child: const Icon(Icons.hub_outlined,
-              color: _TemaNav.textoMuted, size: 22),
+          child: const Icon(
+            Icons.hub_outlined,
+            color: _TemaNav.textoMuted,
+            size: 22,
+          ),
         ),
       ),
     );
@@ -651,7 +691,9 @@ class _TopoMarca extends StatelessWidget {
                       const SizedBox(height: 8),
                       Container(
                         padding: const EdgeInsets.symmetric(
-                            horizontal: 8, vertical: 3),
+                          horizontal: 8,
+                          vertical: 3,
+                        ),
                         decoration: BoxDecoration(
                           color: _TemaNav.accentSoft,
                           borderRadius: BorderRadius.circular(6),
@@ -825,7 +867,8 @@ class _NavRowSaquesComContador extends StatelessWidget {
 
   final String rotaAtual;
   final bool collapsed;
-  final void Function(BuildContext context, String rota, bool jaAtivo) onTapItem;
+  final void Function(BuildContext context, String rota, bool jaAtivo)
+  onTapItem;
 
   @override
   Widget build(BuildContext context) {
@@ -881,7 +924,9 @@ class _NavRow extends StatelessWidget {
 
     if (collapsed) {
       final n = nBadge ?? 0;
-      final tooltipMsg = n > 0 ? '$label — $n pendente${n == 1 ? '' : 's'}' : label;
+      final tooltipMsg = n > 0
+          ? '$label — $n pendente${n == 1 ? '' : 's'}'
+          : label;
       return Padding(
         padding: const EdgeInsets.only(bottom: 4),
         child: Tooltip(
@@ -984,8 +1029,7 @@ class _NavRow extends StatelessWidget {
                     overflow: TextOverflow.ellipsis,
                     style: TextStyle(
                       fontSize: 14,
-                      fontWeight:
-                          ativo ? FontWeight.w600 : FontWeight.w500,
+                      fontWeight: ativo ? FontWeight.w600 : FontWeight.w500,
                       color: ativo ? _TemaNav.texto : _TemaNav.textoMuted,
                       decoration: TextDecoration.none,
                     ),
@@ -1132,10 +1176,8 @@ class _GrupoConfiguracaoLojistaState extends State<_GrupoConfiguracaoLojista> {
                         overflow: TextOverflow.ellipsis,
                         style: TextStyle(
                           fontSize: 14,
-                          fontWeight:
-                              ativo ? FontWeight.w600 : FontWeight.w500,
-                          color:
-                              ativo ? _TemaNav.texto : _TemaNav.textoMuted,
+                          fontWeight: ativo ? FontWeight.w600 : FontWeight.w500,
+                          color: ativo ? _TemaNav.texto : _TemaNav.textoMuted,
                           decoration: TextDecoration.none,
                         ),
                       ),
@@ -1213,10 +1255,7 @@ class _GrupoConfiguracaoLojistaState extends State<_GrupoConfiguracaoLojista> {
               color: ativo ? _TemaNav.accentSoft : null,
             ),
             child: Padding(
-              padding: const EdgeInsets.symmetric(
-                horizontal: 10,
-                vertical: 10,
-              ),
+              padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 10),
               child: Row(
                 children: [
                   Icon(
@@ -1232,19 +1271,14 @@ class _GrupoConfiguracaoLojistaState extends State<_GrupoConfiguracaoLojista> {
                       overflow: TextOverflow.ellipsis,
                       style: TextStyle(
                         fontSize: 13,
-                        fontWeight:
-                            ativo ? FontWeight.w600 : FontWeight.w500,
+                        fontWeight: ativo ? FontWeight.w600 : FontWeight.w500,
                         color: ativo ? _TemaNav.texto : _TemaNav.textoMuted,
                         decoration: TextDecoration.none,
                       ),
                     ),
                   ),
                   if (ativo)
-                    const Icon(
-                      Icons.circle,
-                      size: 6,
-                      color: _TemaNav.accent,
-                    ),
+                    const Icon(Icons.circle, size: 6, color: _TemaNav.accent),
                 ],
               ),
             ),
@@ -1419,10 +1453,8 @@ class _GrupoCarteiraState extends State<_GrupoCarteira> {
                         overflow: TextOverflow.ellipsis,
                         style: TextStyle(
                           fontSize: 14,
-                          fontWeight:
-                              ativo ? FontWeight.w600 : FontWeight.w500,
-                          color:
-                              ativo ? _TemaNav.texto : _TemaNav.textoMuted,
+                          fontWeight: ativo ? FontWeight.w600 : FontWeight.w500,
+                          color: ativo ? _TemaNav.texto : _TemaNav.textoMuted,
                           decoration: TextDecoration.none,
                         ),
                       ),
@@ -1501,10 +1533,7 @@ class _GrupoCarteiraState extends State<_GrupoCarteira> {
               color: ativo ? _TemaNav.accentSoft : null,
             ),
             child: Padding(
-              padding: const EdgeInsets.symmetric(
-                horizontal: 10,
-                vertical: 10,
-              ),
+              padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 10),
               child: Row(
                 children: [
                   Icon(
@@ -1520,19 +1549,14 @@ class _GrupoCarteiraState extends State<_GrupoCarteira> {
                       overflow: TextOverflow.ellipsis,
                       style: TextStyle(
                         fontSize: 13,
-                        fontWeight:
-                            ativo ? FontWeight.w600 : FontWeight.w500,
+                        fontWeight: ativo ? FontWeight.w600 : FontWeight.w500,
                         color: ativo ? _TemaNav.texto : _TemaNav.textoMuted,
                         decoration: TextDecoration.none,
                       ),
                     ),
                   ),
                   if (ativo)
-                    const Icon(
-                      Icons.circle,
-                      size: 6,
-                      color: _TemaNav.accent,
-                    ),
+                    const Icon(Icons.circle, size: 6, color: _TemaNav.accent),
                 ],
               ),
             ),
@@ -1632,8 +1656,7 @@ class _RodapeSair extends StatelessWidget {
           focusColor: Colors.transparent,
           highlightColor: Colors.transparent,
           child: Padding(
-            padding:
-                const EdgeInsets.symmetric(horizontal: 12, vertical: 12),
+            padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 12),
             child: Row(
               children: [
                 Icon(
@@ -1778,10 +1801,8 @@ class _GrupoAdminCityState extends State<_GrupoAdminCity> {
                         overflow: TextOverflow.ellipsis,
                         style: TextStyle(
                           fontSize: 14,
-                          fontWeight:
-                              ativo ? FontWeight.w600 : FontWeight.w500,
-                          color:
-                              ativo ? _TemaNav.texto : _TemaNav.textoMuted,
+                          fontWeight: ativo ? FontWeight.w600 : FontWeight.w500,
+                          color: ativo ? _TemaNav.texto : _TemaNav.textoMuted,
                           decoration: TextDecoration.none,
                         ),
                       ),
@@ -1859,10 +1880,7 @@ class _GrupoAdminCityState extends State<_GrupoAdminCity> {
               color: ativo ? _TemaNav.accentSoft : null,
             ),
             child: Padding(
-              padding: const EdgeInsets.symmetric(
-                horizontal: 10,
-                vertical: 10,
-              ),
+              padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 10),
               child: Row(
                 children: [
                   Icon(
@@ -1878,19 +1896,14 @@ class _GrupoAdminCityState extends State<_GrupoAdminCity> {
                       overflow: TextOverflow.ellipsis,
                       style: TextStyle(
                         fontSize: 13,
-                        fontWeight:
-                            ativo ? FontWeight.w600 : FontWeight.w500,
+                        fontWeight: ativo ? FontWeight.w600 : FontWeight.w500,
                         color: ativo ? _TemaNav.texto : _TemaNav.textoMuted,
                         decoration: TextDecoration.none,
                       ),
                     ),
                   ),
                   if (ativo)
-                    const Icon(
-                      Icons.circle,
-                      size: 6,
-                      color: _TemaNav.accent,
-                    ),
+                    const Icon(Icons.circle, size: 6, color: _TemaNav.accent),
                 ],
               ),
             ),

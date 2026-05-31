@@ -189,33 +189,81 @@ async function calcularCamposFinanceirosPedido(db, pedido, opcoes = {}) {
         );
     }
 
+    const isEncomendaSaldoFinal =
+        pedido.tipo_compra === "encomenda" &&
+        pedido.encomenda_fase_financeira === "saldo_final";
+
+    const valorTotalProdutoNegociado = roundMoney(
+        Number(
+            pedido.valor_total_produto != null && pedido.valor_total_produto !== ""
+                ? pedido.valor_total_produto
+                : pedido.valor_total_encomenda_referencia ?? valorProduto,
+        ),
+    );
+    const valorEntradaProduto = roundMoney(
+        Number(
+            pedido.valor_entrada_produto != null &&
+            pedido.valor_entrada_produto !== ""
+                ? pedido.valor_entrada_produto
+                : pedido.valor_entrada_acordado ?? 0,
+        ),
+    );
+    const valorRestanteProduto = roundMoney(
+        Number(
+            pedido.valor_restante_produto != null &&
+            pedido.valor_restante_produto !== ""
+                ? pedido.valor_restante_produto
+                : valorProduto,
+        ),
+    );
+    const valorTotalFreteRegistro = roundMoney(
+        Number(
+            pedido.valor_total_frete != null && pedido.valor_total_frete !== ""
+                ? pedido.valor_total_frete
+                : pedido.valor_frete_encomenda ?? valorFrete,
+        ),
+    );
+
     // Comissão lojista (incide sobre bruto dos produtos, antes do cupom)
     const planoLojista = planoLojistaWrap ? planoLojistaWrap.data : null;
-    const taxaPlataforma = calcularComissao(valorProduto, planoLojista);
-    const valorLiquidoLojista = roundMoney(
-        Math.max(0, valorProduto - taxaPlataforma),
+    const taxaPlataformaProduto = calcularComissao(valorProduto, planoLojista);
+    let valorLiquidoLojista = roundMoney(
+        Math.max(0, valorProduto - taxaPlataformaProduto),
     );
+
+    // Encomenda saldo: entrada já paga sem taxa — soma no crédito do lojista na entrega.
+    if (isEncomendaSaldoFinal && valorEntradaProduto > 0) {
+        valorLiquidoLojista = roundMoney(
+            valorLiquidoLojista + valorEntradaProduto,
+        );
+    }
 
     // Comissão entregador (incide sobre o frete)
     const planoEntregador = planoEntregadorWrap
         ? planoEntregadorWrap.data
         : null;
-    const taxaEntregador = calcularComissao(valorFrete, planoEntregador);
+    const taxaPlataformaFrete = calcularComissao(valorFrete, planoEntregador);
     const valorLiquidoEntregador = roundMoney(
-        Math.max(0, valorFrete - taxaEntregador),
+        Math.max(0, valorFrete - taxaPlataformaFrete),
+    );
+
+    const taxaPlataforma = roundMoney(
+        taxaPlataformaProduto + taxaPlataformaFrete,
     );
 
     // Receita da plataforma = soma das comissões
-    const valorPlataforma = roundMoney(taxaPlataforma + taxaEntregador);
+    const valorPlataforma = taxaPlataforma;
 
-    return {
+    const out = {
         valor_produto: valorProduto,
         valor_frete: valorFrete,
         desconto_cupom: descontoCupom,
         cupom_id: cupomId,
         cupom_codigo: cupomCodigo,
         taxa_plataforma: taxaPlataforma,
-        taxa_entregador: taxaEntregador,
+        taxa_entregador: taxaPlataformaFrete,
+        taxa_plataforma_produto: taxaPlataformaProduto,
+        taxa_plataforma_frete: taxaPlataformaFrete,
         valor_liquido_lojista: valorLiquidoLojista,
         valor_liquido_entregador: valorLiquidoEntregador,
         valor_plataforma: valorPlataforma,
@@ -227,6 +275,15 @@ async function calcularCamposFinanceirosPedido(db, pedido, opcoes = {}) {
             ? planoEntregadorWrap.id
             : null,
     };
+
+    if (isEncomendaSaldoFinal) {
+        out.valor_total_produto = valorTotalProdutoNegociado;
+        out.valor_entrada_produto = valorEntradaProduto;
+        out.valor_restante_produto = valorRestanteProduto;
+        out.valor_total_frete = valorTotalFreteRegistro;
+    }
+
+    return out;
 }
 
 /**

@@ -8,6 +8,7 @@ import 'package:intl/intl.dart';
 import 'package:url_launcher/url_launcher.dart';
 
 import 'product_details_screen.dart';
+import '../../utils/loja_fachada_foto.dart';
 import '../../utils/loja_pausa.dart';
 
 const Color diPertinRoxo = Color(0xFF6A1B9A);
@@ -35,23 +36,13 @@ class _LojaPerfilScreenState extends State<LojaPerfilScreen> {
   StreamSubscription<DocumentSnapshot>? _subLoja;
   bool _lojaAberta = true;
 
-  /// Dados atualizados do Firestore (foto_perfil, foto_capa, etc.).
+  /// Dados atualizados de `lojas_public` (nome, fotos de fachada, pausa, etc.).
   late Map<String, dynamic> _dadosLoja;
 
   Future<QuerySnapshot<Map<String, dynamic>>>? _cacheAvaliacoes;
 
   static String _urlCapa(Map<String, dynamic> m) =>
       m['foto_capa']?.toString().trim() ?? '';
-
-  /// Mesma lógica do perfil do lojista: foto de perfil / logo da loja.
-  static String _urlLogoLoja(Map<String, dynamic> m) {
-    final s = m['foto_perfil']?.toString().trim() ??
-        m['foto_logo']?.toString().trim() ??
-        m['foto']?.toString().trim() ??
-        m['imagem']?.toString().trim() ??
-        '';
-    return s;
-  }
 
   @override
   void initState() {
@@ -134,8 +125,8 @@ class _LojaPerfilScreenState extends State<LojaPerfilScreen> {
   Widget build(BuildContext context) {
     final m = _dadosLoja;
     final String urlCapa = _urlCapa(m);
-    final String urlLogo = _urlLogoLoja(m);
-    // Capa larga: foto_capa; se não houver, usa a mesma imagem do perfil (Meu perfil).
+    final String urlLogo = urlFachadaLojaCliente(m);
+    // Capa larga: `foto_capa`; senão, a imagem de fachada (config. operacional / vitrine).
     final String urlHero = urlCapa.isNotEmpty ? urlCapa : urlLogo;
     // Evita logo duplicada: o hero já mostra a foto quando não há capa.
     final bool mostrarAvatarCirculo =

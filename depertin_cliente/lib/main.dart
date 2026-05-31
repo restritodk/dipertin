@@ -1,5 +1,6 @@
 import 'dart:async';
 import 'dart:convert';
+import 'dart:ui' show PlatformDispatcher;
 
 import 'package:audioplayers/audioplayers.dart';
 import 'package:depertin_cliente/screens/cliente/chat_suporte_screen.dart';
@@ -38,6 +39,7 @@ import 'services/entregador_oferta_global_listener.dart';
 import 'services/corrida_chamada_entregador_audio.dart';
 import 'services/corrida_foreground_notificacao.dart';
 import 'services/notificacoes_historico_service.dart';
+import 'services/audit_log_app_service.dart';
 import 'package:url_launcher/url_launcher.dart';
 import 'screens/guards/app_guard.dart';
 import 'screens/cliente/vitrine_screen.dart';
@@ -154,7 +156,7 @@ void main() async {
       if (p == null || p.isEmpty) return;
       try {
         final map = jsonDecode(p) as Map<String, dynamic>;
-        navigatorKey.currentState?.pushNamed(rotaPorPayloadFcm(map));
+        navegarPorPayloadFcm(data: Map<String, dynamic>.from(map));
       } catch (_) {}
     },
   );
@@ -193,6 +195,25 @@ void main() async {
       sound: RawResourceAndroidNotificationSound('pedido'),
     ),
   );
+
+  FlutterError.onError = (details) {
+    FlutterError.presentError(details);
+    unawaited(
+      AuditLogAppService.instancia.registrarErroCapturado(
+        details.exceptionAsString(),
+        details.stack?.toString(),
+      ),
+    );
+  };
+  PlatformDispatcher.instance.onError = (error, stack) {
+    unawaited(
+      AuditLogAppService.instancia.registrarErroCapturado(
+        error.toString(),
+        stack.toString(),
+      ),
+    );
+    return true;
+  };
 
   runApp(
     MultiProvider(
@@ -399,9 +420,10 @@ class _SplashScreenState extends State<SplashScreen> {
       await _aplicarDelayMinimoSplash(splashInicio);
       if (!mounted) return;
 
-      Navigator.pushReplacementNamed(
-        context,
-        rotaPorPayloadFcm(initialMessage.data),
+      navegarPorPayloadFcm(
+        navigator: Navigator.of(context),
+        pushReplacement: true,
+        data: Map<String, dynamic>.from(initialMessage.data),
       );
       return;
     }
@@ -475,7 +497,9 @@ class _SplashScreenState extends State<SplashScreen> {
     FirebaseMessaging.onMessageOpenedApp.listen((RemoteMessage message) {
       debugPrint('[FCM] onMessageOpenedApp — ${message.data}');
       unawaited(pararSomCorridaForeground());
-      navigatorKey.currentState?.pushNamed(rotaPorPayloadFcm(message.data));
+      navegarPorPayloadFcm(
+        data: Map<String, dynamic>.from(message.data),
+      );
       // Histórico (paralelo — push aberto pelo usuário).
       unawaited(NotificacoesHistoricoService.salvarDePush(
         message,
@@ -617,6 +641,8 @@ class _SplashScreenState extends State<SplashScreen> {
     final isNovoPedidoLoja =
         tipo == FcmNotificationEventos.tipoNovoPedido ||
         typeRaw == FcmNotificationEventos.typeNovoPedido;
+    final isEncomendaLoja =
+        tipo.toLowerCase().startsWith('encomenda_loja_');
 
     final bool isAndroid =
         !kIsWeb && defaultTargetPlatform == TargetPlatform.android;
@@ -661,7 +687,7 @@ class _SplashScreenState extends State<SplashScreen> {
         playSound: true,
         fullScreenIntent: true,
       );
-    } else if (isAndroid && isNovoPedidoLoja) {
+    } else if (isAndroid && (isNovoPedidoLoja || isEncomendaLoja)) {
       androidDetails = AndroidNotificationDetails(
         'loja_novo_pedido',
         'Novos pedidos na loja',
@@ -737,7 +763,7 @@ class _SplashScreenState extends State<SplashScreen> {
       debugPrint('[FCM] ERRO ao exibir notificação local: $e');
     }
 
-    if (isNovoPedidoLoja) {
+    if (isNovoPedidoLoja || isEncomendaLoja) {
       try {
         await _audioNovoPedidoLoja.stop();
         await _audioNovoPedidoLoja.play(AssetSource('sond/pedido.mp3'));

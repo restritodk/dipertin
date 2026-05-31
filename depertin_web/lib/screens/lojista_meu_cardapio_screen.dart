@@ -29,6 +29,7 @@ class _LojistaMeuCardapioScreenState extends State<LojistaMeuCardapioScreen> {
   static const _laranja = PainelAdminTheme.laranja;
 
   final _buscaC = TextEditingController();
+
   /// todos | ativos | inativos
   String _filtroVisibilidade = 'todos';
 
@@ -86,14 +87,85 @@ class _LojistaMeuCardapioScreenState extends State<LojistaMeuCardapioScreen> {
     }
     var requerVeiculoGrande =
         d['requer_veiculo_grande'] == true || d['carga_maior'] == true;
+    String? categoriaSelecionada = catC.text.trim().isEmpty
+        ? null
+        : catC.text.trim();
+
+    Future<void> sugerirCategoria() async {
+      final ctrl = TextEditingController();
+      final nome = await showDialog<String>(
+        context: context,
+        builder: (dialogCtx) => AlertDialog(
+          title: const Text('Sugerir categoria'),
+          content: TextField(
+            controller: ctrl,
+            autofocus: true,
+            textCapitalization: TextCapitalization.words,
+            decoration: const InputDecoration(
+              hintText: 'Ex.: Moda fitness, autopeças...',
+              border: OutlineInputBorder(),
+            ),
+            onSubmitted: (_) => Navigator.pop(dialogCtx, ctrl.text.trim()),
+          ),
+          actions: [
+            TextButton(
+              onPressed: () => Navigator.pop(dialogCtx),
+              child: const Text('Cancelar'),
+            ),
+            FilledButton(
+              onPressed: () => Navigator.pop(dialogCtx, ctrl.text.trim()),
+              child: const Text('Enviar'),
+            ),
+          ],
+        ),
+      );
+      ctrl.dispose();
+      if (nome == null || nome.trim().length < 2) return;
+      await FirebaseFirestore.instance.collection('sugestoes_categorias').add({
+        'nome': nome.trim(),
+        'lojista_id': uidLoja,
+        'status': 'pendente',
+        'origem': 'painel_lojista_produto',
+        'data': FieldValue.serverTimestamp(),
+        'criada_em': FieldValue.serverTimestamp(),
+      });
+      if (context.mounted) {
+        await showDialog<void>(
+          context: context,
+          builder: (dialogCtx) => AlertDialog(
+            shape: RoundedRectangleBorder(
+              borderRadius: BorderRadius.circular(18),
+            ),
+            title: const Row(
+              children: [
+                Icon(Icons.check_circle_rounded, color: Color(0xFF15803D)),
+                SizedBox(width: 10),
+                Expanded(child: Text('Sugestão enviada')),
+              ],
+            ),
+            content: Text(
+              'A categoria "${nome.trim()}" foi enviada para análise. '
+              'Assim que for aprovada, ela ficará disponível no cadastro de produtos.',
+            ),
+            actions: [
+              FilledButton(
+                onPressed: () => Navigator.pop(dialogCtx),
+                child: const Text('Entendi'),
+              ),
+            ],
+          ),
+        );
+      }
+    }
 
     await showDialog<void>(
       context: context,
       barrierDismissible: false,
       builder: (ctx) => StatefulBuilder(
         builder: (ctx, setS) => Dialog(
-          shape:
-              RoundedRectangleBorder(borderRadius: BorderRadius.circular(22)),
+          shape: RoundedRectangleBorder(
+            borderRadius: BorderRadius.circular(22),
+          ),
           clipBehavior: Clip.antiAlias,
           child: ConstrainedBox(
             constraints: const BoxConstraints(maxWidth: 460),
@@ -178,9 +250,75 @@ class _LojistaMeuCardapioScreenState extends State<LojistaMeuCardapioScreen> {
                           decoration: _dec('Nome do produto *'),
                         ),
                         const SizedBox(height: 12),
-                        TextField(
-                          controller: catC,
-                          decoration: _dec('Categoria'),
+                        StreamBuilder<QuerySnapshot<Map<String, dynamic>>>(
+                          stream: FirebaseFirestore.instance
+                              .collection('categorias')
+                              .where('ativo', isEqualTo: true)
+                              .snapshots(),
+                          builder: (context, catSnap) {
+                            if (!catSnap.hasData) {
+                              return const LinearProgressIndicator();
+                            }
+                            final cats = catSnap.data!.docs.toList()
+                              ..sort((a, b) {
+                                final ma = a.data();
+                                final mb = b.data();
+                                final oa =
+                                    (ma['ordem'] as num?)?.toInt() ?? 999;
+                                final ob =
+                                    (mb['ordem'] as num?)?.toInt() ?? 999;
+                                if (oa != ob) return oa.compareTo(ob);
+                                return (ma['nome'] ?? '').toString().compareTo(
+                                  (mb['nome'] ?? '').toString(),
+                                );
+                              });
+                            final valores = cats
+                                .map(
+                                  (e) => (e.data()['nome'] ?? '')
+                                      .toString()
+                                      .trim(),
+                                )
+                                .where((e) => e.isNotEmpty)
+                                .toSet()
+                                .toList();
+                            final valorAtual =
+                                valores.contains(categoriaSelecionada)
+                                ? categoriaSelecionada
+                                : null;
+                            return Column(
+                              crossAxisAlignment: CrossAxisAlignment.stretch,
+                              children: [
+                                DropdownButtonFormField<String>(
+                                  initialValue: valorAtual,
+                                  isExpanded: true,
+                                  decoration: _dec('Categoria oficial'),
+                                  items: valores
+                                      .map(
+                                        (nome) => DropdownMenuItem(
+                                          value: nome,
+                                          child: Text(nome),
+                                        ),
+                                      )
+                                      .toList(),
+                                  onChanged: (v) => setS(() {
+                                    categoriaSelecionada = v;
+                                    catC.text = v ?? '';
+                                  }),
+                                ),
+                                Align(
+                                  alignment: Alignment.centerRight,
+                                  child: TextButton.icon(
+                                    onPressed: sugerirCategoria,
+                                    icon: const Icon(
+                                      Icons.lightbulb_outline,
+                                      size: 18,
+                                    ),
+                                    label: const Text('Sugerir categoria'),
+                                  ),
+                                ),
+                              ],
+                            );
+                          },
                         ),
                         const SizedBox(height: 12),
                         TextField(
@@ -197,11 +335,14 @@ class _LojistaMeuCardapioScreenState extends State<LojistaMeuCardapioScreen> {
                             Expanded(
                               child: TextField(
                                 controller: precoC,
-                                keyboardType: const TextInputType.numberWithOptions(
-                                    decimal: true),
+                                keyboardType:
+                                    const TextInputType.numberWithOptions(
+                                      decimal: true,
+                                    ),
                                 inputFormatters: [
                                   FilteringTextInputFormatter.allow(
-                                      RegExp(r'[\d.,]')),
+                                    RegExp(r'[\d.,]'),
+                                  ),
                                 ],
                                 decoration: _dec('Preço (R\$) *'),
                               ),
@@ -266,8 +407,7 @@ class _LojistaMeuCardapioScreenState extends State<LojistaMeuCardapioScreen> {
                           decoration: BoxDecoration(
                             color: const Color(0xFFF0F7FF),
                             borderRadius: BorderRadius.circular(12),
-                            border:
-                                Border.all(color: const Color(0xFFBFDBFE)),
+                            border: Border.all(color: const Color(0xFFBFDBFE)),
                           ),
                           child: Column(
                             crossAxisAlignment: CrossAxisAlignment.start,
@@ -313,8 +453,7 @@ class _LojistaMeuCardapioScreenState extends State<LojistaMeuCardapioScreen> {
                                     color: _laranja.withValues(alpha: 0.08),
                                     borderRadius: BorderRadius.circular(8),
                                     border: Border.all(
-                                      color:
-                                          _laranja.withValues(alpha: 0.35),
+                                      color: _laranja.withValues(alpha: 0.35),
                                     ),
                                   ),
                                   child: Row(
@@ -356,8 +495,7 @@ class _LojistaMeuCardapioScreenState extends State<LojistaMeuCardapioScreen> {
                   child: Row(
                     children: [
                       TextButton(
-                        onPressed:
-                            salvando ? null : () => Navigator.pop(ctx),
+                        onPressed: salvando ? null : () => Navigator.pop(ctx),
                         child: const Text('Cancelar'),
                       ),
                       const Spacer(),
@@ -365,8 +503,21 @@ class _LojistaMeuCardapioScreenState extends State<LojistaMeuCardapioScreen> {
                         onPressed: salvando
                             ? null
                             : () async {
-                                if (nomeC.text.trim().isEmpty) return;
-                                final preco = double.tryParse(
+                                if (nomeC.text.trim().isEmpty ||
+                                    categoriaSelecionada == null ||
+                                    categoriaSelecionada!.isEmpty) {
+                                  ScaffoldMessenger.of(context).showSnackBar(
+                                    const SnackBar(
+                                      content: Text(
+                                        'Informe nome e categoria oficial.',
+                                      ),
+                                      backgroundColor: Colors.orange,
+                                    ),
+                                  );
+                                  return;
+                                }
+                                final preco =
+                                    double.tryParse(
                                       precoC.text.replaceAll(',', '.'),
                                     ) ??
                                     0;
@@ -381,7 +532,9 @@ class _LojistaMeuCardapioScreenState extends State<LojistaMeuCardapioScreen> {
                                     'nome': nomeC.text.trim(),
                                     'preco': preco,
                                     'descricao': descC.text.trim(),
-                                    'categoria_nome': catC.text.trim(),
+                                    'categoria': categoriaSelecionada!.trim(),
+                                    'categoria_nome': categoriaSelecionada!
+                                        .trim(),
                                     'estoque_qtd': est,
                                     'tipo_venda': tipo,
                                     'ativo': ativo,
@@ -458,29 +611,29 @@ class _LojistaMeuCardapioScreenState extends State<LojistaMeuCardapioScreen> {
   }
 
   static Widget _secForm(String t) => Text(
-        t,
-        style: GoogleFonts.plusJakartaSans(
-          fontSize: 13,
-          fontWeight: FontWeight.w700,
-          color: _roxo,
-          letterSpacing: 0.2,
-        ),
-      );
+    t,
+    style: GoogleFonts.plusJakartaSans(
+      fontSize: 13,
+      fontWeight: FontWeight.w700,
+      color: _roxo,
+      letterSpacing: 0.2,
+    ),
+  );
 
   static InputDecoration _dec(String label) => InputDecoration(
-        labelText: label,
-        filled: true,
-        fillColor: const Color(0xFFF8F7FC),
-        border: OutlineInputBorder(borderRadius: BorderRadius.circular(12)),
-        enabledBorder: OutlineInputBorder(
-          borderRadius: BorderRadius.circular(12),
-          borderSide: BorderSide(color: Colors.grey.shade300),
-        ),
-        focusedBorder: OutlineInputBorder(
-          borderRadius: BorderRadius.circular(12),
-          borderSide: const BorderSide(color: _roxo, width: 1.5),
-        ),
-      );
+    labelText: label,
+    filled: true,
+    fillColor: const Color(0xFFF8F7FC),
+    border: OutlineInputBorder(borderRadius: BorderRadius.circular(12)),
+    enabledBorder: OutlineInputBorder(
+      borderRadius: BorderRadius.circular(12),
+      borderSide: BorderSide(color: Colors.grey.shade300),
+    ),
+    focusedBorder: OutlineInputBorder(
+      borderRadius: BorderRadius.circular(12),
+      borderSide: const BorderSide(color: _roxo, width: 1.5),
+    ),
+  );
 
   Future<void> _excluir(
     BuildContext context,
@@ -491,9 +644,7 @@ class _LojistaMeuCardapioScreenState extends State<LojistaMeuCardapioScreen> {
       builder: (ctx) => AlertDialog(
         shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(16)),
         title: const Text('Excluir produto?'),
-        content: const Text(
-          'O item sai da vitrine e é removido do catálogo.',
-        ),
+        content: const Text('O item sai da vitrine e é removido do catálogo.'),
         actions: [
           TextButton(
             onPressed: () => Navigator.pop(ctx, false),
@@ -541,185 +692,129 @@ class _LojistaMeuCardapioScreenState extends State<LojistaMeuCardapioScreen> {
         }
 
         return Scaffold(
-      backgroundColor: PainelAdminTheme.fundoCanvas,
-      body: StreamBuilder<QuerySnapshot<Map<String, dynamic>>>(
-        stream: FirebaseFirestore.instance
-            .collection('produtos')
-            .where('lojista_id', isEqualTo: uidLoja)
-            .snapshots(),
-        builder: (context, snap) {
-          if (snap.connectionState == ConnectionState.waiting &&
-              !snap.hasData) {
-            return const Center(child: CircularProgressIndicator());
-          }
-          if (snap.hasError) {
-            return Center(child: Text('Erro: ${snap.error}'));
-          }
+          backgroundColor: PainelAdminTheme.fundoCanvas,
+          body: StreamBuilder<QuerySnapshot<Map<String, dynamic>>>(
+            stream: FirebaseFirestore.instance
+                .collection('produtos')
+                .where('lojista_id', isEqualTo: uidLoja)
+                .snapshots(),
+            builder: (context, snap) {
+              if (snap.connectionState == ConnectionState.waiting &&
+                  !snap.hasData) {
+                return const Center(child: CircularProgressIndicator());
+              }
+              if (snap.hasError) {
+                return Center(child: Text('Erro: ${snap.error}'));
+              }
 
-          final todos = snap.data?.docs ?? [];
-          int nAtivos = 0;
-          int nInativos = 0;
-          for (final e in todos) {
-            final p = e.data();
-            if (p['ativo'] != false) {
-              nAtivos++;
-            } else {
-              nInativos++;
-            }
-          }
+              final todos = snap.data?.docs ?? [];
+              int nAtivos = 0;
+              int nInativos = 0;
+              for (final e in todos) {
+                final p = e.data();
+                if (p['ativo'] != false) {
+                  nAtivos++;
+                } else {
+                  nInativos++;
+                }
+              }
 
-          var docs = todos.toList();
-          final q = _buscaC.text.trim().toLowerCase();
-          if (q.isNotEmpty) {
-            docs = docs.where((e) {
-              final m = e.data();
-              final nome = (m['nome'] ?? '').toString().toLowerCase();
-              final cat = (m['categoria_nome'] ?? m['categoria'] ?? '')
-                  .toString()
-                  .toLowerCase();
-              return nome.contains(q) || cat.contains(q);
-            }).toList();
-          }
-          docs = docs.where((e) {
-            return _passaVisibilidade(e.data(), _filtroVisibilidade);
-          }).toList();
+              var docs = todos.toList();
+              final q = _buscaC.text.trim().toLowerCase();
+              if (q.isNotEmpty) {
+                docs = docs.where((e) {
+                  final m = e.data();
+                  final nome = (m['nome'] ?? '').toString().toLowerCase();
+                  final cat = (m['categoria_nome'] ?? m['categoria'] ?? '')
+                      .toString()
+                      .toLowerCase();
+                  return nome.contains(q) || cat.contains(q);
+                }).toList();
+              }
+              docs = docs.where((e) {
+                return _passaVisibilidade(e.data(), _filtroVisibilidade);
+              }).toList();
 
-          docs.sort((a, b) {
-            final na = (a.data()['nome'] ?? '').toString().toLowerCase();
-            final nb = (b.data()['nome'] ?? '').toString().toLowerCase();
-            return na.compareTo(nb);
-          });
+              docs.sort((a, b) {
+                final na = (a.data()['nome'] ?? '').toString().toLowerCase();
+                final nb = (b.data()['nome'] ?? '').toString().toLowerCase();
+                return na.compareTo(nb);
+              });
 
-          return Column(
-            crossAxisAlignment: CrossAxisAlignment.stretch,
-            children: [
-              Padding(
-                padding: const EdgeInsets.fromLTRB(16, 16, 16, 0),
-                child: Center(
-                  child: ConstrainedBox(
-                    constraints: const BoxConstraints(maxWidth: 1200),
-                    child: LayoutBuilder(
-                      builder: (context, constraints) {
-                        final narrow = constraints.maxWidth < 560;
-                        final busca = TextField(
-                          controller: _buscaC,
-                          onChanged: (_) => setState(() {}),
-                          style: const TextStyle(fontSize: 13),
-                          decoration: InputDecoration(
-                            isDense: true,
-                            hintText: 'Buscar nome ou categoria…',
-                            hintStyle: TextStyle(
-                              fontSize: 13,
-                              color: Colors.grey.shade500,
-                            ),
-                            prefixIcon: Icon(
-                              Icons.search_rounded,
-                              size: 20,
-                              color: Colors.grey.shade600,
-                            ),
-                            filled: true,
-                            fillColor: Colors.white,
-                            border: OutlineInputBorder(
-                              borderRadius: BorderRadius.circular(10),
-                            ),
-                            enabledBorder: OutlineInputBorder(
-                              borderRadius: BorderRadius.circular(10),
-                              borderSide: BorderSide(
-                                color: Colors.grey.shade300,
-                              ),
-                            ),
-                            focusedBorder: OutlineInputBorder(
-                              borderRadius: BorderRadius.circular(10),
-                              borderSide: const BorderSide(
-                                color: _roxo,
-                                width: 1.5,
-                              ),
-                            ),
-                            contentPadding: const EdgeInsets.symmetric(
-                              horizontal: 12,
-                              vertical: 10,
-                            ),
-                          ),
-                        );
-                        return Column(
-                          crossAxisAlignment: CrossAxisAlignment.stretch,
-                          children: [
-                            if (narrow) ...[
-                              Text(
-                                'Meus produtos',
-                                style: GoogleFonts.plusJakartaSans(
-                                  fontSize: 22,
-                                  fontWeight: FontWeight.w800,
-                                  color: _roxo,
-                                  letterSpacing: -0.5,
-                                ),
-                              ),
-                              const SizedBox(height: 4),
-                              Text(
-                                'Preço, foto e disponibilidade na vitrine.',
-                                style: TextStyle(
-                                  color: Colors.grey.shade700,
+              return Column(
+                crossAxisAlignment: CrossAxisAlignment.stretch,
+                children: [
+                  Padding(
+                    padding: const EdgeInsets.fromLTRB(16, 16, 16, 0),
+                    child: Center(
+                      child: ConstrainedBox(
+                        constraints: const BoxConstraints(maxWidth: 1200),
+                        child: LayoutBuilder(
+                          builder: (context, constraints) {
+                            final narrow = constraints.maxWidth < 560;
+                            final busca = TextField(
+                              controller: _buscaC,
+                              onChanged: (_) => setState(() {}),
+                              style: const TextStyle(fontSize: 13),
+                              decoration: InputDecoration(
+                                isDense: true,
+                                hintText: 'Buscar nome ou categoria…',
+                                hintStyle: TextStyle(
                                   fontSize: 13,
-                                  height: 1.35,
+                                  color: Colors.grey.shade500,
+                                ),
+                                prefixIcon: Icon(
+                                  Icons.search_rounded,
+                                  size: 20,
+                                  color: Colors.grey.shade600,
+                                ),
+                                filled: true,
+                                fillColor: Colors.white,
+                                border: OutlineInputBorder(
+                                  borderRadius: BorderRadius.circular(10),
+                                ),
+                                enabledBorder: OutlineInputBorder(
+                                  borderRadius: BorderRadius.circular(10),
+                                  borderSide: BorderSide(
+                                    color: Colors.grey.shade300,
+                                  ),
+                                ),
+                                focusedBorder: OutlineInputBorder(
+                                  borderRadius: BorderRadius.circular(10),
+                                  borderSide: const BorderSide(
+                                    color: _roxo,
+                                    width: 1.5,
+                                  ),
+                                ),
+                                contentPadding: const EdgeInsets.symmetric(
+                                  horizontal: 12,
+                                  vertical: 10,
                                 ),
                               ),
-                              const SizedBox(height: 12),
-                              FilledButton.icon(
-                                onPressed: () => _abrirFormulario(
-                                      context,
-                                      uidLoja: uidLoja,
-                                    ),
-                                style: FilledButton.styleFrom(
-                                  backgroundColor: _laranja,
-                                  foregroundColor: Colors.white,
-                                  padding: const EdgeInsets.symmetric(
-                                    horizontal: 16,
-                                    vertical: 12,
-                                  ),
-                                  shape: RoundedRectangleBorder(
-                                    borderRadius: BorderRadius.circular(10),
-                                  ),
-                                ),
-                                icon: const Icon(Icons.add_rounded, size: 20),
-                                label: const Text(
-                                  'Novo produto',
-                                  style: TextStyle(
-                                    fontWeight: FontWeight.w700,
-                                    fontSize: 13,
-                                  ),
-                                ),
-                              ),
-                            ] else
-                              Row(
-                                crossAxisAlignment: CrossAxisAlignment.start,
-                                children: [
-                                  Expanded(
-                                    child: Column(
-                                      crossAxisAlignment:
-                                          CrossAxisAlignment.start,
-                                      children: [
-                                        Text(
-                                          'Meus produtos',
-                                          style: GoogleFonts.plusJakartaSans(
-                                            fontSize: 22,
-                                            fontWeight: FontWeight.w800,
-                                            color: _roxo,
-                                            letterSpacing: -0.5,
-                                          ),
-                                        ),
-                                        const SizedBox(height: 4),
-                                        Text(
-                                          'Preço, foto e disponibilidade na vitrine.',
-                                          style: TextStyle(
-                                            color: Colors.grey.shade700,
-                                            fontSize: 13,
-                                            height: 1.35,
-                                          ),
-                                        ),
-                                      ],
+                            );
+                            return Column(
+                              crossAxisAlignment: CrossAxisAlignment.stretch,
+                              children: [
+                                if (narrow) ...[
+                                  Text(
+                                    'Meus produtos',
+                                    style: GoogleFonts.plusJakartaSans(
+                                      fontSize: 22,
+                                      fontWeight: FontWeight.w800,
+                                      color: _roxo,
+                                      letterSpacing: -0.5,
                                     ),
                                   ),
-                                  const SizedBox(width: 12),
+                                  const SizedBox(height: 4),
+                                  Text(
+                                    'Preço, foto e disponibilidade na vitrine.',
+                                    style: TextStyle(
+                                      color: Colors.grey.shade700,
+                                      fontSize: 13,
+                                      height: 1.35,
+                                    ),
+                                  ),
+                                  const SizedBox(height: 12),
                                   FilledButton.icon(
                                     onPressed: () => _abrirFormulario(
                                       context,
@@ -736,8 +831,10 @@ class _LojistaMeuCardapioScreenState extends State<LojistaMeuCardapioScreen> {
                                         borderRadius: BorderRadius.circular(10),
                                       ),
                                     ),
-                                    icon: const Icon(Icons.add_rounded,
-                                        size: 20),
+                                    icon: const Icon(
+                                      Icons.add_rounded,
+                                      size: 20,
+                                    ),
                                     label: const Text(
                                       'Novo produto',
                                       style: TextStyle(
@@ -746,218 +843,250 @@ class _LojistaMeuCardapioScreenState extends State<LojistaMeuCardapioScreen> {
                                       ),
                                     ),
                                   ),
-                                ],
-                              ),
-                            const SizedBox(height: 14),
-                            if (constraints.maxWidth < 720)
-                              Wrap(
-                                spacing: 8,
-                                runSpacing: 8,
-                                children: [
-                                  _kpiChipWrap(
-                                    icon: Icons.inventory_2_outlined,
-                                    label: 'Total',
-                                    valor: '${todos.length}',
-                                    cor: _roxo,
-                                  ),
-                                  _kpiChipWrap(
-                                    icon: Icons.visibility_outlined,
-                                    label: 'Na vitrine',
-                                    valor: '$nAtivos',
-                                    cor: const Color(0xFF15803D),
-                                  ),
-                                  _kpiChipWrap(
-                                    icon: Icons.visibility_off_outlined,
-                                    label: 'Ocultos',
-                                    valor: '$nInativos',
-                                    cor: Colors.grey.shade700,
-                                  ),
-                                ],
-                              )
-                            else
-                              Row(
-                                children: [
-                                  _kpiChip(
-                                    icon: Icons.inventory_2_outlined,
-                                    label: 'Total',
-                                    valor: '${todos.length}',
-                                    cor: _roxo,
-                                  ),
-                                  const SizedBox(width: 8),
-                                  _kpiChip(
-                                    icon: Icons.visibility_outlined,
-                                    label: 'Na vitrine',
-                                    valor: '$nAtivos',
-                                    cor: const Color(0xFF15803D),
-                                  ),
-                                  const SizedBox(width: 8),
-                                  _kpiChip(
-                                    icon: Icons.visibility_off_outlined,
-                                    label: 'Ocultos',
-                                    valor: '$nInativos',
-                                    cor: Colors.grey.shade700,
-                                  ),
-                                ],
-                              ),
-                            const SizedBox(height: 12),
-                            if (constraints.maxWidth >= 640)
-                              Row(
-                                crossAxisAlignment: CrossAxisAlignment.center,
-                                children: [
-                                  Expanded(
-                                    flex: 5,
-                                    child: _segmentoListagem(),
-                                  ),
-                                  const SizedBox(width: 12),
-                                  Expanded(
-                                    flex: 4,
-                                    child: busca,
-                                  ),
-                                  const SizedBox(width: 10),
-                                  _alternarVisualizacao(),
-                                ],
-                              )
-                            else ...[
-                              _segmentoListagem(),
-                              const SizedBox(height: 8),
-                              Row(
-                                crossAxisAlignment: CrossAxisAlignment.start,
-                                children: [
-                                  Expanded(child: busca),
-                                  const SizedBox(width: 8),
-                                  _alternarVisualizacao(),
-                                ],
-                              ),
-                            ],
-                          ],
-                        );
-                      },
-                    ),
-                  ),
-                ),
-              ),
-              Expanded(
-                child: docs.isEmpty
-                    ? Center(
-                        child: Padding(
-                          padding: const EdgeInsets.all(32),
-                          child: Column(
-                            mainAxisAlignment: MainAxisAlignment.center,
-                            children: [
-                              Container(
-                                padding: const EdgeInsets.all(22),
-                                decoration: BoxDecoration(
-                                  color: _roxo.withValues(alpha: 0.08),
-                                  shape: BoxShape.circle,
-                                ),
-                                child: Icon(
-                                  Icons.restaurant_menu_rounded,
-                                  size: 48,
-                                  color: _roxo.withValues(alpha: 0.65),
-                                ),
-                              ),
-                              const SizedBox(height: 20),
-                              Text(
-                                todos.isEmpty
-                                    ? 'Comece adicionando o primeiro item'
-                                    : 'Nenhum produto neste filtro',
-                                style: GoogleFonts.plusJakartaSans(
-                                  fontSize: 18,
-                                  fontWeight: FontWeight.w700,
-                                  color: const Color(0xFF1E1B4B),
-                                ),
-                                textAlign: TextAlign.center,
-                              ),
-                              const SizedBox(height: 8),
-                              Text(
-                                todos.isEmpty
-                                    ? 'Clientes só veem produtos que você cadastrar aqui.'
-                                    : 'Ajuste a busca ou o filtro acima.',
-                                textAlign: TextAlign.center,
-                                style: TextStyle(
-                                  color: Colors.grey.shade600,
-                                  fontSize: 14,
-                                ),
-                              ),
-                              if (todos.isEmpty) ...[
-                                const SizedBox(height: 24),
-                                FilledButton.icon(
-                                  onPressed: () => _abrirFormulario(
-                                    context,
-                                    uidLoja: uidLoja,
-                                  ),
-                                  style: FilledButton.styleFrom(
-                                    backgroundColor: _laranja,
-                                    foregroundColor: Colors.white,
-                                    padding: const EdgeInsets.symmetric(
-                                      horizontal: 24,
-                                      vertical: 14,
-                                    ),
-                                    shape: RoundedRectangleBorder(
-                                      borderRadius: BorderRadius.circular(14),
-                                    ),
-                                  ),
-                                  icon: const Icon(Icons.add_rounded),
-                                  label: const Text('Criar primeiro produto'),
-                                ),
-                              ],
-                            ],
-                          ),
-                        ),
-                      )
-                    : Padding(
-                        padding: const EdgeInsets.fromLTRB(16, 10, 16, 100),
-                        child: Center(
-                          child: ConstrainedBox(
-                            constraints:
-                                const BoxConstraints(maxWidth: 1200),
-                            child: _modoVisualizacao == _CardapioView.lista
-                                ? ListView.separated(
-                                    itemCount: docs.length,
-                                    separatorBuilder: (_, _) =>
-                                        Divider(
-                                      height: 1,
-                                      thickness: 1,
-                                      color: Colors.grey.shade200,
-                                    ),
-                                    itemBuilder: (context, i) {
-                                      final doc = docs[i];
-                                      final p = doc.data();
-                                      return _LinhaProduto(
-                                        moeda: moeda,
-                                        p: p,
-                                        onEdit: () => _abrirFormulario(
+                                ] else
+                                  Row(
+                                    crossAxisAlignment:
+                                        CrossAxisAlignment.start,
+                                    children: [
+                                      Expanded(
+                                        child: Column(
+                                          crossAxisAlignment:
+                                              CrossAxisAlignment.start,
+                                          children: [
+                                            Text(
+                                              'Meus produtos',
+                                              style:
+                                                  GoogleFonts.plusJakartaSans(
+                                                    fontSize: 22,
+                                                    fontWeight: FontWeight.w800,
+                                                    color: _roxo,
+                                                    letterSpacing: -0.5,
+                                                  ),
+                                            ),
+                                            const SizedBox(height: 4),
+                                            Text(
+                                              'Preço, foto e disponibilidade na vitrine.',
+                                              style: TextStyle(
+                                                color: Colors.grey.shade700,
+                                                fontSize: 13,
+                                                height: 1.35,
+                                              ),
+                                            ),
+                                          ],
+                                        ),
+                                      ),
+                                      const SizedBox(width: 12),
+                                      FilledButton.icon(
+                                        onPressed: () => _abrirFormulario(
                                           context,
                                           uidLoja: uidLoja,
-                                          existente: doc,
                                         ),
-                                        onDelete: () =>
-                                            _excluir(context, doc),
-                                      );
-                                    },
+                                        style: FilledButton.styleFrom(
+                                          backgroundColor: _laranja,
+                                          foregroundColor: Colors.white,
+                                          padding: const EdgeInsets.symmetric(
+                                            horizontal: 16,
+                                            vertical: 12,
+                                          ),
+                                          shape: RoundedRectangleBorder(
+                                            borderRadius: BorderRadius.circular(
+                                              10,
+                                            ),
+                                          ),
+                                        ),
+                                        icon: const Icon(
+                                          Icons.add_rounded,
+                                          size: 20,
+                                        ),
+                                        label: const Text(
+                                          'Novo produto',
+                                          style: TextStyle(
+                                            fontWeight: FontWeight.w700,
+                                            fontSize: 13,
+                                          ),
+                                        ),
+                                      ),
+                                    ],
+                                  ),
+                                const SizedBox(height: 14),
+                                if (constraints.maxWidth < 720)
+                                  Wrap(
+                                    spacing: 8,
+                                    runSpacing: 8,
+                                    children: [
+                                      _kpiChipWrap(
+                                        icon: Icons.inventory_2_outlined,
+                                        label: 'Total',
+                                        valor: '${todos.length}',
+                                        cor: _roxo,
+                                      ),
+                                      _kpiChipWrap(
+                                        icon: Icons.visibility_outlined,
+                                        label: 'Na vitrine',
+                                        valor: '$nAtivos',
+                                        cor: const Color(0xFF15803D),
+                                      ),
+                                      _kpiChipWrap(
+                                        icon: Icons.visibility_off_outlined,
+                                        label: 'Ocultos',
+                                        valor: '$nInativos',
+                                        cor: Colors.grey.shade700,
+                                      ),
+                                    ],
                                   )
-                                : LayoutBuilder(
-                                    builder: (context, c) {
-                                      final cols = c.maxWidth >= 1100
-                                          ? 3
-                                          : c.maxWidth >= 720
-                                              ? 2
-                                              : 1;
-                                      const gap = 12.0;
-                                      return GridView.builder(
-                                        gridDelegate:
-                                            SliverGridDelegateWithFixedCrossAxisCount(
-                                          crossAxisCount: cols,
-                                          mainAxisSpacing: gap,
-                                          crossAxisSpacing: gap,
-                                          childAspectRatio:
-                                              cols == 1 ? 1.02 : 0.88,
+                                else
+                                  Row(
+                                    children: [
+                                      _kpiChip(
+                                        icon: Icons.inventory_2_outlined,
+                                        label: 'Total',
+                                        valor: '${todos.length}',
+                                        cor: _roxo,
+                                      ),
+                                      const SizedBox(width: 8),
+                                      _kpiChip(
+                                        icon: Icons.visibility_outlined,
+                                        label: 'Na vitrine',
+                                        valor: '$nAtivos',
+                                        cor: const Color(0xFF15803D),
+                                      ),
+                                      const SizedBox(width: 8),
+                                      _kpiChip(
+                                        icon: Icons.visibility_off_outlined,
+                                        label: 'Ocultos',
+                                        valor: '$nInativos',
+                                        cor: Colors.grey.shade700,
+                                      ),
+                                    ],
+                                  ),
+                                const SizedBox(height: 12),
+                                if (constraints.maxWidth >= 640)
+                                  Row(
+                                    crossAxisAlignment:
+                                        CrossAxisAlignment.center,
+                                    children: [
+                                      Expanded(
+                                        flex: 5,
+                                        child: _segmentoListagem(),
+                                      ),
+                                      const SizedBox(width: 12),
+                                      Expanded(flex: 4, child: busca),
+                                      const SizedBox(width: 10),
+                                      _alternarVisualizacao(),
+                                    ],
+                                  )
+                                else ...[
+                                  _segmentoListagem(),
+                                  const SizedBox(height: 8),
+                                  Row(
+                                    crossAxisAlignment:
+                                        CrossAxisAlignment.start,
+                                    children: [
+                                      Expanded(child: busca),
+                                      const SizedBox(width: 8),
+                                      _alternarVisualizacao(),
+                                    ],
+                                  ),
+                                ],
+                              ],
+                            );
+                          },
+                        ),
+                      ),
+                    ),
+                  ),
+                  Expanded(
+                    child: docs.isEmpty
+                        ? Center(
+                            child: Padding(
+                              padding: const EdgeInsets.all(32),
+                              child: Column(
+                                mainAxisAlignment: MainAxisAlignment.center,
+                                children: [
+                                  Container(
+                                    padding: const EdgeInsets.all(22),
+                                    decoration: BoxDecoration(
+                                      color: _roxo.withValues(alpha: 0.08),
+                                      shape: BoxShape.circle,
+                                    ),
+                                    child: Icon(
+                                      Icons.restaurant_menu_rounded,
+                                      size: 48,
+                                      color: _roxo.withValues(alpha: 0.65),
+                                    ),
+                                  ),
+                                  const SizedBox(height: 20),
+                                  Text(
+                                    todos.isEmpty
+                                        ? 'Comece adicionando o primeiro item'
+                                        : 'Nenhum produto neste filtro',
+                                    style: GoogleFonts.plusJakartaSans(
+                                      fontSize: 18,
+                                      fontWeight: FontWeight.w700,
+                                      color: const Color(0xFF1E1B4B),
+                                    ),
+                                    textAlign: TextAlign.center,
+                                  ),
+                                  const SizedBox(height: 8),
+                                  Text(
+                                    todos.isEmpty
+                                        ? 'Clientes só veem produtos que você cadastrar aqui.'
+                                        : 'Ajuste a busca ou o filtro acima.',
+                                    textAlign: TextAlign.center,
+                                    style: TextStyle(
+                                      color: Colors.grey.shade600,
+                                      fontSize: 14,
+                                    ),
+                                  ),
+                                  if (todos.isEmpty) ...[
+                                    const SizedBox(height: 24),
+                                    FilledButton.icon(
+                                      onPressed: () => _abrirFormulario(
+                                        context,
+                                        uidLoja: uidLoja,
+                                      ),
+                                      style: FilledButton.styleFrom(
+                                        backgroundColor: _laranja,
+                                        foregroundColor: Colors.white,
+                                        padding: const EdgeInsets.symmetric(
+                                          horizontal: 24,
+                                          vertical: 14,
                                         ),
+                                        shape: RoundedRectangleBorder(
+                                          borderRadius: BorderRadius.circular(
+                                            14,
+                                          ),
+                                        ),
+                                      ),
+                                      icon: const Icon(Icons.add_rounded),
+                                      label: const Text(
+                                        'Criar primeiro produto',
+                                      ),
+                                    ),
+                                  ],
+                                ],
+                              ),
+                            ),
+                          )
+                        : Padding(
+                            padding: const EdgeInsets.fromLTRB(16, 10, 16, 100),
+                            child: Center(
+                              child: ConstrainedBox(
+                                constraints: const BoxConstraints(
+                                  maxWidth: 1200,
+                                ),
+                                child: _modoVisualizacao == _CardapioView.lista
+                                    ? ListView.separated(
                                         itemCount: docs.length,
+                                        separatorBuilder: (_, _) => Divider(
+                                          height: 1,
+                                          thickness: 1,
+                                          color: Colors.grey.shade200,
+                                        ),
                                         itemBuilder: (context, i) {
                                           final doc = docs[i];
                                           final p = doc.data();
-                                          return _CartaoProduto(
+                                          return _LinhaProduto(
                                             moeda: moeda,
                                             p: p,
                                             onEdit: () => _abrirFormulario(
@@ -969,18 +1098,53 @@ class _LojistaMeuCardapioScreenState extends State<LojistaMeuCardapioScreen> {
                                                 _excluir(context, doc),
                                           );
                                         },
-                                      );
-                                    },
-                                  ),
+                                      )
+                                    : LayoutBuilder(
+                                        builder: (context, c) {
+                                          final cols = c.maxWidth >= 1100
+                                              ? 3
+                                              : c.maxWidth >= 720
+                                              ? 2
+                                              : 1;
+                                          const gap = 12.0;
+                                          return GridView.builder(
+                                            gridDelegate:
+                                                SliverGridDelegateWithFixedCrossAxisCount(
+                                                  crossAxisCount: cols,
+                                                  mainAxisSpacing: gap,
+                                                  crossAxisSpacing: gap,
+                                                  childAspectRatio: cols == 1
+                                                      ? 1.02
+                                                      : 0.88,
+                                                ),
+                                            itemCount: docs.length,
+                                            itemBuilder: (context, i) {
+                                              final doc = docs[i];
+                                              final p = doc.data();
+                                              return _CartaoProduto(
+                                                moeda: moeda,
+                                                p: p,
+                                                onEdit: () => _abrirFormulario(
+                                                  context,
+                                                  uidLoja: uidLoja,
+                                                  existente: doc,
+                                                ),
+                                                onDelete: () =>
+                                                    _excluir(context, doc),
+                                              );
+                                            },
+                                          );
+                                        },
+                                      ),
+                              ),
+                            ),
                           ),
-                        ),
-                      ),
-              ),
-            ],
-          );
-        },
-      ),
-    );
+                  ),
+                ],
+              );
+            },
+          ),
+        );
       },
     );
   }
@@ -989,18 +1153,9 @@ class _LojistaMeuCardapioScreenState extends State<LojistaMeuCardapioScreen> {
   Widget _segmentoListagem() {
     final btn = SegmentedButton<String>(
       segments: const [
-        ButtonSegment<String>(
-          value: 'todos',
-          label: Text('Todos'),
-        ),
-        ButtonSegment<String>(
-          value: 'ativos',
-          label: Text('Na vitrine'),
-        ),
-        ButtonSegment<String>(
-          value: 'inativos',
-          label: Text('Ocultos'),
-        ),
+        ButtonSegment<String>(value: 'todos', label: Text('Todos')),
+        ButtonSegment<String>(value: 'ativos', label: Text('Na vitrine')),
+        ButtonSegment<String>(value: 'inativos', label: Text('Ocultos')),
       ],
       selected: {_filtroVisibilidade},
       showSelectedIcon: false,
@@ -1054,8 +1209,9 @@ class _LojistaMeuCardapioScreenState extends State<LojistaMeuCardapioScreen> {
           _modoVisualizacao == _CardapioView.lista,
         ],
         onPressed: (i) => setState(() {
-          _modoVisualizacao =
-              i == 0 ? _CardapioView.grade : _CardapioView.lista;
+          _modoVisualizacao = i == 0
+              ? _CardapioView.grade
+              : _CardapioView.lista;
         }),
         children: const [
           Icon(Icons.grid_view_rounded, size: 20),
@@ -1201,15 +1357,13 @@ class _LinhaProduto extends StatelessWidget {
   Widget build(BuildContext context) {
     final url = _img(p['imagens']);
     final nome = p['nome']?.toString() ?? 'Sem nome';
-    final cat =
-        (p['categoria_nome'] ?? p['categoria'] ?? '').toString().trim();
+    final cat = (p['categoria_nome'] ?? p['categoria'] ?? '').toString().trim();
     final preco = _precoProduto(p['preco']);
     final est = p['estoque_qtd'];
     final estStr = est != null ? '$est' : '—';
     final ativo = p['ativo'] != false;
     final tipo = (p['tipo_venda'] ?? 'pronta_entrega').toString();
-    final tipoLabel =
-        tipo == 'encomenda' ? 'Encomenda' : 'Pronta entrega';
+    final tipoLabel = tipo == 'encomenda' ? 'Encomenda' : 'Pronta entrega';
 
     return Material(
       color: Colors.white,
@@ -1266,8 +1420,9 @@ class _LinhaProduto extends StatelessWidget {
                           ),
                           decoration: BoxDecoration(
                             color: ativo
-                                ? const Color(0xFF15803D)
-                                    .withValues(alpha: 0.12)
+                                ? const Color(
+                                    0xFF15803D,
+                                  ).withValues(alpha: 0.12)
                                 : Colors.grey.shade200,
                             borderRadius: BorderRadius.circular(6),
                           ),
@@ -1286,10 +1441,7 @@ class _LinhaProduto extends StatelessWidget {
                     ),
                     const SizedBox(height: 2),
                     Text(
-                      [
-                        if (cat.isNotEmpty) cat,
-                        tipoLabel,
-                      ].join(' · '),
+                      [if (cat.isNotEmpty) cat, tipoLabel].join(' · '),
                       style: TextStyle(
                         fontSize: 11,
                         color: Colors.grey.shade600,
@@ -1349,14 +1501,14 @@ class _LinhaProduto extends StatelessWidget {
   }
 
   Widget _thumbVazio() => Container(
-        color: const Color(0xFFF0EEF5),
-        alignment: Alignment.center,
-        child: Icon(
-          Icons.restaurant_rounded,
-          size: 26,
-          color: PainelAdminTheme.roxo.withValues(alpha: 0.28),
-        ),
-      );
+    color: const Color(0xFFF0EEF5),
+    alignment: Alignment.center,
+    child: Icon(
+      Icons.restaurant_rounded,
+      size: 26,
+      color: PainelAdminTheme.roxo.withValues(alpha: 0.28),
+    ),
+  );
 }
 
 class _CartaoProduto extends StatelessWidget {
@@ -1383,16 +1535,14 @@ class _CartaoProduto extends StatelessWidget {
   Widget build(BuildContext context) {
     final url = _img(p['imagens']);
     final nome = p['nome']?.toString() ?? 'Sem nome';
-    final cat =
-        (p['categoria_nome'] ?? p['categoria'] ?? '').toString().trim();
+    final cat = (p['categoria_nome'] ?? p['categoria'] ?? '').toString().trim();
     final desc = (p['descricao'] ?? '').toString().trim();
     final preco = _precoProduto(p['preco']);
     final est = p['estoque_qtd'];
     final estStr = est != null ? '$est un.' : '—';
     final ativo = p['ativo'] != false;
     final tipo = (p['tipo_venda'] ?? 'pronta_entrega').toString();
-    final tipoLabel =
-        tipo == 'encomenda' ? 'Encomenda' : 'Pronta entrega';
+    final tipoLabel = tipo == 'encomenda' ? 'Encomenda' : 'Pronta entrega';
 
     return Material(
       color: Colors.white,
@@ -1568,7 +1718,10 @@ class _CartaoProduto extends StatelessWidget {
                           minimumSize: const Size(36, 36),
                           padding: EdgeInsets.zero,
                         ),
-                        icon: const Icon(Icons.delete_outline_rounded, size: 20),
+                        icon: const Icon(
+                          Icons.delete_outline_rounded,
+                          size: 20,
+                        ),
                       ),
                     ],
                   ),
@@ -1582,13 +1735,13 @@ class _CartaoProduto extends StatelessWidget {
   }
 
   Widget _semFoto() => Container(
-        color: const Color(0xFFF0EEF5),
-        child: Center(
-          child: Icon(
-            Icons.restaurant_rounded,
-            size: 36,
-            color: PainelAdminTheme.roxo.withValues(alpha: 0.25),
-          ),
-        ),
-      );
+    color: const Color(0xFFF0EEF5),
+    child: Center(
+      child: Icon(
+        Icons.restaurant_rounded,
+        size: 36,
+        color: PainelAdminTheme.roxo.withValues(alpha: 0.25),
+      ),
+    ),
+  );
 }

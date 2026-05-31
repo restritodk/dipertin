@@ -13,7 +13,7 @@
 //   - Loja aceita ["moto","carro"]              → frete calculado como CARRO
 //   - Loja aceita ["carro_frete"]               → frete calculado como CARRO_FRETE
 //   - Loja aceita ["bicicleta"]                 → frete calculado como BICICLETA
-//                                                 (usa tabela `padrao` com
+//                                                 (usa tabela `bicicleta` com
 //                                                 aviso de limite de ~2 km)
 //
 // Cliente NUNCA escolhe o tipo de veículo — isso é decisão interna do
@@ -57,24 +57,26 @@ class TiposEntrega {
     codCarroFrete: 4,
   };
 
-  /// Tabela `tabela_fretes` a consultar. `bicicleta` e `moto` compartilham
-  /// `padrao`. Se futuramente quiser tabela própria de bike, basta trocar.
+  /// Suíxe / chave primária em `tabela_fretes` (doc `{cidade}_{slug}`)
+  /// utilizada antes do fallback pela cadeia.
+  ///
+  /// `bicicleta` e `moto` têm tabela própria; `padrao` preserva uma única regra
+  /// legado (mesmo valor moto+bike). `carro` e `carro_frete` inalterados.
   static const Map<String, String> tabelaFretePorTipo = <String, String>{
-    codBicicleta: 'padrao',
-    codMoto: 'padrao',
+    codBicicleta: 'bicicleta',
+    codMoto: 'moto',
     codCarro: 'carro',
     codCarroFrete: 'carro_frete',
   };
 
-  /// Cadeia de fallback se a tabela primária não existir para a cidade.
-  /// Ordem: preferida primeiro. Se nenhuma for encontrada, o cálculo cai
-  /// em `_taxaBaseFallback` da UI.
+  /// Cadeia de fallback se a linha primária não existir para a cidade.
+  /// Preferida primeiro — ver documentação em `cart_screen._carregarRegraFrete`.
   static const Map<String, List<String>> cadeiaFallbackTabela =
       <String, List<String>>{
-    codCarroFrete: <String>['carro_frete', 'carro', 'padrao'],
-    codCarro: <String>['carro', 'padrao'],
-    codMoto: <String>['padrao'],
-    codBicicleta: <String>['padrao'],
+    codCarroFrete: <String>['carro_frete', 'carro', 'moto', 'bicicleta', 'padrao'],
+    codCarro: <String>['carro', 'moto', 'bicicleta', 'padrao'],
+    codMoto: <String>['moto', 'padrao', 'bicicleta'],
+    codBicicleta: <String>['bicicleta', 'padrao', 'moto'],
   };
 
   /// Raio km recomendado (aviso na UI; NUNCA bloqueia compra por distância).

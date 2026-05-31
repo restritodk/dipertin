@@ -25,7 +25,8 @@ class LojistaProdutosScreen extends StatefulWidget {
 }
 
 class _LojistaProdutosScreenState extends State<LojistaProdutosScreen> {
-  late final String _uid = widget.uidLoja ?? FirebaseAuth.instance.currentUser!.uid;
+  late final String _uid =
+      widget.uidLoja ?? FirebaseAuth.instance.currentUser!.uid;
   final TextEditingController _buscaController = TextEditingController();
 
   late final Stream<QuerySnapshot> _streamProdutos = FirebaseFirestore.instance
@@ -687,12 +688,17 @@ class _FormularioProdutoModalState extends State<FormularioProdutoModal> {
   final _precoController = TextEditingController();
   final _estoqueController = TextEditingController(text: '1');
   final _prazoController = TextEditingController();
+  final _corController = TextEditingController();
+  final _tamanhoController = TextEditingController();
 
   String? _categoriaSelecionada;
   final List<File> _novasImagens = [];
   List<dynamic> _imagensAtuais = [];
   bool _salvando = false;
   String _tipoVenda = 'pronta_entrega';
+  bool _usaVariacoes = false;
+  List<String> _cores = [];
+  List<String> _tamanhos = [];
 
   String _cidadeLoja = '';
   String _ufLoja = '';
@@ -730,6 +736,9 @@ class _FormularioProdutoModalState extends State<FormularioProdutoModal> {
       _tipoVenda = p['tipo_venda'] ?? 'pronta_entrega';
       _estoqueController.text = (p['estoque_qtd'] ?? 1).toString();
       _prazoController.text = p['prazo_encomenda'] ?? '';
+      _usaVariacoes = p['usa_variacoes'] == true;
+      _cores = _listaStrings(p['variacoes_cores']);
+      _tamanhos = _listaStrings(p['variacoes_tamanhos']);
     }
   }
 
@@ -740,7 +749,30 @@ class _FormularioProdutoModalState extends State<FormularioProdutoModal> {
     _precoController.dispose();
     _estoqueController.dispose();
     _prazoController.dispose();
+    _corController.dispose();
+    _tamanhoController.dispose();
     super.dispose();
+  }
+
+  List<String> _listaStrings(dynamic raw) {
+    final lista = raw is List ? raw : const [];
+    return lista
+        .map((e) => e.toString().trim())
+        .where((e) => e.isNotEmpty)
+        .toSet()
+        .toList();
+  }
+
+  void _adicionarVariacao({
+    required TextEditingController controller,
+    required List<String> destino,
+  }) {
+    final texto = controller.text.trim();
+    if (texto.isEmpty) return;
+    if (!destino.any((e) => e.toLowerCase() == texto.toLowerCase())) {
+      setState(() => destino.add(texto));
+    }
+    controller.clear();
   }
 
   Future<void> _carregarDadosLojista() async {
@@ -773,13 +805,35 @@ class _FormularioProdutoModalState extends State<FormularioProdutoModal> {
     await FirebaseFirestore.instance.collection('sugestoes_categorias').add({
       'nome': nomeSugestao,
       'lojista_id': widget.lojistaId,
+      'status': 'pendente',
+      'origem': 'app_lojista_produto',
       'data': FieldValue.serverTimestamp(),
+      'criada_em': FieldValue.serverTimestamp(),
     });
     if (mounted) {
-      ScaffoldMessenger.of(context).showSnackBar(
-        const SnackBar(
-          content: Text('Sugestão enviada. Obrigado!'),
-          backgroundColor: Colors.green,
+      await showDialog<void>(
+        context: context,
+        builder: (ctx) => AlertDialog(
+          shape: RoundedRectangleBorder(
+            borderRadius: BorderRadius.circular(18),
+          ),
+          title: const Row(
+            children: [
+              Icon(Icons.check_circle_rounded, color: Colors.green),
+              SizedBox(width: 10),
+              Expanded(child: Text('Sugestão enviada')),
+            ],
+          ),
+          content: Text(
+            'A categoria "$nomeSugestao" foi enviada para análise. '
+            'Assim que for aprovada, ela ficará disponível no cadastro de produtos.',
+          ),
+          actions: [
+            FilledButton(
+              onPressed: () => Navigator.pop(ctx),
+              child: const Text('Entendi'),
+            ),
+          ],
         ),
       );
     }
@@ -817,6 +871,15 @@ class _FormularioProdutoModalState extends State<FormularioProdutoModal> {
       );
       return;
     }
+    if (_usaVariacoes && _cores.isEmpty && _tamanhos.isEmpty) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(
+          content: Text('Adicione ao menos uma cor ou tamanho/numeração.'),
+          backgroundColor: Colors.orange,
+        ),
+      );
+      return;
+    }
     setState(() => _salvando = true);
     try {
       final List<String> urlsFinais = List<String>.from(
@@ -846,6 +909,13 @@ class _FormularioProdutoModalState extends State<FormularioProdutoModal> {
         'tipo_venda': _tipoVenda,
         'estoque_qtd': int.tryParse(_estoqueController.text) ?? 0,
         'prazo_encomenda': _prazoController.text.trim(),
+        'usa_variacoes': _usaVariacoes,
+        'variacoes_cores': _usaVariacoes ? _cores : <String>[],
+        'variacoes_tamanhos': _usaVariacoes ? _tamanhos : <String>[],
+        'variacoes': {
+          'cores': _usaVariacoes ? _cores : <String>[],
+          'tamanhos': _usaVariacoes ? _tamanhos : <String>[],
+        },
         'ativo': true,
         'cidade': _cidadeLoja,
         'uf': _ufLoja,
@@ -1054,12 +1124,14 @@ class _FormularioProdutoModalState extends State<FormularioProdutoModal> {
                       ),
                     ),
                   const SizedBox(height: 20),
+                  _buildSecaoVariacoes(),
+                  const SizedBox(height: 20),
                   _secaoTitulo('Categoria', Icons.category_outlined),
                   const SizedBox(height: 10),
                   StreamBuilder<QuerySnapshot>(
                     stream: FirebaseFirestore.instance
                         .collection('categorias')
-                        .orderBy('nome')
+                        .where('ativo', isEqualTo: true)
                         .snapshots(),
                     builder: (context, snap) {
                       if (!snap.hasData) {
@@ -1067,16 +1139,40 @@ class _FormularioProdutoModalState extends State<FormularioProdutoModal> {
                           color: diPertinLaranja,
                         );
                       }
+                      final categorias = snap.data!.docs.toList()
+                        ..sort((a, b) {
+                          final ma = a.data() as Map<String, dynamic>;
+                          final mb = b.data() as Map<String, dynamic>;
+                          final oa = (ma['ordem'] as num?)?.toInt() ?? 999;
+                          final ob = (mb['ordem'] as num?)?.toInt() ?? 999;
+                          if (oa != ob) return oa.compareTo(ob);
+                          return (ma['nome'] ?? '').toString().compareTo(
+                            (mb['nome'] ?? '').toString(),
+                          );
+                        });
+                      final valores = categorias
+                          .map(
+                            (d) =>
+                                ((d.data() as Map<String, dynamic>)['nome'] ??
+                                        '')
+                                    .toString(),
+                          )
+                          .where((nome) => nome.isNotEmpty)
+                          .toSet()
+                          .toList();
+                      final valorAtual = valores.contains(_categoriaSelecionada)
+                          ? _categoriaSelecionada
+                          : null;
                       return DropdownButtonFormField<String>(
-                        key: ValueKey(_categoriaSelecionada),
-                        initialValue: _categoriaSelecionada,
+                        key: ValueKey(valorAtual),
+                        initialValue: valorAtual,
                         isExpanded: true,
                         decoration: _fieldDecoration('Selecione *'),
-                        items: snap.data!.docs
+                        items: valores
                             .map(
-                              (d) => DropdownMenuItem(
-                                value: d['nome'].toString(),
-                                child: Text(d['nome'].toString()),
+                              (nome) => DropdownMenuItem(
+                                value: nome,
+                                child: Text(nome),
                               ),
                             )
                             .toList(),
@@ -1146,6 +1242,140 @@ class _FormularioProdutoModalState extends State<FormularioProdutoModal> {
             color: Color(0xFF1A1A2E),
           ),
         ),
+      ],
+    );
+  }
+
+  Widget _buildSecaoVariacoes() {
+    return Container(
+      padding: const EdgeInsets.all(14),
+      decoration: BoxDecoration(
+        color: const Color(0xFFF8F7FA),
+        borderRadius: BorderRadius.circular(16),
+        border: Border.all(color: Colors.grey.shade300),
+      ),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.stretch,
+        children: [
+          SwitchListTile.adaptive(
+            value: _usaVariacoes,
+            contentPadding: EdgeInsets.zero,
+            activeThumbColor: diPertinLaranja,
+            title: const Text(
+              'Produto com variações',
+              style: TextStyle(fontWeight: FontWeight.w800),
+            ),
+            subtitle: const Text(
+              'Use para roupas, calçados e produtos com cor, tamanho ou numeração.',
+            ),
+            onChanged: (v) => setState(() => _usaVariacoes = v),
+          ),
+          if (_usaVariacoes) ...[
+            const SizedBox(height: 10),
+            _campoListaVariacao(
+              titulo: 'Cores disponíveis',
+              hint: 'Ex.: Azul, Preto, Vermelho',
+              controller: _corController,
+              valores: _cores,
+              icon: Icons.palette_outlined,
+              onAdd: () => _adicionarVariacao(
+                controller: _corController,
+                destino: _cores,
+              ),
+              onRemove: (valor) => setState(() => _cores.remove(valor)),
+            ),
+            const SizedBox(height: 14),
+            _campoListaVariacao(
+              titulo: 'Tamanhos ou numerações',
+              hint: 'Ex.: PP, P, M, G, GG ou 38, 39, 40',
+              controller: _tamanhoController,
+              valores: _tamanhos,
+              icon: Icons.straighten,
+              onAdd: () => _adicionarVariacao(
+                controller: _tamanhoController,
+                destino: _tamanhos,
+              ),
+              onRemove: (valor) => setState(() => _tamanhos.remove(valor)),
+            ),
+          ],
+        ],
+      ),
+    );
+  }
+
+  Widget _campoListaVariacao({
+    required String titulo,
+    required String hint,
+    required TextEditingController controller,
+    required List<String> valores,
+    required IconData icon,
+    required VoidCallback onAdd,
+    required ValueChanged<String> onRemove,
+  }) {
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.start,
+      children: [
+        Text(
+          titulo,
+          style: const TextStyle(
+            fontWeight: FontWeight.w800,
+            color: Color(0xFF1A1A2E),
+          ),
+        ),
+        const SizedBox(height: 8),
+        Row(
+          children: [
+            Expanded(
+              child: TextField(
+                controller: controller,
+                textCapitalization: TextCapitalization.words,
+                decoration: _fieldDecoration(
+                  hint,
+                ).copyWith(prefixIcon: Icon(icon, color: diPertinRoxo)),
+                onSubmitted: (_) => onAdd(),
+              ),
+            ),
+            const SizedBox(width: 8),
+            SizedBox(
+              height: 54,
+              child: FilledButton(
+                onPressed: onAdd,
+                style: FilledButton.styleFrom(
+                  backgroundColor: diPertinRoxo,
+                  foregroundColor: Colors.white,
+                  shape: RoundedRectangleBorder(
+                    borderRadius: BorderRadius.circular(12),
+                  ),
+                ),
+                child: const Icon(Icons.add),
+              ),
+            ),
+          ],
+        ),
+        if (valores.isNotEmpty) ...[
+          const SizedBox(height: 10),
+          Wrap(
+            spacing: 8,
+            runSpacing: 8,
+            children: valores
+                .map(
+                  (valor) => Chip(
+                    label: Text(valor),
+                    deleteIcon: const Icon(Icons.close, size: 16),
+                    onDeleted: () => onRemove(valor),
+                    backgroundColor: Colors.white,
+                    side: BorderSide(
+                      color: diPertinRoxo.withValues(alpha: 0.22),
+                    ),
+                    labelStyle: const TextStyle(
+                      color: diPertinRoxo,
+                      fontWeight: FontWeight.w700,
+                    ),
+                  ),
+                )
+                .toList(),
+          ),
+        ],
       ],
     );
   }
@@ -1244,10 +1474,7 @@ class _SugerirCategoriaDialogState extends State<_SugerirCategoriaDialog> {
           onPressed: () => Navigator.pop(context),
           child: const Text('Cancelar'),
         ),
-        FilledButton(
-          onPressed: _enviar,
-          child: const Text('Enviar'),
-        ),
+        FilledButton(onPressed: _enviar, child: const Text('Enviar')),
       ],
     );
   }

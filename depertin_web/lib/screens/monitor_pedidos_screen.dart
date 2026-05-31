@@ -133,10 +133,7 @@ class _MonitorPedidosScreenState extends State<MonitorPedidosScreen> {
         final dt = _paraDateTime(e.value);
         if (dt != null) {
           final sk = e.key.toString();
-          eventos.add((
-            label: 'Status: ${_labelStatus(sk)}',
-            t: dt,
-          ));
+          eventos.add((label: 'Status: ${_labelStatus(sk)}', t: dt));
         }
       }
     }
@@ -264,10 +261,7 @@ class _MonitorPedidosScreenState extends State<MonitorPedidosScreen> {
     ]) {
       final dt = _paraDateTime(e.$2);
       if (dt != null) {
-        out.add(_campo(
-          e.$1,
-          DateFormat('dd/MM/yyyy  HH:mm:ss').format(dt),
-        ));
+        out.add(_campo(e.$1, DateFormat('dd/MM/yyyy  HH:mm:ss').format(dt)));
       }
     }
 
@@ -284,7 +278,11 @@ class _MonitorPedidosScreenState extends State<MonitorPedidosScreen> {
       children: [
         Row(
           children: [
-            Icon(Icons.timeline_rounded, size: 18, color: PainelAdminTheme.roxo),
+            Icon(
+              Icons.timeline_rounded,
+              size: 18,
+              color: PainelAdminTheme.roxo,
+            ),
             const SizedBox(width: 8),
             const Text(
               'Linha do tempo operacional',
@@ -351,8 +349,9 @@ class _MonitorPedidosScreenState extends State<MonitorPedidosScreen> {
                               ),
                               const SizedBox(height: 2),
                               Text(
-                                DateFormat('dd/MM/yyyy  HH:mm:ss')
-                                    .format(eventos[i].t),
+                                DateFormat(
+                                  'dd/MM/yyyy  HH:mm:ss',
+                                ).format(eventos[i].t),
                                 style: const TextStyle(
                                   fontSize: 11,
                                   color: _muted,
@@ -377,44 +376,46 @@ class _MonitorPedidosScreenState extends State<MonitorPedidosScreen> {
   }
 
   String _labelStatus(String s) => switch (s) {
-        'aguardando_pagamento' => 'Aguard. pgto',
-        'pendente' => 'Pendente',
-        'aceito' => 'Aceito',
-        'em_preparo' => 'Preparando',
-        'aguardando_entregador' => 'Aguard. coleta',
-        'entregador_indo_loja' => 'Em coleta',
-        'saiu_entrega' || 'em_rota' || 'a_caminho' => 'Em rota',
-        'entregue' => 'Entregue',
-        'cancelado' => 'Cancelado',
-        _ => s,
-      };
+    'aguardando_pagamento' => 'Aguard. pgto',
+    'pendente' => 'Pendente',
+    'encomenda_entrada_paga' => 'Enc. entrada paga',
+    'aceito' => 'Aceito',
+    'em_preparo' => 'Preparando',
+    'aguardando_entregador' => 'Aguard. coleta',
+    'entregador_indo_loja' => 'Em coleta',
+    'saiu_entrega' || 'em_rota' || 'a_caminho' => 'Em rota',
+    'entregue' => 'Entregue',
+    'cancelado' => 'Cancelado',
+    _ => s,
+  };
 
   Color _corStatus(String s) => switch (s) {
-        'aguardando_pagamento' => const Color(0xFF64748B),
-        'pendente' => const Color(0xFFD97706),
-        'aceito' => const Color(0xFF2563EB),
-        'em_preparo' => PainelAdminTheme.roxo,
-        'aguardando_entregador' => const Color(0xFF0EA5E9),
-        'entregador_indo_loja' => const Color(0xFF0891B2),
-        'saiu_entrega' || 'em_rota' || 'a_caminho' => const Color(0xFF059669),
-        'entregue' => const Color(0xFF16A34A),
-        'cancelado' => const Color(0xFFDC2626),
-        _ => _muted,
-      };
+    'aguardando_pagamento' => const Color(0xFF64748B),
+    'pendente' => const Color(0xFFD97706),
+    'encomenda_entrada_paga' => const Color(0xFFB7791F),
+    'aceito' => const Color(0xFF2563EB),
+    'em_preparo' => PainelAdminTheme.roxo,
+    'aguardando_entregador' => const Color(0xFF0EA5E9),
+    'entregador_indo_loja' => const Color(0xFF0891B2),
+    'saiu_entrega' || 'em_rota' || 'a_caminho' => const Color(0xFF059669),
+    'entregue' => const Color(0xFF16A34A),
+    'cancelado' => const Color(0xFFDC2626),
+    _ => _muted,
+  };
 
   IconData _iconeStatus(String s) => switch (s) {
-        'aguardando_pagamento' => Icons.payments_outlined,
-        'pendente' => Icons.schedule_rounded,
-        'aceito' => Icons.thumb_up_alt_outlined,
-        'em_preparo' => Icons.restaurant_rounded,
-        'aguardando_entregador' => Icons.inventory_2_outlined,
-        'entregador_indo_loja' => Icons.directions_bike_outlined,
-        'saiu_entrega' || 'em_rota' || 'a_caminho' =>
-          Icons.delivery_dining_rounded,
-        'entregue' => Icons.check_circle_rounded,
-        'cancelado' => Icons.cancel_rounded,
-        _ => Icons.circle_outlined,
-      };
+    'aguardando_pagamento' => Icons.payments_outlined,
+    'pendente' => Icons.schedule_rounded,
+    'encomenda_entrada_paga' => Icons.inventory_2_outlined,
+    'aceito' => Icons.thumb_up_alt_outlined,
+    'em_preparo' => Icons.restaurant_rounded,
+    'aguardando_entregador' => Icons.inventory_2_outlined,
+    'entregador_indo_loja' => Icons.directions_bike_outlined,
+    'saiu_entrega' || 'em_rota' || 'a_caminho' => Icons.delivery_dining_rounded,
+    'entregue' => Icons.check_circle_rounded,
+    'cancelado' => Icons.cancel_rounded,
+    _ => Icons.circle_outlined,
+  };
 
   bool _isFinal(String s) => s == 'entregue' || s == 'cancelado';
 
@@ -466,9 +467,11 @@ class _MonitorPedidosScreenState extends State<MonitorPedidosScreen> {
 
   int _contar(List<QueryDocumentSnapshot> docs, bool Function(String) test) =>
       docs
-          .where((d) =>
-              test((d.data() as Map<String, dynamic>)['status']?.toString() ??
-                  ''))
+          .where(
+            (d) => test(
+              (d.data() as Map<String, dynamic>)['status']?.toString() ?? '',
+            ),
+          )
           .length;
 
   Widget _barraPaginacaoMonitor({
@@ -580,8 +583,7 @@ class _MonitorPedidosScreenState extends State<MonitorPedidosScreen> {
           final ultimoIndicePagina = totalLista == 0
               ? 0
               : (totalLista - 1) ~/ _kPedidosPorPaginaMonitor;
-          final paginaEfetiva =
-              _paginaMonitor.clamp(0, ultimoIndicePagina);
+          final paginaEfetiva = _paginaMonitor.clamp(0, ultimoIndicePagina);
           if (paginaEfetiva != _paginaMonitor) {
             WidgetsBinding.instance.addPostFrameCallback((_) {
               if (mounted) {
@@ -591,9 +593,9 @@ class _MonitorPedidosScreenState extends State<MonitorPedidosScreen> {
           }
           final inicio = paginaEfetiva * _kPedidosPorPaginaMonitor;
           final filtradosPagina = filtrados.sublist(
-                  inicio,
-                  min(inicio + _kPedidosPorPaginaMonitor, totalLista),
-                );
+            inicio,
+            min(inicio + _kPedidosPorPaginaMonitor, totalLista),
+          );
 
           return CustomScrollView(
             slivers: [
@@ -630,7 +632,10 @@ class _MonitorPedidosScreenState extends State<MonitorPedidosScreen> {
 
   Widget _header() {
     return Container(
-      color: Colors.white,
+      decoration: const BoxDecoration(
+        color: Colors.white,
+        border: Border(bottom: BorderSide(color: _border)),
+      ),
       padding: const EdgeInsets.fromLTRB(28, 28, 28, 22),
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.start,
@@ -659,8 +664,10 @@ class _MonitorPedidosScreenState extends State<MonitorPedidosScreen> {
                 ),
               ),
               Container(
-                padding:
-                    const EdgeInsets.symmetric(horizontal: 14, vertical: 7),
+                padding: const EdgeInsets.symmetric(
+                  horizontal: 14,
+                  vertical: 7,
+                ),
                 decoration: BoxDecoration(
                   color: const Color(0xFFECFDF5),
                   borderRadius: BorderRadius.circular(999),
@@ -690,48 +697,73 @@ class _MonitorPedidosScreenState extends State<MonitorPedidosScreen> {
               ),
             ],
           ),
-          const SizedBox(height: 20),
-          Row(
-            children: [
-              Expanded(
-                child: TextField(
-                  controller: _buscaC,
-                  onChanged: (_) => setState(() => _paginaMonitor = 0),
-                  style: const TextStyle(fontSize: 14),
-                  decoration: InputDecoration(
-                    hintText:
-                        'Pesquisar pedido, loja, cliente, cidade, endereço...',
-                    hintStyle:
-                        const TextStyle(color: Color(0xFF94A3B8), fontSize: 14),
-                    prefixIcon: const Icon(Icons.search_rounded,
-                        color: Color(0xFF94A3B8)),
-                    filled: true,
-                    fillColor: _bg,
-                    isDense: true,
-                    contentPadding: const EdgeInsets.symmetric(vertical: 13),
-                    border: OutlineInputBorder(
-                      borderRadius: BorderRadius.circular(12),
-                      borderSide: const BorderSide(color: _border),
-                    ),
-                    enabledBorder: OutlineInputBorder(
-                      borderRadius: BorderRadius.circular(12),
-                      borderSide: const BorderSide(color: _border),
-                    ),
-                    focusedBorder: OutlineInputBorder(
-                      borderRadius: BorderRadius.circular(12),
-                      borderSide: BorderSide(
-                          color: PainelAdminTheme.roxo, width: 1.5),
+          const SizedBox(height: 22),
+          Container(
+            padding: const EdgeInsets.all(12),
+            decoration: BoxDecoration(
+              color: _bg,
+              borderRadius: BorderRadius.circular(18),
+              border: Border.all(color: _border),
+            ),
+            child: Row(
+              children: [
+                Expanded(
+                  child: TextField(
+                    controller: _buscaC,
+                    onChanged: (_) => setState(() => _paginaMonitor = 0),
+                    style: const TextStyle(fontSize: 14),
+                    decoration: InputDecoration(
+                      hintText:
+                          'Pesquisar pedido, loja, cliente, cidade, endereço...',
+                      hintStyle: const TextStyle(
+                        color: Color(0xFF94A3B8),
+                        fontSize: 14,
+                      ),
+                      prefixIcon: const Icon(
+                        Icons.search_rounded,
+                        color: Color(0xFF94A3B8),
+                      ),
+                      filled: true,
+                      fillColor: Colors.white,
+                      isDense: true,
+                      contentPadding: const EdgeInsets.symmetric(vertical: 14),
+                      border: OutlineInputBorder(
+                        borderRadius: BorderRadius.circular(14),
+                        borderSide: const BorderSide(color: _border),
+                      ),
+                      enabledBorder: OutlineInputBorder(
+                        borderRadius: BorderRadius.circular(14),
+                        borderSide: const BorderSide(color: _border),
+                      ),
+                      focusedBorder: OutlineInputBorder(
+                        borderRadius: BorderRadius.circular(14),
+                        borderSide: BorderSide(
+                          color: PainelAdminTheme.roxo,
+                          width: 1.5,
+                        ),
+                      ),
                     ),
                   ),
                 ),
-              ),
-              const SizedBox(width: 14),
-              _janelaBtn('24h', '24 h'),
-              const SizedBox(width: 6),
-              _janelaBtn('7d', '7 dias'),
-              const SizedBox(width: 6),
-              _janelaBtn('todos', 'Tudo'),
-            ],
+                const SizedBox(width: 14),
+                Container(
+                  padding: const EdgeInsets.all(4),
+                  decoration: BoxDecoration(
+                    color: Colors.white,
+                    borderRadius: BorderRadius.circular(14),
+                    border: Border.all(color: _border),
+                  ),
+                  child: Row(
+                    mainAxisSize: MainAxisSize.min,
+                    children: [
+                      _janelaBtn('24h', '24 h'),
+                      _janelaBtn('7d', '7 dias'),
+                      _janelaBtn('todos', 'Tudo'),
+                    ],
+                  ),
+                ),
+              ],
+            ),
           ),
           const SizedBox(height: 16),
           SingleChildScrollView(
@@ -741,6 +773,7 @@ class _MonitorPedidosScreenState extends State<MonitorPedidosScreen> {
                 _chip('hoje', 'Hoje'),
                 _chip('todos', 'Todos'),
                 _chip('pendente', 'Pendente'),
+                _chip('encomenda_entrada_paga', 'Enc. entrada paga'),
                 _chip('aceito', 'Aceito'),
                 _chip('em_preparo', 'Preparando'),
                 _chip('coleta', 'Pronto / coleta'),
@@ -758,11 +791,8 @@ class _MonitorPedidosScreenState extends State<MonitorPedidosScreen> {
   Widget _janelaBtn(String val, String label) {
     final ativo = _janela == val;
     return Material(
-      color: ativo ? const Color(0xFFEEF2FF) : Colors.white,
-      shape: RoundedRectangleBorder(
-        borderRadius: BorderRadius.circular(10),
-        side: BorderSide(color: ativo ? const Color(0xFFC7D2FE) : _border),
-      ),
+      color: ativo ? PainelAdminTheme.roxo : Colors.transparent,
+      shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(10)),
       child: InkWell(
         borderRadius: BorderRadius.circular(10),
         onTap: () => setState(() {
@@ -776,7 +806,7 @@ class _MonitorPedidosScreenState extends State<MonitorPedidosScreen> {
             style: TextStyle(
               fontSize: 12,
               fontWeight: FontWeight.w700,
-              color: ativo ? const Color(0xFF4338CA) : _muted,
+              color: ativo ? Colors.white : _muted,
             ),
           ),
         ),
@@ -789,20 +819,21 @@ class _MonitorPedidosScreenState extends State<MonitorPedidosScreen> {
     return Padding(
       padding: const EdgeInsets.only(right: 8),
       child: Material(
-        color: ativo ? PainelAdminTheme.roxo : Colors.white,
+        color: ativo ? PainelAdminTheme.roxo : _bg,
         shape: RoundedRectangleBorder(
-          borderRadius: BorderRadius.circular(999),
+          borderRadius: BorderRadius.circular(14),
           side: BorderSide(
-              color: ativo ? PainelAdminTheme.roxo : const Color(0xFFCBD5E1)),
+            color: ativo ? PainelAdminTheme.roxo : const Color(0xFFE2E8F0),
+          ),
         ),
         child: InkWell(
-          borderRadius: BorderRadius.circular(999),
+          borderRadius: BorderRadius.circular(14),
           onTap: () => setState(() {
             _filtro = val;
             _paginaMonitor = 0;
           }),
           child: Padding(
-            padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 8),
+            padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 10),
             child: Text(
               label,
               style: TextStyle(
@@ -821,33 +852,72 @@ class _MonitorPedidosScreenState extends State<MonitorPedidosScreen> {
     final ativos = _contar(docs, (s) => !_isFinal(s));
     final pendentes = _contar(docs, (s) => s == 'pendente');
     final prep = _contar(docs, (s) => s == 'em_preparo');
-    final coleta = _contar(docs,
-        (s) => s == 'aguardando_entregador' || s == 'entregador_indo_loja');
+    final coleta = _contar(
+      docs,
+      (s) => s == 'aguardando_entregador' || s == 'entregador_indo_loja',
+    );
     final rota = _contar(
-        docs, (s) => s == 'saiu_entrega' || s == 'em_rota' || s == 'a_caminho');
+      docs,
+      (s) => s == 'saiu_entrega' || s == 'em_rota' || s == 'a_caminho',
+    );
     final entregues = _contar(docs, (s) => s == 'entregue');
     final cancelados = _contar(docs, (s) => s == 'cancelado');
+    final encProd = _contar(docs, (s) => s == 'encomenda_entrada_paga');
 
     return Padding(
       padding: const EdgeInsets.fromLTRB(24, 18, 24, 14),
       child: Wrap(
-        spacing: 12,
-        runSpacing: 12,
+        spacing: 14,
+        runSpacing: 14,
         children: [
-          _kpi('Ativos', '$ativos', Icons.insights_rounded,
-              PainelAdminTheme.roxo),
-          _kpi('Pendentes', '$pendentes', Icons.schedule_rounded,
-              const Color(0xFFD97706)),
-          _kpi('Preparando', '$prep', Icons.restaurant_rounded,
-              PainelAdminTheme.roxo),
-          _kpi('Coleta', '$coleta', Icons.inventory_2_outlined,
-              const Color(0xFF0891B2)),
-          _kpi('Em rota', '$rota', Icons.delivery_dining_rounded,
-              const Color(0xFF059669)),
-          _kpi('Entregues', '$entregues', Icons.check_circle_rounded,
-              const Color(0xFF16A34A)),
-          _kpi('Cancelados', '$cancelados', Icons.cancel_rounded,
-              const Color(0xFFDC2626)),
+          _kpi(
+            'Ativos',
+            '$ativos',
+            Icons.insights_rounded,
+            PainelAdminTheme.roxo,
+          ),
+          _kpi(
+            'Pendentes',
+            '$pendentes',
+            Icons.schedule_rounded,
+            const Color(0xFFD97706),
+          ),
+          _kpi(
+            'Enc. produção',
+            '$encProd',
+            Icons.inventory_2_outlined,
+            const Color(0xFFB7791F),
+          ),
+          _kpi(
+            'Preparando',
+            '$prep',
+            Icons.restaurant_rounded,
+            PainelAdminTheme.roxo,
+          ),
+          _kpi(
+            'Coleta',
+            '$coleta',
+            Icons.inventory_2_outlined,
+            const Color(0xFF0891B2),
+          ),
+          _kpi(
+            'Em rota',
+            '$rota',
+            Icons.delivery_dining_rounded,
+            const Color(0xFF059669),
+          ),
+          _kpi(
+            'Entregues',
+            '$entregues',
+            Icons.check_circle_rounded,
+            const Color(0xFF16A34A),
+          ),
+          _kpi(
+            'Cancelados',
+            '$cancelados',
+            Icons.cancel_rounded,
+            const Color(0xFFDC2626),
+          ),
         ],
       ),
     );
@@ -855,50 +925,64 @@ class _MonitorPedidosScreenState extends State<MonitorPedidosScreen> {
 
   Widget _kpi(String label, String valor, IconData icon, Color cor) {
     return Container(
-      width: 155,
-      padding: const EdgeInsets.all(14),
+      width: 178,
+      padding: const EdgeInsets.all(16),
       decoration: BoxDecoration(
         color: Colors.white,
-        borderRadius: BorderRadius.circular(14),
+        borderRadius: BorderRadius.circular(18),
         border: Border.all(color: _border),
         boxShadow: [
           BoxShadow(
-            color: Colors.black.withValues(alpha: 0.04),
-            blurRadius: 8,
-            offset: const Offset(0, 2),
+            color: Colors.black.withValues(alpha: 0.055),
+            blurRadius: 18,
+            offset: const Offset(0, 8),
           ),
         ],
       ),
-      child: Row(
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
         children: [
-          Container(
-            padding: const EdgeInsets.all(8),
-            decoration: BoxDecoration(
-              color: cor.withValues(alpha: 0.1),
-              borderRadius: BorderRadius.circular(10),
-            ),
-            child: Icon(icon, size: 20, color: cor),
+          Row(
+            children: [
+              Container(
+                padding: const EdgeInsets.all(9),
+                decoration: BoxDecoration(
+                  color: cor.withValues(alpha: 0.10),
+                  borderRadius: BorderRadius.circular(12),
+                ),
+                child: Icon(icon, size: 20, color: cor),
+              ),
+              const Spacer(),
+              Text(
+                valor,
+                style: TextStyle(
+                  fontSize: 26,
+                  fontWeight: FontWeight.w900,
+                  color: cor,
+                  height: 1,
+                ),
+              ),
+            ],
           ),
-          const SizedBox(width: 10),
-          Flexible(
-            child: Column(
-              crossAxisAlignment: CrossAxisAlignment.start,
-              children: [
-                Text(
-                  valor,
-                  style: TextStyle(
-                    fontSize: 22,
-                    fontWeight: FontWeight.w800,
-                    color: cor,
-                    height: 1,
-                  ),
-                ),
-                Text(
-                  label,
-                  style: const TextStyle(
-                      fontSize: 11, color: _muted, fontWeight: FontWeight.w500),
-                ),
-              ],
+          const SizedBox(height: 12),
+          Text(
+            label,
+            style: const TextStyle(
+              fontSize: 12,
+              color: _muted,
+              fontWeight: FontWeight.w700,
+            ),
+          ),
+          const SizedBox(height: 8),
+          ClipRRect(
+            borderRadius: BorderRadius.circular(999),
+            child: LinearProgressIndicator(
+              minHeight: 4,
+              value: (int.tryParse(valor) ?? 0) > 0 ? 1 : 0.08,
+              backgroundColor: cor.withValues(alpha: 0.08),
+              valueColor: AlwaysStoppedAnimation<Color>(
+                cor.withValues(alpha: 0.55),
+              ),
             ),
           ),
         ],
@@ -911,13 +995,19 @@ class _MonitorPedidosScreenState extends State<MonitorPedidosScreen> {
       child: Column(
         mainAxisSize: MainAxisSize.min,
         children: [
-          Icon(Icons.inbox_rounded,
-              size: 56, color: _muted.withValues(alpha: 0.3)),
+          Icon(
+            Icons.inbox_rounded,
+            size: 56,
+            color: _muted.withValues(alpha: 0.3),
+          ),
           const SizedBox(height: 14),
           const Text(
             'Nenhum pedido encontrado',
-            style:
-                TextStyle(fontSize: 16, color: _muted, fontWeight: FontWeight.w600),
+            style: TextStyle(
+              fontSize: 16,
+              color: _muted,
+              fontWeight: FontWeight.w600,
+            ),
           ),
           const SizedBox(height: 6),
           const Text(
@@ -940,154 +1030,212 @@ class _MonitorPedidosScreenState extends State<MonitorPedidosScreen> {
     final frete = _num(d['taxa_entrega']);
     final forma = d['forma_pagamento']?.toString() ?? '—';
     final ts = d['data_pedido'] as Timestamp?;
-    final dtStr =
-        ts != null ? DateFormat('dd/MM/yy  HH:mm').format(ts.toDate()) : '—';
+    final dtStr = ts != null
+        ? DateFormat('dd/MM/yy  HH:mm').format(ts.toDate())
+        : '—';
     final loja = d['loja_nome']?.toString() ?? 'Loja';
     final cliente =
         d['cliente_nome']?.toString() ?? d['cliente_id']?.toString() ?? '—';
     final cidade = d['cidade']?.toString() ?? '';
     final endereco = d['endereco_entrega']?.toString() ?? '';
-    final entregador = d['entregador_nome']?.toString() ??
+    final entregador =
+        d['entregador_nome']?.toString() ??
         (d['entregador_id'] != null ? '(${d['entregador_id']})' : '—');
     final itens =
         ((d['itens'] as List?) ?? (d['items'] as List?) ?? const []).length;
     final codigoPedido = _gerarCodigoPedido(doc.id);
+    final tipoCompra = (d['tipo_compra'] ?? d['tipo_venda'] ?? '')
+        .toString()
+        .trim();
+    final faseEncomenda = (d['encomenda_fase_financeira'] ?? '')
+        .toString()
+        .trim();
+    final tipoResumo = [
+      if (tipoCompra == 'encomenda') 'Encomenda',
+      if (faseEncomenda == 'entrada') 'entrada',
+      if (faseEncomenda == 'saldo_final') 'saldo final',
+    ].join(' — ');
 
     return Container(
       decoration: BoxDecoration(
         color: Colors.white,
-        borderRadius: BorderRadius.circular(12),
+        borderRadius: BorderRadius.circular(18),
         border: Border.all(color: _border),
         boxShadow: [
           BoxShadow(
-            color: Colors.black.withValues(alpha: 0.02),
-            blurRadius: 8,
-            offset: const Offset(0, 2),
+            color: Colors.black.withValues(alpha: 0.045),
+            blurRadius: 22,
+            offset: const Offset(0, 10),
           ),
         ],
       ),
       child: Material(
         color: Colors.transparent,
-        borderRadius: BorderRadius.circular(12),
+        borderRadius: BorderRadius.circular(18),
         child: InkWell(
-          borderRadius: BorderRadius.circular(12),
+          borderRadius: BorderRadius.circular(18),
           onTap: () => _detalhe(doc),
           child: Padding(
-            padding: const EdgeInsets.all(12),
-            child: Column(
+            padding: const EdgeInsets.all(16),
+            child: Row(
               crossAxisAlignment: CrossAxisAlignment.start,
               children: [
-                Row(
-                  children: [
-                    Container(
-                      padding: const EdgeInsets.all(7),
-                      decoration: BoxDecoration(
-                        color: cor.withValues(alpha: 0.1),
-                        borderRadius: BorderRadius.circular(8),
-                      ),
-                      child: Icon(_iconeStatus(st), size: 16, color: cor),
-                    ),
-                    const SizedBox(width: 10),
-                    Expanded(
-                      child: Column(
+                Container(
+                  width: 46,
+                  height: 46,
+                  decoration: BoxDecoration(
+                    color: cor.withValues(alpha: 0.11),
+                    borderRadius: BorderRadius.circular(15),
+                    border: Border.all(color: cor.withValues(alpha: 0.18)),
+                  ),
+                  child: Icon(_iconeStatus(st), size: 22, color: cor),
+                ),
+                const SizedBox(width: 14),
+                Expanded(
+                  child: Column(
+                    crossAxisAlignment: CrossAxisAlignment.start,
+                    children: [
+                      Row(
                         crossAxisAlignment: CrossAxisAlignment.start,
                         children: [
-                          Text(
-                            codigoPedido,
-                            style: const TextStyle(
-                              fontWeight: FontWeight.w800,
-                              fontSize: 13,
-                              color: _ink,
+                          Expanded(
+                            child: Column(
+                              crossAxisAlignment: CrossAxisAlignment.start,
+                              children: [
+                                Text(
+                                  codigoPedido,
+                                  style: const TextStyle(
+                                    fontWeight: FontWeight.w900,
+                                    fontSize: 15,
+                                    color: _ink,
+                                    letterSpacing: -0.2,
+                                  ),
+                                ),
+                                const SizedBox(height: 3),
+                                Text(
+                                  '$loja • $cliente',
+                                  style: const TextStyle(
+                                    fontSize: 12.5,
+                                    fontWeight: FontWeight.w700,
+                                    color: Color(0xFF334155),
+                                  ),
+                                  maxLines: 1,
+                                  overflow: TextOverflow.ellipsis,
+                                ),
+                              ],
                             ),
                           ),
-                          const SizedBox(height: 1),
-                          Text(
-                            '$loja  •  $cliente',
-                            style: const TextStyle(
-                              fontSize: 11,
-                              fontWeight: FontWeight.w600,
-                              color: Color(0xFF475569),
+                          const SizedBox(width: 10),
+                          _statusPill(st, cor),
+                        ],
+                      ),
+                      const SizedBox(height: 12),
+                      Wrap(
+                        spacing: 8,
+                        runSpacing: 8,
+                        children: [
+                          _tag(Icons.calendar_today_rounded, dtStr),
+                          if (cidade.isNotEmpty)
+                            _tag(Icons.location_on_outlined, cidade),
+                          _tag(Icons.shopping_bag_outlined, '$itens item(s)'),
+                          _tag(Icons.credit_card_outlined, forma),
+                          _tag(Icons.two_wheeler_rounded, entregador),
+                          if (tipoResumo.isNotEmpty)
+                            _tag(Icons.inventory_2_outlined, tipoResumo),
+                        ],
+                      ),
+                      if (endereco.isNotEmpty) ...[
+                        const SizedBox(height: 10),
+                        Container(
+                          width: double.infinity,
+                          padding: const EdgeInsets.symmetric(
+                            horizontal: 12,
+                            vertical: 9,
+                          ),
+                          decoration: BoxDecoration(
+                            color: _bg,
+                            borderRadius: BorderRadius.circular(12),
+                            border: Border.all(color: _border),
+                          ),
+                          child: Row(
+                            children: [
+                              const Icon(
+                                Icons.place_outlined,
+                                size: 16,
+                                color: _muted,
+                              ),
+                              const SizedBox(width: 8),
+                              Expanded(
+                                child: Text(
+                                  endereco,
+                                  maxLines: 1,
+                                  overflow: TextOverflow.ellipsis,
+                                  style: const TextStyle(
+                                    fontSize: 12,
+                                    color: _muted,
+                                    height: 1.3,
+                                  ),
+                                ),
+                              ),
+                            ],
+                          ),
+                        ),
+                      ],
+                      const SizedBox(height: 14),
+                      Row(
+                        children: [
+                          _valorBoxCompacto('Produtos', prods),
+                          const SizedBox(width: 8),
+                          _valorBoxCompacto('Frete', frete),
+                          const SizedBox(width: 8),
+                          _valorBoxCompacto('Total', total, destaque: true),
+                          const Spacer(),
+                          FilledButton.icon(
+                            onPressed: () => _detalhe(doc),
+                            icon: const Icon(
+                              Icons.manage_search_rounded,
+                              size: 18,
                             ),
-                            maxLines: 1,
-                            overflow: TextOverflow.ellipsis,
+                            label: const Text('Investigar'),
+                            style: FilledButton.styleFrom(
+                              backgroundColor: PainelAdminTheme.roxo,
+                              foregroundColor: Colors.white,
+                              padding: const EdgeInsets.symmetric(
+                                horizontal: 16,
+                                vertical: 13,
+                              ),
+                              shape: RoundedRectangleBorder(
+                                borderRadius: BorderRadius.circular(12),
+                              ),
+                            ),
                           ),
                         ],
                       ),
-                    ),
-                    const SizedBox(width: 6),
-                    Container(
-                      padding: const EdgeInsets.symmetric(
-                          horizontal: 10, vertical: 4),
-                      decoration: BoxDecoration(
-                        color: cor.withValues(alpha: 0.1),
-                        borderRadius: BorderRadius.circular(6),
-                        border: Border.all(color: cor.withValues(alpha: 0.25)),
-                      ),
-                      child: Text(
-                        _labelStatus(st),
-                        style: TextStyle(
-                          color: cor,
-                          fontWeight: FontWeight.w700,
-                          fontSize: 11,
-                        ),
-                      ),
-                    ),
-                  ],
-                ),
-                const SizedBox(height: 10),
-                Wrap(
-                  spacing: 12,
-                  runSpacing: 4,
-                  children: [
-                    _tag(Icons.calendar_today_rounded, dtStr),
-                    if (cidade.isNotEmpty)
-                      _tag(Icons.location_on_outlined, cidade),
-                    _tag(Icons.shopping_bag_outlined, '$itens item(s)'),
-                    _tag(Icons.credit_card_outlined, forma),
-                    _tag(Icons.two_wheeler_rounded, entregador),
-                  ],
-                ),
-                if (endereco.isNotEmpty) ...[
-                  const SizedBox(height: 6),
-                  Text(
-                    endereco,
-                    maxLines: 1,
-                    overflow: TextOverflow.ellipsis,
-                    style: const TextStyle(
-                      fontSize: 11,
-                      color: _muted,
-                      height: 1.3,
-                    ),
+                    ],
                   ),
-                ],
-                const Divider(height: 16, color: _border),
-                Row(
-                  children: [
-                    _valorBoxCompacto('Produtos', prods),
-                    const SizedBox(width: 8),
-                    _valorBoxCompacto('Frete', frete),
-                    const SizedBox(width: 8),
-                    _valorBoxCompacto('Total', total, destaque: true),
-                    const Spacer(),
-                    SizedBox(
-                      height: 32,
-                      child: TextButton.icon(
-                        onPressed: () => _detalhe(doc),
-                        icon: const Icon(Icons.manage_search_rounded, size: 16),
-                        label: const Text(
-                          'Investigar',
-                          style: TextStyle(
-                            fontWeight: FontWeight.w700,
-                            fontSize: 12,
-                          ),
-                        ),
-                      ),
-                    ),
-                  ],
                 ),
               ],
             ),
           ),
+        ),
+      ),
+    );
+  }
+
+  Widget _statusPill(String status, Color cor) {
+    return Container(
+      padding: const EdgeInsets.symmetric(horizontal: 11, vertical: 6),
+      decoration: BoxDecoration(
+        color: cor.withValues(alpha: 0.10),
+        borderRadius: BorderRadius.circular(999),
+        border: Border.all(color: cor.withValues(alpha: 0.22)),
+      ),
+      child: Text(
+        _labelStatus(status),
+        style: TextStyle(
+          color: cor,
+          fontWeight: FontWeight.w800,
+          fontSize: 11.5,
         ),
       ),
     );
@@ -1114,52 +1262,21 @@ class _MonitorPedidosScreenState extends State<MonitorPedidosScreen> {
     );
   }
 
-  Widget _valorBox(String label, double valor, {bool destaque = false}) {
-    return Container(
-      padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 6),
-      decoration: BoxDecoration(
-        color: destaque
-            ? PainelAdminTheme.roxo.withValues(alpha: 0.06)
-            : _bg,
-        borderRadius: BorderRadius.circular(8),
-        border: Border.all(
-            color: destaque
-                ? PainelAdminTheme.roxo.withValues(alpha: 0.15)
-                : _border),
-      ),
-      child: Column(
-        crossAxisAlignment: CrossAxisAlignment.start,
-        children: [
-          Text(
-            label,
-            style: const TextStyle(
-                fontSize: 10, color: _muted, fontWeight: FontWeight.w600),
-          ),
-          Text(
-            'R\$ ${valor.toStringAsFixed(2)}',
-            style: TextStyle(
-              fontSize: 14,
-              fontWeight: FontWeight.w800,
-              color: destaque ? PainelAdminTheme.roxo : _ink,
-            ),
-          ),
-        ],
-      ),
-    );
-  }
-
-  Widget _valorBoxCompacto(String label, double valor, {bool destaque = false}) {
+  Widget _valorBoxCompacto(
+    String label,
+    double valor, {
+    bool destaque = false,
+  }) {
     return Container(
       padding: const EdgeInsets.symmetric(horizontal: 9, vertical: 4),
       decoration: BoxDecoration(
-        color: destaque
-            ? PainelAdminTheme.roxo.withValues(alpha: 0.06)
-            : _bg,
+        color: destaque ? PainelAdminTheme.roxo.withValues(alpha: 0.06) : _bg,
         borderRadius: BorderRadius.circular(6),
         border: Border.all(
-            color: destaque
-                ? PainelAdminTheme.roxo.withValues(alpha: 0.15)
-                : _border),
+          color: destaque
+              ? PainelAdminTheme.roxo.withValues(alpha: 0.15)
+              : _border,
+        ),
       ),
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.start,
@@ -1168,7 +1285,10 @@ class _MonitorPedidosScreenState extends State<MonitorPedidosScreen> {
           Text(
             label,
             style: const TextStyle(
-                fontSize: 9, color: _muted, fontWeight: FontWeight.w600),
+              fontSize: 9,
+              color: _muted,
+              fontWeight: FontWeight.w600,
+            ),
           ),
           Text(
             'R\$ ${valor.toStringAsFixed(2)}',
@@ -1226,8 +1346,11 @@ class _MonitorPedidosScreenState extends State<MonitorPedidosScreen> {
                         color: Colors.white.withValues(alpha: 0.2),
                         borderRadius: BorderRadius.circular(12),
                       ),
-                      child: const Icon(Icons.manage_search_rounded,
-                          color: Colors.white, size: 24),
+                      child: const Icon(
+                        Icons.manage_search_rounded,
+                        color: Colors.white,
+                        size: 24,
+                      ),
                     ),
                     const SizedBox(width: 16),
                     Expanded(
@@ -1256,7 +1379,10 @@ class _MonitorPedidosScreenState extends State<MonitorPedidosScreen> {
                     ),
                     IconButton(
                       onPressed: () => Navigator.pop(ctx),
-                      icon: const Icon(Icons.close_rounded, color: Colors.white),
+                      icon: const Icon(
+                        Icons.close_rounded,
+                        color: Colors.white,
+                      ),
                       tooltip: 'Fechar',
                     ),
                   ],
@@ -1278,8 +1404,9 @@ class _MonitorPedidosScreenState extends State<MonitorPedidosScreen> {
                         _campo(
                           'Data / Hora',
                           ts != null
-                              ? DateFormat('dd/MM/yyyy  HH:mm:ss')
-                                  .format(ts.toDate())
+                              ? DateFormat(
+                                  'dd/MM/yyyy  HH:mm:ss',
+                                ).format(ts.toDate())
                               : '—',
                         ),
                       ],
@@ -1420,11 +1547,7 @@ class _MonitorPedidosScreenState extends State<MonitorPedidosScreen> {
                     ),
                     if (latConclusao != null && lonConclusao != null) ...[
                       const SizedBox(height: 20),
-                      _secaoLocalConclusaoGps(
-                        d,
-                        latConclusao,
-                        lonConclusao,
-                      ),
+                      _secaoLocalConclusaoGps(d, latConclusao, lonConclusao),
                     ],
                   ],
                 ),
@@ -1443,7 +1566,9 @@ class _MonitorPedidosScreenState extends State<MonitorPedidosScreen> {
   }
 
   Future<void> _abrirMapaConclusao(double lat, double lon) async {
-    final u = Uri.parse('https://www.google.com/maps/search/?api=1&query=$lat,$lon');
+    final u = Uri.parse(
+      'https://www.google.com/maps/search/?api=1&query=$lat,$lon',
+    );
     if (await canLaunchUrl(u)) {
       await launchUrl(u, mode: LaunchMode.externalApplication);
     }
@@ -1456,8 +1581,7 @@ class _MonitorPedidosScreenState extends State<MonitorPedidosScreen> {
   ) {
     final prec = d['entrega_conclusao_precisao_m'];
     final temPrec = prec != null && _num(prec) > 0;
-    final precStr =
-        temPrec ? '${_num(prec).round()} m (aprox.)' : '—';
+    final precStr = temPrec ? '${_num(prec).round()} m (aprox.)' : '—';
 
     return Column(
       crossAxisAlignment: CrossAxisAlignment.stretch,
@@ -1478,9 +1602,7 @@ class _MonitorPedidosScreenState extends State<MonitorPedidosScreen> {
             onPressed: () => _abrirMapaConclusao(lat, lon),
             icon: const Icon(Icons.map_rounded, size: 20),
             label: const Text('Abrir no mapa'),
-            style: TextButton.styleFrom(
-              foregroundColor: PainelAdminTheme.roxo,
-            ),
+            style: TextButton.styleFrom(foregroundColor: PainelAdminTheme.roxo),
           ),
         ),
       ],
@@ -1490,8 +1612,11 @@ class _MonitorPedidosScreenState extends State<MonitorPedidosScreen> {
   Widget _secaoTituloSimples(String titulo) {
     return Row(
       children: [
-        Icon(Icons.shopping_bag_rounded,
-            size: 18, color: PainelAdminTheme.roxo),
+        Icon(
+          Icons.shopping_bag_rounded,
+          size: 18,
+          color: PainelAdminTheme.roxo,
+        ),
         const SizedBox(width: 8),
         Text(
           titulo,
@@ -1538,7 +1663,10 @@ class _MonitorPedidosScreenState extends State<MonitorPedidosScreen> {
             children: [
               for (int i = 0; i < campos.length; i++) ...[
                 Padding(
-                  padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 11),
+                  padding: const EdgeInsets.symmetric(
+                    horizontal: 14,
+                    vertical: 11,
+                  ),
                   child: Row(
                     crossAxisAlignment: CrossAxisAlignment.start,
                     children: [
@@ -1570,7 +1698,10 @@ class _MonitorPedidosScreenState extends State<MonitorPedidosScreen> {
                           campos[i].copiar!.isNotEmpty)
                         IconButton(
                           onPressed: () => _copiarTexto(campos[i].copiar!),
-                          icon: const Icon(Icons.content_copy_rounded, size: 18),
+                          icon: const Icon(
+                            Icons.content_copy_rounded,
+                            size: 18,
+                          ),
                           color: PainelAdminTheme.roxo,
                           tooltip: 'Copiar ID completo',
                           padding: EdgeInsets.zero,
@@ -1634,8 +1765,11 @@ class _MonitorPedidosScreenState extends State<MonitorPedidosScreen> {
             ),
             child: imagem == null || imagem.isEmpty
                 ? const Center(
-                    child: Icon(Icons.image_not_supported_rounded,
-                        color: _muted, size: 28),
+                    child: Icon(
+                      Icons.image_not_supported_rounded,
+                      color: _muted,
+                      size: 28,
+                    ),
                   )
                 : null,
           ),

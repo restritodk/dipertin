@@ -161,6 +161,8 @@ class _RegisterScreenState extends State<RegisterScreen> {
       switch (e.code) {
         case 'resource-exhausted':
           return 'Muitas tentativas de SMS. Aguarde alguns minutos.';
+        case 'already-exists':
+          return 'Já existe um cadastro com este CPF.';
         case 'invalid-argument':
           return 'Dados inválidos. Verifique o código ou o número.';
         case 'deadline-exceeded':
@@ -177,13 +179,27 @@ class _RegisterScreenState extends State<RegisterScreen> {
 
   Future<void> _enviarCodigoSms() async {
     if (!_celularCompletoParaSms || _enviandoSms) return;
+    final nomeTrim = _nomeController.text.trim();
+    if (nomeTrim.isEmpty) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(
+          content: Text('Preencha seu nome antes de solicitar o código por SMS.'),
+          backgroundColor: Colors.red,
+          behavior: SnackBarBehavior.floating,
+        ),
+      );
+      return;
+    }
     setState(() => _enviandoSms = true);
     try {
       final callable = appFirebaseFunctions.httpsCallable(
         'comteleCadastroTelefoneEnviarCodigo',
         options: HttpsCallableOptions(timeout: const Duration(seconds: 60)),
       );
-      await callable.call({'telefone': _telefoneController.text.trim()});
+      await callable.call({
+        'telefone': _telefoneController.text.trim(),
+        'nome': nomeTrim,
+      });
       if (!mounted) return;
       setState(() {
         _smsCodigoEnviado = true;
@@ -281,15 +297,78 @@ class _RegisterScreenState extends State<RegisterScreen> {
     }
   }
 
-  Future<void> _reverterCadastro(UserCredential uc) async {
+  /// Indica se [cadastroClienteSalvarPerfilInicial] já persistiu o perfil (leitura forçada ao servidor).
+  Future<bool> _cadastroPerfilJaExisteNoServidor(String uid) async {
+    try {
+      final snap = await FirebaseFirestore.instance
+          .collection('users')
+          .doc(uid)
+          .get(const GetOptions(source: Source.server));
+      if (!snap.exists) return false;
+      final d = snap.data();
+      if (d == null) return false;
+      if (d['telefone_verificado_sms_em'] != null) return true;
+      final cpfD =
+          (d['cpf_digitos'] ?? '').toString().replaceAll(RegExp(r'\D'), '');
+      return cpfD.length >= 11;
+    } catch (_) {
+      return false;
+    }
+  }
+
+  /// Apaga tentativa local e, se o servidor **não** tiver perfil completo, remove o usuário do Auth.
+  /// Retorna `true` se removeu a conta do Authentication (cadastro deve ser refeito).
+  /// Retorna `false` se manteve a conta porque o perfil já está no Firestore (evita órfão Auth/doc).
+  Future<bool> _reverterCadastroSeNecessario(UserCredential uc) async {
     final u = uc.user;
-    if (u == null) return;
+    if (u == null) return true;
     try {
       await FirebaseFirestore.instance.collection('users').doc(u.uid).delete();
     } catch (_) {}
+
+    if (await _cadastroPerfilJaExisteNoServidor(u.uid)) {
+      return false;
+    }
+
     try {
       await u.delete();
     } catch (_) {}
+    return true;
+  }
+
+  Future<void> _concluirCadastroClienteComSucesso(
+    UserCredential userCredential,
+  ) async {
+    try {
+      final token = await FirebaseMessaging.instance.getToken();
+      if (token != null) {
+        await FirebaseFirestore.instance
+            .collection('users')
+            .doc(userCredential.user!.uid)
+            .set({
+          'fcm_token': token,
+          'ultimo_acesso': FieldValue.serverTimestamp(),
+        }, SetOptions(merge: true));
+      }
+    } catch (_) {}
+
+    if (!mounted) return;
+    ScaffoldMessenger.of(context).showSnackBar(
+      const SnackBar(
+        content: Text('Cadastro realizado com sucesso!'),
+        backgroundColor: Colors.green,
+        behavior: SnackBarBehavior.floating,
+      ),
+    );
+    await FirebaseAuth.instance.signOut();
+    if (!mounted) return;
+    final emailCadastrado = _emailController.text.trim();
+    Navigator.of(context).pushAndRemoveUntil(
+      MaterialPageRoute<void>(
+        builder: (_) => LoginScreen(emailPreenchido: emailCadastrado),
+      ),
+      (route) => false,
+    );
   }
 
   void _onCidadeChanged() {
@@ -430,57 +509,31 @@ class _RegisterScreenState extends State<RegisterScreen> {
       final ufNormStr = veioDaLista && _ufCadastroManual != null
           ? LocationService.normalizar(_ufCadastroManual!)
           : loc.ufNormalizado;
-      await FirebaseFirestore.instance
-          .collection('users')
-          .doc(userCredential.user!.uid)
-          .set({
-            ...TermosCadastroFirestore.camposAceite(),
-            'nome': _nomeController.text.trim(),
-            'cpf': _cpfController.text.trim(),
-            'telefone': _telefoneController.text.trim(),
-            'email': _emailController.text.trim(),
-            'cidade': cidadeReg,
-            'uf': ufStr,
-            'cidade_normalizada': cidadeReg.isNotEmpty
-                ? LocationService.normalizar(cidadeReg)
-                : loc.cidadeNormalizada,
-            'uf_normalizado': ufNormStr,
-            'tipoUsuario': 'cliente',
-            'role': 'cliente',
-            'ativo': true,
-            'status_conta': 'ativa',
-            'onboarding_endereco_pendente': true,
-            'onboarding_endereco_criado_em': FieldValue.serverTimestamp(),
-            'cpf_alteracao_bloqueada': true,
-            'dataCadastro': FieldValue.serverTimestamp(),
-            'totalConcluido': 0,
-            'saldo': 0,
-          });
 
       try {
-        final token = await FirebaseMessaging.instance.getToken();
-        if (token != null) {
-          await FirebaseFirestore.instance
-              .collection('users')
-              .doc(userCredential.user!.uid)
-              .set({
-            'fcm_token': token,
-            'ultimo_acesso': FieldValue.serverTimestamp(),
-          }, SetOptions(merge: true));
-        }
-      } catch (_) {}
-
-      try {
-        final confirmar = appFirebaseFunctions.httpsCallable(
-          'cadastroConfirmarTelefoneVerificadoSms',
-          options: HttpsCallableOptions(timeout: const Duration(seconds: 30)),
+        final salvarPerfil = appFirebaseFunctions.httpsCallable(
+          'cadastroClienteSalvarPerfilInicial',
+          options: HttpsCallableOptions(timeout: const Duration(seconds: 60)),
         );
-        await confirmar.call({
+        await salvarPerfil.call({
           'ticketId': _ticketVerificacaoSms!,
           'telefone': _telefoneController.text.trim(),
+          'nome': _nomeController.text.trim(),
+          'cpf': _cpfController.text.trim(),
+          'cidade': cidadeReg,
+          'uf': ufStr,
+          'cidade_normalizada': cidadeReg.isNotEmpty
+              ? LocationService.normalizar(cidadeReg)
+              : loc.cidadeNormalizada,
+          'uf_normalizado': ufNormStr,
+          'aceite_termos_versao': TermosCadastroFirestore.versaoDocumentos,
         });
       } on FirebaseFunctionsException catch (e) {
-        await _reverterCadastro(userCredential);
+        final apagouAuth = await _reverterCadastroSeNecessario(userCredential);
+        if (!apagouAuth) {
+          await _concluirCadastroClienteComSucesso(userCredential);
+          return;
+        }
         if (mounted) {
           ScaffoldMessenger.of(context).showSnackBar(
             SnackBar(
@@ -492,7 +545,11 @@ class _RegisterScreenState extends State<RegisterScreen> {
         }
         return;
       } catch (e) {
-        await _reverterCadastro(userCredential);
+        final apagouAuth = await _reverterCadastroSeNecessario(userCredential);
+        if (!apagouAuth) {
+          await _concluirCadastroClienteComSucesso(userCredential);
+          return;
+        }
         if (mounted) {
           ScaffoldMessenger.of(context).showSnackBar(
             SnackBar(
@@ -505,26 +562,7 @@ class _RegisterScreenState extends State<RegisterScreen> {
         return;
       }
 
-      if (mounted) {
-        ScaffoldMessenger.of(context).showSnackBar(
-          const SnackBar(
-            content: Text('Cadastro realizado com sucesso!'),
-            backgroundColor: Colors.green,
-            behavior: SnackBarBehavior.floating,
-          ),
-        );
-        // createUserWithEmailAndPassword autentica automaticamente.
-        // Para manter o fluxo pedido, voltamos explicitamente para Login.
-        await FirebaseAuth.instance.signOut();
-        if (!mounted) return;
-        final emailCadastrado = _emailController.text.trim();
-        Navigator.of(context).pushAndRemoveUntil(
-          MaterialPageRoute<void>(
-            builder: (_) => LoginScreen(emailPreenchido: emailCadastrado),
-          ),
-          (route) => false,
-        );
-      }
+      await _concluirCadastroClienteComSucesso(userCredential);
     } on FirebaseAuthException catch (e) {
       String mensagemErro = 'Ocorreu um erro no cadastro.';
       if (e.code == 'weak-password') {

@@ -8,12 +8,14 @@ import 'package:intl/intl.dart';
 import '../../services/fcm_notification_eventos.dart';
 import '../../services/fcm_rota.dart';
 import '../../services/notificacoes_historico_service.dart';
-import '../lojista/lojista_form_screen.dart';
-import '../lojista/lojista_painel_roteador.dart';
+import '../cliente/chat_suporte_screen.dart';
+import '../cliente/cliente_encomenda_detalhe_screen.dart';
+import '../entregador/entregador_carteira_screen.dart';
 import '../entregador/entregador_form_screen.dart';
 import '../entregador/entregador_home_screen.dart';
-import '../entregador/entregador_carteira_screen.dart';
-import '../cliente/chat_suporte_screen.dart';
+import '../lojista/lojista_encomenda_detalhe_screen.dart';
+import '../lojista/lojista_form_screen.dart';
+import '../lojista/lojista_painel_roteador.dart';
 
 const Color _diPertinRoxo = Color(0xFF6A1B9A);
 const Color _diPertinLaranja = Color(0xFFFF8F00);
@@ -256,6 +258,32 @@ class _MinhasNotificacoesScreenState extends State<MinhasNotificacoesScreen> {
     if (tipo.contains('suporte') || tipo.contains('atendimento')) {
       Navigator.of(context).push(
         MaterialPageRoute(builder: (_) => const ChatSuporteScreen()),
+      );
+      return;
+    }
+
+    // 4b) Encomenda — detalhe cliente ou loja (payload com encomenda_id).
+    final encIdNav = (payload['encomenda_id'] ?? '').toString().trim();
+    final lojaIdNav = (payload['loja_id'] ?? '').toString().trim();
+    if (tipo.startsWith('encomenda_cliente_') && encIdNav.isNotEmpty) {
+      Navigator.of(context).push(
+        MaterialPageRoute<void>(
+          builder: (_) =>
+              ClienteEncomendaDetalheScreen(encomendaId: encIdNav),
+        ),
+      );
+      return;
+    }
+    if (tipo.startsWith('encomenda_loja_') &&
+        encIdNav.isNotEmpty &&
+        lojaIdNav.isNotEmpty) {
+      Navigator.of(context).push(
+        MaterialPageRoute<void>(
+          builder: (_) => LojistaEncomendaDetalheScreen(
+            encomendaId: encIdNav,
+            uidLoja: lojaIdNav,
+          ),
+        ),
       );
       return;
     }

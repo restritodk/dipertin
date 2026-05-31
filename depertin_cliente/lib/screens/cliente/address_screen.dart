@@ -1,9 +1,14 @@
 // Arquivo: lib/screens/address_screen.dart
 
+import 'dart:convert';
+
+import 'package:flutter/foundation.dart' show kIsWeb;
 import 'package:flutter/material.dart';
+import 'package:flutter/services.dart';
 // Pacotes para localização
 import 'package:geolocator/geolocator.dart';
 import 'package:geocoding/geocoding.dart';
+import 'package:http/http.dart' as http;
 // Pacotes para salvar no perfil do usuário
 import 'package:firebase_auth/firebase_auth.dart';
 import 'package:cloud_firestore/cloud_firestore.dart';
@@ -45,9 +50,11 @@ class AddressScreen extends StatefulWidget {
 
 class _AddressScreenState extends State<AddressScreen> {
   bool _buscandoGps = false;
+  bool _buscandoCep = false;
   bool _salvandoNoPerfil = false;
   late bool _tornarPadrao;
 
+  final TextEditingController _cepC = TextEditingController();
   final TextEditingController _ruaC = TextEditingController();
   final TextEditingController _numeroC = TextEditingController();
   final TextEditingController _bairroC = TextEditingController();
@@ -55,11 +62,17 @@ class _AddressScreenState extends State<AddressScreen> {
   final TextEditingController _estadoC = TextEditingController();
   final TextEditingController _complementoC = TextEditingController();
 
+  final FocusNode _numeroFocus = FocusNode();
+
+  /// Último CEP (8 dígitos) já consultado, para não repetir a chamada à API.
+  String _ultimoCepBuscado = '';
+
   @override
   void initState() {
     super.initState();
     final d = widget.dadosIniciais;
     if (d != null) {
+      _cepC.text = _formatarCep((d['cep'] ?? '').toString());
       _ruaC.text = (d['rua'] ?? '').toString().trim();
       _numeroC.text = (d['numero'] ?? '').toString().trim();
       _bairroC.text = (d['bairro'] ?? '').toString().trim();
@@ -80,16 +93,37 @@ class _AddressScreenState extends State<AddressScreen> {
   @override
   void dispose() {
     // Limpa os controladores para economizar memória
+    _cepC.dispose();
     _ruaC.dispose();
     _numeroC.dispose();
     _bairroC.dispose();
     _cidadeC.dispose();
     _estadoC.dispose();
     _complementoC.dispose();
+    _numeroFocus.dispose();
     super.dispose();
   }
 
-  // Função para capturar o GPS e preencher os campos automaticamente
+  static String _apenasDigitos(String s) => s.replaceAll(RegExp(r'\D'), '');
+
+  /// Formata para `00000-000` (aceita entrada com ou sem máscara).
+  static String _formatarCep(String s) {
+    final d = _apenasDigitos(s);
+    if (d.length <= 5) return d;
+    final corte = d.length > 8 ? 8 : d.length;
+    return '${d.substring(0, 5)}-${d.substring(5, corte)}';
+  }
+
+  /// Coloca o foco no campo Número após um preenchimento automático,
+  /// já que é o único dado que o cliente precisa digitar.
+  void _focarNumero() {
+    if (!mounted) return;
+    FocusScope.of(context).requestFocus(_numeroFocus);
+  }
+
+  // Função para capturar o GPS e preencher os campos automaticamente.
+  // Mobile usa o plugin `geocoding`; na web usa reverse geocoding via Nominatim
+  // (o plugin `geocoding` não funciona no navegador).
   Future<void> _obterLocalizacaoAtual() async {
     setState(() => _buscandoGps = true);
 
@@ -106,67 +140,231 @@ class _AddressScreenState extends State<AddressScreen> {
         locationSettings: const LocationSettings(
           accuracy: LocationAccuracy.high,
         ),
-      );
+      ).timeout(const Duration(seconds: 18));
 
-      List<Placemark> placemarks = await placemarkFromCoordinates(
-        position.latitude,
-        position.longitude,
-      );
+      _EnderecoPreenchido? preenchido;
 
-      if (placemarks.isNotEmpty) {
-        final Placemark base = placemarks.first;
-        final Map<String, String> linhas =
-            LocationService.linhasEnderecoDoPlacemark(base);
-        final ({String cidade, String uf})? regiao =
-            LocationService.resolverCidadeUfDePlacemarks(placemarks);
+      if (kIsWeb) {
+        preenchido = await _reverseGeocodeWebNominatim(
+          position.latitude,
+          position.longitude,
+        );
+      } else {
+        final List<Placemark> placemarks = await placemarkFromCoordinates(
+          position.latitude,
+          position.longitude,
+        );
+        if (placemarks.isNotEmpty) {
+          final Placemark base = placemarks.first;
+          final Map<String, String> linhas =
+              LocationService.linhasEnderecoDoPlacemark(base);
+          final ({String cidade, String uf})? regiao =
+              LocationService.resolverCidadeUfDePlacemarks(placemarks);
 
-        String cidadeFinal = regiao?.cidade ?? '';
-        if (cidadeFinal.isEmpty) {
-          cidadeFinal = base.locality ??
-              base.subAdministrativeArea ??
-              base.administrativeArea ??
-              '';
-        }
-        String ufFinal = regiao?.uf ?? '';
-        if (ufFinal.isEmpty) {
-          final u = LocationService.ufDoPlacemark(base);
-          ufFinal = u?.toUpperCase() ?? '';
-        }
+          String cidadeFinal = regiao?.cidade ?? '';
+          if (cidadeFinal.isEmpty) {
+            cidadeFinal = base.locality ??
+                base.subAdministrativeArea ??
+                base.administrativeArea ??
+                '';
+          }
+          String ufFinal = regiao?.uf ?? '';
+          if (ufFinal.isEmpty) {
+            ufFinal = LocationService.ufDoPlacemark(base)?.toUpperCase() ?? '';
+          }
 
-        setState(() {
-          _ruaC.text = linhas['rua'] ?? '';
-          _numeroC.text = linhas['numero'] ?? '';
-          _bairroC.text = linhas['bairro'] ?? '';
-          _cidadeC.text = cidadeFinal;
-          _estadoC.text = ufFinal;
-        });
-
-        if (mounted) {
-          ScaffoldMessenger.of(context).showSnackBar(
-            const SnackBar(
-              content: Text(
-                'Endereço preenchido pelo GPS. Confira rua, número e bairro.',
-              ),
-              backgroundColor: Colors.green,
-              behavior: SnackBarBehavior.floating,
-            ),
+          preenchido = _EnderecoPreenchido(
+            rua: linhas['rua'] ?? '',
+            bairro: linhas['bairro'] ?? '',
+            cidade: cidadeFinal,
+            uf: ufFinal,
+            cep: (base.postalCode ?? '').trim(),
           );
         }
+      }
+
+      if (!mounted) return;
+
+      if (preenchido != null && preenchido.temAlgo) {
+        _aplicarEnderecoPreenchido(preenchido);
+        ScaffoldMessenger.of(context).showSnackBar(
+          const SnackBar(
+            content: Text(
+              'Endereço preenchido pela localização. Confira e informe o número.',
+            ),
+            backgroundColor: Colors.green,
+            behavior: SnackBarBehavior.floating,
+          ),
+        );
+      } else {
+        ScaffoldMessenger.of(context).showSnackBar(
+          const SnackBar(
+            content: Text(
+              'Não localizamos o endereço pelo GPS. Use o CEP ou digite manualmente.',
+            ),
+            backgroundColor: diPertinLaranja,
+            behavior: SnackBarBehavior.floating,
+          ),
+        );
       }
     } catch (e) {
       if (mounted) {
         ScaffoldMessenger.of(context).showSnackBar(
           const SnackBar(
             content: Text(
-              'Não conseguimos obter a localização. Digite manualmente.',
+              'Não conseguimos obter a localização. Use o CEP ou digite manualmente.',
             ),
             backgroundColor: Colors.red,
+            behavior: SnackBarBehavior.floating,
           ),
         );
       }
     } finally {
       if (mounted) setState(() => _buscandoGps = false);
     }
+  }
+
+  /// Reverse geocoding no navegador (web) via Nominatim (OSM).
+  Future<_EnderecoPreenchido?> _reverseGeocodeWebNominatim(
+    double lat,
+    double lng,
+  ) async {
+    try {
+      final uri = Uri.parse(
+        'https://nominatim.openstreetmap.org/reverse?lat=$lat&lon=$lng'
+        '&format=json&addressdetails=1&accept-language=pt-BR',
+      );
+      final res = await http.get(
+        uri,
+        headers: const {
+          'User-Agent': 'DiPertinCliente/1.0 (https://depertin.app)',
+          'Accept-Language': 'pt-BR,pt;q=0.9',
+        },
+      ).timeout(const Duration(seconds: 14));
+      if (res.statusCode != 200) return null;
+      final data =
+          jsonDecode(utf8.decode(res.bodyBytes)) as Map<String, dynamic>;
+      final addr = data['address'] as Map<String, dynamic>?;
+      if (addr == null) return null;
+
+      String texto(List<String> chaves) {
+        for (final k in chaves) {
+          final v = addr[k]?.toString().trim();
+          if (v != null && v.isNotEmpty) return v;
+        }
+        return '';
+      }
+
+      final cidade = texto(['city', 'town', 'village', 'municipality']);
+      String uf = LocationService.extrairUf(addr['state']?.toString()) ?? '';
+      if (uf.isEmpty) {
+        final iso = addr['ISO3166-2-lvl4']?.toString() ?? '';
+        final m = RegExp(r'^BR-([A-Za-z]{2})$').firstMatch(iso);
+        if (m != null) uf = m.group(1)!;
+      }
+
+      return _EnderecoPreenchido(
+        rua: texto(['road', 'pedestrian', 'footway']),
+        bairro: texto(['suburb', 'neighbourhood', 'city_district']),
+        cidade: cidade,
+        uf: uf.toUpperCase(),
+        cep: texto(['postcode']),
+      );
+    } catch (e) {
+      debugPrint('[AddressScreen] Nominatim (web): $e');
+      return null;
+    }
+  }
+
+  /// Busca o endereço pelo CEP usando a API pública ViaCEP (todas as plataformas).
+  Future<void> _buscarPorCep({bool silencioso = false}) async {
+    final cep = _apenasDigitos(_cepC.text);
+    if (cep.length != 8) {
+      if (!silencioso && mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          const SnackBar(
+            content: Text('Digite um CEP válido com 8 dígitos.'),
+            backgroundColor: diPertinLaranja,
+            behavior: SnackBarBehavior.floating,
+          ),
+        );
+      }
+      return;
+    }
+    if (_buscandoCep) return;
+    _ultimoCepBuscado = cep;
+
+    setState(() => _buscandoCep = true);
+    try {
+      final res = await http
+          .get(Uri.parse('https://viacep.com.br/ws/$cep/json/'))
+          .timeout(const Duration(seconds: 12));
+      if (!mounted) return;
+
+      if (res.statusCode != 200) {
+        throw Exception('status ${res.statusCode}');
+      }
+      final data =
+          jsonDecode(utf8.decode(res.bodyBytes)) as Map<String, dynamic>;
+
+      if (data['erro'] == true || data['erro'] == 'true') {
+        ScaffoldMessenger.of(context).showSnackBar(
+          const SnackBar(
+            content: Text('CEP não encontrado. Confira ou digite manualmente.'),
+            backgroundColor: diPertinLaranja,
+            behavior: SnackBarBehavior.floating,
+          ),
+        );
+        return;
+      }
+
+      _aplicarEnderecoPreenchido(
+        _EnderecoPreenchido(
+          rua: (data['logradouro'] ?? '').toString().trim(),
+          bairro: (data['bairro'] ?? '').toString().trim(),
+          cidade: (data['localidade'] ?? '').toString().trim(),
+          uf: (data['uf'] ?? '').toString().trim().toUpperCase(),
+          cep: cep,
+        ),
+      );
+
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(
+          content: Text('Endereço encontrado. Agora é só informar o número.'),
+          backgroundColor: Colors.green,
+          behavior: SnackBarBehavior.floating,
+        ),
+      );
+    } catch (e) {
+      if (mounted && !silencioso) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          const SnackBar(
+            content: Text(
+              'Não foi possível buscar o CEP. Verifique a conexão ou digite manualmente.',
+            ),
+            backgroundColor: Colors.red,
+            behavior: SnackBarBehavior.floating,
+          ),
+        );
+      }
+    } finally {
+      if (mounted) setState(() => _buscandoCep = false);
+    }
+  }
+
+  /// Preenche os campos a partir de um endereço resolvido (GPS ou CEP),
+  /// mantendo o foco no campo Número — único dado que falta ao cliente.
+  void _aplicarEnderecoPreenchido(_EnderecoPreenchido e) {
+    setState(() {
+      if (e.cep.isNotEmpty) _cepC.text = _formatarCep(e.cep);
+      if (e.rua.isNotEmpty) _ruaC.text = e.rua;
+      if (e.bairro.isNotEmpty) _bairroC.text = e.bairro;
+      if (e.cidade.isNotEmpty) _cidadeC.text = e.cidade;
+      if (e.uf.isNotEmpty) _estadoC.text = e.uf;
+      // Número nunca vem da API/GPS de forma confiável: o cliente informa.
+      _numeroC.clear();
+    });
+    _focarNumero();
   }
 
   // LÓGICA TURBINADA PARA SALVAR E RETORNAR
@@ -210,6 +408,7 @@ class _AddressScreenState extends State<AddressScreen> {
       final String estadoUf = _estadoC.text.trim().toUpperCase();
 
       Map<String, dynamic> enderecoCompleto = {
+        'cep': _apenasDigitos(_cepC.text),
         'rua': _ruaC.text.trim(),
         'numero': _numeroC.text.trim(),
         'bairro': _bairroC.text.trim(),
@@ -220,24 +419,11 @@ class _AddressScreenState extends State<AddressScreen> {
       };
 
       Future<void> aplicarPadraoNoPerfil() async {
-        final Map<String, dynamic> dadosAtualizar = {
+        await FirebaseFirestore.instance.collection('users').doc(user.uid).update({
           'endereco_entrega_padrao': enderecoCompleto,
-          'cidade': cidadeFinal.toLowerCase(),
           'onboarding_endereco_pendente': false,
           'onboarding_endereco_concluido_em': FieldValue.serverTimestamp(),
-        };
-        if (estadoUf.isNotEmpty) {
-          dadosAtualizar['uf'] = estadoUf;
-          dadosAtualizar['cidade_normalizada'] =
-              LocationService.normalizar(cidadeFinal);
-          dadosAtualizar['uf_normalizado'] =
-              LocationService.extrairUf(estadoUf) ??
-                  LocationService.normalizar(estadoUf);
-        }
-        await FirebaseFirestore.instance
-            .collection('users')
-            .doc(user.uid)
-            .update(dadosAtualizar);
+        });
       }
 
       Future<void> marcarOnboardingConcluido() async {
@@ -324,6 +510,7 @@ class _AddressScreenState extends State<AddressScreen> {
       final String estadoUf = _estadoC.text.trim().toUpperCase();
 
       Map<String, dynamic> enderecoCompleto = {
+        'cep': _apenasDigitos(_cepC.text),
         'rua': _ruaC.text.trim(),
         'numero': _numeroC.text.trim(),
         'bairro': _bairroC.text.trim(),
@@ -337,26 +524,11 @@ class _AddressScreenState extends State<AddressScreen> {
       try {
         // Atualiza APENAS o endereço de entrega do cliente no documento dele na coleção users
         // Não toca em nada relacionado a Lojista.
-        final Map<String, dynamic> dadosAtualizar = {
+        await FirebaseFirestore.instance.collection('users').doc(user.uid).update({
           'endereco_entrega_padrao': enderecoCompleto,
-          'cidade': cidadeFinal.toLowerCase(),
           'onboarding_endereco_pendente': false,
           'onboarding_endereco_concluido_em': FieldValue.serverTimestamp(),
-        };
-
-        if (estadoUf.isNotEmpty) {
-          dadosAtualizar['uf'] = estadoUf;
-          dadosAtualizar['cidade_normalizada'] =
-              LocationService.normalizar(cidadeFinal);
-          dadosAtualizar['uf_normalizado'] =
-              LocationService.extrairUf(estadoUf) ??
-                  LocationService.normalizar(estadoUf);
-        }
-
-        await FirebaseFirestore.instance
-            .collection('users')
-            .doc(user.uid)
-            .update(dadosAtualizar);
+        });
       } catch (e) {
         if (mounted) {
           ScaffoldMessenger.of(context).showSnackBar(
@@ -491,6 +663,59 @@ class _AddressScreenState extends State<AddressScreen> {
               ),
             ),
 
+            // CAMPO CEP (autocompleta o endereço via ViaCEP)
+            _buildTextField(
+              controller: _cepC,
+              label: "CEP",
+              icon: Icons.local_post_office,
+              keyboardType: TextInputType.number,
+              maxLength: 9,
+              inputFormatters: [
+                FilteringTextInputFormatter.digitsOnly,
+                _CepInputFormatter(),
+              ],
+              onChanged: (valor) {
+                final d = _apenasDigitos(valor);
+                // Permite uma nova busca caso o cliente apague e redigite.
+                if (d.length < 8) {
+                  _ultimoCepBuscado = '';
+                  return;
+                }
+                if (d.length == 8 && d != _ultimoCepBuscado) {
+                  // Ao completar o 8º dígito, busca automaticamente e
+                  // fecha o teclado para destacar o campo Número.
+                  FocusScope.of(context).unfocus();
+                  _buscarPorCep(silencioso: true);
+                }
+              },
+              onSubmitted: (_) => _buscarPorCep(),
+              suffixIcon: _buscandoCep
+                  ? const Padding(
+                      padding: EdgeInsets.all(12),
+                      child: SizedBox(
+                        width: 18,
+                        height: 18,
+                        child: CircularProgressIndicator(
+                          strokeWidth: 2,
+                          color: diPertinRoxo,
+                        ),
+                      ),
+                    )
+                  : IconButton(
+                      tooltip: 'Buscar CEP',
+                      icon: const Icon(Icons.search, color: diPertinRoxo),
+                      onPressed: _buscandoCep ? null : () => _buscarPorCep(),
+                    ),
+            ),
+            const Padding(
+              padding: EdgeInsets.only(left: 4, top: 6, bottom: 10),
+              child: Text(
+                "Digite o CEP e preencheremos o endereço. Depois é só informar o número.",
+                style: TextStyle(fontSize: 12, color: Colors.grey),
+              ),
+            ),
+            const SizedBox(height: 5),
+
             // CAMPOS MANUAIS
             _buildTextField(
               controller: _ruaC,
@@ -506,6 +731,7 @@ class _AddressScreenState extends State<AddressScreen> {
                     controller: _numeroC,
                     label: "Número",
                     keyboardType: TextInputType.number,
+                    focusNode: _numeroFocus,
                   ),
                 ),
                 const SizedBox(width: 15),
@@ -620,15 +846,28 @@ class _AddressScreenState extends State<AddressScreen> {
     required String label,
     IconData? icon,
     TextInputType keyboardType = TextInputType.text,
+    FocusNode? focusNode,
+    Widget? suffixIcon,
+    int? maxLength,
+    List<TextInputFormatter>? inputFormatters,
+    ValueChanged<String>? onChanged,
+    ValueChanged<String>? onSubmitted,
   }) {
     return TextField(
       controller: controller,
+      focusNode: focusNode,
       keyboardType: keyboardType,
+      maxLength: maxLength,
+      inputFormatters: inputFormatters,
+      onChanged: onChanged,
+      onSubmitted: onSubmitted,
       decoration: InputDecoration(
         labelText: label,
+        counterText: '',
         prefixIcon: icon != null
             ? Icon(icon, color: diPertinRoxo, size: 20)
             : null,
+        suffixIcon: suffixIcon,
         filled: true,
         fillColor: Colors.white,
         contentPadding: const EdgeInsets.symmetric(
@@ -641,6 +880,53 @@ class _AddressScreenState extends State<AddressScreen> {
         ),
         labelStyle: const TextStyle(fontSize: 14, color: Colors.grey),
       ),
+    );
+  }
+}
+
+/// Endereço resolvido por GPS ou CEP. O número nunca é considerado confiável.
+class _EnderecoPreenchido {
+  const _EnderecoPreenchido({
+    this.rua = '',
+    this.bairro = '',
+    this.cidade = '',
+    this.uf = '',
+    this.cep = '',
+  });
+
+  final String rua;
+  final String bairro;
+  final String cidade;
+  final String uf;
+  final String cep;
+
+  bool get temAlgo =>
+      rua.isNotEmpty ||
+      bairro.isNotEmpty ||
+      cidade.isNotEmpty ||
+      uf.isNotEmpty ||
+      cep.isNotEmpty;
+}
+
+/// Aplica máscara `00000-000` ao CEP conforme o usuário digita.
+class _CepInputFormatter extends TextInputFormatter {
+  @override
+  TextEditingValue formatEditUpdate(
+    TextEditingValue oldValue,
+    TextEditingValue newValue,
+  ) {
+    final digits = newValue.text.replaceAll(RegExp(r'\D'), '');
+    final corte = digits.length > 8 ? 8 : digits.length;
+    final limpos = digits.substring(0, corte);
+    final buffer = StringBuffer();
+    for (var i = 0; i < limpos.length; i++) {
+      if (i == 5) buffer.write('-');
+      buffer.write(limpos[i]);
+    }
+    final texto = buffer.toString();
+    return TextEditingValue(
+      text: texto,
+      selection: TextSelection.collapsed(offset: texto.length),
     );
   }
 }

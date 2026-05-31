@@ -27,6 +27,38 @@ class CartProvider with ChangeNotifier {
   }
 
   // ==========================================
+  // CONVIVÊNCIA ENTRE ENCOMENDA E PRONTA-ENTREGA
+  // A sacola pode conter os dois tipos ao mesmo tempo; cada tipo é
+  // finalizado em sua própria seção/fluxo.
+  // ==========================================
+  List<CartItemModel> get itensEncomenda =>
+      _items.where((i) => i.ehEncomenda).toList();
+
+  List<CartItemModel> get itensProntaEntrega =>
+      _items.where((i) => !i.ehEncomenda).toList();
+
+  bool get temEncomenda => _items.any((i) => i.ehEncomenda);
+
+  bool get temProntaEntrega => _items.any((i) => !i.ehEncomenda);
+
+  /// Soma apenas os itens de pronta-entrega (base do checkout normal).
+  double get totalProntaEntrega {
+    var total = 0.0;
+    for (final item in _items) {
+      if (!item.ehEncomenda) total += item.preco * item.quantidade;
+    }
+    return total;
+  }
+
+  /// Remove da sacola somente os itens do tipo informado, preservando os do
+  /// outro tipo. Usado ao finalizar uma das seções (normal ou encomenda).
+  void removerItensPorTipo({required bool encomenda}) {
+    _items.removeWhere((i) => i.ehEncomenda == encomenda);
+    notifyListeners();
+    _saveCart();
+  }
+
+  // ==========================================
   // LÓGICA DE SALVAR NO CELULAR (MAGIA AQUI)
   // ==========================================
   Future<void> _saveCart() async {
@@ -55,10 +87,28 @@ class CartProvider with ChangeNotifier {
     addItemWithQuantity(product, 1);
   }
 
-  /// Adiciona várias unidades de uma vez (detalhe do produto).
-  void addItemWithQuantity(CartItemModel product, int quantidade) {
-    if (quantidade <= 0) return;
-    final index = _items.indexWhere((i) => i.id == product.id);
+  /// Retorna mensagem de bloqueio ou `null` se incluiu/atualizou com sucesso.
+  String? addItemWithQuantity(CartItemModel product, int quantidade) {
+    if (quantidade <= 0) return null;
+    // Encomenda e pronta-entrega podem coexistir na sacola (finalizadas em
+    // seções separadas). Mantemos apenas a regra de que uma ENCOMENDA só pode
+    // ter itens de uma loja por vez — comparando somente com os itens de
+    // encomenda já presentes, não com o primeiro item da sacola.
+    if (product.ehEncomenda && product.lojaId.trim().isNotEmpty) {
+      final encomendaOutraLoja = _items.any(
+        (i) =>
+            i.ehEncomenda &&
+            i.lojaId.trim().isNotEmpty &&
+            i.lojaId.trim() != product.lojaId.trim(),
+      );
+      if (encomendaOutraLoja) {
+        return 'Encomendas só podem ter itens de uma loja por vez. '
+            'Finalize ou remova a encomenda atual para iniciar outra.';
+      }
+    }
+    final index = _items.indexWhere(
+      (i) => i.chaveCarrinho == product.chaveCarrinho,
+    );
 
     if (index >= 0) {
       _items[index].quantidade += quantidade;
@@ -73,16 +123,19 @@ class CartProvider with ChangeNotifier {
           imagem: product.imagem,
           quantidade: quantidade,
           requerVeiculoGrande: product.requerVeiculoGrande,
+          ehEncomenda: product.ehEncomenda,
+          variacoesSelecionadas: product.variacoesSelecionadas,
         ),
       );
     }
     notifyListeners();
     _saveCart();
+    return null;
   }
 
   // --- NOVAS FUNÇÕES PARA OS BOTÕES + E - ---
-  void incrementarQuantidade(String id) {
-    final index = _items.indexWhere((i) => i.id == id);
+  void incrementarQuantidade(String chaveCarrinho) {
+    final index = _items.indexWhere((i) => i.chaveCarrinho == chaveCarrinho);
     if (index >= 0) {
       _items[index].quantidade += 1;
       notifyListeners();
@@ -90,8 +143,8 @@ class CartProvider with ChangeNotifier {
     }
   }
 
-  void decrementarQuantidade(String id) {
-    final index = _items.indexWhere((i) => i.id == id);
+  void decrementarQuantidade(String chaveCarrinho) {
+    final index = _items.indexWhere((i) => i.chaveCarrinho == chaveCarrinho);
     if (index >= 0) {
       if (_items[index].quantidade > 1) {
         _items[index].quantidade -= 1;
@@ -109,8 +162,8 @@ class CartProvider with ChangeNotifier {
     decrementarQuantidade(productId);
   }
 
-  void removeItem(String productId) {
-    _items.removeWhere((item) => item.id == productId);
+  void removeItem(String chaveCarrinho) {
+    _items.removeWhere((item) => item.chaveCarrinho == chaveCarrinho);
     notifyListeners();
     _saveCart();
   }

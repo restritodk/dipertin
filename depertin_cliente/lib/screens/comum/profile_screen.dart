@@ -27,6 +27,7 @@ import 'package:depertin_cliente/widgets/entregador_conta_bloqueada_overlay.dart
 import 'package:depertin_cliente/widgets/lojista_conta_bloqueada_overlay.dart';
 import '../auth/login_screen.dart';
 import '../cliente/orders_screen.dart';
+import '../cliente/cliente_encomendas_list_screen.dart';
 import '../entregador/entregador_form_screen.dart';
 import '../lojista/lojista_dashboard_screen.dart';
 import '../lojista/lojista_form_screen.dart';
@@ -876,6 +877,20 @@ class _ProfileScreenState extends State<ProfileScreen> {
                 onTap: () => Navigator.push(
                   context,
                   MaterialPageRoute(builder: (context) => const OrdersScreen()),
+                ),
+              ),
+              Divider(height: 1, color: Colors.grey.shade200),
+              _buildMenuItem(
+                icon: Icons.inventory_2_outlined,
+                color: const Color(0xFF5E35B1),
+                title: 'Minhas encomendas',
+                subtitle: 'Negociações com lojas',
+                onTap: () => Navigator.push(
+                  context,
+                  MaterialPageRoute(
+                    builder: (context) =>
+                        const ClienteEncomendasListScreen(),
+                  ),
                 ),
               ),
               Divider(height: 1, color: Colors.grey.shade200),

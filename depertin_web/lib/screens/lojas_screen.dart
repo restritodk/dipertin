@@ -13,6 +13,7 @@ import '../constants/lojista_motivo_recusa.dart';
 import '../theme/painel_admin_theme.dart';
 import '../utils/admin_perfil.dart';
 import '../utils/conta_bloqueio_lojista.dart';
+import '../widgets/lojista_editar_modal.dart';
 import '../widgets/pdf_preview_iframe.dart';
 
 class _StatusVisual {
@@ -34,7 +35,7 @@ const _kStatus = <String, _StatusVisual>{
       Color(0xFFDC2626), Color(0xFFFEF2F2), Color(0xFFFECACA)),
 };
 
-enum _MaisAcoesLoja { documentos, planoTaxa, bloquear }
+enum _MaisAcoesLoja { documentos, editar, planoTaxa, bloquear }
 
 class LojasScreen extends StatefulWidget {
   const LojasScreen({super.key});
@@ -1101,7 +1102,7 @@ class _LojasScreenState extends State<LojasScreen>
     );
   }
 
-  /// Menu ⋮ com Documentos e, se [incluirPlanoTaxaEBloquear], Plano/Taxa e Bloquear.
+  /// Menu ⋮: Documentos, Editar e, se [incluirPlanoTaxaEBloquear], Plano/Taxa e Bloquear.
   Widget _buildMaisAcoesLojaMenu({
     required QueryDocumentSnapshot doc,
     required Map<String, dynamic> dados,
@@ -1131,6 +1132,9 @@ class _LojasScreenState extends State<LojasScreen>
           case _MaisAcoesLoja.documentos:
             _mostrarDocumentosModal(dados);
             break;
+          case _MaisAcoesLoja.editar:
+            showLojistaEditarDialog(context, lojistaId: doc.id);
+            break;
           case _MaisAcoesLoja.planoTaxa:
             _atribuirPlanoModal(doc.id, nomeLoja, planoId, cidade);
             break;
@@ -1150,6 +1154,18 @@ class _LojasScreenState extends State<LojasScreen>
                     size: 20, color: Color(0xFF3B82F6)),
                 const SizedBox(width: 12),
                 Text('Documentos', style: textStyle),
+              ],
+            ),
+          ),
+          PopupMenuItem<_MaisAcoesLoja>(
+            value: _MaisAcoesLoja.editar,
+            padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 10),
+            child: Row(
+              children: [
+                Icon(Icons.edit_outlined,
+                    size: 20, color: PainelAdminTheme.roxo),
+                const SizedBox(width: 12),
+                Text('Editar', style: textStyle),
               ],
             ),
           ),
