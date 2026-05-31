@@ -88,20 +88,6 @@ class _CentralClientesScreenState extends State<CentralClientesScreen> {
     return out;
   }
 
-  /// Soma o saldo de carteira de todos os lojistas cadastrados.
-  double _somarSaldoLojistas(
-    List<QueryDocumentSnapshot<Map<String, dynamic>>> docs,
-  ) {
-    var total = 0.0;
-    for (final d in docs) {
-      final m = safeWebDocData(d);
-      if (m.isEmpty) continue;
-      final v = m['saldo'];
-      if (v is num) total += v.toDouble();
-    }
-    return total;
-  }
-
   bool _matchCliente(_ClienteResumo c, String termo) {
     if (termo.isEmpty) return true;
     final t = _normalizar(termo);
@@ -159,83 +145,70 @@ class _CentralClientesScreenState extends State<CentralClientesScreen> {
                     .collection('pedidos')
                     .snapshots(),
                 builder: (context, pedidosSnap) {
-                  return StreamBuilder<QuerySnapshot<Map<String, dynamic>>>(
-                    // Stream 3 — Lojistas (para KPI Saldo em carteira)
-                    stream: FirebaseFirestore.instance
-                        .collection('users')
-                        .where('role', isEqualTo: 'lojista')
-                        .snapshots(),
-                    builder: (context, lojistasSnap) {
-                      // Agregação dos pedidos por cliente_id (em tempo real).
-                      final agregado = _calcularAgregadoPorCliente(
-                        pedidosSnap.data?.docs ?? const [],
-                      );
+                  // Agregação dos pedidos por cliente_id (em tempo real).
+                  final agregado = _calcularAgregadoPorCliente(
+                    pedidosSnap.data?.docs ?? const [],
+                  );
 
-                      // Soma dos saldos de TODOS os lojistas.
-                      final saldoTotalLojistas = _somarSaldoLojistas(
-                        lojistasSnap.data?.docs ?? const [],
-                      );
+                  // Monta lista de clientes enriquecida com dados em tempo real.
+                  final clientes = <_ClienteResumo>[];
+                  for (final d in clientesSnap.data?.docs ?? const []) {
+                    final raw = safeWebDocData(d);
+                    if (raw.isEmpty) continue;
+                    final base = _ClienteResumo.fromMap(
+                      d.id,
+                      raw,
+                      criadoDocFallback: d.createTime,
+                    );
+                    final ag = agregado[d.id];
+                    clientes.add(
+                      base.comAgregado(
+                        totalPedidos: ag?.contagem ?? 0,
+                        totalGasto: ag?.totalGasto ?? 0,
+                      ),
+                    );
+                  }
+                  clientes.sort((a, b) {
+                    final ta =
+                        a.criadoEm?.millisecondsSinceEpoch ?? 0;
+                    final tb =
+                        b.criadoEm?.millisecondsSinceEpoch ?? 0;
+                    return tb.compareTo(ta);
+                  });
+                  final filtrados = clientes
+                      .where((c) => _matchCliente(c, _termo))
+                      .toList();
 
-                      // Monta lista de clientes enriquecida com dados em tempo real.
-                      final clientes = <_ClienteResumo>[];
-                      for (final d in clientesSnap.data?.docs ?? const []) {
-                        final raw = safeWebDocData(d);
-                        if (raw.isEmpty) continue;
-                        final base = _ClienteResumo.fromMap(d.id, raw);
-                        final ag = agregado[d.id];
-                        clientes.add(
-                          base.comAgregado(
-                            totalPedidos: ag?.contagem ?? 0,
-                            totalGasto: ag?.totalGasto ?? 0,
-                          ),
-                        );
-                      }
-                      clientes.sort((a, b) {
-                        final ta =
-                            a.criadoEm?.millisecondsSinceEpoch ?? 0;
-                        final tb =
-                            b.criadoEm?.millisecondsSinceEpoch ?? 0;
-                        return tb.compareTo(ta);
-                      });
-                      final filtrados = clientes
-                          .where((c) => _matchCliente(c, _termo))
-                          .toList();
+                  final carregando =
+                      clientesSnap.connectionState ==
+                          ConnectionState.waiting;
 
-                      final carregando =
-                          clientesSnap.connectionState ==
-                              ConnectionState.waiting;
-
-                      return SingleChildScrollView(
-                        padding:
-                            const EdgeInsets.fromLTRB(28, 24, 28, 36),
-                        child: Column(
-                          crossAxisAlignment: CrossAxisAlignment.stretch,
-                          children: [
-                            _Header(total: clientes.length),
-                            const SizedBox(height: 22),
-                            _LinhaKpis(
-                              clientes: clientes,
-                              saldoTotalLojistas: saldoTotalLojistas,
-                            ),
-                            const SizedBox(height: 22),
-                            _BarraBusca(
-                              controller: _busca,
-                              onChange: _onChangeBusca,
-                              totalFiltrados: filtrados.length,
-                              total: clientes.length,
-                            ),
-                            const SizedBox(height: 16),
-                            _CardTabela(
-                              clientes: filtrados,
-                              carregando: carregando,
-                              onAbrir: _abrirDetalhe,
-                              onEditar: _abrirEdicao,
-                              onExcluir: _confirmarExclusao,
-                            ),
-                          ],
+                  return SingleChildScrollView(
+                    padding:
+                        const EdgeInsets.fromLTRB(28, 24, 28, 36),
+                    child: Column(
+                      crossAxisAlignment: CrossAxisAlignment.stretch,
+                      children: [
+                        _Header(total: clientes.length),
+                        const SizedBox(height: 22),
+                        _LinhaKpis(clientes: clientes),
+                        const SizedBox(height: 22),
+                        _BarraBusca(
+                          controller: _busca,
+                          onChange: _onChangeBusca,
+                          totalFiltrados: filtrados.length,
+                          total: clientes.length,
                         ),
-                      );
-                    },
+                        const SizedBox(height: 16),
+                        _CardTabela(
+                          clientes: filtrados,
+                          carregando: carregando,
+                          onAbrir: _abrirDetalhe,
+                          onEditar: _abrirEdicao,
+                          onExcluir: _confirmarExclusao,
+                        ),
+                      ],
+                    ),
                   );
                 },
               );
@@ -482,12 +455,8 @@ class _Header extends StatelessWidget {
 }
 
 class _LinhaKpis extends StatelessWidget {
-  const _LinhaKpis({
-    required this.clientes,
-    required this.saldoTotalLojistas,
-  });
+  const _LinhaKpis({required this.clientes});
   final List<_ClienteResumo> clientes;
-  final double saldoTotalLojistas;
 
   @override
   Widget build(BuildContext context) {
@@ -497,6 +466,10 @@ class _LinhaKpis extends StatelessWidget {
     final comPedidos =
         clientes.where((c) => (c.totalPedidos ?? 0) > 0).length;
     final novos30d = _novosUltimosDias(clientes, 30);
+    final gastoEntregues = clientes.fold<double>(
+      0,
+      (s, c) => s + (c.totalGasto ?? 0),
+    );
 
     return LayoutBuilder(
       builder: (context, c) {
@@ -527,12 +500,12 @@ class _LinhaKpis extends StatelessWidget {
             sub: 'Cadastros recentes',
           ),
           _KpiCard(
-            icone: Icons.account_balance_wallet_rounded,
+            icone: Icons.payments_rounded,
             cor: _CCTheme.amber,
             corSoft: _CCTheme.amberSoft,
-            titulo: 'Saldo em carteira',
-            valor: _formatadorReal.format(saldoTotalLojistas),
-            sub: 'Soma das carteiras dos lojistas',
+            titulo: 'Gasto total (entregues)',
+            valor: _formatadorReal.format(gastoEntregues),
+            sub: 'Volume em pedidos concluídos pelos clientes',
           ),
         ];
 
@@ -562,12 +535,15 @@ class _LinhaKpis extends StatelessWidget {
   }
 
   int _novosUltimosDias(List<_ClienteResumo> all, int dias) {
-    final corte =
-        DateTime.now().subtract(Duration(days: dias)).millisecondsSinceEpoch;
-    return all
-        .where((c) =>
-            (c.criadoEm?.millisecondsSinceEpoch ?? 0) >= corte)
-        .length;
+    final agora = DateTime.now();
+    final limite = DateTime(agora.year, agora.month, agora.day)
+        .subtract(Duration(days: dias));
+    return all.where((c) {
+      final dt = c.criadoEm;
+      if (dt == null) return false;
+      final cadastro = DateTime(dt.year, dt.month, dt.day);
+      return !cadastro.isBefore(limite);
+    }).length;
   }
 }
 
@@ -1666,10 +1642,12 @@ class _ClienteResumo {
     );
   }
 
-  factory _ClienteResumo.fromMap(String uid, Map<String, dynamic> m) {
-    DateTime? criado;
-    final raw = m['criado_em'] ?? m['createdAt'] ?? m['created_at'];
-    if (raw is Timestamp) criado = raw.toDate();
+  factory _ClienteResumo.fromMap(
+    String uid,
+    Map<String, dynamic> m, {
+    DateTime? criadoDocFallback,
+  }) {
+    final criado = _parseDataCadastro(m) ?? criadoDocFallback;
 
     return _ClienteResumo(
       uid: uid,
@@ -1697,6 +1675,55 @@ class _ClienteResumo {
           (m['ativo'] == false),
       dadosBrutos: m,
     );
+  }
+
+  /// Vários fluxos de cadastro gravam datas em campos diferentes.
+  static DateTime? _parseDataCadastro(Map<String, dynamic> m) {
+    const chaves = [
+      'criado_em',
+      'createdAt',
+      'created_at',
+      'data_cadastro',
+      'cadastro_em',
+      'telefone_verificado_sms_em',
+      'onboarding_endereco_criado_em',
+      'aceite_termos_em',
+      'email_boas_vindas_em',
+    ];
+    for (final k in chaves) {
+      final dt = _parseParaDateTime(m[k]);
+      if (dt != null) return dt;
+    }
+    return null;
+  }
+
+  static DateTime? _parseParaDateTime(dynamic raw) {
+    if (raw == null) return null;
+    if (raw is Timestamp) return raw.toDate();
+    if (raw is DateTime) return raw;
+    if (raw is int) {
+      if (raw > 1000000000000) {
+        return DateTime.fromMillisecondsSinceEpoch(raw);
+      }
+      return DateTime.fromMillisecondsSinceEpoch(raw * 1000);
+    }
+    if (raw is num) {
+      final n = raw.toInt();
+      if (n > 1000000000000) {
+        return DateTime.fromMillisecondsSinceEpoch(n);
+      }
+      return DateTime.fromMillisecondsSinceEpoch(n * 1000);
+    }
+    if (raw is Map) {
+      final sec = raw['_seconds'] ?? raw['seconds'];
+      if (sec is num) {
+        return DateTime.fromMillisecondsSinceEpoch(sec.toInt() * 1000);
+      }
+    }
+    if (raw is String && raw.trim().isNotEmpty) {
+      return DateTime.tryParse(raw.trim());
+    }
+    return null;
   }
 }
 

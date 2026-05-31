@@ -12,7 +12,6 @@ import '../../services/conta_bloqueio_lojista_service.dart';
 import '../../services/location_service.dart';
 import '../../services/sessao_timeout_service.dart';
 import '../../services/sessao_erro_interceptor.dart';
-import '../../widgets/entregador_conta_bloqueada_overlay.dart';
 import '../../widgets/lojista_conta_bloqueada_overlay.dart';
 import 'no_internet_screen.dart';
 import 'no_gps_screen.dart';
@@ -260,17 +259,7 @@ class _LojistaBloqueioTopLayer extends StatelessWidget {
                 ),
               );
             }
-            if (role == 'entregador' &&
-                ContaBloqueioEntregadorService.estaBloqueadoParaOperacoes(d)) {
-              return Positioned.fill(
-                child: EntregadorContaBloqueadaOverlay(
-                  dadosUsuario: d,
-                  onSair: () async {
-                    await FirebaseAuth.instance.signOut();
-                  },
-                ),
-              );
-            }
+            // Bloqueio de entregador: só na área do painel (não bloqueia vitrine/cliente).
             return const SizedBox.shrink();
           },
         );

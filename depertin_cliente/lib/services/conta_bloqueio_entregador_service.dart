@@ -1,6 +1,7 @@
 import 'package:cloud_firestore/cloud_firestore.dart';
 
 import '../constants/conta_bloqueio_lojista.dart';
+import '../constants/entregador_perfil_operacional.dart';
 
 /// Bloqueio operacional do entregador — campos [block_*] e [entregador_status].
 class ContaBloqueioEntregadorService {
@@ -12,6 +13,70 @@ class ContaBloqueioEntregadorService {
   static bool estaBloqueadoParaOperacoes(Map<String, dynamic> data) {
     if (_roleOf(data) != 'entregador') return false;
     return _bloqueioOperacionalEfetivo(data);
+  }
+
+  /// Overlay em tela cheia (AppGuard, login) — bloqueio administrativo/financeiro.
+  /// Bloqueios iniciados pelo entregador (pausa) usam UI no Radar / Área de Perigo.
+  static bool deveExibirOverlayBloqueioEntregador(Map<String, dynamic> data) {
+    if (!estaBloqueadoParaOperacoes(data)) return false;
+    final reason = data['block_reason']?.toString();
+    if (EntregadorPerfilOperacional.motivoEhIniciadoPeloEntregador(reason)) {
+      return false;
+    }
+    return true;
+  }
+
+  static bool ehBloqueioIniciadoPeloEntregador(Map<String, dynamic> data) {
+    final reason = data['block_reason']?.toString();
+    return EntregadorPerfilOperacional.motivoEhIniciadoPeloEntregador(reason) &&
+        data['block_origin']?.toString() == EntregadorPerfilOperacional.blockOriginSelf;
+  }
+
+  static bool ehExclusaoPerfilSolicitada(Map<String, dynamic> data) =>
+      EntregadorPerfilOperacional.motivoEhExclusaoPerfil(
+        data['block_reason']?.toString(),
+      );
+
+  static bool podeDesbloquearPeloProprioEntregador(Map<String, dynamic> data) {
+    if (!estaBloqueadoParaOperacoes(data)) return false;
+    if (ehExclusaoPerfilSolicitada(data)) return false;
+    final reason = data['block_reason']?.toString();
+    return data['block_origin']?.toString() ==
+            EntregadorPerfilOperacional.blockOriginSelf &&
+        (reason == EntregadorPerfilOperacional.motivoPausaTemporaria ||
+            reason == EntregadorPerfilOperacional.motivoPausaDefinitiva);
+  }
+
+  static DateTime? dataExclusaoPerfilEfetiva(Map<String, dynamic> d) {
+    final ts = d[EntregadorPerfilOperacional.campoExclusaoEfetivaEm];
+    if (ts is Timestamp) return ts.toDate();
+    return null;
+  }
+
+  static int? diasRestantesExclusaoPerfil(Map<String, dynamic> d) {
+    final fim = dataExclusaoPerfilEfetiva(d);
+    if (fim == null) return null;
+    final diff = fim.difference(DateTime.now());
+    if (diff.isNegative) return 0;
+    return diff.inDays + (diff.inHours % 24 > 0 ? 1 : 0);
+  }
+
+  static String rotuloTipoBloqueio(Map<String, dynamic> d) =>
+      EntregadorPerfilOperacional.rotuloTipoBloqueio(d);
+
+  /// Após solicitar exclusão do perfil — impede novo cadastro de entregador no prazo.
+  static bool reingressoEntregadorBloqueado(Map<String, dynamic> d) {
+    final ate = d[EntregadorPerfilOperacional.campoReingressoBloqueadoAte];
+    if (ate is Timestamp && DateTime.now().isBefore(ate.toDate())) {
+      return true;
+    }
+    return false;
+  }
+
+  static DateTime? dataReingressoEntregadorLiberado(Map<String, dynamic> d) {
+    final ate = d[EntregadorPerfilOperacional.campoReingressoBloqueadoAte];
+    if (ate is Timestamp) return ate.toDate();
+    return null;
   }
 
   static String? textoMotivoBloqueio(Map<String, dynamic> d) {
@@ -104,13 +169,22 @@ class ContaBloqueioEntregadorService {
     final expirado =
         endTs != null && DateTime.now().isAfter(endTs.toDate());
 
+    if (EntregadorPerfilOperacional.motivoEhExclusaoPerfil(
+      d['block_reason']?.toString(),
+    )) {
+      return;
+    }
+
     if (sl == ContaBloqueioLojista.statusLojaBloqueioTemporario && expirado) {
       await ref.update({
         'block_active': false,
         'status_conta': ContaBloqueioLojista.statusContaActive,
         'entregador_status': 'aprovado',
+        EntregadorPerfilOperacional.campoPerfilOperacional:
+            EntregadorPerfilOperacional.perfilAtivo,
         'block_type': FieldValue.delete(),
         'block_reason': FieldValue.delete(),
+        EntregadorPerfilOperacional.campoBlockOrigin: FieldValue.delete(),
         'block_start_at': FieldValue.delete(),
         'block_end_at': FieldValue.delete(),
         'motivo_bloqueio': FieldValue.delete(),
@@ -128,8 +202,11 @@ class ContaBloqueioEntregadorService {
       'block_active': false,
       'status_conta': ContaBloqueioLojista.statusContaActive,
       'entregador_status': 'aprovado',
+      EntregadorPerfilOperacional.campoPerfilOperacional:
+          EntregadorPerfilOperacional.perfilAtivo,
       'block_type': FieldValue.delete(),
       'block_reason': FieldValue.delete(),
+      EntregadorPerfilOperacional.campoBlockOrigin: FieldValue.delete(),
       'block_start_at': FieldValue.delete(),
       'block_end_at': FieldValue.delete(),
       'motivo_bloqueio': FieldValue.delete(),

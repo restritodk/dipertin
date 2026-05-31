@@ -34,6 +34,58 @@ class _VitrineScreenState extends State<VitrineScreen> {
     decimalDigits: 2,
   );
 
+  StreamSubscription<QuerySnapshot>? _bannersSubscription;
+  List<QueryDocumentSnapshot> _bannersDocsBrutos = [];
+
+  @override
+  void initState() {
+    super.initState();
+    _iniciarEscutaBanners();
+  }
+
+  @override
+  void dispose() {
+    _bannersSubscription?.cancel();
+    super.dispose();
+  }
+
+  void _iniciarEscutaBanners() {
+    _bannersSubscription?.cancel();
+    _bannersSubscription = FirebaseFirestore.instance
+        .collection('banners')
+        .where('ativo', isEqualTo: true)
+        .snapshots()
+        .listen(_aplicarSnapshotBanners);
+  }
+
+  void _aplicarSnapshotBanners(QuerySnapshot snapshot) {
+    if (!mounted) return;
+    final docs = snapshot.docs;
+    if (_mesmosDocumentosBanner(_bannersDocsBrutos, docs)) return;
+    setState(() => _bannersDocsBrutos = docs);
+  }
+
+  static bool _mesmosDocumentosBanner(
+    List<QueryDocumentSnapshot> a,
+    List<QueryDocumentSnapshot> b,
+  ) {
+    if (a.length != b.length) return false;
+    for (var i = 0; i < a.length; i++) {
+      if (a[i].id != b[i].id) return false;
+    }
+    return true;
+  }
+
+  Future<void> _atualizarBannersDoServidor() async {
+    try {
+      final snap = await FirebaseFirestore.instance
+          .collection('banners')
+          .where('ativo', isEqualTo: true)
+          .get(const GetOptions(source: Source.server));
+      _aplicarSnapshotBanners(snap);
+    } catch (_) {}
+  }
+
   String _donoProduto(Map<String, dynamic> p) {
     return (p['lojista_id'] ?? p['loja_id'] ?? '').toString();
   }
@@ -140,6 +192,13 @@ class _VitrineScreenState extends State<VitrineScreen> {
       );
     }
 
+    final bannersDoBanco = _filtrarBannersCidade(
+      _bannersDocsBrutos,
+      cidadeNorm,
+      ufNorm,
+      locationService,
+    );
+
     return Scaffold(
       backgroundColor: Colors.grey[100],
       appBar: AppBar(
@@ -232,34 +291,19 @@ class _VitrineScreenState extends State<VitrineScreen> {
       ),
       body: Column(
         children: [
-          // 1. CARROSSEL DE BANNERS
-          StreamBuilder<QuerySnapshot>(
-            stream: FirebaseFirestore.instance
-                .collection('banners')
-                .where('ativo', isEqualTo: true)
-                .snapshots(),
-            builder: (context, snapshot) {
-              List<QueryDocumentSnapshot> bannersDoBanco = [];
-              if (snapshot.hasData && snapshot.data!.docs.isNotEmpty) {
-                bannersDoBanco = _filtrarBannersCidade(
-                  snapshot.data!.docs,
-                  cidadeNorm,
-                  ufNorm,
-                  locationService,
-                );
-              }
-
-              return Container(
-                margin: EdgeInsets.symmetric(
-                  vertical: bannersDoBanco.isEmpty ? 6 : 10,
-                ),
-                child: AutoSlidingBanner(
-                  banners: bannersDoBanco,
-                  altura: 150,
-                  paddingHorizontal: 16,
-                ),
-              );
-            },
+          // 1. CARROSSEL DE BANNERS (uma escuta Firestore; carrossel com key estável)
+          RepaintBoundary(
+            child: Container(
+              margin: EdgeInsets.symmetric(
+                vertical: bannersDoBanco.isEmpty ? 6 : 10,
+              ),
+              child: AutoSlidingBanner(
+                key: const ValueKey<String>('vitrine_banner_topo'),
+                banners: bannersDoBanco,
+                altura: 150,
+                paddingHorizontal: 16,
+              ),
+            ),
           ),
 
           Padding(
@@ -381,16 +425,10 @@ class _VitrineScreenState extends State<VitrineScreen> {
 
                 return StreamBuilder<QuerySnapshot>(
                   stream: FirebaseFirestore.instance
-                      .collection('banners')
+                      .collection('produtos')
                       .where('ativo', isEqualTo: true)
                       .snapshots(),
-                  builder: (context, snapshotBanners) {
-                    return StreamBuilder<QuerySnapshot>(
-                      stream: FirebaseFirestore.instance
-                          .collection('produtos')
-                          .where('ativo', isEqualTo: true)
-                          .snapshots(),
-                      builder: (context, snapshotProdutos) {
+                  builder: (context, snapshotProdutos) {
                         if (snapshotProdutos.connectionState ==
                                 ConnectionState.waiting &&
                             !snapshotProdutos.hasData) {
@@ -439,13 +477,6 @@ class _VitrineScreenState extends State<VitrineScreen> {
                           );
                         }
 
-                        final bannersDoBanco = _filtrarBannersCidade(
-                          snapshotBanners.data?.docs ?? [],
-                          cidadeNorm,
-                          ufNorm,
-                          locationService,
-                        );
-
                         return _VitrineListaProdutosComPausa(
                           produtosFiltrados: produtosFiltrados,
                           dadosLojasPorId: dadosLojasPorId,
@@ -455,10 +486,15 @@ class _VitrineScreenState extends State<VitrineScreen> {
                           bannersDoBanco: bannersDoBanco,
                           buildCard: _buildProductCard,
                           donoProduto: _donoProduto,
+                          onRefresh: () async {
+                            await locationService.detectarCidade();
+                            await _atualizarBannersDoServidor();
+                            await Future<void>.delayed(
+                              const Duration(milliseconds: 200),
+                            );
+                          },
                         );
                       },
-                    );
-                  },
                 );
               },
             ),
@@ -1090,6 +1126,7 @@ class _VitrineListaProdutosComPausa extends StatefulWidget {
     required this.bannersDoBanco,
     required this.buildCard,
     required this.donoProduto,
+    required this.onRefresh,
   });
 
   final List<QueryDocumentSnapshot> produtosFiltrados;
@@ -1100,6 +1137,7 @@ class _VitrineListaProdutosComPausa extends StatefulWidget {
   final List<QueryDocumentSnapshot> bannersDoBanco;
   final Widget Function(BuildContext, Map<String, dynamic>) buildCard;
   final String Function(Map<String, dynamic>) donoProduto;
+  final Future<void> Function() onRefresh;
 
   @override
   State<_VitrineListaProdutosComPausa> createState() =>
@@ -1205,10 +1243,12 @@ class _VitrineListaProdutosComPausaState
       );
 
       if ((i + 2) % 30 == 0 && (i + 2) < produtos.length) {
+        final slot = (i + 2) ~/ 30;
         itensDaVitrine.add(
           Padding(
             padding: const EdgeInsets.only(bottom: 15, top: 5),
             child: AutoSlidingBanner(
+              key: ValueKey<String>('vitrine_banner_lista_$slot'),
               banners: widget.bannersDoBanco,
               altura: 120,
               paddingHorizontal: 0,
@@ -1220,16 +1260,7 @@ class _VitrineListaProdutosComPausaState
 
     return RefreshIndicator(
       color: diPertinLaranja,
-      onRefresh: () async {
-        await context.read<LocationService>().detectarCidade();
-        try {
-          await FirebaseFirestore.instance
-              .collection('banners')
-              .where('ativo', isEqualTo: true)
-              .get(const GetOptions(source: Source.server));
-        } catch (_) {}
-        await Future<void>.delayed(const Duration(milliseconds: 200));
-      },
+      onRefresh: widget.onRefresh,
       child: RepaintBoundary(
         child: ListView(
           key: const PageStorageKey<String>('vitrine_lista_produtos'),
@@ -1263,64 +1294,121 @@ class AutoSlidingBanner extends StatefulWidget {
   State<AutoSlidingBanner> createState() => _AutoSlidingBannerState();
 }
 
-class _AutoSlidingBannerState extends State<AutoSlidingBanner> {
-  late PageController _pageController;
+class _AutoSlidingBannerState extends State<AutoSlidingBanner>
+    with WidgetsBindingObserver {
+  PageController? _pageController;
   Timer? _timer;
   int _totalItems = 0;
 
   /// Índice lógico da página (inclui loop infinito).
   int _paginaAtual = 0;
 
+  /// Slide visível nos indicadores (evita setState redundante).
+  int _slideIndicador = 0;
+
+  bool _animandoPagina = false;
+
+  static String _idsBanners(List<QueryDocumentSnapshot> docs) =>
+      docs.map((d) => d.id).join('|');
+
   @override
   void initState() {
     super.initState();
+    WidgetsBinding.instance.addObserver(this);
+    _configurarCarrossel(widget.banners, reiniciarPagina: true);
+  }
 
-    _totalItems = widget.banners.length;
-
-    _paginaAtual = _totalItems > 0 ? _totalItems * 1000 : 0;
-
-    _pageController = PageController(
-      initialPage: _paginaAtual,
-      viewportFraction: 1,
-    );
-
+  void _configurarCarrossel(
+    List<QueryDocumentSnapshot> banners, {
+    required bool reiniciarPagina,
+  }) {
+    _totalItems = banners.length;
+    if (reiniciarPagina) {
+      _paginaAtual = _totalItems > 0 ? _totalItems * 1000 : 0;
+      _slideIndicador = 0;
+      _pageController?.dispose();
+      _pageController = PageController(
+        initialPage: _paginaAtual,
+        viewportFraction: 1,
+      );
+    }
     _iniciarAnimacao();
   }
 
   void _iniciarAnimacao() {
     _timer?.cancel();
-    if (_totalItems > 1) {
-      _timer = Timer.periodic(const Duration(seconds: 4), (Timer timer) {
-        if (_pageController.hasClients) {
-          _paginaAtual++;
-          _pageController.animateToPage(
-            _paginaAtual,
+    _timer = null;
+    if (_totalItems <= 1 || !mounted) return;
+    _timer = Timer.periodic(const Duration(seconds: 4), (_) {
+      final ctrl = _pageController;
+      if (!mounted || _animandoPagina || ctrl == null || !ctrl.hasClients) {
+        return;
+      }
+      _animandoPagina = true;
+      final proxima = _paginaAtual + 1;
+      ctrl
+          .animateToPage(
+            proxima,
             duration: const Duration(milliseconds: 800),
             curve: Curves.fastOutSlowIn,
-          );
-        }
+          )
+          .whenComplete(() {
+        if (mounted) _animandoPagina = false;
       });
+    });
+  }
+
+  void _pausarAutoplay() {
+    _timer?.cancel();
+    _timer = null;
+  }
+
+  @override
+  void didChangeAppLifecycleState(AppLifecycleState state) {
+    if (state == AppLifecycleState.resumed) {
+      _iniciarAnimacao();
+    } else if (state == AppLifecycleState.paused ||
+        state == AppLifecycleState.inactive ||
+        state == AppLifecycleState.detached) {
+      _pausarAutoplay();
     }
   }
 
   @override
   void didUpdateWidget(AutoSlidingBanner oldWidget) {
     super.didUpdateWidget(oldWidget);
-    final int novosTotal = widget.banners.length;
-    if (_totalItems != novosTotal) {
-      _totalItems = novosTotal;
-      _paginaAtual = _totalItems > 0 ? _totalItems * 1000 : 0;
-      if (_pageController.hasClients) {
-        _pageController.jumpToPage(_paginaAtual);
+    if (_idsBanners(oldWidget.banners) == _idsBanners(widget.banners) &&
+        oldWidget.altura == widget.altura) {
+      return;
+    }
+    if (widget.banners.isEmpty) {
+      _pausarAutoplay();
+      _pageController?.dispose();
+      _pageController = null;
+      _totalItems = 0;
+      return;
+    }
+    final int slideAntes = _totalItems > 0 ? _slideIndicador : 0;
+    final reiniciar =
+        _pageController == null ||
+        oldWidget.banners.length != widget.banners.length;
+    _configurarCarrossel(widget.banners, reiniciarPagina: reiniciar);
+    if (!reiniciar) {
+      final ctrl = _pageController;
+      if (ctrl != null && ctrl.hasClients) {
+        final alvo = _totalItems * 1000 + (slideAntes % _totalItems);
+        _paginaAtual = alvo;
+        _slideIndicador = slideAntes % _totalItems;
+        ctrl.jumpToPage(alvo);
       }
-      _iniciarAnimacao();
     }
   }
 
   @override
   void dispose() {
-    _timer?.cancel();
-    _pageController.dispose();
+    WidgetsBinding.instance.removeObserver(this);
+    _pausarAutoplay();
+    _pageController?.dispose();
     super.dispose();
   }
 
@@ -1380,7 +1468,7 @@ class _AutoSlidingBannerState extends State<AutoSlidingBanner> {
                     fit: BoxFit.cover,
                     alignment: Alignment.center,
                     filterQuality: FilterQuality.medium,
-                    gaplessPlayback: false,
+                    gaplessPlayback: true,
                     cacheWidth: cacheW,
                     cacheHeight: cacheH,
                     loadingBuilder: (context, child, loadingProgress) {
@@ -1438,7 +1526,10 @@ class _AutoSlidingBannerState extends State<AutoSlidingBanner> {
   Widget build(BuildContext context) {
     if (_totalItems == 0) return const SizedBox.shrink();
 
-    final int slideAtivo = _paginaAtual % _totalItems;
+    final ctrl = _pageController;
+    if (ctrl == null) return const SizedBox.shrink();
+
+    final int slideAtivo = _slideIndicador;
 
     return Padding(
       padding: EdgeInsets.symmetric(horizontal: widget.paddingHorizontal),
@@ -1463,11 +1554,13 @@ class _AutoSlidingBannerState extends State<AutoSlidingBanner> {
               height: widget.altura,
               width: double.infinity,
               child: PageView.builder(
-                controller: _pageController,
+                controller: ctrl,
                 onPageChanged: (int index) {
-                  setState(() {
-                    _paginaAtual = index;
-                  });
+                  _paginaAtual = index;
+                  final novoSlide = _totalItems > 0 ? index % _totalItems : 0;
+                  if (novoSlide != _slideIndicador) {
+                    setState(() => _slideIndicador = novoSlide);
+                  }
                 },
                 itemCount: _totalItems > 1 ? null : 1,
                 itemBuilder: (context, index) {

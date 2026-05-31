@@ -6,6 +6,7 @@ import '../../cliente/meus_enderecos_screen.dart';
 import 'acessibilidade_screen.dart';
 import 'gerenciar_veiculos_screen.dart';
 import 'informacoes_fiscais_screen.dart';
+import 'entregador_area_perigo_screen.dart';
 import 'meus_documentos_screen.dart';
 
 const Color _roxo = Color(0xFF6A1B9A);
@@ -86,6 +87,19 @@ class ConfiguracoesEntregadorScreen extends StatelessWidget {
               ),
             ],
           ),
+          _SecaoConfig(
+            titulo: 'Área Restrita',
+            icone: Icons.lock_outline_rounded,
+            itens: [
+              _ItemConfig(
+                icone: Icons.warning_amber_rounded,
+                titulo: 'Perigo',
+                subtitulo: 'Bloquear conta ou solicitar exclusão do perfil',
+                destino: const EntregadorAreaPerigoScreen(),
+                destaquePerigo: true,
+              ),
+            ],
+          ),
           const SizedBox(height: 24),
         ],
       ),
@@ -159,25 +173,32 @@ class _ItemConfig extends StatelessWidget {
   final String titulo;
   final String? subtitulo;
   final Widget destino;
+  final bool destaquePerigo;
 
   const _ItemConfig({
     required this.icone,
     required this.titulo,
     required this.destino,
     this.subtitulo,
+    this.destaquePerigo = false,
   });
 
   @override
   Widget build(BuildContext context) {
+    final corIcone = destaquePerigo ? Colors.red.shade700 : _roxo;
+    final corFundo = destaquePerigo
+        ? Colors.red.shade50
+        : _roxo.withValues(alpha: 0.08);
+
     return ListTile(
       leading: Container(
         width: 40,
         height: 40,
         decoration: BoxDecoration(
-          color: _roxo.withValues(alpha: 0.08),
+          color: corFundo,
           borderRadius: BorderRadius.circular(10),
         ),
-        child: Icon(icone, color: _roxo, size: 22),
+        child: Icon(icone, color: corIcone, size: 22),
       ),
       title: Text(
         titulo,

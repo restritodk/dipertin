@@ -813,6 +813,24 @@ exports.encomendaClienteCancelarNegociacao =
 exports.encomendaLojaCancelarNegociacao =
     encomendasNegociacao.encomendaLojaCancelarNegociacao;
 
+// Entregador — Área de Perigo (bloqueio / exclusão do perfil)
+const entregadorPerfilOperacional = require("./entregador_perfil_operacional");
+const entregadorPerfilOperacionalNotif = require(
+    "./entregador_perfil_operacional_notificacao",
+);
+exports.onEntregadorPerfilOperacionalAtualizado =
+    entregadorPerfilOperacionalNotif.onEntregadorPerfilOperacionalAtualizado;
+exports.entregadorAutoBloquearTemporario =
+    entregadorPerfilOperacional.entregadorAutoBloquearTemporario;
+exports.entregadorAutoBloquearDefinitivo =
+    entregadorPerfilOperacional.entregadorAutoBloquearDefinitivo;
+exports.entregadorSolicitarExclusaoPerfil =
+    entregadorPerfilOperacional.entregadorSolicitarExclusaoPerfil;
+exports.entregadorAutoDesbloquearConta =
+    entregadorPerfilOperacional.entregadorAutoDesbloquearConta;
+exports.processarExclusoesPerfilEntregador =
+    entregadorPerfilOperacional.processarExclusoesPerfilEntregador;
+
 // Mercado Pago — webhook + callable vínculo PIX
 const mercadopago = require("./mercadopago_webhook");
 exports.webhookMercadoPago = mercadopago.webhookMercadoPago;

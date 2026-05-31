@@ -23,12 +23,12 @@ import 'package:depertin_cliente/services/conta_bloqueio_entregador_service.dart
 import 'package:depertin_cliente/services/conta_bloqueio_lojista_service.dart';
 import 'package:depertin_cliente/services/permissoes_app_service.dart';
 import 'package:depertin_cliente/utils/cpf_perfil_usuario.dart';
-import 'package:depertin_cliente/widgets/entregador_conta_bloqueada_overlay.dart';
 import 'package:depertin_cliente/widgets/lojista_conta_bloqueada_overlay.dart';
 import '../auth/login_screen.dart';
 import '../cliente/orders_screen.dart';
 import '../cliente/cliente_encomendas_list_screen.dart';
 import '../entregador/entregador_form_screen.dart';
+import '../entregador/entregador_painel_bloqueado_screen.dart';
 import '../lojista/lojista_dashboard_screen.dart';
 import '../lojista/lojista_form_screen.dart';
 
@@ -194,22 +194,10 @@ void _abrirPainelEntregadorOuCorrecao(
   Map<String, dynamic> userData,
 ) {
   if (ContaBloqueioEntregadorService.estaBloqueadoParaOperacoes(userData)) {
-    showDialog<void>(
-      context: context,
-      barrierDismissible: false,
-      builder: (ctx) => Dialog(
-        insetPadding: EdgeInsets.zero,
-        child: SizedBox(
-          width: double.infinity,
-          height: double.infinity,
-          child: EntregadorContaBloqueadaOverlay(
-            dadosUsuario: userData,
-            onSair: () async {
-              Navigator.of(ctx).pop();
-              await FirebaseAuth.instance.signOut();
-            },
-          ),
-        ),
+    Navigator.push(
+      context,
+      MaterialPageRoute(
+        builder: (context) => const EntregadorPainelBloqueadoScreen(),
       ),
     );
     return;
@@ -1186,17 +1174,20 @@ class _ProfileScreenState extends State<ProfileScreen> {
                 color: Colors.white,
               ),
               label: Text(
-                ContaBloqueioEntregadorService.estaBloqueadoParaOperacoes(
+                ContaBloqueioEntregadorService.ehExclusaoPerfilSolicitada(
                         userData)
-                    ? (ContaBloqueioEntregadorService.isBloqueioTemporarioTipo(
+                    ? 'Exclusão em andamento — ver detalhes'
+                    : (ContaBloqueioEntregadorService.estaBloqueadoParaOperacoes(
                             userData)
-                        ? 'Bloqueio temporário — ver detalhes'
-                        : 'Acesso bloqueado — ver detalhes')
-                    : (statusEntregador == 'aprovado'
-                        ? 'Acessar painel de entregas'
-                        : (statusEntregador == 'bloqueado'
-                            ? 'Corrigir cadastro de entregador'
-                            : 'Cadastro em análise')),
+                        ? (ContaBloqueioEntregadorService
+                                .isBloqueioTemporarioTipo(userData)
+                            ? 'Bloqueio temporário — ver detalhes'
+                            : 'Painel de entregas bloqueado — ver detalhes')
+                        : (statusEntregador == 'aprovado'
+                            ? 'Acessar painel de entregas'
+                            : (statusEntregador == 'bloqueado'
+                                ? 'Corrigir cadastro de entregador'
+                                : 'Cadastro em análise'))),
                 style: const TextStyle(
                   fontWeight: FontWeight.w700,
                   fontSize: 15,

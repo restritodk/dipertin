@@ -225,6 +225,15 @@ class _MinhasNotificacoesScreenState extends State<MinhasNotificacoesScreen> {
     // 2) Cadastro de entregador.
     //    - APROVADO → radar/home do entregador (começar a receber ofertas).
     //    - RECUSADO/demais → formulário "Ser entregador" (revisar cadastro).
+    if (tipo.contains('entregador_perfil_')) {
+      Navigator.of(context).push(
+        MaterialPageRoute(
+          builder: (_) => const EntregadorHomeScreen(),
+        ),
+      );
+      return;
+    }
+
     final ehCadastroEntregador = tipo.contains('entregador_cadastro') ||
         (tipo.contains('cadastro') && widget.role == 'entregador');
     if (ehCadastroEntregador) {

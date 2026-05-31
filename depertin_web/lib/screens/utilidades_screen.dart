@@ -4,6 +4,8 @@ import 'package:flutter/material.dart';
 import 'package:cloud_firestore/cloud_firestore.dart';
 import 'package:firebase_storage/firebase_storage.dart';
 import 'package:file_picker/file_picker.dart';
+
+import '../utils/firestore_web_safe.dart';
 import 'package:google_fonts/google_fonts.dart';
 import 'package:intl/intl.dart';
 import 'dart:typed_data';
@@ -483,6 +485,26 @@ class _UtilidadesScreenState extends State<UtilidadesScreen> {
     }
   }
 
+  Future<void> _renovarPremium(String id, Timestamp? vencimentoAtual) async {
+    DateTime dataBase = vencimentoAtual?.toDate() ?? DateTime.now();
+    if (dataBase.isBefore(DateTime.now())) dataBase = DateTime.now();
+    final novaData = dataBase.add(const Duration(days: 30));
+    final ts = Timestamp.fromDate(novaData);
+    await FirebaseFirestore.instance.collection('telefones_premium').doc(id).update({
+      'data_vencimento': ts,
+      'data_fim': ts,
+      'ativo': true,
+    });
+    if (mounted) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(
+          content: Text('Premium renovado por +30 dias!'),
+          backgroundColor: Colors.green,
+        ),
+      );
+    }
+  }
+
   Future<void> _renovarAchados(String id, Timestamp? vencimentoAtual) async {
     DateTime dataBase = vencimentoAtual?.toDate() ?? DateTime.now();
     if (dataBase.isBefore(DateTime.now())) dataBase = DateTime.now();
@@ -832,6 +854,7 @@ class _UtilidadesScreenState extends State<UtilidadesScreen> {
     upd['modalidade_valor'] = modalidade;
     upd['data_inicio'] = Timestamp.fromDate(dtInicio);
     upd['data_fim'] = Timestamp.fromDate(dtFim);
+    upd['data_vencimento'] = Timestamp.fromDate(dtFim);
     upd['valor_total'] = total;
     upd['qtd_dias_contratados'] = dias;
     upd['gera_receita'] = true;
@@ -1148,6 +1171,159 @@ class _UtilidadesScreenState extends State<UtilidadesScreen> {
     );
   }
 
+  void _configurarPremium(String id, Map<String, dynamic> dados) {
+    _configurarAnuncioFinanceiro(
+      colecao: 'telefones_premium',
+      id: id,
+      dados: dados,
+      tituloDialogo: 'Configurar Premium',
+    );
+  }
+
+  void _configurarAnuncioFinanceiro({
+    required String colecao,
+    required String id,
+    required Map<String, dynamic> dados,
+    required String tituloDialogo,
+  }) {
+    TextEditingController donoC = TextEditingController(
+      text: dados['nome_dono']?.toString() ?? '',
+    );
+    TextEditingController valorC = TextEditingController(
+      text: (dados['valor_diario'] ?? dados['valor_mensal'] ?? '').toString(),
+    );
+    DateTime inicio =
+        _campoFirestoreParaDateTime(dados['data_inicio']) ?? DateTime.now();
+    final tsFim = _tsVencimentoAnuncio(dados);
+    DateTime fim = tsFim?.toDate() ?? DateTime.now().add(const Duration(days: 30));
+    bool ativo = dados['ativo'] == true;
+
+    showDialog(
+      context: context,
+      builder: (context) => StatefulBuilder(
+        builder: (context, setState) => AlertDialog(
+          title: Text(
+            tituloDialogo,
+            style: TextStyle(color: diPertinRoxo, fontWeight: FontWeight.bold),
+          ),
+          content: SingleChildScrollView(
+            child: Column(
+              mainAxisSize: MainAxisSize.min,
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                TextField(
+                  controller: donoC,
+                  decoration: const InputDecoration(
+                    labelText: 'Contratante / pagador',
+                    border: OutlineInputBorder(),
+                  ),
+                ),
+                const SizedBox(height: 15),
+                TextField(
+                  controller: valorC,
+                  keyboardType: TextInputType.number,
+                  decoration: const InputDecoration(
+                    labelText: 'Valor diário (R\$)',
+                    border: OutlineInputBorder(),
+                  ),
+                ),
+                const SizedBox(height: 16),
+                SwitchListTile(
+                  contentPadding: EdgeInsets.zero,
+                  title: const Text('Anúncio ativo no app'),
+                  value: ativo,
+                  activeThumbColor: Colors.green,
+                  onChanged: (v) => setState(() => ativo = v),
+                ),
+                const SizedBox(height: 8),
+                Row(
+                  children: [
+                    Expanded(
+                      child: OutlinedButton.icon(
+                        onPressed: () async {
+                          final p = await showDatePicker(
+                            context: context,
+                            initialDate: inicio,
+                            firstDate: DateTime(2020),
+                            lastDate: DateTime(2035),
+                          );
+                          if (p != null) setState(() => inicio = p);
+                        },
+                        icon: const Icon(Icons.calendar_today, size: 16),
+                        label: Text('Início: ${inicio.day}/${inicio.month}'),
+                      ),
+                    ),
+                    const SizedBox(width: 10),
+                    Expanded(
+                      child: OutlinedButton.icon(
+                        onPressed: () async {
+                          final p = await showDatePicker(
+                            context: context,
+                            initialDate: fim,
+                            firstDate: inicio,
+                            lastDate: DateTime(2035),
+                          );
+                          if (p != null) setState(() => fim = p);
+                        },
+                        icon: const Icon(Icons.event_available, size: 16),
+                        label: Text('Fim: ${fim.day}/${fim.month}'),
+                      ),
+                    ),
+                  ],
+                ),
+              ],
+            ),
+          ),
+          actions: [
+            TextButton(
+              onPressed: () => Navigator.pop(context),
+              child: const Text('Cancelar'),
+            ),
+            ElevatedButton(
+              onPressed: () async {
+                final valorDiario =
+                    double.tryParse(valorC.text.replaceAll(',', '.')) ?? 0.0;
+                var dias = fim.difference(inicio).inDays;
+                if (dias <= 0) dias = 1;
+                final tsFimNovo = Timestamp.fromDate(fim);
+                final upd = <String, dynamic>{
+                  'nome_dono': donoC.text.trim(),
+                  'data_inicio': Timestamp.fromDate(inicio),
+                  'data_fim': tsFimNovo,
+                  'data_vencimento': tsFimNovo,
+                  'ativo': ativo,
+                  'gera_receita': valorDiario > 0,
+                };
+                if (valorDiario > 0) {
+                  upd['valor_diario'] = valorDiario;
+                  upd['valor_total'] = valorDiario * dias;
+                }
+                await FirebaseFirestore.instance
+                    .collection(colecao)
+                    .doc(id)
+                    .update(upd);
+                if (context.mounted) {
+                  Navigator.pop(context);
+                  ScaffoldMessenger.of(context).showSnackBar(
+                    const SnackBar(
+                      content: Text('Configuração salva!'),
+                      backgroundColor: Colors.green,
+                    ),
+                  );
+                }
+              },
+              style: ElevatedButton.styleFrom(
+                backgroundColor: diPertinLaranja,
+                foregroundColor: Colors.white,
+              ),
+              child: const Text('Salvar'),
+            ),
+          ],
+        ),
+      ),
+    );
+  }
+
   void _editarPremium(String id, Map<String, dynamic> dados) {
     final tituloC = TextEditingController(text: dados['titulo'] ?? '');
     final telefoneC = TextEditingController(text: dados['telefone'] ?? '');
@@ -1155,8 +1331,11 @@ class _UtilidadesScreenState extends State<UtilidadesScreen> {
     final emailC = TextEditingController(text: dados['email'] ?? '');
     final valorC = TextEditingController(text: (dados['valor_diario'] ?? dados['valor_mensal'] ?? '').toString());
     String modalidade = dados['modalidade_valor']?.toString() ?? 'diario';
-    DateTime dtInicio = dados['data_inicio'] != null ? (dados['data_inicio'] as Timestamp).toDate() : DateTime.now();
-    DateTime dtFim = dados['data_fim'] != null ? (dados['data_fim'] as Timestamp).toDate() : (dados['data_vencimento'] != null ? (dados['data_vencimento'] as Timestamp).toDate() : DateTime.now().add(const Duration(days: 30)));
+    DateTime dtInicio =
+        _campoFirestoreParaDateTime(dados['data_inicio']) ?? DateTime.now();
+    final tsFim = _tsVencimentoAnuncio(dados);
+    DateTime dtFim = tsFim?.toDate() ?? DateTime.now().add(const Duration(days: 30));
+    bool ativo = dados['ativo'] == true;
     Uint8List? imagemBytes;
     String? imagemUrlAtual = dados['imagem_url']?.toString();
     bool removerImagem = false;
@@ -1197,6 +1376,10 @@ class _UtilidadesScreenState extends State<UtilidadesScreen> {
               upd['imagem_url'] = '';
             }
             _aplicarFinanceiro(upd, valorC, modalidade, dtInicio, dtFim);
+            upd['ativo'] = ativo;
+            upd['data_inicio'] = Timestamp.fromDate(dtInicio);
+            upd['data_fim'] = Timestamp.fromDate(dtFim);
+            upd['data_vencimento'] = Timestamp.fromDate(dtFim);
             await FirebaseFirestore.instance
                 .collection('telefones_premium')
                 .doc(id)
@@ -1259,6 +1442,17 @@ class _UtilidadesScreenState extends State<UtilidadesScreen> {
                   }),
                 ),
                 const Divider(height: 24),
+                SwitchListTile(
+                  contentPadding: EdgeInsets.zero,
+                  title: const Text('Anúncio ativo no app'),
+                  subtitle: const Text(
+                    'Desative para ocultar do app sem apagar o registro.',
+                  ),
+                  value: ativo,
+                  activeThumbColor: Colors.green,
+                  onChanged: (v) => setDlg(() => ativo = v),
+                ),
+                const SizedBox(height: 8),
                 _buildSecaoFinanceira(
                   valorC: valorC,
                   modalidade: modalidade,
@@ -1566,6 +1760,51 @@ class _UtilidadesScreenState extends State<UtilidadesScreen> {
     if (ts == null) return 'N/A';
     DateTime d = ts.toDate();
     return '${d.day.toString().padLeft(2, '0')}/${d.month.toString().padLeft(2, '0')}/${d.year}';
+  }
+
+  DateTime? _campoFirestoreParaDateTime(dynamic raw) {
+    if (raw == null) return null;
+    if (raw is Timestamp) return raw.toDate();
+    if (raw is DateTime) return raw;
+    if (raw is int) {
+      if (raw > 1000000000000) {
+        return DateTime.fromMillisecondsSinceEpoch(raw);
+      }
+      return DateTime.fromMillisecondsSinceEpoch(raw * 1000);
+    }
+    if (raw is num) {
+      final n = raw.toInt();
+      if (n > 1000000000000) {
+        return DateTime.fromMillisecondsSinceEpoch(n);
+      }
+      return DateTime.fromMillisecondsSinceEpoch(n * 1000);
+    }
+    if (raw is Map) {
+      final sec = raw['_seconds'] ?? raw['seconds'];
+      if (sec is num) {
+        return DateTime.fromMillisecondsSinceEpoch(sec.toInt() * 1000);
+      }
+    }
+    if (raw is String && raw.trim().isNotEmpty) {
+      return DateTime.tryParse(raw.trim());
+    }
+    return null;
+  }
+
+  /// Premium usa [data_vencimento]; demais categorias usam [data_fim].
+  Timestamp? _tsVencimentoAnuncio(
+    Map<String, dynamic> dados, {
+    String? campoPreferido,
+  }) {
+    if (campoPreferido != null) {
+      final dt = _campoFirestoreParaDateTime(dados[campoPreferido]);
+      if (dt != null) return Timestamp.fromDate(dt);
+    }
+    final dtFim = _campoFirestoreParaDateTime(dados['data_fim']);
+    if (dtFim != null) return Timestamp.fromDate(dtFim);
+    final dtVenc = _campoFirestoreParaDateTime(dados['data_vencimento']);
+    if (dtVenc != null) return Timestamp.fromDate(dtVenc);
+    return null;
   }
 
   // --- O PODEROSO POP-UP PARA CRIAR QUALQUER POST ---
@@ -2220,7 +2459,7 @@ class _UtilidadesScreenState extends State<UtilidadesScreen> {
     String? campoDataVencimento,
     Widget Function(String id, Map<String, dynamic> dados)? botoesExtras,
   }) {
-    return StreamBuilder<QuerySnapshot>(
+    return StreamBuilder<QuerySnapshot<Map<String, dynamic>>>(
       stream: FirebaseFirestore.instance
           .collection(colecao)
           .orderBy('ativo', descending: true)
@@ -2237,13 +2476,14 @@ class _UtilidadesScreenState extends State<UtilidadesScreen> {
           padding: const EdgeInsets.all(20),
           itemCount: snapshot.data!.docs.length,
           itemBuilder: (context, index) {
-            var doc = snapshot.data!.docs[index];
-            var dados = doc.data() as Map<String, dynamic>;
+            final doc = snapshot.data!.docs[index];
+            final dados = safeWebDocData(doc);
             bool ativo = dados['ativo'] ?? false;
 
-            final tsVenc = campoDataVencimento != null
-                ? dados[campoDataVencimento] as Timestamp?
-                : null;
+            final tsVenc = _tsVencimentoAnuncio(
+              dados,
+              campoPreferido: campoDataVencimento,
+            );
             final sv = _statusVencimento(tsVenc);
 
             _desativarSeVencidoHa3Dias(colecao, doc.id, tsVenc, ativo);
@@ -2439,10 +2679,54 @@ class _UtilidadesScreenState extends State<UtilidadesScreen> {
                           campoTitulo: 'titulo',
                           campoSubtitulo: 'telefone',
                           campoDataVencimento: 'data_vencimento',
-                          botoesExtras: (id, dados) => IconButton(
-                            icon: Icon(Icons.edit, color: diPertinRoxo, size: 20),
-                            tooltip: 'Editar premium',
-                            onPressed: () => _editarPremium(id, dados),
+                          botoesExtras: (id, dados) => Row(
+                            mainAxisSize: MainAxisSize.min,
+                            children: [
+                              IconButton(
+                                icon: Icon(Icons.edit,
+                                    color: diPertinRoxo, size: 20),
+                                tooltip: 'Editar premium',
+                                onPressed: () => _editarPremium(id, dados),
+                              ),
+                              const SizedBox(width: 4),
+                              ElevatedButton.icon(
+                                onPressed: () => _configurarPremium(id, dados),
+                                icon: const Icon(
+                                  Icons.settings,
+                                  color: Colors.white,
+                                  size: 16,
+                                ),
+                                label: const Text(
+                                  'Configurar',
+                                  style: TextStyle(color: Colors.white),
+                                ),
+                                style: ElevatedButton.styleFrom(
+                                  backgroundColor: Colors.blue,
+                                ),
+                              ),
+                              const SizedBox(width: 4),
+                              ElevatedButton.icon(
+                                onPressed: () => _renovarPremium(
+                                  id,
+                                  _tsVencimentoAnuncio(
+                                    dados,
+                                    campoPreferido: 'data_vencimento',
+                                  ),
+                                ),
+                                icon: const Icon(
+                                  Icons.add_circle,
+                                  color: Colors.white,
+                                  size: 16,
+                                ),
+                                label: const Text(
+                                  '+30 Dias',
+                                  style: TextStyle(color: Colors.white),
+                                ),
+                                style: ElevatedButton.styleFrom(
+                                  backgroundColor: diPertinLaranja,
+                                ),
+                              ),
+                            ],
                           ),
                         ),
                         _buildListaGenerica(
@@ -2462,7 +2746,10 @@ class _UtilidadesScreenState extends State<UtilidadesScreen> {
                               ElevatedButton.icon(
                                 onPressed: () => _renovarVaga(
                                   id,
-                                  dados['data_vencimento'] as Timestamp?,
+                                  _tsVencimentoAnuncio(
+                                    dados,
+                                    campoPreferido: 'data_vencimento',
+                                  ),
                                 ),
                                 icon: const Icon(
                                   Icons.add_circle,
@@ -2529,7 +2816,10 @@ class _UtilidadesScreenState extends State<UtilidadesScreen> {
                               ElevatedButton.icon(
                                 onPressed: () => _renovarAchados(
                                   id,
-                                  dados['data_vencimento'] as Timestamp?,
+                                  _tsVencimentoAnuncio(
+                                    dados,
+                                    campoPreferido: 'data_vencimento',
+                                  ),
                                 ),
                                 icon: const Icon(
                                   Icons.add_circle,

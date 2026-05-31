@@ -117,6 +117,35 @@ async function cancelarPedidosGrupoCheckoutEmEspera(db, pedidoIdInicial, patchEx
     return n;
 }
 
+/**
+ * Registra recusa de pagamento (cartão) sem cancelar o pedido — mantém
+ * `aguardando_pagamento` para nova tentativa em Meus Pedidos / checkout.
+ */
+async function marcarRecusaPagamentoGrupoAguardando(db, pedidoIdInicial, patchExtras) {
+    const ref0 = db.collection("pedidos").doc(String(pedidoIdInicial).trim());
+    const snap0 = await ref0.get();
+    if (!snap0.exists) return 0;
+    const ped0 = snap0.data() || {};
+    const ids = idsGrupoCheckoutDoPedido(ped0) || [ref0.id];
+    const patch = {
+        pagamento_recusado_em: admin.firestore.FieldValue.serverTimestamp(),
+        ...patchExtras,
+    };
+    let n = 0;
+    const batch = db.batch();
+    for (const id of ids) {
+        const ref = db.collection("pedidos").doc(id);
+        const s = await ref.get();
+        if (!s.exists) continue;
+        const d = s.data() || {};
+        if (d.status !== "aguardando_pagamento") continue;
+        batch.update(ref, patch);
+        n++;
+    }
+    if (n > 0) await batch.commit();
+    return n;
+}
+
 /** Replica prazo/campos PIX para os irmãos do grupo (mesmo checkout). */
 async function copiarPixGrupoParaIrmaos(db, liderId, liderData, camposPix) {
     const ids = idsGrupoCheckoutDoPedido(liderData);
@@ -208,18 +237,26 @@ function traduzirRecusaMp({
     statusDetail,
     erroCodigo,
     erroMensagem,
+    tipoCartaoSolicitado,
 }) {
     const st = String(status || "").toLowerCase().trim();
     const det = String(statusDetail || "").toLowerCase().trim();
     const cod = String(erroCodigo || "").toLowerCase().trim();
     const msg = String(erroMensagem || "").trim();
     const chave = [cod, det, msg.toLowerCase()].join(" | ");
+    const tipoSol = String(tipoCartaoSolicitado || "").toLowerCase().trim();
+    const msgInsuficiente =
+        tipoSol === "debito" || tipoSol === "debit"
+            ? "Saldo insuficiente no débito para concluir este pagamento. Verifique a conta vinculada ao cartão ou use outro meio."
+            : tipoSol === "credito" || tipoSol === "credit"
+              ? "Limite ou saldo insuficiente no crédito para concluir este pagamento. Tente outro cartão ou use o PIX."
+              : "Cartão informado sem saldo ou limite suficiente para este pagamento.";
 
     const mapa = [
         {
             match: ["cc_rejected_insufficient_amount"],
             code: "cc_rejected_insufficient_amount",
-            message: "Cartão informado sem saldo limite suficiente.",
+            message: msgInsuficiente,
         },
         {
             match: ["cc_rejected_bad_filled_security_code", "e302", "security_code"],
@@ -1026,10 +1063,20 @@ async function processarPagamentoMercadoPago(payment) {
     }
 
     if (statusMp === "rejected" || statusMp === "cancelled" || statusMp === "refunded") {
+        const traduzidoRej = traduzirRecusaMp({
+            status: statusMp,
+            statusDetail: payment.status_detail || "",
+            erroCodigo: payment.status_detail || "",
+            erroMensagem: "",
+            tipoCartaoSolicitado: ped.pagamento_cartao_tipo_solicitado || "",
+        });
         await pedidoRef.update({
             ...baseUpdate,
             mp_erro_detalhe: payment.status_detail || null,
             status_pagamento_mp: statusMp,
+            pagamento_recusado_codigo: traduzidoRej.codigo,
+            pagamento_recusado_mensagem: traduzidoRej.mensagem,
+            pagamento_recusado_em: admin.firestore.FieldValue.serverTimestamp(),
         });
         return { ok: true, rejected: true };
     }
@@ -1503,15 +1550,42 @@ exports.mpProcessarPagamentoCartao = onCall(
         } catch (e) {
             console.warn("[mp] resolver bandeira por BIN falhou:", e.message || e);
         }
-        const paymentMethodIdFinal = (
-            metodoPagamentoResolvido && metodoPagamentoResolvido.payment_method_id
-        ) || paymentMethodId;
-        const paymentTypeIdFinal = (
-            metodoPagamentoResolvido && metodoPagamentoResolvido.payment_type_id
-        ) || (isDebito ? "debit_card" : "credit_card");
-        const issuerIdResolvido = metodoPagamentoResolvido
-            ? metodoPagamentoResolvido.issuer_id
-            : null;
+        const tipoSolicitado = isDebito ? "debito" : "credito";
+        const tipoMpEsperado = isDebito ? "debit_card" : "credit_card";
+
+        if (!metodoPagamentoResolvido || !metodoPagamentoResolvido.payment_method_id) {
+            const msgBin = isDebito
+                ? "Este cartão não permite pagamento em débito nesta operação. Use crédito, outro cartão ou o PIX."
+                : "Este cartão não permite pagamento em crédito nesta operação. Use débito, outro cartão ou o PIX.";
+            await marcarRecusaPagamentoGrupoAguardando(db, pedidoId, {
+                mp_status: "rejected",
+                status_pagamento_mp: "rejected",
+                pagamento_recusado_codigo: "bin_tipo_nao_disponivel",
+                pagamento_recusado_mensagem: msgBin,
+                pagamento_cartao_tipo_solicitado: tipoSolicitado,
+                mp_erro_detalhe: "bin_tipo_nao_disponivel",
+            });
+            throw new HttpsError("failed-precondition", msgBin);
+        }
+
+        const paymentMethodIdFinal = metodoPagamentoResolvido.payment_method_id;
+        const paymentTypeIdFinal =
+            metodoPagamentoResolvido.payment_type_id || tipoMpEsperado;
+        if (String(paymentTypeIdFinal).toLowerCase() !== tipoMpEsperado) {
+            const msgTipo = isDebito
+                ? "Não foi possível usar débito com este cartão. Não tentamos cobrar no crédito."
+                : "Não foi possível usar crédito com este cartão. Não tentamos cobrar no débito.";
+            await marcarRecusaPagamentoGrupoAguardando(db, pedidoId, {
+                mp_status: "rejected",
+                status_pagamento_mp: "rejected",
+                pagamento_recusado_codigo: "tipo_pagamento_indisponivel",
+                pagamento_recusado_mensagem: msgTipo,
+                pagamento_cartao_tipo_solicitado: tipoSolicitado,
+                mp_erro_detalhe: "tipo_pagamento_indisponivel",
+            });
+            throw new HttpsError("failed-precondition", msgTipo);
+        }
+        const issuerIdResolvido = metodoPagamentoResolvido.issuer_id || null;
 
         let cardToken;
         try {
@@ -1561,6 +1635,7 @@ exports.mpProcessarPagamentoCartao = onCall(
                 statusDetail: "",
                 erroCodigo: codigoMp,
                 erroMensagem: detalhe,
+                tipoCartaoSolicitado: tipoSolicitado,
             });
             await registrarTentativa({
                 pagamento_tentativa_etapa: "tokenizacao",
@@ -1568,34 +1643,22 @@ exports.mpProcessarPagamentoCartao = onCall(
                 pagamento_tentativa_erro: traduzido.mensagem,
                 pagamento_tentativa_erro_codigo: traduzido.codigo,
             });
-            await cancelarPedidosGrupoCheckoutEmEspera(db, pedidoId, {
-                cancelado_motivo: "cartao_tokenizacao_erro",
+            await marcarRecusaPagamentoGrupoAguardando(db, pedidoId, {
+                mp_status: "rejected",
+                status_pagamento_mp: "rejected",
+                mp_erro_detalhe: codigoMp || detalhe,
+                pagamento_recusado_codigo: traduzido.codigo,
+                pagamento_recusado_mensagem: traduzido.mensagem,
+                pagamento_cartao_tipo_solicitado: tipoSolicitado,
+                mp_atualizado_em: admin.firestore.FieldValue.serverTimestamp(),
             });
-            await pedRef.set(
-                {
-                    mp_status: "rejected",
-                    status_pagamento_mp: "rejected",
-                    mp_erro_detalhe: codigoMp || detalhe,
-                    pagamento_recusado_codigo: traduzido.codigo,
-                    pagamento_recusado_mensagem: traduzido.mensagem,
-                    mp_atualizado_em: admin.firestore.FieldValue.serverTimestamp(),
-                },
-                { merge: true },
-            );
             throw new HttpsError("failed-precondition", traduzido.mensagem);
         }
 
         let payment;
         try {
-            // Precedência da bandeira: BIN do MP > token tokenizado > app > fallback.
-            const paymentMethodFromToken = String(
-                cardToken?.payment_method_id || "",
-            ).trim().toLowerCase();
-            const paymentMethodEnviar = (
-                paymentMethodIdFinal ||
-                paymentMethodFromToken ||
-                paymentMethodId
-            );
+            // Bandeira: somente BIN oficial do MP (evita misturar débito/crédito via token).
+            const paymentMethodEnviar = paymentMethodIdFinal;
             const issuerIdRaw = issuerIdResolvido || cardToken?.issuer?.id;
             const issuerId = issuerIdRaw != null ? String(issuerIdRaw).trim() : "";
             const parcelasFinal = isDebito
@@ -1675,6 +1738,7 @@ exports.mpProcessarPagamentoCartao = onCall(
                 statusDetail: "",
                 erroCodigo: codigoMp,
                 erroMensagem: detalheRaw,
+                tipoCartaoSolicitado: tipoSolicitado,
             });
             await registrarTentativa({
                 pagamento_tentativa_etapa: "criacao_pagamento",
@@ -1683,22 +1747,16 @@ exports.mpProcessarPagamentoCartao = onCall(
                 pagamento_tentativa_erro_codigo: traduzido.codigo,
                 pagamento_tentativa_raw_ref: String(body.id || body.reference || ""),
             });
-            await cancelarPedidosGrupoCheckoutEmEspera(db, pedidoId, {
-                cancelado_motivo: "cartao_recusado_provedor",
+            await marcarRecusaPagamentoGrupoAguardando(db, pedidoId, {
+                mp_status: "rejected",
+                status_pagamento_mp: "rejected",
+                mp_erro_detalhe: codigoMp || detalheRaw,
+                pagamento_recusado_codigo: traduzido.codigo,
+                pagamento_recusado_mensagem: traduzido.mensagem,
+                pagamento_cartao_tipo_solicitado: tipoSolicitado,
+                pagamento_cartao_bandeira_mp: paymentMethodIdFinal || null,
+                mp_atualizado_em: admin.firestore.FieldValue.serverTimestamp(),
             });
-            await pedRef.set(
-                {
-                    mp_status: "rejected",
-                    status_pagamento_mp: "rejected",
-                    mp_erro_detalhe: codigoMp || detalheRaw,
-                    pagamento_recusado_codigo: traduzido.codigo,
-                    pagamento_recusado_mensagem: traduzido.mensagem,
-                    pagamento_cartao_tipo_solicitado: isDebito ? "debito" : "credito",
-                    pagamento_cartao_bandeira_mp: paymentMethodId || null,
-                    mp_atualizado_em: admin.firestore.FieldValue.serverTimestamp(),
-                },
-                { merge: true },
-            );
             throw new HttpsError("failed-precondition", traduzido.mensagem);
         }
 
@@ -1721,16 +1779,8 @@ exports.mpProcessarPagamentoCartao = onCall(
         } catch (_) {
             // Log best effort
         }
-        const result = await processarPagamentoMercadoPago(payment);
         const statusFinal = String(payment.status || "");
         const statusDetailFinal = String(payment.status_detail || "");
-        const traduzidoFinal = traduzirRecusaMp({
-            status: statusFinal,
-            statusDetail: statusDetailFinal,
-            erroCodigo: statusDetailFinal,
-            erroMensagem: "",
-        });
-        const tipoSolicitado = isDebito ? "debito" : "credito";
         const tipoMp =
             String(
                 payment.payment_method?.payment_type_id ||
@@ -1739,62 +1789,104 @@ exports.mpProcessarPagamentoCartao = onCall(
             ).toLowerCase();
         const bandeiraMp = String(
             payment.payment_method_id ||
-            cardToken?.payment_method_id ||
-            paymentMethodId ||
+            paymentMethodIdFinal ||
             "",
         ).toLowerCase();
+
+        const statusAprovadoMp =
+            statusFinal === "approved" || statusFinal === "authorized";
+        const tipoMpDivergente =
+            statusAprovadoMp &&
+            tipoMp &&
+            tipoMp !== tipoMpEsperado;
+
+        let result = null;
+        let statusFinalRetorno = statusFinal;
+        let traduzidoFinal = traduzirRecusaMp({
+            status: statusFinal,
+            statusDetail: statusDetailFinal,
+            erroCodigo: statusDetailFinal,
+            erroMensagem: "",
+            tipoCartaoSolicitado: tipoSolicitado,
+        });
+
+        if (tipoMpDivergente) {
+            statusFinalRetorno = "rejected";
+            traduzidoFinal = {
+                codigo: "tipo_pagamento_divergente",
+                mensagem: isDebito
+                    ? "O pagamento não foi concluído em débito. Não tentamos cobrar no crédito. Verifique se o cartão permite débito nesta compra."
+                    : "O pagamento não foi concluído em crédito. Não tentamos cobrar no débito. Verifique o limite do cartão.",
+            };
+        } else if (statusAprovadoMp) {
+            result = await processarPagamentoMercadoPago(payment);
+        } else {
+            traduzidoFinal = traduzirRecusaMp({
+                status: statusFinal,
+                statusDetail: statusDetailFinal,
+                erroCodigo: statusDetailFinal,
+                erroMensagem: "",
+                tipoCartaoSolicitado: tipoSolicitado,
+            });
+        }
+
+        const statusAprovado =
+            !tipoMpDivergente &&
+            (statusFinal === "approved" || statusFinal === "authorized");
+        const statusEmAnalise = statusFinal === "in_process" || statusFinal === "pending";
 
         await pedRef.set(
             {
                 pagamento_cartao_tipo_solicitado: tipoSolicitado,
                 pagamento_cartao_tipo_mp: tipoMp || null,
                 pagamento_cartao_bandeira_mp: bandeiraMp || null,
-                mp_status: statusFinal || null,
-                status_pagamento_mp: statusFinal || null,
-                mp_erro_detalhe: statusDetailFinal || null,
-                pagamento_recusado_codigo:
-                    statusFinal === "approved" || statusFinal === "authorized"
-                        ? null
-                        : traduzidoFinal.codigo,
-                pagamento_recusado_mensagem:
-                    statusFinal === "approved" || statusFinal === "authorized"
-                        ? null
-                        : traduzidoFinal.mensagem,
+                mp_status: tipoMpDivergente ? "rejected" : statusFinal || null,
+                status_pagamento_mp: tipoMpDivergente ? "rejected" : statusFinal || null,
+                mp_erro_detalhe: tipoMpDivergente
+                    ? "tipo_pagamento_divergente"
+                    : statusDetailFinal || null,
+                pagamento_recusado_codigo: statusAprovado
+                    ? null
+                    : traduzidoFinal.codigo,
+                pagamento_recusado_mensagem: statusAprovado
+                    ? null
+                    : traduzidoFinal.mensagem,
                 mp_atualizado_em: admin.firestore.FieldValue.serverTimestamp(),
             },
             { merge: true },
         );
         await registrarTentativa({
             pagamento_tentativa_etapa: "resultado_final",
-            pagamento_tentativa_status:
-                statusFinal === "approved" || statusFinal === "authorized"
-                    ? "aprovado"
-                    : "recusado",
+            pagamento_tentativa_status: statusAprovado
+                ? "aprovado"
+                : "recusado",
             pagamento_tentativa_payment_id: payment.id || null,
-            pagamento_tentativa_mp_status: statusFinal || null,
+            pagamento_tentativa_mp_status: statusFinalRetorno || null,
             pagamento_tentativa_mp_detail: statusDetailFinal || null,
         });
 
-        const statusAprovado = statusFinal === "approved" || statusFinal === "authorized";
-        const statusEmAnalise = statusFinal === "in_process" || statusFinal === "pending";
         if (!statusAprovado && !statusEmAnalise) {
-            // Só cancela se REALMENTE foi rejeitado/cancelled/refunded.
-            // Em `in_process`/`pending`, mantém o pedido aguardando e deixa o
-            // webhook do Mercado Pago confirmar em background.
-            const snapAtual = await pedRef.get();
-            const pedidoAtual = snapAtual.data() || {};
-            if (pedidoAtual.status === "aguardando_pagamento") {
-                await cancelarPedidosGrupoCheckoutEmEspera(db, pedidoId, {
-                    cancelado_motivo: "cartao_nao_concluido",
-                });
-            }
+            await marcarRecusaPagamentoGrupoAguardando(db, pedidoId, {
+                mp_status: "rejected",
+                status_pagamento_mp: "rejected",
+                pagamento_recusado_codigo: traduzidoFinal.codigo,
+                pagamento_recusado_mensagem: traduzidoFinal.mensagem,
+                pagamento_cartao_tipo_solicitado: tipoSolicitado,
+                pagamento_cartao_tipo_mp: tipoMp || null,
+                pagamento_cartao_bandeira_mp: bandeiraMp || null,
+                mp_erro_detalhe: statusDetailFinal || traduzidoFinal.codigo,
+            });
         }
+
         return {
             ok: true,
-            mp_status: statusFinal,
+            mp_status: statusFinalRetorno,
             payment_id: payment.id || null,
             pagamento_cartao_tipo_solicitado: tipoSolicitado,
             pagamento_cartao_tipo_mp: tipoMp || null,
+            pagamento_recusado_mensagem: statusAprovado
+                ? null
+                : traduzidoFinal.mensagem,
             result,
         };
     }

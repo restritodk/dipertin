@@ -9,7 +9,9 @@ import 'package:firebase_auth/firebase_auth.dart';
 import 'package:firebase_storage/firebase_storage.dart';
 import 'package:file_picker/file_picker.dart';
 import 'package:image_picker/image_picker.dart';
+import 'package:intl/intl.dart';
 
+import '../../services/conta_bloqueio_entregador_service.dart';
 import '../../services/permissoes_app_service.dart';
 
 const Color diPertinRoxo = Color(0xFF6A1B9A);
@@ -46,6 +48,7 @@ class _EntregadorFormScreenState extends State<EntregadorFormScreen> {
   bool _carregandoInicial = true;
   String? _statusAtual;
   String? _motivoRecusa;
+  DateTime? _reingressoBloqueadoAte;
 
   final List<String> _tiposVeiculo = ['Moto', 'Carro', 'Bicicleta'];
 
@@ -98,6 +101,10 @@ class _EntregadorFormScreenState extends State<EntregadorFormScreen> {
             setState(() {
               _statusAtual = dados['entregador_status'];
               _motivoRecusa = dados['motivo_recusa'];
+              _reingressoBloqueadoAte =
+                  ContaBloqueioEntregadorService.dataReingressoEntregadorLiberado(
+                dados,
+              );
               if (dados['veiculoTipo'] != null &&
                   _tiposVeiculo.contains(dados['veiculoTipo'])) {
                 _veiculoSelecionado = dados['veiculoTipo'];
@@ -290,6 +297,21 @@ class _EntregadorFormScreenState extends State<EntregadorFormScreen> {
         );
         return;
       }
+    }
+
+    if (_reingressoBloqueadoAte != null &&
+        DateTime.now().isBefore(_reingressoBloqueadoAte!)) {
+      final fmt = DateFormat('dd/MM/yyyy');
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(
+          content: Text(
+            'Novo cadastro de entregador disponível a partir de '
+            '${fmt.format(_reingressoBloqueadoAte!)}.',
+          ),
+          backgroundColor: Colors.red,
+        ),
+      );
+      return;
     }
 
     setState(() => _isLoading = true);

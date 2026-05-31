@@ -4,9 +4,11 @@ import 'dart:async';
 import 'dart:convert';
 
 import 'package:cloud_functions/cloud_functions.dart';
+import 'package:depertin_cliente/providers/cart_provider.dart';
 import 'package:depertin_cliente/services/firebase_functions_config.dart';
 import 'package:depertin_cliente/services/wallet_reserva_service.dart';
 import 'package:flutter/material.dart';
+import 'package:provider/provider.dart';
 import 'package:flutter/services.dart';
 import 'package:flutter_multi_formatter/flutter_multi_formatter.dart';
 import 'package:cloud_firestore/cloud_firestore.dart';
@@ -21,8 +23,40 @@ bool _statusPedidoPago(String status) {
   return st == 'pendente' || st == 'encomenda_entrada_paga';
 }
 
+/// Mensagem de recusa com texto específico para débito vs crédito (saldo/limite).
+String mensagemRecusaCartaoParaCliente({
+  required String mensagem,
+  String? codigoRecusa,
+  String? tipoCartaoSolicitado,
+}) {
+  final msg = mensagem.trim();
+  if (msg.isEmpty) return 'Pagamento recusado. Tente novamente ou use outro meio.';
+  final cod = (codigoRecusa ?? '').toLowerCase();
+  final tipo = (tipoCartaoSolicitado ?? '').toLowerCase();
+  final pareceInsuficiente =
+      cod.contains('insufficient') ||
+      cod == 'cc_rejected_insufficient_amount' ||
+      msg.toLowerCase().contains('insuficiente') ||
+      msg.toLowerCase().contains('saldo') ||
+      msg.toLowerCase().contains('limite');
+  if (pareceInsuficiente) {
+    if (tipo == 'debito' || tipo == 'debit') {
+      return 'Saldo insuficiente no débito para concluir este pagamento. '
+          'Verifique a conta vinculada ao cartão ou use outro meio.';
+    }
+    if (tipo == 'credito' || tipo == 'credit') {
+      return 'Limite ou saldo insuficiente no crédito para concluir este pagamento. '
+          'Tente outro cartão ou use o PIX.';
+    }
+  }
+  return msg;
+}
+
 /// Traduz códigos crus da callable (ex.: UNAVAILABLE) para texto claro ao usuário no checkout com cartão.
-String mensagemAmigavelErroPagamentoCartao(FirebaseFunctionsException e) {
+String mensagemAmigavelErroPagamentoCartao(
+  FirebaseFunctionsException e, {
+  String? tipoCartaoUi,
+}) {
   final code = e.code.toLowerCase().trim();
   final raw = (e.message ?? '').trim();
   final rawUp = raw.toUpperCase();
@@ -45,7 +79,10 @@ String mensagemAmigavelErroPagamentoCartao(FirebaseFunctionsException e) {
     case 'failed-precondition':
     case 'invalid-argument':
       if (raw.isNotEmpty && raw.length <= 500) {
-        return raw;
+        return mensagemRecusaCartaoParaCliente(
+          mensagem: raw,
+          tipoCartaoSolicitado: tipoCartaoUi == 'Débito' ? 'debito' : 'credito',
+        );
       }
       return 'Não foi possível concluir o pagamento com cartão. Verifique os dados ou tente outro cartão.';
     case 'internal':
@@ -670,42 +707,39 @@ class _CheckoutPagamentoScreenState extends State<CheckoutPagamentoScreen> {
     });
   }
 
-  void _finalizarPixComSucesso() {
+  /// Esvazia a sacola de pronta-entrega após pagamento confirmado (não mexe em
+  /// itens de encomenda nem em checkout de pedido `tipo_compra: encomenda`).
+  Future<void> _limparCarrinhoProntaEntregaSeAplicavel() async {
+    final pid = widget.pedidoFirestoreId?.trim() ?? '';
+    if (pid.isEmpty) return;
+    try {
+      final snap = await FirebaseFirestore.instance
+          .collection('pedidos')
+          .doc(pid)
+          .get();
+      final tipo = (snap.data()?['tipo_compra'] ?? '').toString();
+      if (tipo == 'encomenda') return;
+    } catch (_) {
+      return;
+    }
+    if (!mounted) return;
+    await context.read<CartProvider>().removerItensPorTipo(encomenda: false);
+  }
+
+  Future<void> _finalizarPixComSucesso() async {
     if (_pixConcluido || !mounted) return;
     _pixConcluido = true;
     _pollTimer?.cancel();
     _pedidoSub?.cancel();
-    _mostrarConfirmacaoPagamento();
+    await _finalizarPagamentoAprovado();
   }
 
-  void _mostrarConfirmacaoPagamento() {
-    showGeneralDialog(
-      context: context,
-      barrierDismissible: false,
-      barrierColor: Colors.black54,
-      transitionDuration: const Duration(milliseconds: 400),
-      pageBuilder: (_, _, _) => const SizedBox.shrink(),
-      transitionBuilder: (ctx, anim, _, _) {
-        final curved = CurvedAnimation(parent: anim, curve: Curves.easeOutBack);
-        return ScaleTransition(
-          scale: curved,
-          child: FadeTransition(
-            opacity: anim,
-            child: _PagamentoAprovadoDialog(
-              valorTotal: widget.valorTotal,
-              onContinuar: () async {
-                Navigator.of(ctx).pop();
-
-                // ===== CONFIRMA RESERVA DE SALDO =====
-                await _confirmarReservaDeSaldo();
-
-                widget.onPagamentoAprovado();
-              },
-            ),
-          ),
-        );
-      },
-    );
+  /// Aprovação: confirma saldo reservado, limpa carrinho (pronta-entrega) e vai a Meus Pedidos.
+  Future<void> _finalizarPagamentoAprovado() async {
+    await _confirmarReservaDeSaldo();
+    await _limparCarrinhoProntaEntregaSeAplicavel();
+    if (!mounted) return;
+    widget.onPagamentoAprovado();
   }
 
   /// Confirma a reserva de saldo após aprovação de pagamento
@@ -858,10 +892,24 @@ class _CheckoutPagamentoScreenState extends State<CheckoutPagamentoScreen> {
         .snapshots()
         .listen((snap) {
           if (!snap.exists || completer.isCompleted) return;
-          final status = (snap.data()?['status'] ?? '').toString();
+          final data = snap.data() ?? {};
+          final status = (data['status'] ?? '').toString();
           if (_statusPedidoPago(status)) {
             completer.complete('aprovado');
-          } else if (status == 'cancelado') {
+            return;
+          }
+          final mpStatus = (data['mp_status'] ?? '').toString().toLowerCase();
+          if (mpStatus == 'rejected') {
+            completer.complete('recusado');
+            return;
+          }
+          final msgRecusa =
+              (data['pagamento_recusado_mensagem'] ?? '').toString().trim();
+          if (status == 'aguardando_pagamento' && msgRecusa.isNotEmpty) {
+            completer.complete('recusado');
+            return;
+          }
+          if (status == 'cancelado') {
             completer.complete('cancelado');
           }
         });
@@ -876,59 +924,6 @@ class _CheckoutPagamentoScreenState extends State<CheckoutPagamentoScreen> {
     return resultado;
   }
 
-  Future<void> _cancelarPedidoCartaoNaoConcluido(
-    String pedidoId, {
-    required String mensagemParaUsuario,
-  }) async {
-    final msg = mensagemParaUsuario.trim();
-    if (msg.isEmpty) return;
-    final msgGravar = msg.length > 600 ? msg.substring(0, 600) : msg;
-    try {
-      final ref = FirebaseFirestore.instance
-          .collection('pedidos')
-          .doc(pedidoId);
-      final snap = await ref.get();
-      if (!snap.exists) return;
-      final d = snap.data() ?? {};
-      final raw = d['checkout_grupo_pedido_ids'];
-      final ids = <String>[];
-      if (raw is List) {
-        for (final e in raw) {
-          final s = e.toString().trim();
-          if (s.isNotEmpty) ids.add(s);
-        }
-      }
-      final alvos = ids.length > 1 ? ids.toSet().toList() : [pedidoId];
-      final batch = FirebaseFirestore.instance.batch();
-      for (final id in alvos) {
-        final r = FirebaseFirestore.instance.collection('pedidos').doc(id);
-        final s = id == pedidoId ? snap : await r.get();
-        if (!s.exists) continue;
-        final st = (s.data()?['status'] ?? '').toString();
-        if (st == 'aguardando_pagamento') {
-          batch.update(r, {
-            'status': 'cancelado',
-            'cancelado_motivo': 'cartao_nao_concluido',
-            'cancelado_em': FieldValue.serverTimestamp(),
-            'pagamento_recusado_mensagem': msgGravar,
-          });
-        }
-      }
-      await batch.commit();
-    } catch (_) {
-      // Não bloquear navegação por falha de fallback.
-    }
-  }
-
-  void _irParaMeusPedidosTodos() {
-    if (!mounted) return;
-    Navigator.of(context).pushNamedAndRemoveUntil(
-      '/meus-pedidos',
-      (route) => false,
-      arguments: {'filtro': 'todos', 'mostrarVoltarVitrine': true},
-    );
-  }
-
   Future<String> _mensagemRecusaDoPedido(String pedidoId) async {
     try {
       final snap = await FirebaseFirestore.instance
@@ -940,10 +935,27 @@ class _CheckoutPagamentoScreenState extends State<CheckoutPagamentoScreen> {
           (d['pagamento_recusado_mensagem'] ?? d['mp_erro_detalhe'] ?? '')
               .toString()
               .trim();
-      if (msg.isNotEmpty) return msg;
+      final cod = (d['pagamento_recusado_codigo'] ?? '').toString();
+      final tipo = (d['pagamento_cartao_tipo_solicitado'] ?? '').toString();
+      if (msg.isNotEmpty) {
+        return mensagemRecusaCartaoParaCliente(
+          mensagem: msg,
+          codigoRecusa: cod,
+          tipoCartaoSolicitado: tipo.isNotEmpty
+              ? tipo
+              : (_tipoCartaoSelecionado == 'Débito' ? 'debito' : 'credito'),
+        );
+      }
     } catch (_) {}
-    return 'Pagamento recusado pelo provedor. Tente outro cartão.';
+    return mensagemRecusaCartaoParaCliente(
+      mensagem: 'Pagamento recusado pelo provedor. Tente outro cartão.',
+      tipoCartaoSolicitado:
+          _tipoCartaoSelecionado == 'Débito' ? 'debito' : 'credito',
+    );
   }
+
+  String _tipoCartaoCallable() =>
+      _tipoCartaoSelecionado == 'Débito' ? 'debito' : 'credito';
 
   Future<void> _mostrarPopupPagamentoRecusado(String mensagem) async {
     if (!mounted) return;
@@ -964,7 +976,7 @@ class _CheckoutPagamentoScreenState extends State<CheckoutPagamentoScreen> {
           FilledButton(
             style: FilledButton.styleFrom(backgroundColor: diPertinRoxo),
             onPressed: () => Navigator.of(ctx).pop(),
-            child: const Text('Ver meus pedidos'),
+            child: const Text('Tentar novamente'),
           ),
         ],
       ),
@@ -987,14 +999,13 @@ class _CheckoutPagamentoScreenState extends State<CheckoutPagamentoScreen> {
         ),
         content: const Text(
           'O Mercado Pago está analisando seu pagamento. Isso pode levar alguns '
-          'minutos. Acompanhe o status em Meus Pedidos — você será notificado '
-          'assim que for aprovado.',
+          'minutos. Você pode aguardar nesta tela ou acompanhar em Meus Pedidos.',
         ),
         actions: [
           FilledButton(
             style: FilledButton.styleFrom(backgroundColor: diPertinRoxo),
             onPressed: () => Navigator.of(ctx).pop(),
-            child: const Text('Ver meus pedidos'),
+            child: const Text('Entendi'),
           ),
         ],
       ),
@@ -1101,12 +1112,30 @@ class _CheckoutPagamentoScreenState extends State<CheckoutPagamentoScreen> {
       });
 
       final data = Map<String, dynamic>.from(resposta.data);
-      final statusMp = (data['mp_status'] ?? '').toString();
-      final aprovadoDireto = statusMp == 'approved' || statusMp == 'authorized';
+      final statusMp = (data['mp_status'] ?? '').toString().toLowerCase();
+      final aprovadoDireto =
+          statusMp == 'approved' || statusMp == 'authorized';
+
+      if (statusMp == 'rejected') {
+        if (mounted) Navigator.of(context, rootNavigator: true).pop();
+        await _cancelarReservaDeSaldo(motivo: 'Pagamento recusado');
+        final msgRaw =
+            (data['pagamento_recusado_mensagem'] ?? data['message'] ?? '')
+                .toString()
+                .trim();
+        final msg = msgRaw.isNotEmpty
+            ? mensagemRecusaCartaoParaCliente(
+                mensagem: msgRaw,
+                tipoCartaoSolicitado: _tipoCartaoCallable(),
+              )
+            : await _mensagemRecusaDoPedido(pedidoId);
+        await _mostrarPopupPagamentoRecusado(msg);
+        return;
+      }
 
       if (aprovadoDireto) {
         if (mounted) Navigator.of(context, rootNavigator: true).pop();
-        _mostrarConfirmacaoPagamento();
+        await _finalizarPagamentoAprovado();
         return;
       }
 
@@ -1114,50 +1143,40 @@ class _CheckoutPagamentoScreenState extends State<CheckoutPagamentoScreen> {
       final resultado = await _aguardarConclusaoPedidoCartao(pedidoId);
       if (mounted) Navigator.of(context, rootNavigator: true).pop();
       if (resultado == 'aprovado') {
-        _mostrarConfirmacaoPagamento();
-      } else if (resultado == 'cancelado') {
+        await _finalizarPagamentoAprovado();
+      } else if (resultado == 'recusado' || resultado == 'cancelado') {
         await _cancelarReservaDeSaldo(motivo: 'Pagamento recusado');
         final msg = await _mensagemRecusaDoPedido(pedidoId);
         await _mostrarPopupPagamentoRecusado(msg);
-        _irParaMeusPedidosTodos();
       } else {
         // Timeout: pagamento ainda em análise no Mercado Pago.
-        // NÃO cancela o pedido — o webhook do MP atualizará quando decidir.
-        // Se o MP decidir rejeitar, o pedido é cancelado automaticamente lá.
         final statusPedido = statusMp.isNotEmpty ? statusMp : 'in_process';
         final emAnalise =
             statusPedido == 'in_process' || statusPedido == 'pending';
         if (emAnalise) {
           await _mostrarPopupPagamentoEmAnalise();
         } else {
+          await _cancelarReservaDeSaldo(motivo: 'Pagamento não concluído');
           final msg = await _mensagemRecusaDoPedido(pedidoId);
           await _mostrarPopupPagamentoRecusado(msg);
         }
-        _irParaMeusPedidosTodos();
       }
     } on FirebaseFunctionsException catch (e) {
       if (mounted) Navigator.of(context, rootNavigator: true).pop();
-      final msgErro = mensagemAmigavelErroPagamentoCartao(e);
+      final msgErro = mensagemAmigavelErroPagamentoCartao(
+        e,
+        tipoCartaoUi: _tipoCartaoSelecionado,
+      );
       await _cancelarReservaDeSaldo(
         motivo: 'Erro ao processar pagamento: ${e.code}',
       );
-      await _cancelarPedidoCartaoNaoConcluido(
-        pedidoId,
-        mensagemParaUsuario: msgErro,
-      );
       await _mostrarPopupPagamentoRecusado(msgErro);
-      _irParaMeusPedidosTodos();
     } catch (e) {
       if (mounted) Navigator.of(context, rootNavigator: true).pop();
       const msgErro =
           'Ocorreu um erro inesperado ao processar o cartão. Tente novamente ou escolha PIX.';
       await _cancelarReservaDeSaldo(motivo: 'Exceção ao processar: $e');
-      await _cancelarPedidoCartaoNaoConcluido(
-        pedidoId,
-        mensagemParaUsuario: msgErro,
-      );
       await _mostrarPopupPagamentoRecusado(msgErro);
-      _irParaMeusPedidosTodos();
     } finally {
       if (mounted) setState(() => _isProcessando = false);
     }
@@ -2376,202 +2395,6 @@ class _PixCronometroBannerState extends State<_PixCronometroBanner> {
             ),
           ),
         ],
-      ),
-    );
-  }
-}
-
-class _PagamentoAprovadoDialog extends StatefulWidget {
-  final double valorTotal;
-  final VoidCallback onContinuar;
-
-  const _PagamentoAprovadoDialog({
-    required this.valorTotal,
-    required this.onContinuar,
-  });
-
-  @override
-  State<_PagamentoAprovadoDialog> createState() =>
-      _PagamentoAprovadoDialogState();
-}
-
-class _PagamentoAprovadoDialogState extends State<_PagamentoAprovadoDialog>
-    with TickerProviderStateMixin {
-  late final AnimationController _checkCtrl;
-  late final AnimationController _pulseCtrl;
-  late final Animation<double> _checkSize;
-  late final Animation<double> _pulse;
-  bool _mostrarTexto = false;
-  bool _mostrarBotao = false;
-
-  @override
-  void initState() {
-    super.initState();
-    _checkCtrl = AnimationController(
-      vsync: this,
-      duration: const Duration(milliseconds: 600),
-    );
-    _checkSize = CurvedAnimation(parent: _checkCtrl, curve: Curves.elasticOut);
-
-    _pulseCtrl = AnimationController(
-      vsync: this,
-      duration: const Duration(milliseconds: 1200),
-    )..repeat(reverse: true);
-    _pulse = Tween<double>(
-      begin: 1.0,
-      end: 1.08,
-    ).animate(CurvedAnimation(parent: _pulseCtrl, curve: Curves.easeInOut));
-
-    _checkCtrl.forward();
-    Future.delayed(const Duration(milliseconds: 500), () {
-      if (mounted) setState(() => _mostrarTexto = true);
-    });
-    Future.delayed(const Duration(milliseconds: 900), () {
-      if (mounted) setState(() => _mostrarBotao = true);
-    });
-  }
-
-  @override
-  void dispose() {
-    _checkCtrl.dispose();
-    _pulseCtrl.dispose();
-    super.dispose();
-  }
-
-  @override
-  Widget build(BuildContext context) {
-    return Center(
-      child: Material(
-        color: Colors.transparent,
-        child: Container(
-          margin: const EdgeInsets.symmetric(horizontal: 32),
-          padding: const EdgeInsets.symmetric(horizontal: 28, vertical: 36),
-          decoration: BoxDecoration(
-            color: Colors.white,
-            borderRadius: BorderRadius.circular(28),
-            boxShadow: [
-              BoxShadow(
-                color: Colors.green.withValues(alpha: 0.18),
-                blurRadius: 40,
-                spreadRadius: 4,
-              ),
-            ],
-          ),
-          child: Column(
-            mainAxisSize: MainAxisSize.min,
-            children: [
-              ScaleTransition(
-                scale: _checkSize,
-                child: AnimatedBuilder(
-                  animation: _pulse,
-                  builder: (_, child) =>
-                      Transform.scale(scale: _pulse.value, child: child),
-                  child: Container(
-                    width: 96,
-                    height: 96,
-                    decoration: BoxDecoration(
-                      shape: BoxShape.circle,
-                      gradient: LinearGradient(
-                        begin: Alignment.topLeft,
-                        end: Alignment.bottomRight,
-                        colors: [Colors.green.shade400, Colors.green.shade700],
-                      ),
-                      boxShadow: [
-                        BoxShadow(
-                          color: Colors.green.withValues(alpha: 0.35),
-                          blurRadius: 24,
-                          offset: const Offset(0, 8),
-                        ),
-                      ],
-                    ),
-                    child: const Icon(
-                      Icons.check_rounded,
-                      size: 52,
-                      color: Colors.white,
-                    ),
-                  ),
-                ),
-              ),
-              const SizedBox(height: 28),
-              AnimatedOpacity(
-                opacity: _mostrarTexto ? 1.0 : 0.0,
-                duration: const Duration(milliseconds: 400),
-                child: AnimatedSlide(
-                  offset: _mostrarTexto ? Offset.zero : const Offset(0, 0.15),
-                  duration: const Duration(milliseconds: 400),
-                  curve: Curves.easeOut,
-                  child: Column(
-                    children: [
-                      const Text(
-                        'Pagamento Aprovado!',
-                        textAlign: TextAlign.center,
-                        style: TextStyle(
-                          fontSize: 22,
-                          fontWeight: FontWeight.w800,
-                          color: Color(0xFF2E7D32),
-                          letterSpacing: -0.3,
-                        ),
-                      ),
-                      const SizedBox(height: 10),
-                      Text(
-                        'R\$ ${widget.valorTotal.toStringAsFixed(2)}',
-                        style: TextStyle(
-                          fontSize: 28,
-                          fontWeight: FontWeight.w900,
-                          color: Colors.green.shade800,
-                        ),
-                      ),
-                      const SizedBox(height: 14),
-                      Text(
-                        'Seu pedido foi confirmado com sucesso.\n'
-                        'Acompanhe o status pelo app!',
-                        textAlign: TextAlign.center,
-                        style: TextStyle(
-                          fontSize: 14,
-                          color: Colors.grey.shade600,
-                          height: 1.4,
-                        ),
-                      ),
-                    ],
-                  ),
-                ),
-              ),
-              const SizedBox(height: 28),
-              AnimatedOpacity(
-                opacity: _mostrarBotao ? 1.0 : 0.0,
-                duration: const Duration(milliseconds: 350),
-                child: AnimatedSlide(
-                  offset: _mostrarBotao ? Offset.zero : const Offset(0, 0.2),
-                  duration: const Duration(milliseconds: 350),
-                  curve: Curves.easeOut,
-                  child: SizedBox(
-                    width: double.infinity,
-                    height: 52,
-                    child: ElevatedButton(
-                      onPressed: widget.onContinuar,
-                      style: ElevatedButton.styleFrom(
-                        backgroundColor: const Color(0xFF2E7D32),
-                        foregroundColor: Colors.white,
-                        shape: RoundedRectangleBorder(
-                          borderRadius: BorderRadius.circular(16),
-                        ),
-                        elevation: 4,
-                        shadowColor: Colors.green.withValues(alpha: 0.3),
-                      ),
-                      child: const Text(
-                        'Ver meus pedidos',
-                        style: TextStyle(
-                          fontSize: 16,
-                          fontWeight: FontWeight.w700,
-                        ),
-                      ),
-                    ),
-                  ),
-                ),
-              ),
-            ],
-          ),
-        ),
       ),
     );
   }

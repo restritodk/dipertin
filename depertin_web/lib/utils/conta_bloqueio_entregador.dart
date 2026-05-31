@@ -1,6 +1,7 @@
 import 'package:cloud_firestore/cloud_firestore.dart';
 
 import '../constants/conta_bloqueio_lojista.dart';
+import '../constants/entregador_perfil_operacional.dart';
 
 /// Bloqueio operacional de entregador — mesmos campos [block_*] que lojista; status em [entregador_status].
 class ContaBloqueioEntregadorHelper {
@@ -104,13 +105,21 @@ class ContaBloqueioEntregadorHelper {
     final expirado =
         endTs != null && DateTime.now().isAfter(endTs.toDate());
 
+    if (EntregadorPerfilOperacional.motivoEhExclusaoPerfil(
+      d['block_reason']?.toString(),
+    )) {
+      return;
+    }
+
     if (sl == ContaBloqueioLojista.statusLojaBloqueioTemporario && expirado) {
       await ref.update({
         'block_active': false,
         'status_conta': ContaBloqueioLojista.statusContaActive,
         'entregador_status': 'aprovado',
+        'entregador_perfil_operacional': EntregadorPerfilOperacional.perfilAtivo,
         'block_type': FieldValue.delete(),
         'block_reason': FieldValue.delete(),
+        'block_origin': FieldValue.delete(),
         'block_start_at': FieldValue.delete(),
         'block_end_at': FieldValue.delete(),
         'motivo_bloqueio': FieldValue.delete(),
@@ -128,8 +137,10 @@ class ContaBloqueioEntregadorHelper {
       'block_active': false,
       'status_conta': ContaBloqueioLojista.statusContaActive,
       'entregador_status': 'aprovado',
+      'entregador_perfil_operacional': EntregadorPerfilOperacional.perfilAtivo,
       'block_type': FieldValue.delete(),
       'block_reason': FieldValue.delete(),
+      'block_origin': FieldValue.delete(),
       'block_start_at': FieldValue.delete(),
       'block_end_at': FieldValue.delete(),
       'motivo_bloqueio': FieldValue.delete(),
@@ -153,4 +164,32 @@ class ContaBloqueioEntregadorHelper {
     if (end is Timestamp) return end.toDate();
     return null;
   }
+
+  static DateTime? dataInicioBloqueio(Map<String, dynamic> d) {
+    final s = d['block_start_at'];
+    if (s is Timestamp) return s.toDate();
+    return null;
+  }
+
+  static bool ehExclusaoPerfilSolicitada(Map<String, dynamic> d) =>
+      EntregadorPerfilOperacional.motivoEhExclusaoPerfil(
+        d['block_reason']?.toString(),
+      );
+
+  static bool adminPodeDesbloquear(Map<String, dynamic> d) {
+    if (!estaBloqueadoParaOperacoes(d)) return false;
+    return !ehExclusaoPerfilSolicitada(d);
+  }
+
+  static int? diasRestantesExclusaoPerfil(Map<String, dynamic> d) {
+    final ts = d['entregador_exclusao_perfil_em'];
+    if (ts is! Timestamp) return null;
+    final fim = ts.toDate();
+    final diff = fim.difference(DateTime.now());
+    if (diff.isNegative) return 0;
+    return diff.inDays + (diff.inHours % 24 > 0 ? 1 : 0);
+  }
+
+  static String rotuloTipoBloqueio(Map<String, dynamic> d) =>
+      EntregadorPerfilOperacional.rotuloTipoBloqueio(d);
 }

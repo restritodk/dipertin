@@ -19,6 +19,7 @@ import 'package:depertin_cliente/constants/pedido_status.dart';
 import 'package:depertin_cliente/constants/tipos_entrega.dart';
 import 'package:depertin_cliente/services/android_nav_intent.dart';
 import 'package:depertin_cliente/services/conta_bloqueio_entregador_service.dart';
+import 'package:depertin_cliente/widgets/entregador_radar_bloqueio_painel.dart';
 import 'package:depertin_cliente/services/firebase_functions_config.dart';
 import 'package:depertin_cliente/services/permissoes_app_service.dart';
 import 'package:depertin_cliente/services/corrida_chamada_entregador_audio.dart';
@@ -2417,9 +2418,37 @@ class _EntregadorDashboardScreenState extends State<EntregadorDashboardScreen>
         if (ContaBloqueioEntregadorService.estaBloqueadoParaOperacoes(
           dadosEntregador,
         )) {
+          if (ContaBloqueioEntregadorService.deveExibirOverlayBloqueioEntregador(
+            dadosEntregador,
+          )) {
+            return Scaffold(
+              backgroundColor: Colors.grey[100],
+              body: const Center(child: SizedBox.shrink()),
+            );
+          }
           return Scaffold(
             backgroundColor: Colors.grey[100],
-            body: const Center(child: SizedBox.shrink()),
+            appBar: AppBar(
+              automaticallyImplyLeading: false,
+              leading: IconButton(
+                tooltip: 'Voltar para meu perfil',
+                icon: const Icon(Icons.arrow_back),
+                onPressed: _voltarParaMeuPerfil,
+              ),
+              title: const Text(
+                'Radar de corridas',
+                style: TextStyle(
+                  color: Colors.white,
+                  fontWeight: FontWeight.bold,
+                ),
+              ),
+              backgroundColor: diPertinRoxo,
+              iconTheme: const IconThemeData(color: Colors.white),
+            ),
+            body: EntregadorRadarBloqueioPainel(
+              dadosUsuario: dadosEntregador,
+              onVoltarPerfil: _voltarParaMeuPerfil,
+            ),
           );
         }
 

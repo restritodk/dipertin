@@ -13,6 +13,7 @@ const functions = require("firebase-functions/v1");
 const admin = require("firebase-admin");
 const smtp = require("./smtp_transport");
 const notificationDispatcher = require("./notification_dispatcher");
+const entregadorPerfilOperacionalNotif = require("./entregador_perfil_operacional_notificacao");
 
 const STATUS_APROVADO = new Set(["aprovado", "aprovada", "ativo"]);
 const STATUS_BLOQUEADO = new Set(["bloqueado", "bloqueada"]);
@@ -361,13 +362,18 @@ exports.onEntregadorStatusCadastroAtualizado = functions.firestore
         const statusDepois = normalizarStatus(depois.entregador_status);
         if (!statusDepois) return null;
 
-        // --- APROVAÇÃO: qualquer -> aprovado (desde que antes NÃO estivesse
-        // aprovado). Cobre pendente→aprovado e também bloqueado→aprovado.
+        // --- APROVAÇÃO: pendente (cadastro) → aprovado. Não dispara em
+        // desbloqueio/reativação do perfil operacional — isso usa
+        // `entregador_perfil_operacional_notificacao` ("Conta reativada").
         let evento = "";
         if (
             STATUS_APROVADO.has(statusDepois) &&
             !STATUS_APROVADO.has(statusAntes) &&
-            statusAntes !== statusDepois
+            statusAntes !== statusDepois &&
+            !entregadorPerfilOperacionalNotif.eraBloqueioOperacionalPerfilParaNotificacao(
+                antes.entregador_perfil_operacional,
+                antes,
+            )
         ) {
             evento = "aprovada";
         }

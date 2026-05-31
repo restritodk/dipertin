@@ -96,6 +96,19 @@ String rotaPorPayloadFcm(Map<String, dynamic> data) {
       type == 'ENTREGADOR_CADASTRO_RECUSADO') {
     return '/entregador-cadastro';
   }
+  // Perfil operacional (bloqueio / exclusão / reativação) — painel de entregas.
+  if (tipo == 'entregador_perfil_bloqueio_temporario' ||
+      type == 'ENTREGADOR_PERFIL_BLOQUEIO_TEMPORARIO' ||
+      tipo == 'entregador_perfil_bloqueio_definitivo' ||
+      type == 'ENTREGADOR_PERFIL_BLOQUEIO_DEFINITIVO' ||
+      tipo == 'entregador_perfil_exclusao_solicitada' ||
+      type == 'ENTREGADOR_PERFIL_EXCLUSAO_SOLICITADA') {
+    return '/entregador';
+  }
+  if (tipo == 'entregador_perfil_reativado' ||
+      type == 'ENTREGADOR_PERFIL_REATIVADO') {
+    return '/entregador';
+  }
   if (tipo == 'suporte_inicio' ||
       tipo == 'suporte_mensagem' ||
       tipo == 'suporte_encerrado' ||

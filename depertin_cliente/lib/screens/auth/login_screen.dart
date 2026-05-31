@@ -306,29 +306,7 @@ class _LoginScreenState extends State<LoginScreen> {
       );
       return false;
     }
-    if (role == 'entregador' &&
-        ContaBloqueioEntregadorService.estaBloqueadoParaOperacoes(data)) {
-      if (!mounted) return false;
-      await showDialog<void>(
-        context: context,
-        barrierDismissible: false,
-        builder: (ctx) => Dialog(
-          insetPadding: EdgeInsets.zero,
-          child: SizedBox(
-            width: double.infinity,
-            height: double.infinity,
-            child: EntregadorContaBloqueadaOverlay(
-              dadosUsuario: data,
-              onSair: () async {
-                Navigator.of(ctx).pop();
-                await FirebaseAuth.instance.signOut();
-              },
-            ),
-          ),
-        ),
-      );
-      return false;
-    }
+    // Entregador bloqueado pode entrar no app e usar como cliente; painel de entregas é separado.
     return true;
   }
 

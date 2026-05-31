@@ -10,6 +10,7 @@ import 'package:google_fonts/google_fonts.dart';
 import 'package:url_launcher/url_launcher.dart';
 
 import '../constants/conta_bloqueio_lojista.dart';
+import '../constants/entregador_motivo_bloqueio_admin.dart';
 import '../theme/painel_admin_theme.dart';
 import '../utils/admin_perfil.dart';
 import '../utils/conta_bloqueio_entregador.dart';
@@ -377,22 +378,33 @@ class _EntregadoresScreenState extends State<EntregadoresScreen>
     }
   }
 
-  Future<void> _desbloquearEntregador(String id, String nome) async {
+  Future<void> _desbloquearEntregador({
+    required String id,
+    required String nome,
+    required String motivoDesbloqueioTexto,
+    required String motivoDesbloqueioCodigo,
+  }) async {
     final admin = FirebaseAuth.instance.currentUser;
     if (admin == null) return;
     final ref = FirebaseFirestore.instance.collection('users').doc(id);
     final batch = FirebaseFirestore.instance.batch();
     batch.update(ref, {
       'entregador_status': 'aprovado',
+      'entregador_perfil_operacional': 'ativo',
       'status_conta': ContaBloqueioLojista.statusContaActive,
       'motivo_recusa': FieldValue.delete(),
       'motivo_bloqueio': FieldValue.delete(),
+      'motivo_bloqueio_admin_codigo': FieldValue.delete(),
       'recusa_cadastro': FieldValue.delete(),
       'block_active': false,
       'block_type': FieldValue.delete(),
       'block_reason': FieldValue.delete(),
+      'block_origin': FieldValue.delete(),
       'block_start_at': FieldValue.delete(),
       'block_end_at': FieldValue.delete(),
+      'entregador_exclusao_perfil_solicitada_em': FieldValue.delete(),
+      'entregador_exclusao_perfil_em': FieldValue.delete(),
+      'entregador_reingresso_bloqueado_ate': FieldValue.delete(),
     });
     batch.set(ref.collection('bloqueios_auditoria').doc(), {
       'admin_id': admin.uid,
@@ -400,6 +412,8 @@ class _EntregadoresScreenState extends State<EntregadoresScreen>
       'applied_at': FieldValue.serverTimestamp(),
       'action': 'unblock',
       'entregador_nome': nome,
+      'motivo_desbloqueio': motivoDesbloqueioTexto,
+      'motivo_desbloqueio_codigo': motivoDesbloqueioCodigo,
     });
     try {
       await batch.commit();
@@ -419,11 +433,289 @@ class _EntregadoresScreenState extends State<EntregadoresScreen>
     }
   }
 
+  void _mostrarModalDesbloqueioEntregador({
+    required String id,
+    required String nome,
+    required Map<String, dynamic> dados,
+  }) {
+    String? motivoSelecionado;
+    final descricaoC = TextEditingController();
+    bool salvando = false;
+
+    final motivoBloqueioAtual =
+        ContaBloqueioEntregadorHelper.textoMotivoBloqueio(dados);
+    final tipoBloqueio =
+        ContaBloqueioEntregadorHelper.rotuloTipoBloqueio(dados);
+
+    showDialog(
+      context: context,
+      barrierDismissible: false,
+      builder: (ctx) => StatefulBuilder(
+        builder: (ctx, setS) {
+          final opcoes = EntregadorMotivoDesbloqueioAdmin.opcoes;
+          final opcaoAtual =
+              EntregadorMotivoDesbloqueioAdmin.opcaoPorCodigo(motivoSelecionado);
+          final exigeDescricao = opcaoAtual?.exigeDescricao == true;
+
+          return Dialog(
+            shape: RoundedRectangleBorder(
+              borderRadius: BorderRadius.circular(20),
+            ),
+            child: ConstrainedBox(
+              constraints: const BoxConstraints(maxWidth: 540),
+              child: Padding(
+                padding: const EdgeInsets.all(28),
+                child: Column(
+                  mainAxisSize: MainAxisSize.min,
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    Row(
+                      children: [
+                        Container(
+                          padding: const EdgeInsets.all(10),
+                          decoration: BoxDecoration(
+                            color: const Color(0xFFECFDF5),
+                            borderRadius: BorderRadius.circular(12),
+                          ),
+                          child: const Icon(
+                            Icons.lock_open_rounded,
+                            color: Color(0xFF059669),
+                            size: 24,
+                          ),
+                        ),
+                        const SizedBox(width: 14),
+                        Expanded(
+                          child: Column(
+                            crossAxisAlignment: CrossAxisAlignment.start,
+                            children: [
+                              Text(
+                                'Desbloquear entregador',
+                                style: GoogleFonts.plusJakartaSans(
+                                  fontSize: 18,
+                                  fontWeight: FontWeight.w700,
+                                  color: const Color(0xFF065F46),
+                                ),
+                              ),
+                              Text(
+                                nome,
+                                style: GoogleFonts.plusJakartaSans(
+                                  fontSize: 14,
+                                  color: PainelAdminTheme.textoSecundario,
+                                ),
+                                overflow: TextOverflow.ellipsis,
+                              ),
+                            ],
+                          ),
+                        ),
+                      ],
+                    ),
+                    const SizedBox(height: 16),
+                    Container(
+                      width: double.infinity,
+                      padding: const EdgeInsets.all(14),
+                      decoration: BoxDecoration(
+                        color: const Color(0xFFF8FAFC),
+                        borderRadius: BorderRadius.circular(12),
+                        border: Border.all(color: const Color(0xFFE2E8F0)),
+                      ),
+                      child: Column(
+                        crossAxisAlignment: CrossAxisAlignment.start,
+                        children: [
+                          Text(
+                            'Bloqueio atual: $tipoBloqueio',
+                            style: GoogleFonts.plusJakartaSans(
+                              fontSize: 13,
+                              fontWeight: FontWeight.w700,
+                            ),
+                          ),
+                          if (motivoBloqueioAtual != null &&
+                              motivoBloqueioAtual.isNotEmpty) ...[
+                            const SizedBox(height: 6),
+                            Text(
+                              motivoBloqueioAtual,
+                              style: GoogleFonts.plusJakartaSans(
+                                fontSize: 12,
+                                color: PainelAdminTheme.textoSecundario,
+                                height: 1.4,
+                              ),
+                            ),
+                          ],
+                        ],
+                      ),
+                    ),
+                    const SizedBox(height: 16),
+                    Text(
+                      'Confirme o desbloqueio e informe o motivo. O entregador '
+                      'será reativado e receberá notificação no aplicativo.',
+                      style: GoogleFonts.plusJakartaSans(
+                        fontSize: 13,
+                        color: PainelAdminTheme.textoSecundario,
+                        height: 1.45,
+                      ),
+                    ),
+                    const SizedBox(height: 14),
+                    Text(
+                      'Motivo do desbloqueio',
+                      style: GoogleFonts.plusJakartaSans(
+                        fontWeight: FontWeight.w700,
+                        fontSize: 14,
+                      ),
+                    ),
+                    const SizedBox(height: 8),
+                    ConstrainedBox(
+                      constraints: const BoxConstraints(maxHeight: 280),
+                      child: SingleChildScrollView(
+                        child: Column(
+                          children: [
+                            for (final op in opcoes)
+                              RadioListTile<String>(
+                                value: op.codigo,
+                                groupValue: motivoSelecionado,
+                                onChanged: salvando
+                                    ? null
+                                    : (v) => setS(() => motivoSelecionado = v),
+                                title: Text(
+                                  op.titulo,
+                                  style: GoogleFonts.plusJakartaSans(
+                                    fontSize: 14,
+                                    fontWeight: FontWeight.w600,
+                                  ),
+                                ),
+                                subtitle: Text(
+                                  op.subtitulo,
+                                  style: GoogleFonts.plusJakartaSans(
+                                    fontSize: 12,
+                                    color: PainelAdminTheme.textoSecundario,
+                                  ),
+                                ),
+                              ),
+                          ],
+                        ),
+                      ),
+                    ),
+                    if (exigeDescricao) ...[
+                      const SizedBox(height: 8),
+                      TextField(
+                        controller: descricaoC,
+                        maxLines: 3,
+                        maxLength: 280,
+                        enabled: !salvando,
+                        style: GoogleFonts.plusJakartaSans(fontSize: 14),
+                        decoration: InputDecoration(
+                          labelText: 'Descreva o motivo *',
+                          hintText: 'Registro interno e auditoria do painel.',
+                          border: OutlineInputBorder(
+                            borderRadius: BorderRadius.circular(12),
+                          ),
+                          focusedBorder: OutlineInputBorder(
+                            borderRadius: BorderRadius.circular(12),
+                            borderSide: const BorderSide(
+                              color: Color(0xFF059669),
+                              width: 1.5,
+                            ),
+                          ),
+                        ),
+                      ),
+                    ],
+                    const SizedBox(height: 20),
+                    Row(
+                      mainAxisAlignment: MainAxisAlignment.end,
+                      children: [
+                        TextButton(
+                          onPressed:
+                              salvando ? null : () => Navigator.pop(ctx),
+                          child: Text(
+                            'Cancelar',
+                            style: GoogleFonts.plusJakartaSans(
+                              fontWeight: FontWeight.w600,
+                            ),
+                          ),
+                        ),
+                        const SizedBox(width: 12),
+                        FilledButton.icon(
+                          onPressed: salvando
+                              ? null
+                              : () async {
+                                  final codigo = motivoSelecionado;
+                                  if (codigo == null) {
+                                    mostrarSnackPainel(
+                                      ctx,
+                                      erro: true,
+                                      mensagem:
+                                          'Selecione o motivo do desbloqueio.',
+                                    );
+                                    return;
+                                  }
+                                  final op =
+                                      EntregadorMotivoDesbloqueioAdmin
+                                          .opcaoPorCodigo(codigo);
+                                  if (op == null) return;
+                                  if (op.exigeDescricao &&
+                                      descricaoC.text.trim().length < 8) {
+                                    mostrarSnackPainel(
+                                      ctx,
+                                      erro: true,
+                                      mensagem:
+                                          'Descreva o motivo (mínimo 8 caracteres).',
+                                    );
+                                    return;
+                                  }
+                                  final textoMotivo =
+                                      EntregadorMotivoDesbloqueioAdmin
+                                          .textoMotivoParaAuditoria(
+                                    codigo: codigo,
+                                    descricaoOutros: descricaoC.text,
+                                  );
+                                  setS(() => salvando = true);
+                                  await _desbloquearEntregador(
+                                    id: id,
+                                    nome: nome,
+                                    motivoDesbloqueioTexto: textoMotivo,
+                                    motivoDesbloqueioCodigo: codigo,
+                                  );
+                                  if (ctx.mounted) Navigator.pop(ctx);
+                                },
+                          icon: salvando
+                              ? const SizedBox(
+                                  width: 16,
+                                  height: 16,
+                                  child: CircularProgressIndicator(
+                                    strokeWidth: 2,
+                                    color: Colors.white,
+                                  ),
+                                )
+                              : const Icon(Icons.lock_open_rounded, size: 18),
+                          label: const Text('Confirmar desbloqueio'),
+                          style: FilledButton.styleFrom(
+                            backgroundColor: const Color(0xFF059669),
+                            shape: RoundedRectangleBorder(
+                              borderRadius: BorderRadius.circular(12),
+                            ),
+                            padding: const EdgeInsets.symmetric(
+                              horizontal: 20,
+                              vertical: 14,
+                            ),
+                          ),
+                        ),
+                      ],
+                    ),
+                  ],
+                ),
+              ),
+            ),
+          );
+        },
+      ),
+    ).then((_) => descricaoC.dispose());
+  }
+
   Future<void> _aplicarBloqueioEntregador({
     required String id,
     required String nomeEntregador,
     required String blockType,
     required String blockReason,
+    required String motivoBloqueioTexto,
+    String? motivoBloqueioCodigoAdmin,
     int? durationDays,
   }) async {
     final admin = FirebaseAuth.instance.currentUser;
@@ -444,16 +736,26 @@ class _EntregadoresScreenState extends State<EntregadoresScreen>
         blockType == ContaBloqueioLojista.blockTemporary
             ? ContaBloqueioLojista.statusLojaBloqueioTemporario
             : ContaBloqueioLojista.statusLojaBloqueado;
-    final textoMotivoPainel = blockType == ContaBloqueioLojista.blockFull
-        ? 'Pendências financeiras'
-        : 'Bloqueio administrativo temporário';
+    final textoMotivoPainel = motivoBloqueioTexto.trim().isNotEmpty
+        ? motivoBloqueioTexto.trim()
+        : (blockType == ContaBloqueioLojista.blockFull
+            ? 'Pendências financeiras'
+            : 'Bloqueio administrativo temporário');
     batch.update(ref, {
       'entregador_status': statusPainel,
+      'entregador_perfil_operacional':
+          blockType == ContaBloqueioLojista.blockTemporary
+              ? 'bloqueado_temporario'
+              : 'bloqueado_definitivo',
       'status_conta': ContaBloqueioLojista.statusContaBlocked,
       'motivo_bloqueio': textoMotivoPainel,
+      if (motivoBloqueioCodigoAdmin != null &&
+          motivoBloqueioCodigoAdmin.trim().isNotEmpty)
+        'motivo_bloqueio_admin_codigo': motivoBloqueioCodigoAdmin.trim(),
       'recusa_cadastro': FieldValue.delete(),
       'block_type': blockType,
       'block_reason': blockReason,
+      'block_origin': 'admin',
       'block_start_at': FieldValue.serverTimestamp(),
       'block_end_at': endTs,
       'block_active': true,
@@ -465,6 +767,9 @@ class _EntregadoresScreenState extends State<EntregadoresScreen>
       'action': 'block',
       'block_type': blockType,
       'block_reason': blockReason,
+      'motivo_bloqueio_texto': textoMotivoPainel,
+      if (motivoBloqueioCodigoAdmin != null)
+        'motivo_bloqueio_admin_codigo': motivoBloqueioCodigoAdmin,
       'duration_days': durationDays,
       'entregador_nome': nomeEntregador,
     });
@@ -549,7 +854,7 @@ class _EntregadoresScreenState extends State<EntregadoresScreen>
                     title: Text('Inadimplência (bloqueio total)',
                         style: GoogleFonts.plusJakartaSans(fontSize: 14)),
                     subtitle: Text(
-                        'Motivo: inadimplência — acesso total suspenso',
+                        'Na próxima etapa você escolhe o motivo detalhado do bloqueio.',
                         style: GoogleFonts.plusJakartaSans(
                             fontSize: 12,
                             color: PainelAdminTheme.textoSecundario)),
@@ -561,7 +866,7 @@ class _EntregadoresScreenState extends State<EntregadoresScreen>
                     title: Text('Temporário',
                         style: GoogleFonts.plusJakartaSans(fontSize: 14)),
                     subtitle: Text(
-                        'Bloqueio por dias (ex.: falta de pagamento pontual) — após o prazo, a conta pode ser reativada automaticamente.',
+                        'Bloqueio por dias — após o prazo, a conta pode ser reativada automaticamente.',
                         style: GoogleFonts.plusJakartaSans(
                             fontSize: 12,
                             color: PainelAdminTheme.textoSecundario)),
@@ -584,7 +889,7 @@ class _EntregadoresScreenState extends State<EntregadoresScreen>
                   const SizedBox(height: 24),
                   Row(mainAxisAlignment: MainAxisAlignment.end, children: [
                     TextButton(
-                        onPressed: () => Navigator.pop(ctx),
+                        onPressed: salvando ? null : () => Navigator.pop(ctx),
                         child: Text('Cancelar',
                             style: GoogleFonts.plusJakartaSans(
                                 fontWeight: FontWeight.w600))),
@@ -593,27 +898,31 @@ class _EntregadoresScreenState extends State<EntregadoresScreen>
                       onPressed: salvando
                           ? null
                           : () async {
+                              if (modo == ContaBloqueioLojista.blockFull) {
+                                Navigator.pop(ctx);
+                                _mostrarModalMotivoBloqueioEntregador(
+                                  id: id,
+                                  nomeEntregador: nomeEntregador,
+                                );
+                                return;
+                              }
                               int? dur;
-                              if (modo ==
-                                  ContaBloqueioLojista.blockTemporary) {
-                                dur = int.tryParse(diasC.text.trim());
-                                if (dur == null || dur < 1) {
-                                  mostrarSnackPainel(ctx,
-                                      erro: true,
-                                      mensagem:
-                                          'Informe a duração em dias (número ≥ 1).');
-                                  return;
-                                }
+                              dur = int.tryParse(diasC.text.trim());
+                              if (dur == null || dur < 1) {
+                                mostrarSnackPainel(ctx,
+                                    erro: true,
+                                    mensagem:
+                                        'Informe a duração em dias (número ≥ 1).');
+                                return;
                               }
                               setS(() => salvando = true);
                               await _aplicarBloqueioEntregador(
                                 id: id,
                                 nomeEntregador: nomeEntregador,
                                 blockType: modo,
-                                blockReason: modo ==
-                                        ContaBloqueioLojista.blockFull
-                                    ? ContaBloqueioLojista.motivoInadimplencia
-                                    : ContaBloqueioLojista.motivoOutros,
+                                blockReason: ContaBloqueioLojista.motivoOutros,
+                                motivoBloqueioTexto:
+                                    'Bloqueio administrativo temporário ($dur dia${dur == 1 ? '' : 's'}).',
                                 durationDays: dur,
                               );
                               if (ctx.mounted) Navigator.pop(ctx);
@@ -624,8 +933,17 @@ class _EntregadoresScreenState extends State<EntregadoresScreen>
                               height: 16,
                               child: CircularProgressIndicator(
                                   strokeWidth: 2, color: Colors.white))
-                          : const Icon(Icons.block_rounded, size: 18),
-                      label: const Text('Confirmar bloqueio'),
+                          : Icon(
+                              modo == ContaBloqueioLojista.blockFull
+                                  ? Icons.arrow_forward_rounded
+                                  : Icons.block_rounded,
+                              size: 18,
+                            ),
+                      label: Text(
+                        modo == ContaBloqueioLojista.blockFull
+                            ? 'Continuar'
+                            : 'Confirmar bloqueio',
+                      ),
                       style: FilledButton.styleFrom(
                           backgroundColor: const Color(0xFFDC2626),
                           shape: RoundedRectangleBorder(
@@ -640,7 +958,240 @@ class _EntregadoresScreenState extends State<EntregadoresScreen>
           ),
         ),
       ),
-    );
+    ).then((_) => diasC.dispose());
+  }
+
+  void _mostrarModalMotivoBloqueioEntregador({
+    required String id,
+    required String nomeEntregador,
+  }) {
+    String? motivoSelecionado;
+    final descricaoC = TextEditingController();
+    bool salvando = false;
+
+    showDialog(
+      context: context,
+      barrierDismissible: false,
+      builder: (ctx) => StatefulBuilder(
+        builder: (ctx, setS) {
+          final opcoes = EntregadorMotivoBloqueioAdmin.opcoesBloqueioTotal;
+          final opcaoAtual = EntregadorMotivoBloqueioAdmin.opcaoPorCodigo(
+            motivoSelecionado,
+          );
+          final exigeDescricao = opcaoAtual?.exigeDescricao == true;
+
+          return Dialog(
+            shape: RoundedRectangleBorder(
+              borderRadius: BorderRadius.circular(20),
+            ),
+            child: ConstrainedBox(
+              constraints: const BoxConstraints(maxWidth: 540),
+              child: Padding(
+                padding: const EdgeInsets.all(28),
+                child: Column(
+                  mainAxisSize: MainAxisSize.min,
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    Row(
+                      children: [
+                        Container(
+                          padding: const EdgeInsets.all(10),
+                          decoration: BoxDecoration(
+                            color: const Color(0xFFFEF2F2),
+                            borderRadius: BorderRadius.circular(12),
+                          ),
+                          child: const Icon(
+                            Icons.report_gmailerrorred_outlined,
+                            color: Color(0xFFDC2626),
+                            size: 24,
+                          ),
+                        ),
+                        const SizedBox(width: 14),
+                        Expanded(
+                          child: Column(
+                            crossAxisAlignment: CrossAxisAlignment.start,
+                            children: [
+                              Text(
+                                'Motivo do bloqueio',
+                                style: GoogleFonts.plusJakartaSans(
+                                  fontSize: 18,
+                                  fontWeight: FontWeight.w700,
+                                  color: const Color(0xFF991B1B),
+                                ),
+                              ),
+                              Text(
+                                nomeEntregador,
+                                style: GoogleFonts.plusJakartaSans(
+                                  fontSize: 14,
+                                  color: PainelAdminTheme.textoSecundario,
+                                ),
+                                overflow: TextOverflow.ellipsis,
+                              ),
+                            ],
+                          ),
+                        ),
+                      ],
+                    ),
+                    const SizedBox(height: 16),
+                    Text(
+                      'Selecione o motivo. O entregador verá esta informação no '
+                      'painel de entregas e receberá notificação no aplicativo.',
+                      style: GoogleFonts.plusJakartaSans(
+                        fontSize: 13,
+                        color: PainelAdminTheme.textoSecundario,
+                        height: 1.45,
+                      ),
+                    ),
+                    const SizedBox(height: 16),
+                    ConstrainedBox(
+                      constraints: const BoxConstraints(maxHeight: 340),
+                      child: SingleChildScrollView(
+                        child: Column(
+                          children: [
+                            for (final op in opcoes)
+                              RadioListTile<String>(
+                                value: op.codigo,
+                                groupValue: motivoSelecionado,
+                                onChanged: salvando
+                                    ? null
+                                    : (v) => setS(() => motivoSelecionado = v),
+                                title: Text(
+                                  op.titulo,
+                                  style: GoogleFonts.plusJakartaSans(
+                                    fontSize: 14,
+                                    fontWeight: FontWeight.w600,
+                                  ),
+                                ),
+                                subtitle: Text(
+                                  op.subtitulo,
+                                  style: GoogleFonts.plusJakartaSans(
+                                    fontSize: 12,
+                                    color: PainelAdminTheme.textoSecundario,
+                                  ),
+                                ),
+                              ),
+                          ],
+                        ),
+                      ),
+                    ),
+                    if (exigeDescricao) ...[
+                      const SizedBox(height: 8),
+                      TextField(
+                        controller: descricaoC,
+                        maxLines: 3,
+                        maxLength: 280,
+                        enabled: !salvando,
+                        style: GoogleFonts.plusJakartaSans(fontSize: 14),
+                        decoration: InputDecoration(
+                          labelText: 'Descreva o motivo *',
+                          hintText:
+                              'Esta mensagem será exibida ao entregador no app.',
+                          border: OutlineInputBorder(
+                            borderRadius: BorderRadius.circular(12),
+                          ),
+                          focusedBorder: OutlineInputBorder(
+                            borderRadius: BorderRadius.circular(12),
+                            borderSide: const BorderSide(
+                              color: Color(0xFFDC2626),
+                              width: 1.5,
+                            ),
+                          ),
+                        ),
+                      ),
+                    ],
+                    const SizedBox(height: 20),
+                    Row(
+                      mainAxisAlignment: MainAxisAlignment.end,
+                      children: [
+                        TextButton(
+                          onPressed: salvando
+                              ? null
+                              : () => Navigator.pop(ctx),
+                          child: Text(
+                            'Voltar',
+                            style: GoogleFonts.plusJakartaSans(
+                              fontWeight: FontWeight.w600,
+                            ),
+                          ),
+                        ),
+                        const SizedBox(width: 12),
+                        FilledButton.icon(
+                          onPressed: salvando
+                              ? null
+                              : () async {
+                                  final codigo = motivoSelecionado;
+                                  if (codigo == null) {
+                                    mostrarSnackPainel(
+                                      ctx,
+                                      erro: true,
+                                      mensagem: 'Selecione o motivo do bloqueio.',
+                                    );
+                                    return;
+                                  }
+                                  final op = EntregadorMotivoBloqueioAdmin
+                                      .opcaoPorCodigo(codigo);
+                                  if (op == null) return;
+                                  if (op.exigeDescricao &&
+                                      descricaoC.text.trim().length < 8) {
+                                    mostrarSnackPainel(
+                                      ctx,
+                                      erro: true,
+                                      mensagem:
+                                          'Descreva o motivo (mínimo 8 caracteres).',
+                                    );
+                                    return;
+                                  }
+                                  final textoMotivo =
+                                      EntregadorMotivoBloqueioAdmin
+                                          .textoMotivoParaFirestore(
+                                    codigo: codigo,
+                                    descricaoOutros: descricaoC.text,
+                                  );
+                                  setS(() => salvando = true);
+                                  await _aplicarBloqueioEntregador(
+                                    id: id,
+                                    nomeEntregador: nomeEntregador,
+                                    blockType: ContaBloqueioLojista.blockFull,
+                                    blockReason:
+                                        EntregadorMotivoBloqueioAdmin
+                                            .blockReasonParaFirestore(codigo),
+                                    motivoBloqueioTexto: textoMotivo,
+                                    motivoBloqueioCodigoAdmin: codigo,
+                                  );
+                                  if (ctx.mounted) Navigator.pop(ctx);
+                                },
+                          icon: salvando
+                              ? const SizedBox(
+                                  width: 16,
+                                  height: 16,
+                                  child: CircularProgressIndicator(
+                                    strokeWidth: 2,
+                                    color: Colors.white,
+                                  ),
+                                )
+                              : const Icon(Icons.block_rounded, size: 18),
+                          label: const Text('Confirmar bloqueio'),
+                          style: FilledButton.styleFrom(
+                            backgroundColor: const Color(0xFFDC2626),
+                            shape: RoundedRectangleBorder(
+                              borderRadius: BorderRadius.circular(12),
+                            ),
+                            padding: const EdgeInsets.symmetric(
+                              horizontal: 20,
+                              vertical: 14,
+                            ),
+                          ),
+                        ),
+                      ],
+                    ),
+                  ],
+                ),
+              ),
+            ),
+          );
+        },
+      ),
+    ).then((_) => descricaoC.dispose());
   }
 
   void _mostrarModalRecusaEntregador(String id, String nomeEntregador) {
@@ -2348,15 +2899,17 @@ class _EntregadoresScreenState extends State<EntregadoresScreen>
     final planoId = dados['plano_entregador_id'];
     final fotoUrl = _str(dados['foto_url']);
     final motivoRecusa = _str(dados['motivo_recusa']);
+    final motivoBloqueio = _str(dados['motivo_bloqueio']);
     final slPainel = _str(dados['entregador_status']);
     final bloqOp =
         ContaBloqueioEntregadorHelper.estaBloqueadoParaOperacoes(dados);
     final fimTemp = ContaBloqueioEntregadorHelper.dataFimBloqueio(dados);
-    final chipBloqueio = slPainel == ContaBloqueioLojista.statusLojaBloqueioTemporario
-        ? 'Bloqueio temporário'
-        : (ContaBloqueioEntregadorHelper.isBloqueioFinanceiro(dados)
-            ? 'Inadimplência'
-            : null);
+    final chipBloqueio = ContaBloqueioEntregadorHelper.rotuloTipoBloqueio(dados);
+    final inicioBloq = ContaBloqueioEntregadorHelper.dataInicioBloqueio(dados);
+    final diasExclusao =
+        ContaBloqueioEntregadorHelper.diasRestantesExclusaoPerfil(dados);
+    final exclusaoPerfil =
+        ContaBloqueioEntregadorHelper.ehExclusaoPerfilSolicitada(dados);
 
     final bool temMotivoRecusa = motivoRecusa.isNotEmpty &&
         (status == 'bloqueado' ||
@@ -2364,13 +2917,19 @@ class _EntregadoresScreenState extends State<EntregadoresScreen>
                 .entregadorRecusadoSomenteCorrecaoCadastro(dados));
 
     final List<Widget> acoes = <Widget>[];
-    if ((status == 'bloqueado' || status == 'aprovado') && bloqOp) {
+    if ((status == 'bloqueado' || status == 'aprovado') &&
+        bloqOp &&
+        ContaBloqueioEntregadorHelper.adminPodeDesbloquear(dados)) {
       acoes.add(_acaoCompacta(
         icone: Icons.lock_open_rounded,
         rotulo: 'Desbloquear',
         cor: const Color(0xFF059669),
         preenchido: true,
-        onTap: () => _desbloquearEntregador(doc.id, nome),
+        onTap: () => _mostrarModalDesbloqueioEntregador(
+          id: doc.id,
+          nome: nome,
+          dados: dados,
+        ),
       ));
     }
     if (status == 'pendente') {
@@ -2508,19 +3067,34 @@ class _EntregadoresScreenState extends State<EntregadoresScreen>
                                   planoId != null ? 'Plano ativo' : 'Sem plano',
                                   highlight: planoId == null,
                                 ),
-                              if (chipBloqueio != null)
+                              if (bloqOp)
                                 _metaChip(
-                                  Icons.schedule_rounded,
-                                  chipBloqueio,
+                                  Icons.block_rounded,
+                                  'Bloqueado',
                                   highlight: true,
                                 ),
-                              if (fimTemp != null &&
-                                  slPainel ==
-                                      ContaBloqueioLojista
-                                          .statusLojaBloqueioTemporario)
+                              _metaChip(
+                                Icons.info_outline_rounded,
+                                chipBloqueio,
+                                highlight: exclusaoPerfil,
+                              ),
+                              if (inicioBloq != null)
+                                _metaChip(
+                                  Icons.play_arrow_outlined,
+                                  'Início ${inicioBloq.day.toString().padLeft(2, '0')}/${inicioBloq.month.toString().padLeft(2, '0')}/${inicioBloq.year}',
+                                ),
+                              if (fimTemp != null)
                                 _metaChip(
                                   Icons.event_outlined,
                                   'Até ${fimTemp.day.toString().padLeft(2, '0')}/${fimTemp.month.toString().padLeft(2, '0')}/${fimTemp.year}',
+                                ),
+                              if (exclusaoPerfil && diasExclusao != null)
+                                _metaChip(
+                                  Icons.timer_outlined,
+                                  diasExclusao > 0
+                                      ? '$diasExclusao dia${diasExclusao == 1 ? '' : 's'} p/ exclusão'
+                                      : 'Exclusão pendente',
+                                  highlight: true,
                                 ),
                             ],
                           ),
@@ -2566,6 +3140,38 @@ class _EntregadoresScreenState extends State<EntregadoresScreen>
                             style: GoogleFonts.plusJakartaSans(
                               fontSize: 11.5,
                               color: const Color(0xFF991B1B),
+                              height: 1.35,
+                            ),
+                          ),
+                        ),
+                      ],
+                    ),
+                  ),
+                ],
+                if (bloqOp &&
+                    motivoBloqueio.isNotEmpty &&
+                    !temMotivoRecusa) ...[
+                  const SizedBox(height: 10),
+                  Container(
+                    padding: const EdgeInsets.symmetric(
+                        horizontal: 10, vertical: 8),
+                    decoration: BoxDecoration(
+                      color: const Color(0xFFFFF7ED),
+                      borderRadius: BorderRadius.circular(9),
+                      border: Border.all(color: const Color(0xFFFDE68A)),
+                    ),
+                    child: Row(
+                      crossAxisAlignment: CrossAxisAlignment.start,
+                      children: [
+                        const Icon(Icons.notes_rounded,
+                            size: 14, color: Color(0xFFB45309)),
+                        const SizedBox(width: 8),
+                        Expanded(
+                          child: Text(
+                            motivoBloqueio,
+                            style: GoogleFonts.plusJakartaSans(
+                              fontSize: 11.5,
+                              color: const Color(0xFF92400E),
                               height: 1.35,
                             ),
                           ),

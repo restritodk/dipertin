@@ -205,6 +205,14 @@
         { "fieldPath": "loja_id", "order": "ASCENDING" },
         { "fieldPath": "atualizado_em", "order": "DESCENDING" }
       ]
+    },
+    {
+      "collectionGroup": "users",
+      "queryScope": "COLLECTION",
+      "fields": [
+        { "fieldPath": "entregador_perfil_operacional", "order": "ASCENDING" },
+        { "fieldPath": "entregador_exclusao_perfil_em", "order": "ASCENDING" }
+      ]
     }
   ],
   "fieldOverrides": [

@@ -3,6 +3,7 @@ abstract final class PainelRoutes {
   static const List<String> ordem = [
     '/dashboard',
     '/lojas',
+    '/lojas_financeiro',
     '/entregadores',
     '/clientes',
     '/banners',

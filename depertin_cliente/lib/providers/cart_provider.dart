@@ -52,10 +52,10 @@ class CartProvider with ChangeNotifier {
 
   /// Remove da sacola somente os itens do tipo informado, preservando os do
   /// outro tipo. Usado ao finalizar uma das seções (normal ou encomenda).
-  void removerItensPorTipo({required bool encomenda}) {
+  Future<void> removerItensPorTipo({required bool encomenda}) async {
     _items.removeWhere((i) => i.ehEncomenda == encomenda);
     notifyListeners();
-    _saveCart();
+    await _saveCart();
   }
 
   // ==========================================
@@ -168,9 +168,9 @@ class CartProvider with ChangeNotifier {
     _saveCart();
   }
 
-  void clearCart() {
+  Future<void> clearCart() async {
     _items.clear();
     notifyListeners();
-    _saveCart();
+    await _saveCart();
   }
 }

@@ -1133,7 +1133,16 @@ class _LojasScreenState extends State<LojasScreen>
             _mostrarDocumentosModal(dados);
             break;
           case _MaisAcoesLoja.editar:
-            showLojistaEditarDialog(context, lojistaId: doc.id);
+            showLojistaEditarDialog(context, lojistaId: doc.id).then((salvou) {
+              if (salvou == true && context.mounted) {
+                ScaffoldMessenger.of(context).showSnackBar(
+                  const SnackBar(
+                    content: Text('Dados atualizados com sucesso.'),
+                    behavior: SnackBarBehavior.floating,
+                  ),
+                );
+              }
+            });
             break;
           case _MaisAcoesLoja.planoTaxa:
             _atribuirPlanoModal(doc.id, nomeLoja, planoId, cidade);

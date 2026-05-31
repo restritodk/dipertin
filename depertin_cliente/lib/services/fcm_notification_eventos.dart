@@ -28,6 +28,12 @@ abstract class FcmNotificationEventos {
   /// Cliente — pagamento aprovado (FCM `data.type`).
   static const typePagamentoConfirmado = 'PAGAMENTO_CONFIRMADO';
 
+  /// Entregador — bloqueio / exclusão / reativação do perfil operacional.
+  static const tipoPerfilBloqueioTemporario = 'entregador_perfil_bloqueio_temporario';
+  static const tipoPerfilBloqueioDefinitivo = 'entregador_perfil_bloqueio_definitivo';
+  static const tipoPerfilExclusaoSolicitada = 'entregador_perfil_exclusao_solicitada';
+  static const tipoPerfilReativado = 'entregador_perfil_reativado';
+
   /// Entregador — oferta sequencial.
   static const tipoNovaEntrega = 'nova_entrega';
 

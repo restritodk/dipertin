@@ -1,5 +1,6 @@
 // Arquivo: lib/screens/cliente/cart_screen.dart
 
+import 'package:depertin_cliente/constants/pedido_status.dart';
 import 'package:depertin_cliente/screens/auth/login_screen.dart';
 import 'checkout_pagamento_screen.dart';
 import 'package:flutter/material.dart';
@@ -45,9 +46,10 @@ class _CartScreenState extends State<CartScreen> {
   bool _processandoPedido = false;
   bool _retirarNaLoja = false;
 
-  // Variáveis para o saldo
+  // Variáveis para o saldo (apenas perfil cliente pode usar na compra)
   double _saldoCliente = 0.0;
   bool _usarSaldo = false;
+  bool _clientePodeUsarSaldoCarteira = true;
 
   // Variáveis para o cupom
   bool _validandoCupom = false;
@@ -933,8 +935,16 @@ class _CartScreenState extends State<CartScreen> {
             .get();
         if (doc.exists) {
           var dados = doc.data() as Map<String, dynamic>;
+          final role = (dados['role'] ?? dados['tipoUsuario'] ?? 'cliente')
+              .toString()
+              .trim()
+              .toLowerCase();
+          final podeUsarSaldo =
+              role != 'lojista' && role != 'entregador';
           setState(() {
             _saldoCliente = (dados['saldo'] ?? 0.0).toDouble();
+            _clientePodeUsarSaldoCarteira = podeUsarSaldo;
+            if (!podeUsarSaldo) _usarSaldo = false;
 
             if (dados.containsKey('endereco_entrega_padrao') &&
                 dados['endereco_entrega_padrao'] is Map) {
@@ -1418,7 +1428,7 @@ class _CartScreenState extends State<CartScreen> {
         throw Exception('Resposta sem encomendaId');
       }
 
-      cart.removerItensPorTipo(encomenda: true);
+      await cart.removerItensPorTipo(encomenda: true);
       if (!mounted) return;
       ScaffoldMessenger.of(
         context,
@@ -1484,7 +1494,9 @@ class _CartScreenState extends State<CartScreen> {
     double subtotal = cart.totalProntaEntrega;
     double totalParcial = subtotal + _taxaEntregaReal - _descontoCupom;
     if (totalParcial < 0) totalParcial = 0;
-    double valorDesconto = _usarSaldo ? min(_saldoCliente, totalParcial) : 0.0;
+    double valorDesconto = (_usarSaldo && _clientePodeUsarSaldoCarteira)
+        ? min(_saldoCliente, totalParcial)
+        : 0.0;
     double totalFinal = totalParcial - valorDesconto;
     if (totalFinal < 0) totalFinal = 0;
 
@@ -1557,19 +1569,12 @@ class _CartScreenState extends State<CartScreen> {
             valorTotal: totalFinal,
             metodoPreSelecionado: 'PIX',
             pedidoFirestoreId: pedidoId,
-            onPagamentoAprovado: () {
-              cart.removerItensPorTipo(encomenda: false);
-              Navigator.pop(context);
-              Navigator.pop(context);
-              Navigator.pushReplacementNamed(context, '/meus-pedidos');
-            },
+            onPagamentoAprovado: () => _navegarAposPagamentoProntaEntrega(),
           ),
         ),
       );
-      // Se o cliente voltou sem concluir, cancela o pedido em
-      // `aguardando_pagamento` para não deixar pedido fantasma. O
-      // carrinho permanece preservado, permitindo nova tentativa.
-      await _cancelarPedidoAguardandoPagamentoSePendente(pedidoId);
+      await _reforcarLimpezaCarrinhoSePedidoPago(pedidoId, cart);
+      // Pedido permanece em `aguardando_pagamento` para repagamento em Meus Pedidos.
       return;
     }
 
@@ -1592,71 +1597,52 @@ class _CartScreenState extends State<CartScreen> {
             valorTotal: totalFinal,
             metodoPreSelecionado: 'Cartão',
             pedidoFirestoreId: pedidoId,
-            onPagamentoAprovado: () {
-              cart.removerItensPorTipo(encomenda: false);
-              Navigator.pop(context);
-              Navigator.pop(context);
-              Navigator.pushReplacementNamed(context, '/meus-pedidos');
-            },
+            onPagamentoAprovado: () => _navegarAposPagamentoProntaEntrega(),
           ),
         ),
       );
-      // Se o cliente voltou sem concluir, cancela o pedido em
-      // `aguardando_pagamento` para não deixar pedido fantasma. O
-      // carrinho permanece preservado, permitindo nova tentativa.
-      await _cancelarPedidoAguardandoPagamentoSePendente(pedidoId);
+      await _reforcarLimpezaCarrinhoSePedidoPago(pedidoId, cart);
+      // Pedido permanece em `aguardando_pagamento` para repagamento em Meus Pedidos.
       return;
     }
   }
 
-  /// Cancela o pedido `aguardando_pagamento` (e demais do mesmo grupo
-  /// multi-loja) quando o cliente sai do checkout sem concluir o pagamento.
-  /// Mantém o carrinho intocado para que o usuário possa revisar e tentar
-  /// novamente.
-  Future<void> _cancelarPedidoAguardandoPagamentoSePendente(
+  static bool _pedidoProntaEntregaConfirmadoPago(String status) {
+    final st = status.trim();
+    return st == 'pendente' || st == PedidoStatus.encomendaEntradaPaga;
+  }
+
+  /// Garante sacola vazia de pronta-entrega se o pagamento já foi confirmado
+  /// (ex.: webhook PIX antes do usuário tocar em Continuar).
+  Future<void> _reforcarLimpezaCarrinhoSePedidoPago(
     String pedidoId,
+    CartProvider cart,
   ) async {
     try {
-      final ref = FirebaseFirestore.instance
+      final snap = await FirebaseFirestore.instance
           .collection('pedidos')
-          .doc(pedidoId);
-      final snap = await ref.get();
+          .doc(pedidoId)
+          .get();
       if (!snap.exists) return;
       final data = snap.data() ?? {};
+      if ((data['tipo_compra'] ?? '').toString() == 'encomenda') return;
       final status = (data['status'] ?? '').toString();
-      if (status != 'aguardando_pagamento') {
-        // Já foi pago, cancelado por outro fluxo ou avançou de status.
-        return;
+      if (_pedidoProntaEntregaConfirmadoPago(status)) {
+        await cart.removerItensPorTipo(encomenda: false);
       }
+    } catch (_) {}
+  }
 
-      // Coleta IDs do grupo (checkout multi-loja) para cancelar todos juntos.
-      final rawGrupo = data['checkout_grupo_pedido_ids'];
-      final ids = <String>[];
-      if (rawGrupo is List) {
-        for (final e in rawGrupo) {
-          final s = e.toString().trim();
-          if (s.isNotEmpty) ids.add(s);
-        }
-      }
-      final alvos = ids.length > 1 ? ids.toSet().toList() : [pedidoId];
-      final batch = FirebaseFirestore.instance.batch();
-      for (final id in alvos) {
-        final r = FirebaseFirestore.instance.collection('pedidos').doc(id);
-        final s = id == pedidoId ? snap : await r.get();
-        if (!s.exists) continue;
-        final st = (s.data()?['status'] ?? '').toString();
-        if (st == 'aguardando_pagamento') {
-          batch.update(r, {
-            'status': 'cancelado',
-            'cancelado_motivo': 'cliente_voltou_sem_pagar',
-            'cancelado_em': FieldValue.serverTimestamp(),
-          });
-        }
-      }
-      await batch.commit();
-    } catch (_) {
-      // Não bloquear UX caso o cancelamento falhe.
-    }
+  void _navegarAposPagamentoProntaEntrega() {
+    if (!mounted) return;
+    Navigator.of(context).pushNamedAndRemoveUntil(
+      '/meus-pedidos',
+      (route) => route.isFirst,
+      arguments: {
+        'filtro': 'todos',
+        'mostrarVoltarVitrine': true,
+      },
+    );
   }
 
   /// Retorna o ID do documento em [pedidos] quando o salvamento conclui com sucesso.
@@ -1897,7 +1883,7 @@ class _CartScreenState extends State<CartScreen> {
       // `aguardando_pagamento` e o carrinho só é limpo após aprovação,
       // permitindo que o cliente volte para esta tela e ajuste a compra.
       if (fecharCarrinhoEExibirDialogo) {
-        cart.removerItensPorTipo(encomenda: false);
+        await cart.removerItensPorTipo(encomenda: false);
       }
 
       if (mounted) {
@@ -2222,7 +2208,7 @@ class _CartScreenState extends State<CartScreen> {
     // `aguardando_pagamento` e o carrinho só é limpo após aprovação,
     // permitindo que o cliente volte para esta tela e ajuste a compra.
     if (fecharCarrinhoEExibirDialogo) {
-      cart.removerItensPorTipo(encomenda: false);
+      await cart.removerItensPorTipo(encomenda: false);
     }
 
     if (mounted) {
@@ -2991,7 +2977,9 @@ class _CartScreenState extends State<CartScreen> {
     final descontoCupomEfetivo = temProntaEntrega ? _descontoCupom : 0.0;
     double totalParcial = subtotal + _taxaEntregaReal - descontoCupomEfetivo;
     if (totalParcial < 0) totalParcial = 0;
-    final usarSaldoEfetivo = carrinhoSoEncomenda ? false : _usarSaldo;
+    final usarSaldoEfetivo = carrinhoSoEncomenda
+        ? false
+        : (_usarSaldo && _clientePodeUsarSaldoCarteira);
     double valorDesconto = usarSaldoEfetivo
         ? min(_saldoCliente, totalParcial)
         : 0.0;
@@ -3893,7 +3881,9 @@ class _CartScreenState extends State<CartScreen> {
                     const SizedBox(height: 28),
                   ],
 
-                  if (_saldoCliente > 0 && !carrinhoSoEncomenda) ...[
+                  if (_saldoCliente > 0 &&
+                      !carrinhoSoEncomenda &&
+                      _clientePodeUsarSaldoCarteira) ...[
                     Container(
                       decoration: BoxDecoration(
                         color: Colors.green[50],
@@ -4158,7 +4148,7 @@ class _CartScreenState extends State<CartScreen> {
                             ],
                           ),
                         ],
-                        if (_usarSaldo && valorDesconto > 0) ...[
+                        if (usarSaldoEfetivo && valorDesconto > 0) ...[
                           const SizedBox(height: 10),
                           Row(
                             mainAxisAlignment: MainAxisAlignment.spaceBetween,

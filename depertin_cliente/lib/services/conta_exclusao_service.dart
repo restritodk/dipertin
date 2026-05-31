@@ -151,7 +151,7 @@ class ContaExclusaoService {
   ) async {
     try {
       if (context.mounted) {
-        context.read<CartProvider>().clearCart();
+        await context.read<CartProvider>().clearCart();
       }
     } catch (_) {}
 

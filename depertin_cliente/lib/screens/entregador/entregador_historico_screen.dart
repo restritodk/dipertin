@@ -1,5 +1,7 @@
 // Arquivo: lib/screens/entregador/entregador_historico_screen.dart
 
+import 'package:depertin_cliente/constants/pedido_status.dart';
+import 'package:depertin_cliente/widgets/pedido_estorno_detalhe_cards.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:cloud_firestore/cloud_firestore.dart';
@@ -128,7 +130,6 @@ class _EntregadorHistoricoScreenState extends State<EntregadorHistoricoScreen> {
         stream: FirebaseFirestore.instance
             .collection('pedidos')
             .where('entregador_id', isEqualTo: uid)
-            .where('status', isEqualTo: 'entregue')
             .snapshots(),
         builder: (context, snapshot) {
           if (snapshot.connectionState == ConnectionState.waiting &&
@@ -180,7 +181,17 @@ class _EntregadorHistoricoScreenState extends State<EntregadorHistoricoScreen> {
             );
           }
 
-          var pedidos = List<QueryDocumentSnapshot>.from(snapshot.data!.docs);
+          var pedidos = List<QueryDocumentSnapshot>.from(snapshot.data!.docs)
+              .where((doc) {
+            final p = doc.data() as Map<String, dynamic>;
+            final st = (p['status'] ?? '').toString();
+            if (st == PedidoStatus.entregue) return true;
+            if (st == PedidoStatus.cancelado) {
+              return p['entregador_credito_cancelamento_feito'] == true ||
+                  p['mp_refund_parcial_frete_retido'] == true;
+            }
+            return false;
+          }).toList();
 
           pedidos.sort((a, b) {
             final da = _dataReferencia(a.data() as Map<String, dynamic>);
@@ -218,6 +229,8 @@ class _EntregadorHistoricoScreenState extends State<EntregadorHistoricoScreen> {
             }
 
             final temDataEntrega = pedido['data_entregue'] is Timestamp;
+            final cancelado =
+                (pedido['status'] ?? '').toString() == PedidoStatus.cancelado;
 
             return Padding(
               padding: const EdgeInsets.only(bottom: 10),
@@ -278,13 +291,20 @@ class _EntregadorHistoricoScreenState extends State<EntregadorHistoricoScreen> {
                                   vertical: 6,
                                 ),
                                 decoration: BoxDecoration(
-                                  color: Colors.green.withValues(alpha: 0.12),
+                                  color: (cancelado
+                                          ? Colors.orange
+                                          : Colors.green)
+                                      .withValues(alpha: 0.12),
                                   borderRadius: BorderRadius.circular(20),
                                 ),
-                                child: const Text(
-                                  'Concluída',
+                                child: Text(
+                                  cancelado
+                                      ? 'Cancelada · frete'
+                                      : 'Concluída',
                                   style: TextStyle(
-                                    color: Colors.green,
+                                    color: cancelado
+                                        ? Colors.orange.shade800
+                                        : Colors.green,
                                     fontWeight: FontWeight.w600,
                                     fontSize: 12,
                                   ),
@@ -571,7 +591,11 @@ class _DetalhesCorridaSheet extends StatelessWidget {
         (pedido['endereco_entrega']?.toString() ?? '').trim().isEmpty
             ? 'Endereço não informado'
             : pedido['endereco_entrega'].toString();
-    final ganho = _ganho(pedido);
+    final cancelado =
+        (pedido['status'] ?? '').toString() == PedidoStatus.cancelado;
+    final ganho = cancelado
+        ? _toDouble(pedido['entregador_credito_cancelamento_valor'])
+        : _ganho(pedido);
     final totalPedido = _toDouble(pedido['total']);
     final freteBruto = _toDouble(pedido['taxa_entrega']);
     final taxaPlataforma = _toDouble(pedido['taxa_entregador']);
@@ -609,6 +633,7 @@ class _DetalhesCorridaSheet extends StatelessWidget {
                 child: _DetalhesCorridaHeader(
                   ganho: ganho,
                   idCurto: idCurto,
+                  canceladaPeloCliente: cancelado,
                 ),
               ),
               SliverPadding(
@@ -746,13 +771,17 @@ class _DetalhesCorridaSheet extends StatelessWidget {
                           ),
                         const Divider(height: 1, color: Color(0xFFEDEAF3)),
                         _LinhaInfoValor(
-                          rotulo: 'Seu ganho líquido',
+                          rotulo: cancelado
+                              ? 'Crédito (cancelamento)'
+                              : 'Seu ganho líquido',
                           valor: _moeda.format(ganho),
                           corValor: diPertinLaranja,
                           destaque: true,
                         ),
                       ],
                     ),
+                    const SizedBox(height: 14),
+                    PedidoEstornoEntregadorCard(pedido: pedido),
                     const SizedBox(height: 20),
                     OutlinedButton(
                       onPressed: () => Navigator.of(ctx).maybePop(),
@@ -801,10 +830,12 @@ class _DetalhesCorridaHeader extends StatelessWidget {
   const _DetalhesCorridaHeader({
     required this.ganho,
     required this.idCurto,
+    this.canceladaPeloCliente = false,
   });
 
   final double ganho;
   final String idCurto;
+  final bool canceladaPeloCliente;
 
   static final NumberFormat _moeda = NumberFormat.currency(
     locale: 'pt_BR',
@@ -844,20 +875,38 @@ class _DetalhesCorridaHeader extends StatelessWidget {
                 padding:
                     const EdgeInsets.symmetric(horizontal: 10, vertical: 4),
                 decoration: BoxDecoration(
-                  color: Colors.green.shade400.withValues(alpha: 0.22),
+                  color: (canceladaPeloCliente
+                          ? Colors.orange
+                          : Colors.green)
+                      .shade400
+                      .withValues(alpha: 0.22),
                   borderRadius: BorderRadius.circular(20),
                   border: Border.all(
-                      color: Colors.green.shade300.withValues(alpha: 0.6)),
+                    color: (canceladaPeloCliente
+                            ? Colors.orange
+                            : Colors.green)
+                        .shade300
+                        .withValues(alpha: 0.6),
+                  ),
                 ),
                 child: Row(
                   mainAxisSize: MainAxisSize.min,
                   children: [
-                    Icon(Icons.check_circle_rounded,
-                        color: Colors.green.shade200, size: 15),
+                    Icon(
+                      canceladaPeloCliente
+                          ? Icons.cancel_outlined
+                          : Icons.check_circle_rounded,
+                      color: canceladaPeloCliente
+                          ? Colors.orange.shade200
+                          : Colors.green.shade200,
+                      size: 15,
+                    ),
                     const SizedBox(width: 6),
-                    const Text(
-                      'Concluída',
-                      style: TextStyle(
+                    Text(
+                      canceladaPeloCliente
+                          ? 'Cancelada pelo cliente'
+                          : 'Concluída',
+                      style: const TextStyle(
                         color: Colors.white,
                         fontWeight: FontWeight.w700,
                         fontSize: 12,
@@ -878,9 +927,11 @@ class _DetalhesCorridaHeader extends StatelessWidget {
             ],
           ),
           const SizedBox(height: 20),
-          const Text(
-            'Ganho desta corrida',
-            style: TextStyle(
+          Text(
+            canceladaPeloCliente
+                ? 'Crédito por frete retido'
+                : 'Ganho desta corrida',
+            style: const TextStyle(
               color: Colors.white70,
               fontSize: 13,
               fontWeight: FontWeight.w600,

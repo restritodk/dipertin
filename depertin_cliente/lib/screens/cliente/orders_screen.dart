@@ -2,8 +2,10 @@
 
 import 'package:depertin_cliente/constants/pedido_status.dart';
 import 'package:depertin_cliente/screens/cliente/avaliar_pedido_sheet.dart';
+import 'package:depertin_cliente/screens/cliente/checkout_pagamento_screen.dart';
 import 'package:depertin_cliente/widgets/badge_entregador_acessibilidade.dart';
 import 'package:depertin_cliente/widgets/chat_pedido_botao.dart';
+import 'package:depertin_cliente/widgets/pedido_estorno_detalhe_cards.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:cloud_firestore/cloud_firestore.dart';
@@ -260,6 +262,49 @@ class _OrdersScreenState extends State<OrdersScreen> {
     } finally {
       if (mounted) setState(() => _cancelandoPedidoId = null);
     }
+  }
+
+  Future<void> _continuarPagamentoPedido(
+    BuildContext context,
+    String pedidoId,
+    Map<String, dynamic> pedido,
+  ) async {
+    final total = _toDouble(pedido['total']);
+    if (total <= 0) {
+      if (!context.mounted) return;
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(
+          content: Text('Valor do pedido inválido para pagamento.'),
+          backgroundColor: Colors.red,
+        ),
+      );
+      return;
+    }
+
+    final forma = (pedido['forma_pagamento'] ?? 'PIX').toString().toLowerCase();
+    final metodoPre = forma.contains('cart') ? 'Cartão' : 'PIX';
+
+    await Navigator.push<void>(
+      context,
+      MaterialPageRoute<void>(
+        builder: (_) => CheckoutPagamentoScreen(
+          valorTotal: total,
+          metodoPreSelecionado: metodoPre,
+          pedidoFirestoreId: pedidoId,
+          onPagamentoAprovado: () {
+            if (!context.mounted) return;
+            Navigator.of(context).pushNamedAndRemoveUntil(
+              '/meus-pedidos',
+              (route) => route.isFirst,
+              arguments: {
+                'filtro': 'todos',
+                'mostrarVoltarVitrine': true,
+              },
+            );
+          },
+        ),
+      ),
+    );
   }
 
   Future<void> _cancelarPedidoEmAndamentoComMotivo(
@@ -782,6 +827,12 @@ class _OrdersScreenState extends State<OrdersScreen> {
               _rowFinanceira('Taxa de entrega', pedido['taxa_entrega']),
               const SizedBox(height: 12),
               ..._linhasValorResumoPedido(pedido),
+              if (PedidoEstornoUiData.fromPedido(pedido).deveExibirCliente) ...[
+                const SizedBox(height: 20),
+                _tituloSecaoSheet('Estorno'),
+                const Divider(height: 20),
+                PedidoEstornoClienteCard(pedido: pedido),
+              ],
               if (formaPag != null && formaPag.isNotEmpty) ...[
                 const SizedBox(height: 12),
                 Text(
@@ -1774,7 +1825,54 @@ class _OrdersScreenState extends State<OrdersScreen> {
               ),
             ],
             if (statusAtual == PedidoStatus.aguardandoPagamento) ...[
+              if ((pedido['pagamento_recusado_mensagem'] ?? '')
+                  .toString()
+                  .trim()
+                  .isNotEmpty) ...[
+                const SizedBox(height: 10),
+                Container(
+                  width: double.infinity,
+                  padding: const EdgeInsets.all(12),
+                  decoration: BoxDecoration(
+                    color: Colors.red.shade50,
+                    borderRadius: BorderRadius.circular(12),
+                    border: Border.all(color: Colors.red.shade200),
+                  ),
+                  child: Row(
+                    crossAxisAlignment: CrossAxisAlignment.start,
+                    children: [
+                      Icon(Icons.info_outline, color: Colors.red.shade800, size: 20),
+                      const SizedBox(width: 8),
+                      Expanded(
+                        child: Text(
+                          (pedido['pagamento_recusado_mensagem'] ?? '').toString().trim(),
+                          style: TextStyle(
+                            fontSize: 13,
+                            height: 1.35,
+                            color: Colors.red.shade900,
+                          ),
+                        ),
+                      ),
+                    ],
+                  ),
+                ),
+              ],
               const SizedBox(height: 14),
+              SizedBox(
+                height: 46,
+                width: double.infinity,
+                child: FilledButton.icon(
+                  onPressed: () =>
+                      _continuarPagamentoPedido(context, pedidoId, pedido),
+                  style: FilledButton.styleFrom(
+                    backgroundColor: diPertinRoxo,
+                    foregroundColor: Colors.white,
+                  ),
+                  icon: const Icon(Icons.payment, size: 20),
+                  label: const Text('Continuar pagamento'),
+                ),
+              ),
+              const SizedBox(height: 10),
               SizedBox(
                 height: 46,
                 width: double.infinity,
