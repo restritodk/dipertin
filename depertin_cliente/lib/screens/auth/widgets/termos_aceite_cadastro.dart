@@ -47,58 +47,77 @@ class TermosAceiteCadastroWidget extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    return Row(
-      crossAxisAlignment: CrossAxisAlignment.start,
-      children: [
-        Padding(
-          padding: const EdgeInsets.only(top: 2),
-          child: SizedBox(
-            width: 24,
-            height: 24,
-            child: Checkbox(
-              value: aceito,
-              onChanged: (v) => onChanged(v ?? false),
-              activeColor: _diPertinRoxo,
-              materialTapTargetSize: MaterialTapTargetSize.shrinkWrap,
-            ),
-          ),
-        ),
-        const SizedBox(width: 6),
-        Expanded(
-          child: Wrap(
-            crossAxisAlignment: WrapCrossAlignment.center,
-            spacing: 0,
-            runSpacing: 4,
+    return Material(
+      color: Colors.transparent,
+      child: InkWell(
+        onTap: () => onChanged(!aceito),
+        borderRadius: BorderRadius.circular(10),
+        child: Padding(
+          padding: const EdgeInsets.symmetric(vertical: 6),
+          child: Row(
+            crossAxisAlignment: CrossAxisAlignment.start,
             children: [
-              Text('Li e aceito os ', style: _textoCorpo()),
-              InkWell(
-                onTap: () {
-                  Navigator.push<void>(
-                    context,
-                    MaterialPageRoute(
-                      builder: (context) => const PoliticaUsoScreen(),
-                    ),
-                  );
-                },
-                child: Text('Termos de Uso', style: _linkStyle()),
+              Padding(
+                padding: const EdgeInsets.only(top: 2),
+                child: SizedBox(
+                  width: 48,
+                  height: 48,
+                  child: Checkbox(
+                    value: aceito,
+                    onChanged: (v) => onChanged(v ?? false),
+                    activeColor: _diPertinRoxo,
+                    materialTapTargetSize: MaterialTapTargetSize.padded,
+                  ),
+                ),
               ),
-              Text(' e a ', style: _textoCorpo()),
-              InkWell(
-                onTap: () {
-                  Navigator.push<void>(
-                    context,
-                    MaterialPageRoute(
-                      builder: (context) => const PoliticaPrivacidadeScreen(),
-                    ),
-                  );
-                },
-                child: Text('Política de Privacidade', style: _linkStyle()),
+              Expanded(
+                child: Padding(
+                  padding: const EdgeInsets.only(top: 12),
+                  child: Wrap(
+                    crossAxisAlignment: WrapCrossAlignment.center,
+                    spacing: 0,
+                    runSpacing: 4,
+                    children: [
+                      Text('Li e aceito os ', style: _textoCorpo()),
+                      InkWell(
+                        onTap: () {
+                          Navigator.push<void>(
+                            context,
+                            MaterialPageRoute(
+                              builder: (context) => const PoliticaUsoScreen(),
+                            ),
+                          );
+                        },
+                        child: Text('Termos de Uso', style: _linkStyle()),
+                      ),
+                      Text(' e a ', style: _textoCorpo()),
+                      InkWell(
+                        onTap: () {
+                          Navigator.push<void>(
+                            context,
+                            MaterialPageRoute(
+                              builder: (context) =>
+                                  const PoliticaPrivacidadeScreen(),
+                            ),
+                          );
+                        },
+                        child: Text(
+                          'Política de Privacidade',
+                          style: _linkStyle(),
+                        ),
+                      ),
+                      Text(
+                        ' para concluir meu cadastro.',
+                        style: _textoCorpo(),
+                      ),
+                    ],
+                  ),
+                ),
               ),
-              Text(' para concluir meu cadastro.', style: _textoCorpo()),
             ],
           ),
         ),
-      ],
+      ),
     );
   }
 }

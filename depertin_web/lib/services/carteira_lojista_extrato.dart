@@ -1,6 +1,7 @@
 import 'dart:math' as math;
 
 import 'package:cloud_firestore/cloud_firestore.dart';
+import 'package:depertin_web/utils/codigo_pedido.dart';
 
 /// Linha unificada do extrato da carteira do lojista (mesma regra que o app).
 class CarteiraLancamento {
@@ -222,7 +223,7 @@ abstract final class CarteiraLojistaExtrato {
       final motivo = d['motivo']?.toString() ?? 'Estorno de pedido';
       final pedidoId = d['pedido_id']?.toString() ?? '';
       final sub = pedidoId.isNotEmpty
-          ? 'Pedido #${pedidoId.substring(0, math.min(8, pedidoId.length))} · $motivo'
+          ? 'Pedido ${CodigoPedido.gerar(pedidoId)} · $motivo'
           : motivo;
       list.add(
         CarteiraLancamento(

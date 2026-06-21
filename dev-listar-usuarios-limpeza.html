@@ -1,0 +1,918 @@
+<!DOCTYPE html>
+<html lang="pt-BR">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <title>DiPertin DEV — Limpeza de usuários</title>
+  <style>
+    :root {
+      --roxo: #6A1B9A;
+      --roxo-claro: #8E24AA;
+      --laranja: #FF8F00;
+      --fundo: #F5F4F8;
+      --texto: #1A1A2E;
+      --muted: #64748B;
+      --perigo: #DC2626;
+      --perigo-fundo: #FEF2F2;
+      --ok: #059669;
+      --card: #fff;
+      --borda: #E2E8F0;
+    }
+    * { box-sizing: border-box; }
+    body {
+      margin: 0;
+      font-family: "Segoe UI", system-ui, sans-serif;
+      background: var(--fundo);
+      color: var(--texto);
+      line-height: 1.45;
+    }
+    .banner-dev {
+      background: linear-gradient(90deg, var(--roxo), var(--roxo-claro));
+      color: #fff;
+      padding: 12px 20px;
+      font-weight: 600;
+      text-align: center;
+      letter-spacing: 0.02em;
+    }
+    .banner-dev small {
+      display: block;
+      font-weight: 400;
+      opacity: 0.9;
+      margin-top: 4px;
+      font-size: 13px;
+    }
+    .wrap { max-width: 1280px; margin: 0 auto; padding: 20px; }
+    h1 { margin: 0 0 4px; font-size: 1.5rem; color: var(--roxo); }
+    .sub { color: var(--muted); margin-bottom: 20px; font-size: 14px; }
+    .kpis {
+      display: grid;
+      grid-template-columns: repeat(auto-fit, minmax(140px, 1fr));
+      gap: 12px;
+      margin-bottom: 20px;
+    }
+    .kpi {
+      background: var(--card);
+      border: 1px solid var(--borda);
+      border-radius: 12px;
+      padding: 14px 16px;
+    }
+    .kpi .n { font-size: 1.75rem; font-weight: 700; color: var(--roxo); }
+    .kpi .l { font-size: 12px; color: var(--muted); text-transform: uppercase; letter-spacing: 0.04em; }
+    .toolbar {
+      display: flex;
+      flex-wrap: wrap;
+      gap: 10px;
+      align-items: center;
+      margin-bottom: 16px;
+    }
+    input[type="search"] {
+      flex: 1;
+      min-width: 200px;
+      padding: 10px 14px;
+      border: 1px solid var(--borda);
+      border-radius: 10px;
+      font-size: 14px;
+    }
+    button {
+      cursor: pointer;
+      border: none;
+      border-radius: 10px;
+      padding: 10px 16px;
+      font-size: 14px;
+      font-weight: 600;
+      min-height: 44px;
+    }
+    .btn-primary {
+      background: var(--roxo);
+      color: #fff;
+    }
+    .btn-primary:hover { background: var(--roxo-claro); }
+    .btn-secondary {
+      background: #fff;
+      color: var(--roxo);
+      border: 1px solid var(--borda);
+    }
+    .btn-danger {
+      background: var(--perigo);
+      color: #fff;
+    }
+    .btn-danger:disabled { opacity: 0.5; cursor: not-allowed; }
+    .tabs {
+      display: flex;
+      gap: 6px;
+      flex-wrap: wrap;
+      margin-bottom: 12px;
+    }
+    .tab {
+      padding: 8px 14px;
+      border-radius: 999px;
+      background: #fff;
+      border: 1px solid var(--borda);
+      cursor: pointer;
+      font-size: 13px;
+      font-weight: 600;
+      color: var(--muted);
+    }
+    .tab.ativo {
+      background: var(--roxo);
+      color: #fff;
+      border-color: var(--roxo);
+    }
+    .card {
+      background: var(--card);
+      border: 1px solid var(--borda);
+      border-radius: 14px;
+      overflow: hidden;
+    }
+    table {
+      width: 100%;
+      border-collapse: collapse;
+      font-size: 13px;
+    }
+    th, td {
+      padding: 10px 12px;
+      text-align: left;
+      border-bottom: 1px solid var(--fundo);
+    }
+    th {
+      background: #fafafa;
+      font-size: 11px;
+      text-transform: uppercase;
+      letter-spacing: 0.04em;
+      color: var(--muted);
+      position: sticky;
+      top: 0;
+    }
+    tr:hover td { background: #faf9fc; }
+    tr.preservado td { background: #F0FDF4; }
+    .badge {
+      display: inline-block;
+      padding: 2px 8px;
+      border-radius: 6px;
+      font-size: 11px;
+      font-weight: 600;
+    }
+    .badge-master { background: #EDE9FE; color: var(--roxo); }
+    .badge-auth { background: #FEF3C7; color: #92400E; }
+    .uid { font-family: ui-monospace, monospace; font-size: 11px; color: var(--muted); }
+    .alerta {
+      background: var(--perigo-fundo);
+      border: 1px solid #FECACA;
+      border-radius: 12px;
+      padding: 14px 16px;
+      margin-bottom: 16px;
+      font-size: 14px;
+    }
+    .alerta strong { color: var(--perigo); }
+    .status-bar {
+      padding: 10px 14px;
+      border-radius: 10px;
+      margin-bottom: 16px;
+      font-size: 14px;
+      display: none;
+    }
+    .status-bar.ok { display: block; background: #ECFDF5; color: var(--ok); }
+    .status-bar.erro { display: block; background: var(--perigo-fundo); color: var(--perigo); }
+    .status-bar.info { display: block; background: #EFF6FF; color: #1D4ED8; }
+    .scroll-table { max-height: 520px; overflow: auto; }
+    .empty { padding: 40px; text-align: center; color: var(--muted); }
+    .acoes-perigo {
+      margin-top: 24px;
+      padding: 16px;
+      border: 2px dashed #FECACA;
+      border-radius: 14px;
+      background: #FFFBFB;
+    }
+    .acoes-perigo h3 { margin: 0 0 8px; color: var(--perigo); font-size: 15px; }
+    .acoes-perigo p { margin: 0 0 12px; font-size: 13px; color: var(--muted); }
+    .grid-colecoes {
+      display: grid;
+      grid-template-columns: repeat(auto-fill, minmax(160px, 1fr));
+      gap: 8px;
+      margin: 12px 0 16px;
+      font-size: 12px;
+    }
+    .col-item {
+      background: #fff;
+      border: 1px solid var(--borda);
+      border-radius: 8px;
+      padding: 8px 10px;
+    }
+    .col-item .q { font-weight: 700; color: var(--roxo); font-size: 1.1rem; }
+    .col-item .n { color: var(--muted); margin-top: 2px; }
+    .preservadas {
+      font-size: 12px;
+      color: var(--muted);
+      margin-top: 8px;
+    }
+    .log-box {
+      background: #1e1e1e;
+      color: #d4d4d4;
+      font-family: ui-monospace, monospace;
+      font-size: 11px;
+      padding: 12px;
+      border-radius: 10px;
+      max-height: 200px;
+      overflow: auto;
+      white-space: pre-wrap;
+      display: none;
+      margin-top: 12px;
+    }
+    .log-box.visivel { display: block; }
+    .offline-box {
+      background: #1e1b4b;
+      color: #fff;
+      border-radius: 14px;
+      padding: 20px;
+      margin-bottom: 20px;
+      display: none;
+    }
+    .offline-box.visivel { display: block; }
+    .offline-box code {
+      background: rgba(255,255,255,0.12);
+      padding: 2px 8px;
+      border-radius: 6px;
+      font-size: 13px;
+    }
+    .offline-box ol { margin: 12px 0 0; padding-left: 20px; font-size: 14px; }
+    .progress-panel {
+      display: none;
+      margin-top: 16px;
+      padding: 16px;
+      background: #fff;
+      border: 1px solid var(--borda);
+      border-radius: 14px;
+    }
+    .progress-panel.visivel { display: block; }
+    .progress-panel h4 { margin: 0 0 12px; color: var(--roxo); font-size: 15px; }
+    .progress-track {
+      height: 10px;
+      background: #E2E8F0;
+      border-radius: 999px;
+      overflow: hidden;
+      margin-bottom: 16px;
+    }
+    .progress-fill {
+      height: 100%;
+      width: 0%;
+      background: linear-gradient(90deg, var(--roxo), var(--laranja));
+      transition: width 0.35s ease;
+    }
+    .steps-list { list-style: none; margin: 0; padding: 0; }
+    .step-item {
+      display: flex;
+      align-items: flex-start;
+      gap: 10px;
+      padding: 8px 0;
+      border-bottom: 1px solid var(--fundo);
+      font-size: 13px;
+    }
+    .step-item:last-child { border-bottom: none; }
+    .step-icon {
+      width: 22px;
+      height: 22px;
+      border-radius: 50%;
+      flex-shrink: 0;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      font-size: 11px;
+      font-weight: 700;
+      background: #E2E8F0;
+      color: var(--muted);
+    }
+    .step-item.running .step-icon { background: #FEF3C7; color: #92400E; animation: pulse 1s infinite; }
+    .step-item.done .step-icon { background: #D1FAE5; color: var(--ok); }
+    .step-item.error .step-icon { background: #FECACA; color: var(--perigo); }
+    .step-detail { color: var(--muted); font-size: 12px; margin-top: 2px; }
+    @keyframes pulse { 50% { opacity: 0.6; } }
+    .log-box.tall { max-height: 280px; }
+  </style>
+</head>
+<body>
+  <div class="banner-dev">
+    ⚠️ FERRAMENTA DE DESENVOLVIMENTO — NÃO DEPLOYAR EM PRODUÇÃO
+    <small>Servidor local apenas · Firebase Admin SDK · projeto depertin-f940f</small>
+  </div>
+
+  <div class="wrap">
+    <h1>Limpeza de usuários</h1>
+    <p class="sub">
+      Lista clientes, lojistas e entregadores. Preserva sempre
+      <strong id="keep-email">master@teste.com</strong>.
+    </p>
+
+    <div id="offline-box" class="offline-box">
+      <strong>Servidor não está rodando</strong> — por isso aparece "Failed to fetch".
+      <ol>
+        <li>Abra o PowerShell na pasta <code>C:\Projeto\DiPertin</code></li>
+        <li>Execute: <code>.\dev-iniciar-limpeza.ps1</code></li>
+        <li>Aguarde abrir <code>http://127.0.0.1:8765</code> automaticamente</li>
+        <li><strong>Não feche</strong> a janela do PowerShell enquanto usar esta tela</li>
+      </ol>
+      <p style="margin:12px 0 0;font-size:13px;opacity:0.9">
+        Não abra o arquivo HTML direto (duplo-clique). Precisa do servidor Node.
+      </p>
+    </div>
+
+    <div id="status" class="status-bar"></div>
+
+    <div class="kpis" id="kpis">
+      <div class="kpi"><div class="n" id="k-cliente">—</div><div class="l">Clientes</div></div>
+      <div class="kpi"><div class="n" id="k-lojista">—</div><div class="l">Lojistas</div></div>
+      <div class="kpi"><div class="n" id="k-entregador">—</div><div class="l">Entregadores</div></div>
+      <div class="kpi"><div class="n" id="k-outros">—</div><div class="l">Outros / staff</div></div>
+      <div class="kpi"><div class="n" id="k-firestore">—</div><div class="l">Docs Firestore</div></div>
+      <div class="kpi"><div class="n" id="k-auth">—</div><div class="l">Contas Auth</div></div>
+    </div>
+
+    <div class="toolbar">
+      <input type="search" id="busca" placeholder="Filtrar por e-mail, nome ou UID…" />
+      <button class="btn-primary" id="btn-recarregar">Recarregar lista</button>
+      <button class="btn-secondary" id="btn-selecionar-tab">Selecionar todos da aba</button>
+      <button class="btn-danger" id="btn-apagar-selecionados" disabled>
+        Apagar selecionados (<span id="n-selecionados">0</span>)
+      </button>
+    </div>
+
+    <div class="tabs" id="tabs">
+      <button class="tab ativo" data-tab="cliente">Clientes</button>
+      <button class="tab" data-tab="lojista">Lojistas</button>
+      <button class="tab" data-tab="entregador">Entregadores</button>
+      <button class="tab" data-tab="outros">Outros</button>
+    </div>
+
+    <div class="card">
+      <div class="scroll-table">
+        <table>
+          <thead>
+            <tr>
+              <th style="width:36px"><input type="checkbox" id="check-all" title="Selecionar visíveis" /></th>
+              <th>E-mail</th>
+              <th>Nome</th>
+              <th>Role</th>
+              <th>Cidade</th>
+              <th>UID</th>
+              <th>Extra</th>
+            </tr>
+          </thead>
+          <tbody id="tbody"></tbody>
+        </table>
+      </div>
+      <div class="empty" id="empty" style="display:none">Nenhum usuário nesta aba.</div>
+    </div>
+
+    <div class="acoes-perigo">
+      <h3>Limpeza TOTAL do marketplace</h3>
+      <p>
+        Apaga <strong>tudo</strong>: pedidos, encomendas, produtos, lojas, cupons,
+        avaliações, saques, estornos, fiscal, suporte, leads, notificações, CPF index
+        e <strong>todos os usuários</strong> (cliente, lojista, entregador, staff).
+        Mantém apenas <strong id="keep-email-2">master@teste.com</strong> com senha
+        <code>master</code>.
+      </p>
+      <div class="alerta">
+        <strong>Irreversível.</strong> Preservadas só config: gateways MP, planos de taxa,
+        tabela de fretes, categorias, cidades e conteúdo legal. Banners, comunicados e utilidades
+        também são apagados.
+      </div>
+
+      <div class="toolbar" style="margin-top:12px;padding:0">
+        <button class="btn-secondary" id="btn-contagem">Ver o que será apagado</button>
+        <button class="btn-secondary" id="btn-dry-run">Simular (dry-run)</button>
+        <button class="btn-danger" id="btn-wipe-total">APAGAR MARKETPLACE INTEIRO</button>
+      </div>
+
+      <div class="grid-colecoes" id="grid-colecoes"></div>
+      <p class="preservadas" id="preservadas"></p>
+
+      <div id="progress-panel" class="progress-panel">
+        <h4 id="progress-titulo">Progresso da exclusão</h4>
+        <div class="progress-track"><div class="progress-fill" id="progress-fill"></div></div>
+        <ul class="steps-list" id="steps-list"></ul>
+      </div>
+
+      <div class="log-box tall" id="log-box"></div>
+    </div>
+  </div>
+
+  <script>
+    const API = ''; // mesmo origin — servidor em :8765
+    let dados = null;
+    let abaAtiva = 'cliente';
+    const selecionados = new Set();
+    let servidorOk = false;
+    let etapasUi = [];
+    const stepState = new Map();
+
+    const $ = (id) => document.getElementById(id);
+
+    function status(msg, tipo = 'info') {
+      const el = $('status');
+      el.textContent = msg;
+      el.className = 'status-bar ' + tipo;
+    }
+
+    function setOffline(offline) {
+      $('offline-box').classList.toggle('visivel', offline);
+      servidorOk = !offline;
+    }
+
+    async function pingServidor() {
+      try {
+        const res = await fetch(`${API}/api/ping`, { cache: 'no-store' });
+        if (!res.ok) throw new Error('ping falhou');
+        const json = await res.json();
+        etapasUi = json.etapas || [];
+        setOffline(false);
+        if (!json.credenciais) {
+          status('Servidor OK, mas GOOGLE_APPLICATION_CREDENTIALS não está definido no PowerShell.', 'erro');
+        }
+        return true;
+      } catch (_) {
+        setOffline(true);
+        status('Servidor offline — execute dev-iniciar-limpeza.ps1', 'erro');
+        return false;
+      }
+    }
+
+    function initStepsList() {
+      const ul = $('steps-list');
+      ul.innerHTML = '';
+      stepState.clear();
+      etapasUi.forEach((e) => {
+        stepState.set(e.id, { status: 'pending', detail: '' });
+        const li = document.createElement('li');
+        li.className = 'step-item';
+        li.id = `step-${e.id}`;
+        li.innerHTML = `
+          <div class="step-icon">·</div>
+          <div>
+            <div class="step-label">${escapeHtml(e.label)}</div>
+            <div class="step-detail"></div>
+          </div>`;
+        ul.appendChild(li);
+      });
+    }
+
+    function atualizarStep(stepId, detail, statusStep) {
+      if (stepId.startsWith('col_')) {
+        const nome = stepId.replace('col_', '');
+        const li = document.createElement('li');
+        li.className = `step-item ${statusStep}`;
+        li.innerHTML = `
+          <div class="step-icon">${statusStep === 'done' ? '✓' : statusStep === 'error' ? '!' : '…'}</div>
+          <div><div class="step-label">${escapeHtml(nome)}</div><div class="step-detail">${escapeHtml(detail || '')}</div></div>`;
+        $('steps-list').appendChild(li);
+        return;
+      }
+
+      const el = document.getElementById(`step-${stepId}`);
+      if (!el) return;
+      el.className = `step-item ${statusStep}`;
+      const icon = el.querySelector('.step-icon');
+      if (statusStep === 'running') icon.textContent = '…';
+      else if (statusStep === 'done') icon.textContent = '✓';
+      else if (statusStep === 'error') icon.textContent = '!';
+      else icon.textContent = '·';
+      const det = el.querySelector('.step-detail');
+      if (det && detail) det.textContent = detail;
+      stepState.set(stepId, { status: statusStep, detail });
+      atualizarBarraProgresso();
+    }
+
+    function atualizarBarraProgresso() {
+      const total = etapasUi.length || 1;
+      let done = 0;
+      etapasUi.forEach((e) => {
+        const s = stepState.get(e.id);
+        if (s && (s.status === 'done' || s.status === 'error')) done += 1;
+      });
+      $('progress-fill').style.width = `${Math.round((done / total) * 100)}%`;
+    }
+
+    function appendLog(msg) {
+      const box = $('log-box');
+      box.classList.add('visivel');
+      const hora = new Date().toLocaleTimeString('pt-BR');
+      box.textContent += `[${hora}] ${msg}\n`;
+      box.scrollTop = box.scrollHeight;
+    }
+
+    function limparLog() {
+      $('log-box').textContent = '';
+    }
+
+    function finalizarExclusaoUi(result, dryRun) {
+      etapasUi.forEach((e) => {
+        const st = stepState.get(e.id);
+        if (!st || st.status === 'pending' || st.status === 'running') {
+          atualizarStep(e.id, st?.detail || 'OK', 'done');
+        }
+      });
+      $('progress-fill').style.width = '100%';
+      $('progress-titulo').textContent = dryRun
+        ? 'Simulação concluída'
+        : 'Exclusão concluída com sucesso';
+      appendLog(dryRun ? '=== DRY-RUN CONCLUÍDO ===' : '=== LIMPEZA TOTAL CONCLUÍDA ===');
+    }
+
+    async function consumirWipeStream(body) {
+      $('progress-panel').classList.add('visivel');
+      limparLog();
+      initStepsList();
+      $('progress-titulo').textContent = body.dryRun
+        ? 'Simulação (dry-run) — nada será apagado'
+        : 'Exclusão em andamento…';
+
+      const res = await fetch(`${API}/api/wipe-stream`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(body),
+      });
+
+      if (!res.ok) {
+        const err = await res.json().catch(() => ({}));
+        throw new Error(err.erro || res.statusText);
+      }
+
+      const reader = res.body.getReader();
+      const decoder = new TextDecoder();
+      let buffer = '';
+      let resultFinal = null;
+      let settled = false;
+      let resolvePromise = () => {};
+      let rejectPromise = () => {};
+
+      const handleEvent = (event, dataStr) => {
+        if (!dataStr) return;
+        let data;
+        try {
+          data = JSON.parse(dataStr);
+        } catch (e) {
+          appendLog('Aviso parse SSE: ' + e.message);
+          return;
+        }
+        if (event === 'etapas') {
+          etapasUi = data.etapas || etapasUi;
+          initStepsList();
+        } else if (event === 'progress') {
+          atualizarStep(data.step, data.detail, data.status || 'running');
+        } else if (event === 'log') {
+          appendLog(data.msg);
+        } else if (event === 'done') {
+          resultFinal = data;
+          finalizarExclusaoUi(data, body.dryRun);
+          if (!settled) {
+            settled = true;
+            resolvePromise(data);
+          }
+        } else if (event === 'error') {
+          if (!settled) {
+            settled = true;
+            rejectPromise(new Error(data.erro || 'Erro na limpeza'));
+          }
+        }
+      };
+
+      const processBuffer = (flushAll) => {
+        const sep = flushAll ? /\n\n+/ : /\n\n/;
+        const parts = buffer.split(sep);
+        if (!flushAll) buffer = parts.pop() || '';
+        else buffer = '';
+
+        for (const block of parts) {
+          if (!block.trim() || block.trim().startsWith(':')) continue;
+          let event = 'message';
+          const dataLines = [];
+          block.split('\n').forEach((line) => {
+            if (line.startsWith('event: ')) event = line.slice(7).trim();
+            else if (line.startsWith('data: ')) dataLines.push(line.slice(6));
+            else if (line.startsWith('data:')) dataLines.push(line.slice(5));
+          });
+          handleEvent(event, dataLines.join('\n'));
+        }
+      };
+
+      return new Promise((resolve, reject) => {
+        resolvePromise = resolve;
+        rejectPromise = reject;
+
+        const pump = () => {
+          reader.read().then(({ done, value }) => {
+            if (value) {
+              buffer += decoder.decode(value, { stream: true });
+              processBuffer(false);
+            }
+            if (done) {
+              processBuffer(true);
+              if (!settled) {
+                settled = true;
+                if (resultFinal) {
+                  resolvePromise(resultFinal);
+                } else {
+                  finalizarExclusaoUi({ ok: true }, body.dryRun);
+                  resolvePromise({
+                    ok: true,
+                    keepEmail: 'master@teste.com',
+                    senha: 'master',
+                  });
+                }
+              }
+              return;
+            }
+            pump();
+          }).catch((e) => {
+            if (!settled) {
+              settled = true;
+              rejectPromise(e);
+            }
+          });
+        };
+        pump();
+      });
+    }
+
+    function fmtData(iso) {
+      if (!iso) return '—';
+      try {
+        return new Date(iso).toLocaleString('pt-BR');
+      } catch (_) {
+        return iso;
+      }
+    }
+
+    function usuariosAba() {
+      if (!dados) return [];
+      return dados.grupos[abaAtiva] || [];
+    }
+
+    function filtrados() {
+      const q = $('busca').value.trim().toLowerCase();
+      return usuariosAba().filter((u) => {
+        if (!q) return true;
+        return (
+          u.email.includes(q) ||
+          u.nome.toLowerCase().includes(q) ||
+          u.uid.includes(q) ||
+          u.role.toLowerCase().includes(q)
+        );
+      });
+    }
+
+    function atualizarContadorSelecionados() {
+      $('n-selecionados').textContent = selecionados.size;
+      $('btn-apagar-selecionados').disabled = selecionados.size === 0;
+    }
+
+    function renderTabela() {
+      const lista = filtrados();
+      const tbody = $('tbody');
+      tbody.innerHTML = '';
+
+      if (!lista.length) {
+        $('empty').style.display = 'block';
+        return;
+      }
+      $('empty').style.display = 'none';
+
+      lista.forEach((u) => {
+        const tr = document.createElement('tr');
+        if (u.ehPreservado) tr.classList.add('preservado');
+
+        const extra = [];
+        if (u.ehPreservado) extra.push('<span class="badge badge-master">PRESERVADO</span>');
+        if (u.soAuth) extra.push('<span class="badge badge-auth">só Auth</span>');
+        if (u.statusLoja) extra.push('loja: ' + u.statusLoja);
+        if (u.statusEntregador) extra.push('entregador: ' + u.statusEntregador);
+        if (!u.existeNoAuth && !u.soAuth) extra.push('sem Auth');
+
+        const disabled = u.ehPreservado ? 'disabled' : '';
+        const checked = selecionados.has(u.uid) ? 'checked' : '';
+
+        tr.innerHTML = `
+          <td><input type="checkbox" data-uid="${u.uid}" ${disabled} ${checked} /></td>
+          <td>${escapeHtml(u.email)}</td>
+          <td>${escapeHtml(u.nome)}</td>
+          <td>${escapeHtml(u.role)}</td>
+          <td>${escapeHtml(u.cidade)}</td>
+          <td class="uid">${escapeHtml(u.uid)}</td>
+          <td>${extra.join(' ')}</td>
+        `;
+        tbody.appendChild(tr);
+      });
+
+      tbody.querySelectorAll('input[type=checkbox]').forEach((cb) => {
+        cb.addEventListener('change', () => {
+          const uid = cb.dataset.uid;
+          if (cb.checked) selecionados.add(uid);
+          else selecionados.delete(uid);
+          atualizarContadorSelecionados();
+        });
+      });
+    }
+
+    function escapeHtml(s) {
+      return String(s)
+        .replace(/&/g, '&amp;')
+        .replace(/</g, '&lt;')
+        .replace(/>/g, '&gt;')
+        .replace(/"/g, '&quot;');
+    }
+
+    function atualizarKpis() {
+      if (!dados) return;
+      $('k-cliente').textContent = dados.totais.cliente;
+      $('k-lojista').textContent = dados.totais.lojista;
+      $('k-entregador').textContent = dados.totais.entregador;
+      $('k-outros').textContent = dados.totais.outros;
+      $('k-firestore').textContent = dados.totais.firestore;
+      $('k-auth').textContent = dados.totais.auth;
+      $('keep-email').textContent = dados.keepEmail;
+      $('keep-email-2').textContent = dados.keepEmail;
+    }
+
+    async function carregar() {
+      if (!servidorOk && !(await pingServidor())) return;
+      status('Carregando usuários do Firebase…', 'info');
+      try {
+        const res = await fetch(`${API}/api/usuarios`, { cache: 'no-store' });
+        const json = await res.json();
+        if (!res.ok) throw new Error(json.erro || res.statusText);
+        dados = json;
+        selecionados.clear();
+        atualizarKpis();
+        renderTabela();
+        atualizarContadorSelecionados();
+        status(
+          `Lista atualizada — ${json.totais.firestore} doc(s) Firestore, ${json.totais.auth} conta(s) Auth.`,
+          'ok'
+        );
+      } catch (e) {
+        status('Erro: ' + e.message, 'erro');
+        if (e.message.includes('fetch')) setOffline(true);
+      }
+    }
+
+    $('tabs').addEventListener('click', (e) => {
+      const tab = e.target.closest('.tab');
+      if (!tab) return;
+      abaAtiva = tab.dataset.tab;
+      document.querySelectorAll('.tab').forEach((t) => t.classList.remove('ativo'));
+      tab.classList.add('ativo');
+      $('check-all').checked = false;
+      renderTabela();
+    });
+
+    $('busca').addEventListener('input', renderTabela);
+
+    $('btn-recarregar').addEventListener('click', carregar);
+
+    $('check-all').addEventListener('change', () => {
+      filtrados().forEach((u) => {
+        if (u.ehPreservado) return;
+        if ($('check-all').checked) selecionados.add(u.uid);
+        else selecionados.delete(u.uid);
+      });
+      renderTabela();
+      atualizarContadorSelecionados();
+    });
+
+    $('btn-selecionar-tab').addEventListener('click', () => {
+      filtrados().forEach((u) => {
+        if (!u.ehPreservado) selecionados.add(u.uid);
+      });
+      renderTabela();
+      atualizarContadorSelecionados();
+    });
+
+    $('btn-apagar-selecionados').addEventListener('click', async () => {
+      if (!selecionados.size) return;
+      const ok = confirm(
+        `Apagar ${selecionados.size} usuário(s) selecionado(s)?\n\nAuth + doc users serão removidos. Irreversível.`
+      );
+      if (!ok) return;
+      status('Apagando selecionados…', 'info');
+      try {
+        const res = await fetch(`${API}/api/apagar-selecionados`, {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({
+            uids: [...selecionados],
+            confirmacao: 'APAGAR SELECIONADOS',
+          }),
+        });
+        const json = await res.json();
+        if (!res.ok) throw new Error(json.erro || res.statusText);
+        status(
+          `Concluído — Auth: ${json.authOk} ok, ${json.authFalha} falha(s); Firestore: ${json.firestoreOk} removido(s).`,
+          'ok'
+        );
+        await carregar();
+      } catch (e) {
+        status('Erro: ' + e.message, 'erro');
+      }
+    });
+
+    async function carregarContagem() {
+      if (!servidorOk && !(await pingServidor())) return;
+      status('Carregando contagem das coleções…', 'info');
+      try {
+        const res = await fetch(`${API}/api/contagem-limpeza`, { cache: 'no-store' });
+        const json = await res.json();
+        if (!res.ok) throw new Error(json.erro || res.statusText);
+        renderContagem(json);
+        status('Contagem atualizada.', 'ok');
+      } catch (e) {
+        status('Erro: ' + e.message, 'erro');
+      }
+    }
+
+    function renderContagem(data) {
+      const grid = $('grid-colecoes');
+      grid.innerHTML = '';
+      const c = data.contagens || {};
+      const ordem = [
+        'pedidos', 'encomendas', 'produtos', 'cupons', 'lojas_public', 'banners',
+        'comunicados', 'servicos_destaque', 'telefones_premium', 'eventos', 'vagas', 'achados',
+        'avaliacoes', 'avaliacoes_produto', 'saques_solicitacoes', 'estornos',
+        'receitas_app', 'despesas_app', 'fiscal', 'notificacoes_usuario',
+        'support_tickets', 'marketing_leads_lojistas', 'centro_ops_agenda',
+        'users_total', 'auth_total',
+      ];
+      ordem.forEach((k) => {
+        if (c[k] === undefined) return;
+        const div = document.createElement('div');
+        div.className = 'col-item';
+        div.innerHTML = `<div class="q">${c[k]}</div><div class="n">${k}</div>`;
+        grid.appendChild(div);
+      });
+      $('preservadas').textContent =
+        'Preservadas: ' + (data.colecoesPreservadas || []).join(', ');
+    }
+
+    function mostrarLogs(logs) {
+      if (!logs?.length) return;
+      logs.forEach(appendLog);
+    }
+
+    $('btn-contagem').addEventListener('click', carregarContagem);
+
+    $('btn-dry-run').addEventListener('click', async () => {
+      if (!servidorOk && !(await pingServidor())) return;
+      status('Simulando limpeza…', 'info');
+      $('btn-dry-run').disabled = true;
+      $('btn-wipe-total').disabled = true;
+      try {
+        const result = await consumirWipeStream({ dryRun: true });
+        status('Dry-run concluído — veja etapas e log abaixo.', 'ok');
+        mostrarLogs([]);
+      } catch (e) {
+        status('Erro: ' + e.message, 'erro');
+      } finally {
+        $('btn-dry-run').disabled = false;
+        $('btn-wipe-total').disabled = false;
+      }
+    });
+
+    $('btn-wipe-total').addEventListener('click', async () => {
+      if (!servidorOk && !(await pingServidor())) return;
+      const txt = prompt(
+        'ATENÇÃO: apagar TODO o marketplace?\n\nPedidos, produtos, cupons, lojas, usuários — TUDO.\n\nDigite exatamente:\nSIM APAGAR MARKETPLACE INTEIRO'
+      );
+      if (txt !== 'SIM APAGAR MARKETPLACE INTEIRO') {
+        status('Limpeza cancelada.', 'info');
+        return;
+      }
+      status('Exclusão iniciada — acompanhe etapa por etapa abaixo.', 'info');
+      $('btn-wipe-total').disabled = true;
+      $('btn-dry-run').disabled = true;
+      try {
+        const result = await consumirWipeStream({
+          dryRun: false,
+          confirmacao: 'SIM APAGAR MARKETPLACE INTEIRO',
+        });
+        status(
+          `Limpeza concluída! Login: ${result.keepEmail} / senha: ${result.senha || 'master'}`,
+          'ok'
+        );
+        await carregar();
+        await carregarContagem();
+      } catch (e) {
+        status('Erro: ' + e.message, 'erro');
+      } finally {
+        $('btn-wipe-total').disabled = false;
+        $('btn-dry-run').disabled = false;
+      }
+    });
+
+    (async () => {
+      if (await pingServidor()) {
+        initStepsList();
+        await carregarContagem();
+        await carregar();
+      }
+    })();
+  </script>
+</body>
+</html>

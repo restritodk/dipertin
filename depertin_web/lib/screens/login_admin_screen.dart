@@ -119,12 +119,20 @@ class LoginAdminScreen extends StatefulWidget {
 class _LoginAdminScreenState extends State<LoginAdminScreen> {
   final _emailController = TextEditingController();
   final _senhaController = TextEditingController();
+  final _emailFocusNode = FocusNode();
 
   bool _isLoading = false;
   bool _isLoadingGoogle = false;
   bool _ocultarSenha = true;
+  bool _entradaAnimada = false;
+  bool _ctaHover = false;
+
+  String? _erroBanner;
+  String? _erroEmail;
+  String? _erroSenha;
 
   static const Color _ink = Color(0xFF1E1B4B);
+  static const Color _erroCor = Color(0xFFDC2626);
 
   @override
   void initState() {
@@ -133,9 +141,52 @@ class _LoginAdminScreenState extends State<LoginAdminScreen> {
       _emailController.text = 'master@teste.com';
       _senhaController.text = 'master';
     }
+    _emailController.addListener(_limparErrosAoDigitar);
+    _senhaController.addListener(_limparErrosAoDigitar);
     WidgetsBinding.instance.addPostFrameCallback((_) {
       _completarLoginGoogleAposRedirect();
+      if (mounted) {
+        setState(() => _entradaAnimada = true);
+        _emailFocusNode.requestFocus();
+      }
     });
+  }
+
+  void _limparErrosAoDigitar() {
+    if (_erroEmail == null && _erroSenha == null && _erroBanner == null) return;
+    setState(() {
+      _erroEmail = null;
+      _erroSenha = null;
+      _erroBanner = null;
+    });
+  }
+
+  bool _emailValido(String email) {
+    return RegExp(r'^[^\s@]+@[^\s@]+\.[^\s@]+$').hasMatch(email);
+  }
+
+  void _definirErrosFormulario({
+    String? banner,
+    String? email,
+    String? senha,
+    bool snackbarTambem = false,
+  }) {
+    if (!mounted) return;
+    setState(() {
+      _erroBanner = banner;
+      _erroEmail = email;
+      _erroSenha = senha;
+    });
+    if (snackbarTambem && banner != null) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(
+          content: Text(banner, style: GoogleFonts.plusJakartaSans()),
+          backgroundColor: _erroCor,
+          behavior: SnackBarBehavior.floating,
+          shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
+        ),
+      );
+    }
   }
 
   /// Após [signInWithRedirect], [main.dart] já chamou [getRedirectResult] uma vez.
@@ -189,6 +240,7 @@ class _LoginAdminScreenState extends State<LoginAdminScreen> {
   void dispose() {
     _emailController.dispose();
     _senhaController.dispose();
+    _emailFocusNode.dispose();
     super.dispose();
   }
 
@@ -196,9 +248,11 @@ class _LoginAdminScreenState extends State<LoginAdminScreen> {
     required String label,
     Widget? prefix,
     Widget? suffix,
+    String? errorText,
   }) {
     return InputDecoration(
       labelText: label,
+      errorText: errorText,
       labelStyle: GoogleFonts.plusJakartaSans(
         color: PainelAdminTheme.textoSecundario,
         fontSize: 14,
@@ -236,12 +290,26 @@ class _LoginAdminScreenState extends State<LoginAdminScreen> {
     String email = _emailController.text.trim();
     String senha = _senhaController.text.trim();
 
-    if (email.isEmpty || senha.isEmpty) {
-      _mostrarErro('Por favor, preencha o e-mail e a senha.');
+    String? errEmail;
+    String? errSenha;
+    if (email.isEmpty) {
+      errEmail = 'Informe seu e-mail.';
+    } else if (!_emailValido(email)) {
+      errEmail = 'Digite um e-mail válido.';
+    }
+    if (senha.isEmpty) errSenha = 'Informe sua senha.';
+
+    if (errEmail != null || errSenha != null) {
+      _definirErrosFormulario(email: errEmail, senha: errSenha);
       return;
     }
 
-    setState(() => _isLoading = true);
+    setState(() {
+      _isLoading = true;
+      _erroBanner = null;
+      _erroEmail = null;
+      _erroSenha = null;
+    });
 
     try {
       await FirebaseAuth.instance.signInWithEmailAndPassword(
@@ -271,10 +339,12 @@ class _LoginAdminScreenState extends State<LoginAdminScreen> {
       );
     } on FirebaseAuthException catch (e) {
       String mensagem = 'Erro ao conectar (${e.code}). Tente novamente.';
+      String? errSenha;
       if (e.code == 'user-not-found' ||
           e.code == 'invalid-credential' ||
           e.code == 'wrong-password') {
-        mensagem = 'E-mail ou senha incorretos.';
+        mensagem = 'E-mail ou senha incorretos. Verifique e tente novamente.';
+        errSenha = 'Credenciais inválidas.';
       } else if (e.code == 'network-request-failed') {
         mensagem = 'Sem conexão com a internet. Verifique sua rede.';
       } else if (e.code == 'too-many-requests') {
@@ -282,7 +352,11 @@ class _LoginAdminScreenState extends State<LoginAdminScreen> {
       } else if (e.code == 'user-disabled') {
         mensagem = 'Conta desativada. Entre em contato com o suporte.';
       }
-      _mostrarErro(mensagem);
+      _definirErrosFormulario(
+        banner: mensagem,
+        senha: errSenha,
+        snackbarTambem: e.code == 'network-request-failed',
+      );
       setState(() => _isLoading = false);
     } catch (e) {
       _mostrarErro('Erro interno: $e');
@@ -329,7 +403,7 @@ class _LoginAdminScreenState extends State<LoginAdminScreen> {
       _mostrarModalTrocaSenha(
         uid,
         dadosUsuario['nome'] ?? 'Parceiro',
-        rotaPosLogin: tipoUsuario == 'lojista' ? '/meus_pedidos' : '/painel',
+        rotaPosLogin: '/painel',
       );
       return;
     }
@@ -374,11 +448,7 @@ class _LoginAdminScreenState extends State<LoginAdminScreen> {
         _isLoading = false;
         _isLoadingGoogle = false;
       });
-      if (tipoUsuario == 'lojista') {
-        Navigator.pushReplacementNamed(context, '/meus_pedidos');
-      } else {
-        Navigator.pushReplacementNamed(context, '/painel');
-      }
+      Navigator.pushReplacementNamed(context, '/painel');
     }
   }
 
@@ -819,9 +889,10 @@ class _LoginAdminScreenState extends State<LoginAdminScreen> {
   Future<void> _enviarRecuperacaoSenha() async {
     String email = _emailController.text.trim();
     if (email.isEmpty) {
-      _mostrarErro(
-        'Digite o e-mail no campo acima para recuperar a senha.',
+      _definirErrosFormulario(
+        email: 'Informe o e-mail para recuperar a senha.',
       );
+      _emailFocusNode.requestFocus();
       return;
     }
     if (!mounted) return;
@@ -833,18 +904,7 @@ class _LoginAdminScreenState extends State<LoginAdminScreen> {
   }
 
   void _mostrarErro(String mensagem) {
-    if (mounted) {
-      ScaffoldMessenger.of(context).showSnackBar(
-        SnackBar(
-          content: Text(mensagem, style: GoogleFonts.plusJakartaSans()),
-          backgroundColor: const Color(0xFFDC2626),
-          behavior: SnackBarBehavior.floating,
-          shape: RoundedRectangleBorder(
-            borderRadius: BorderRadius.circular(12),
-          ),
-        ),
-      );
-    }
+    _definirErrosFormulario(banner: mensagem);
   }
 
   Widget _painelMarca({required bool wide}) {
@@ -895,66 +955,81 @@ class _LoginAdminScreenState extends State<LoginAdminScreen> {
           ),
           Padding(
             padding: EdgeInsets.symmetric(
-              horizontal: wide ? 56 : 32,
-              vertical: wide ? 48 : 36,
+              horizontal: wide ? 56 : 20,
+              vertical: wide ? 48 : 18,
             ),
-            child: Column(
-              crossAxisAlignment: wide
-                  ? CrossAxisAlignment.start
-                  : CrossAxisAlignment.center,
-              mainAxisAlignment: MainAxisAlignment.center,
-              children: [
-                Container(
-                  padding: const EdgeInsets.all(14),
-                  decoration: BoxDecoration(
-                    color: Colors.white.withValues(alpha: 0.12),
-                    borderRadius: BorderRadius.circular(20),
-                    border: Border.all(
-                      color: Colors.white.withValues(alpha: 0.2),
-                    ),
+            child: wide
+                ? Column(
+                    crossAxisAlignment: CrossAxisAlignment.start,
+                    mainAxisAlignment: MainAxisAlignment.center,
+                    children: [
+                      _logoMarcaLogin(altura: 72),
+                      const SizedBox(height: 28),
+                      Text(
+                        'DiPertin',
+                        style: TextStyle(
+                          fontSize: 36,
+                          fontWeight: FontWeight.w800,
+                          color: Colors.white,
+                          letterSpacing: -0.8,
+                          height: 1.05,
+                        ),
+                      ),
+                      const SizedBox(height: 8),
+                      Text(
+                        'Painel administrativo',
+                        style: TextStyle(
+                          fontSize: 15,
+                          fontWeight: FontWeight.w500,
+                          color: Colors.white.withValues(alpha: 0.88),
+                          letterSpacing: 0.3,
+                        ),
+                      ),
+                      const SizedBox(height: 24),
+                      Text(
+                        'Gestão de lojas, entregadores, vitrine e operações — com segurança e clareza.',
+                        style: TextStyle(
+                          fontSize: 14,
+                          height: 1.55,
+                          color: Colors.white.withValues(alpha: 0.75),
+                        ),
+                      ),
+                      const SizedBox(height: 28),
+                      _chipsProofMarca(alinhamento: CrossAxisAlignment.start),
+                    ],
+                  )
+                : Row(
+                    children: [
+                      _logoMarcaLogin(altura: 48),
+                      const SizedBox(width: 14),
+                      Expanded(
+                        child: Column(
+                          crossAxisAlignment: CrossAxisAlignment.start,
+                          mainAxisSize: MainAxisSize.min,
+                          children: [
+                            Text(
+                              'DiPertin',
+                              style: TextStyle(
+                                fontSize: 20,
+                                fontWeight: FontWeight.w800,
+                                color: Colors.white,
+                                letterSpacing: -0.4,
+                                height: 1.1,
+                              ),
+                            ),
+                            Text(
+                              'Painel administrativo',
+                              style: TextStyle(
+                                fontSize: 13,
+                                fontWeight: FontWeight.w500,
+                                color: Colors.white.withValues(alpha: 0.88),
+                              ),
+                            ),
+                          ],
+                        ),
+                      ),
+                    ],
                   ),
-                  child: Image.asset(
-                    'assets/logo.png',
-                    height: wide ? 72 : 64,
-                    errorBuilder: (c, e, s) => const Icon(
-                      Icons.admin_panel_settings_rounded,
-                      size: 56,
-                      color: Colors.white,
-                    ),
-                  ),
-                ),
-                SizedBox(height: wide ? 28 : 20),
-                Text(
-                  'DiPertin',
-                  style: TextStyle(
-                    fontSize: wide ? 36 : 28,
-                    fontWeight: FontWeight.w800,
-                    color: Colors.white,
-                    letterSpacing: -0.8,
-                    height: 1.05,
-                  ),
-                ),
-                const SizedBox(height: 8),
-                Text(
-                  'Painel administrativo',
-                  style: TextStyle(
-                    fontSize: 15,
-                    fontWeight: FontWeight.w500,
-                    color: Colors.white.withValues(alpha: 0.88),
-                    letterSpacing: 0.3,
-                  ),
-                ),
-                SizedBox(height: wide ? 24 : 16),
-                Text(
-                  'Gestão de lojas, entregadores, vitrine e operações — com segurança e clareza.',
-                  style: TextStyle(
-                    fontSize: 14,
-                    height: 1.55,
-                    color: Colors.white.withValues(alpha: 0.75),
-                  ),
-                ),
-              ],
-            ),
           ),
           Positioned(
             left: 0,
@@ -982,6 +1057,149 @@ class _LoginAdminScreenState extends State<LoginAdminScreen> {
     );
     if (wide) return stack;
     return SizedBox(width: double.infinity, child: stack);
+  }
+
+  Widget _logoMarcaLogin({required double altura}) {
+    return Container(
+      padding: EdgeInsets.all(altura > 60 ? 14 : 10),
+      decoration: BoxDecoration(
+        color: Colors.white.withValues(alpha: 0.12),
+        borderRadius: BorderRadius.circular(altura > 60 ? 20 : 16),
+        border: Border.all(color: Colors.white.withValues(alpha: 0.2)),
+      ),
+      child: Image.asset(
+        'assets/logo.png',
+        height: altura,
+        errorBuilder: (c, e, s) => Icon(
+          Icons.admin_panel_settings_rounded,
+          size: altura * 0.85,
+          color: Colors.white,
+        ),
+      ),
+    );
+  }
+
+  Widget _chipsProofMarca({required CrossAxisAlignment alinhamento}) {
+    const itens = [
+      (Icons.storefront_rounded, 'Lojas verificadas'),
+      (Icons.receipt_long_rounded, 'Pedidos em tempo real'),
+      (Icons.account_balance_wallet_rounded, 'Carteira e operações'),
+    ];
+
+    return Wrap(
+      spacing: 10,
+      runSpacing: 10,
+      alignment: WrapAlignment.start,
+      crossAxisAlignment: WrapCrossAlignment.center,
+      children: [
+        for (final item in itens)
+          Container(
+            padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 9),
+            decoration: BoxDecoration(
+              color: Colors.white.withValues(alpha: 0.1),
+              borderRadius: BorderRadius.circular(12),
+              border: Border.all(color: Colors.white.withValues(alpha: 0.18)),
+            ),
+            child: Row(
+              mainAxisSize: MainAxisSize.min,
+              children: [
+                Icon(item.$1, size: 16, color: PainelAdminTheme.laranjaSuave),
+                const SizedBox(width: 8),
+                Text(
+                  item.$2,
+                  style: TextStyle(
+                    fontSize: 12.5,
+                    fontWeight: FontWeight.w600,
+                    color: Colors.white.withValues(alpha: 0.92),
+                  ),
+                ),
+              ],
+            ),
+          ),
+      ],
+    );
+  }
+
+  Widget _fundoPainelLogin({required Widget child}) {
+    return DecoratedBox(
+      decoration: BoxDecoration(
+        color: PainelAdminTheme.fundoCanvas,
+        gradient: RadialGradient(
+          center: const Alignment(0.85, -0.35),
+          radius: 1.1,
+          colors: [
+            PainelAdminTheme.roxo.withValues(alpha: 0.06),
+            PainelAdminTheme.fundoCanvas,
+          ],
+        ),
+      ),
+      child: child,
+    );
+  }
+
+  Widget _seloAcessoRestrito() {
+    return Center(
+      child: Container(
+        padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 8),
+        decoration: BoxDecoration(
+          color: const Color(0xFFF3F1F8),
+          borderRadius: BorderRadius.circular(999),
+          border: Border.all(color: const Color(0xFFE4DFEE)),
+        ),
+        child: Row(
+          mainAxisSize: MainAxisSize.min,
+          children: [
+            Icon(
+              Icons.shield_outlined,
+              size: 16,
+              color: PainelAdminTheme.roxo.withValues(alpha: 0.8),
+            ),
+            const SizedBox(width: 8),
+            Text(
+              'Acesso restrito · Administradores e lojistas',
+              style: GoogleFonts.plusJakartaSans(
+                fontSize: 11.5,
+                fontWeight: FontWeight.w700,
+                letterSpacing: 0.2,
+                color: PainelAdminTheme.textoSecundario,
+              ),
+            ),
+          ],
+        ),
+      ),
+    );
+  }
+
+  Widget? _bannerErroLogin() {
+    final msg = _erroBanner;
+    if (msg == null || msg.isEmpty) return null;
+    return Container(
+      width: double.infinity,
+      padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 12),
+      decoration: BoxDecoration(
+        color: _erroCor.withValues(alpha: 0.08),
+        borderRadius: BorderRadius.circular(12),
+        border: Border.all(color: _erroCor.withValues(alpha: 0.28)),
+      ),
+      child: Row(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          const Icon(Icons.error_outline_rounded, size: 20, color: _erroCor),
+          const SizedBox(width: 10),
+          Expanded(
+            child: Text(
+              msg,
+              style: GoogleFonts.plusJakartaSans(
+                fontSize: 13,
+                height: 1.4,
+                fontWeight: FontWeight.w600,
+                color: const Color(0xFF991B1B),
+              ),
+            ),
+          ),
+        ],
+      ),
+    );
   }
 
   Widget _cartaoLogin({required bool wide}) {
@@ -1012,15 +1230,15 @@ class _LoginAdminScreenState extends State<LoginAdminScreen> {
             ),
           ];
 
-    return Container(
+    final card = Container(
       constraints: const BoxConstraints(maxWidth: 440),
       margin: EdgeInsets.symmetric(
         horizontal: wide ? 24 : 20,
-        vertical: wide ? 32 : 24,
+        vertical: wide ? 32 : 20,
       ),
       padding: EdgeInsets.symmetric(
         horizontal: wide ? 36 : 28,
-        vertical: wide ? 40 : 32,
+        vertical: wide ? 36 : 28,
       ),
       decoration: BoxDecoration(
         color: Colors.white,
@@ -1032,17 +1250,8 @@ class _LoginAdminScreenState extends State<LoginAdminScreen> {
         crossAxisAlignment: CrossAxisAlignment.stretch,
         mainAxisSize: MainAxisSize.min,
         children: [
-          Text(
-            'ENTRAR',
-            textAlign: TextAlign.center,
-            style: TextStyle(
-              fontSize: 11,
-              fontWeight: FontWeight.w700,
-              letterSpacing: 2,
-              color: PainelAdminTheme.textoSecundario,
-            ),
-          ),
-          const SizedBox(height: 8),
+          _seloAcessoRestrito(),
+          const SizedBox(height: 22),
           Text(
             'Acesso ao painel',
             textAlign: TextAlign.center,
@@ -1056,22 +1265,29 @@ class _LoginAdminScreenState extends State<LoginAdminScreen> {
           ),
           const SizedBox(height: 8),
           Text(
-            'Acesso exclusivo para administradores e lojistas cadastrados.',
+            'Entre com e-mail e senha ou continue com Google.',
             textAlign: TextAlign.center,
-            style: TextStyle(
+            style: GoogleFonts.plusJakartaSans(
               fontSize: 14,
               height: 1.45,
               color: PainelAdminTheme.textoSecundario,
             ),
           ),
-          const SizedBox(height: 32),
+          if (_bannerErroLogin() != null) ...[
+            const SizedBox(height: 18),
+            _bannerErroLogin()!,
+          ],
+          const SizedBox(height: 28),
           TextField(
             controller: _emailController,
+            focusNode: _emailFocusNode,
             textInputAction: TextInputAction.next,
             keyboardType: TextInputType.emailAddress,
+            autofillHints: const [AutofillHints.email],
             style: GoogleFonts.plusJakartaSans(fontSize: 15),
             decoration: _fieldDecoration(
               label: 'E-mail',
+              errorText: _erroEmail,
               prefix: const Icon(
                 Icons.mail_outline_rounded,
                 color: PainelAdminTheme.roxo,
@@ -1087,9 +1303,11 @@ class _LoginAdminScreenState extends State<LoginAdminScreen> {
             controller: _senhaController,
             obscureText: _ocultarSenha,
             textInputAction: TextInputAction.done,
+            autofillHints: const [AutofillHints.password],
             style: GoogleFonts.plusJakartaSans(fontSize: 15),
             decoration: _fieldDecoration(
               label: 'Senha',
+              errorText: _erroSenha,
               prefix: const Icon(
                 Icons.lock_outline_rounded,
                 color: PainelAdminTheme.roxo,
@@ -1129,36 +1347,61 @@ class _LoginAdminScreenState extends State<LoginAdminScreen> {
               ),
             ),
           ),
-          const SizedBox(height: 20),
-          FilledButton(
-            onPressed: (_isLoading || _isLoadingGoogle) ? null : _fazerLogin,
-            style: FilledButton.styleFrom(
-              backgroundColor: PainelAdminTheme.laranja,
-              foregroundColor: Colors.white,
-              disabledBackgroundColor:
-                  PainelAdminTheme.laranja.withValues(alpha: 0.5),
-              padding: const EdgeInsets.symmetric(vertical: 16),
-              shape: RoundedRectangleBorder(
-                borderRadius: BorderRadius.circular(14),
-              ),
-              elevation: 0,
-            ),
-            child: _isLoading
-                ? const SizedBox(
-                    width: 24,
-                    height: 24,
-                    child: CircularProgressIndicator(
-                      color: Colors.white,
-                      strokeWidth: 2.5,
+          const SizedBox(height: 18),
+          MouseRegion(
+            onEnter: (_) => setState(() => _ctaHover = true),
+            onExit: (_) => setState(() => _ctaHover = false),
+            child: AnimatedScale(
+              scale: _ctaHover && !_isLoading && !_isLoadingGoogle ? 1.01 : 1,
+              duration: const Duration(milliseconds: 140),
+              curve: Curves.easeOut,
+              child: AnimatedContainer(
+                duration: const Duration(milliseconds: 140),
+                decoration: BoxDecoration(
+                  borderRadius: BorderRadius.circular(14),
+                  boxShadow: _ctaHover && !_isLoading && !_isLoadingGoogle
+                      ? [
+                          BoxShadow(
+                            color: PainelAdminTheme.laranja.withValues(alpha: 0.35),
+                            blurRadius: 18,
+                            offset: const Offset(0, 8),
+                          ),
+                        ]
+                      : null,
+                ),
+                child: FilledButton(
+                  onPressed: (_isLoading || _isLoadingGoogle) ? null : _fazerLogin,
+                  style: FilledButton.styleFrom(
+                    backgroundColor: PainelAdminTheme.laranja,
+                    foregroundColor: Colors.white,
+                    disabledBackgroundColor:
+                        PainelAdminTheme.laranja.withValues(alpha: 0.5),
+                    padding: const EdgeInsets.symmetric(vertical: 16),
+                    minimumSize: const Size(double.infinity, 52),
+                    shape: RoundedRectangleBorder(
+                      borderRadius: BorderRadius.circular(14),
                     ),
-                  )
-                : Text(
-                    'Entrar no painel',
-                    style: const TextStyle(
-                      fontSize: 16,
-                      fontWeight: FontWeight.w700,
-                    ),
+                    elevation: 0,
                   ),
+                  child: _isLoading
+                      ? const SizedBox(
+                          width: 24,
+                          height: 24,
+                          child: CircularProgressIndicator(
+                            color: Colors.white,
+                            strokeWidth: 2.5,
+                          ),
+                        )
+                      : Text(
+                          'Entrar no painel',
+                          style: GoogleFonts.plusJakartaSans(
+                            fontSize: 16,
+                            fontWeight: FontWeight.w700,
+                          ),
+                        ),
+                ),
+              ),
+            ),
           ),
           const SizedBox(height: 22),
           Row(
@@ -1197,6 +1440,7 @@ class _LoginAdminScreenState extends State<LoginAdminScreen> {
               side: const BorderSide(color: Color(0xFFDADCE0)),
               backgroundColor: Colors.white,
               padding: const EdgeInsets.symmetric(vertical: 14, horizontal: 16),
+              minimumSize: const Size(double.infinity, 50),
               shape: RoundedRectangleBorder(
                 borderRadius: BorderRadius.circular(14),
               ),
@@ -1213,11 +1457,7 @@ class _LoginAdminScreenState extends State<LoginAdminScreen> {
                 : Row(
                     mainAxisAlignment: MainAxisAlignment.center,
                     children: [
-                      Icon(
-                        Icons.account_circle_rounded,
-                        size: 24,
-                        color: PainelAdminTheme.textoSecundario,
-                      ),
+                      const _IconeGooglePainel(size: 20),
                       const SizedBox(width: 12),
                       Text(
                         'Continuar com Google',
@@ -1231,50 +1471,31 @@ class _LoginAdminScreenState extends State<LoginAdminScreen> {
           ),
           if (kIsWeb)
             Padding(
-              padding: const EdgeInsets.only(top: 10),
+              padding: const EdgeInsets.only(top: 12),
               child: Text(
                 'O acesso é liberado quando o e-mail do Google for o mesmo do '
                 'lojista aprovado no DiPertin.',
                 textAlign: TextAlign.center,
                 style: GoogleFonts.plusJakartaSans(
-                  fontSize: 11,
-                  height: 1.35,
+                  fontSize: 12.5,
+                  height: 1.4,
                   color: PainelAdminTheme.textoSecundario,
                 ),
               ),
             ),
-          const SizedBox(height: 22),
-          Center(
-            child: Container(
-              padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 9),
-              decoration: BoxDecoration(
-                color: const Color(0xFFF3F1F8),
-                borderRadius: BorderRadius.circular(999),
-                border: Border.all(color: const Color(0xFFE4DFEE)),
-              ),
-              child: Row(
-                mainAxisSize: MainAxisSize.min,
-                children: [
-                  Icon(
-                    Icons.shield_outlined,
-                    size: 16,
-                    color: PainelAdminTheme.roxo.withValues(alpha: 0.75),
-                  ),
-                  const SizedBox(width: 8),
-                  Text(
-                    'Acesso Restrito',
-                    style: TextStyle(
-                      fontSize: 11,
-                      fontWeight: FontWeight.w700,
-                      letterSpacing: 1.15,
-                      color: PainelAdminTheme.textoSecundario,
-                    ),
-                  ),
-                ],
-              ),
-            ),
-          ),
         ],
+      ),
+    );
+
+    return AnimatedOpacity(
+      opacity: _entradaAnimada ? 1 : 0,
+      duration: const Duration(milliseconds: 280),
+      curve: Curves.easeOut,
+      child: AnimatedSlide(
+        offset: _entradaAnimada ? Offset.zero : const Offset(0, 0.03),
+        duration: const Duration(milliseconds: 320),
+        curve: Curves.easeOutCubic,
+        child: card,
       ),
     );
   }
@@ -1297,12 +1518,13 @@ class _LoginAdminScreenState extends State<LoginAdminScreen> {
                 ),
                 Expanded(
                   flex: 54,
-                  child: Container(
-                    color: PainelAdminTheme.fundoCanvas,
-                    alignment: Alignment.center,
-                    child: SingleChildScrollView(
-                      padding: const EdgeInsets.only(bottom: 24),
-                      child: _cartaoLogin(wide: true),
+                  child: _fundoPainelLogin(
+                    child: Align(
+                      alignment: Alignment.center,
+                      child: SingleChildScrollView(
+                        padding: const EdgeInsets.only(bottom: 24),
+                        child: _cartaoLogin(wide: true),
+                      ),
                     ),
                   ),
                 ),
@@ -1316,12 +1538,14 @@ class _LoginAdminScreenState extends State<LoginAdminScreen> {
             slivers: [
               SliverToBoxAdapter(child: _painelMarca(wide: false)),
               SliverToBoxAdapter(
-                child: Container(
-                  width: double.infinity,
-                  color: PainelAdminTheme.fundoCanvas,
-                  alignment: Alignment.topCenter,
-                  padding: const EdgeInsets.only(bottom: 32),
-                  child: _cartaoLogin(wide: false),
+                child: _fundoPainelLogin(
+                  child: Align(
+                    alignment: Alignment.topCenter,
+                    child: Padding(
+                      padding: const EdgeInsets.only(bottom: 32),
+                      child: _cartaoLogin(wide: false),
+                    ),
+                  ),
                 ),
               ),
             ],
@@ -1330,6 +1554,62 @@ class _LoginAdminScreenState extends State<LoginAdminScreen> {
       ),
     );
   }
+}
+
+/// Logo Google colorido (padrão Sign-In) — sem dependência de asset externo.
+class _IconeGooglePainel extends StatelessWidget {
+  const _IconeGooglePainel({this.size = 20});
+  final double size;
+
+  @override
+  Widget build(BuildContext context) {
+    return SizedBox(
+      width: size,
+      height: size,
+      child: CustomPaint(painter: _GoogleLogoPainter()),
+    );
+  }
+}
+
+class _GoogleLogoPainter extends CustomPainter {
+  @override
+  void paint(Canvas canvas, Size size) {
+    final w = size.width;
+    final h = size.height;
+    final r = w * 0.42;
+    final c = Offset(w / 2, h / 2);
+
+    void arco(Color cor, double start, double sweep) {
+      final paint = Paint()
+        ..color = cor
+        ..style = PaintingStyle.stroke
+        ..strokeWidth = w * 0.18
+        ..strokeCap = StrokeCap.butt;
+      canvas.drawArc(
+        Rect.fromCircle(center: c, radius: r),
+        start,
+        sweep,
+        false,
+        paint,
+      );
+    }
+
+    arco(const Color(0xFFEA4335), -0.55, 1.35);
+    arco(const Color(0xFFFBBC05), 0.80, 1.05);
+    arco(const Color(0xFF34A853), 2.45, 1.05);
+    arco(const Color(0xFF4285F4), 3.95, 1.05);
+
+    final bar = Paint()
+      ..color = const Color(0xFF4285F4)
+      ..style = PaintingStyle.fill;
+    canvas.drawRect(
+      Rect.fromLTWH(w * 0.48, h * 0.44, w * 0.44, h * 0.14),
+      bar,
+    );
+  }
+
+  @override
+  bool shouldRepaint(covariant CustomPainter oldDelegate) => false;
 }
 
 // ─── Diálogo de Recuperação de Senha (OTP via Cloud Functions + SMTP) ───

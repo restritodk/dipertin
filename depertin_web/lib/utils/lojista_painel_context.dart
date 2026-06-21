@@ -44,7 +44,7 @@ bool painelMostrarMeusProdutos(Map<String, dynamic> dadosUsuario) {
 
 /// Evita abas proibidas (URL direta ou estado antigo).
 String sanearRotaPainelLojista(String route, int nivel) {
-  if (route == '/centro_operacoes') return '/dashboard';
+  if (PainelRoutes.ehRotaCentroOperacoes(route)) return '/dashboard';
   if (nivel >= 3) return PainelRoutes.normalize(route);
   const carteiras = <String>[
     '/carteira_loja',
@@ -62,7 +62,11 @@ String sanearRotaPainelLojista(String route, int nivel) {
   }
   if (route == '/dashboard' ||
       route == '/meus_pedidos' ||
-      route == '/negociacoes_encomenda') {
+      route == '/negociacoes_encomenda' ||
+      route == '/pdv' ||
+      route == '/comercial_dashboard' ||
+      route == '/comercial_clientes' ||
+      route == '/comercial_credito') {
     return PainelRoutes.normalize(route);
   }
   return '/dashboard';

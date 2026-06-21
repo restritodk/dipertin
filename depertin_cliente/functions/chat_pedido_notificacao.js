@@ -13,6 +13,7 @@
 
 const functions = require("firebase-functions/v1");
 const admin = require("firebase-admin");
+const codigoPedido = require("./codigo_pedido");
 
 const CHAT_FCM_ANDROID = {
     priority: "high",
@@ -117,19 +118,19 @@ exports.notificarChatMensagemPedido = functions.firestore
         if (!destinoUid) return null;
 
         const corpo = descricaoConteudo(msg);
-        const idCurto = pedidoId.length >= 5 ? pedidoId.slice(-5).toUpperCase() : pedidoId.toUpperCase();
+        const codigo = codigoPedido.codigoPedidoExibir(pedidoId, pedido);
 
         let titulo;
         let tipo;
         let segmento;
         if (enviadaPeloCliente) {
             const nomeCliente = truncar(pedido.cliente_nome || "Cliente", 60);
-            titulo = `${nomeCliente} · Pedido #${idCurto}`;
+            titulo = `${nomeCliente} · Pedido ${codigo}`;
             tipo = "chat_pedido_cliente_para_loja";
             segmento = "loja";
         } else {
             const nomeLoja = truncar(pedido.loja_nome || "Loja", 60);
-            titulo = `${nomeLoja} · Pedido #${idCurto}`;
+            titulo = `${nomeLoja} · Pedido ${codigo}`;
             tipo = "chat_pedido_loja_para_cliente";
             segmento = "cliente";
         }

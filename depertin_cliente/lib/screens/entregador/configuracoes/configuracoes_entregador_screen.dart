@@ -2,6 +2,7 @@
 
 import 'package:flutter/material.dart';
 
+import '../../../widgets/dipertin_scroll_body.dart';
 import '../../cliente/meus_enderecos_screen.dart';
 import 'acessibilidade_screen.dart';
 import 'gerenciar_veiculos_screen.dart';
@@ -30,8 +31,7 @@ class ConfiguracoesEntregadorScreen extends StatelessWidget {
         backgroundColor: _roxo,
         iconTheme: const IconThemeData(color: Colors.white),
       ),
-      body: ListView(
-        padding: const EdgeInsets.symmetric(vertical: 12),
+      body: DiPertinListBody(
         children: [
           _SecaoConfig(
             titulo: 'Gerenciar',
@@ -100,7 +100,6 @@ class ConfiguracoesEntregadorScreen extends StatelessWidget {
               ),
             ],
           ),
-          const SizedBox(height: 24),
         ],
       ),
     );

@@ -1,6 +1,97 @@
 {
   "indexes": [
     {
+      "collectionGroup": "avaliacoes_produto",
+      "queryScope": "COLLECTION",
+      "fields": [
+        { "fieldPath": "produto_id", "order": "ASCENDING" },
+        { "fieldPath": "data", "order": "DESCENDING" }
+      ]
+    },
+    {
+      "collectionGroup": "marketing_leads_lojistas",
+      "queryScope": "COLLECTION",
+      "fields": [
+        { "fieldPath": "status", "order": "ASCENDING" },
+        { "fieldPath": "atualizado_em", "order": "DESCENDING" }
+      ]
+    },
+    {
+      "collectionGroup": "marketing_leads_lojistas",
+      "queryScope": "COLLECTION",
+      "fields": [
+        { "fieldPath": "cidade", "order": "ASCENDING" },
+        { "fieldPath": "atualizado_em", "order": "DESCENDING" }
+      ]
+    },
+    {
+      "collectionGroup": "marketing_leads_entregadores",
+      "queryScope": "COLLECTION",
+      "fields": [
+        { "fieldPath": "status", "order": "ASCENDING" },
+        { "fieldPath": "atualizado_em", "order": "DESCENDING" }
+      ]
+    },
+    {
+      "collectionGroup": "marketing_leads_entregadores",
+      "queryScope": "COLLECTION",
+      "fields": [
+        { "fieldPath": "cidade", "order": "ASCENDING" },
+        { "fieldPath": "atualizado_em", "order": "DESCENDING" }
+      ]
+    },
+    {
+      "collectionGroup": "pedidos",
+      "queryScope": "COLLECTION",
+      "fields": [
+        { "fieldPath": "loja_id", "order": "ASCENDING" },
+        { "fieldPath": "status", "order": "ASCENDING" },
+        { "fieldPath": "origem", "order": "ASCENDING" },
+        { "fieldPath": "data_pedido", "order": "ASCENDING" }
+      ]
+    },
+    {
+      "collectionGroup": "pedidos",
+      "queryScope": "COLLECTION",
+      "fields": [
+        { "fieldPath": "loja_id", "order": "ASCENDING" },
+        { "fieldPath": "data_pedido", "order": "ASCENDING" }
+      ]
+    },
+    {
+      "collectionGroup": "pedidos",
+      "queryScope": "COLLECTION",
+      "fields": [
+        { "fieldPath": "loja_id", "order": "ASCENDING" },
+        { "fieldPath": "status", "order": "ASCENDING" },
+        { "fieldPath": "data_pedido", "order": "ASCENDING" }
+      ]
+    },
+    {
+      "collectionGroup": "parcelas_cliente",
+      "queryScope": "COLLECTION",
+      "fields": [
+        { "fieldPath": "cliente_id", "order": "ASCENDING" },
+        { "fieldPath": "data_vencimento", "order": "ASCENDING" }
+      ]
+    },
+    {
+      "collectionGroup": "parcelas_cliente",
+      "queryScope": "COLLECTION",
+      "fields": [
+        { "fieldPath": "venda_credito_id", "order": "ASCENDING" }
+      ]
+    },
+    {
+      "collectionGroup": "pedidos",
+      "queryScope": "COLLECTION",
+      "fields": [
+        { "fieldPath": "loja_id", "order": "ASCENDING" },
+        { "fieldPath": "cliente_id", "order": "ASCENDING" },
+        { "fieldPath": "data_pedido", "order": "DESCENDING" }
+      ]
+    },
+    {
       "collectionGroup": "achados",
       "queryScope": "COLLECTION",
       "fields": [
@@ -31,6 +122,23 @@
       "fields": [
         { "fieldPath": "lojista_id", "order": "ASCENDING" },
         { "fieldPath": "ativo", "order": "ASCENDING" }
+      ]
+    },
+    {
+      "collectionGroup": "cupons",
+      "queryScope": "COLLECTION",
+      "fields": [
+        { "fieldPath": "loja_id", "order": "ASCENDING" },
+        { "fieldPath": "escopo", "order": "ASCENDING" }
+      ]
+    },
+    {
+      "collectionGroup": "cupons",
+      "queryScope": "COLLECTION",
+      "fields": [
+        { "fieldPath": "loja_id", "order": "ASCENDING" },
+        { "fieldPath": "escopo", "order": "ASCENDING" },
+        { "fieldPath": "codigo", "order": "ASCENDING" }
       ]
     },
     {
@@ -207,11 +315,27 @@
       ]
     },
     {
+      "collectionGroup": "encomendas",
+      "queryScope": "COLLECTION",
+      "fields": [
+        { "fieldPath": "lojista_id", "order": "ASCENDING" },
+        { "fieldPath": "atualizado_em", "order": "DESCENDING" }
+      ]
+    },
+    {
       "collectionGroup": "users",
       "queryScope": "COLLECTION",
       "fields": [
         { "fieldPath": "entregador_perfil_operacional", "order": "ASCENDING" },
         { "fieldPath": "entregador_exclusao_perfil_em", "order": "ASCENDING" }
+      ]
+    },
+    {
+      "collectionGroup": "users",
+      "queryScope": "COLLECTION",
+      "fields": [
+        { "fieldPath": "entregador_perfil_operacional", "order": "ASCENDING" },
+        { "fieldPath": "cidade", "order": "ASCENDING" }
       ]
     }
   ],

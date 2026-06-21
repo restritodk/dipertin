@@ -14,6 +14,7 @@ import 'package:depertin_cliente/services/fcm_rota.dart';
 import 'package:flutter/foundation.dart'
     show kDebugMode, kIsWeb, defaultTargetPlatform, TargetPlatform;
 import 'package:flutter/material.dart';
+import 'package:flutter_localizations/flutter_localizations.dart';
 import 'package:flutter/services.dart';
 import 'package:firebase_core/firebase_core.dart';
 import 'package:firebase_app_check/firebase_app_check.dart';
@@ -25,6 +26,8 @@ import 'package:provider/provider.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 import 'package:intl/date_symbol_data_local.dart';
 import 'package:depertin_cliente/app_navigator_key.dart';
+import 'package:depertin_cliente/services/deep_link_service.dart';
+import 'package:depertin_cliente/widgets/dipertin_safe_media_query.dart';
 import 'package:depertin_cliente/screens/entregador/entregador_home_screen.dart';
 import 'firebase_options.dart';
 import 'providers/cart_provider.dart';
@@ -93,23 +96,24 @@ Future<void> _firebaseMessagingBackgroundHandler(RemoteMessage message) async {
   );
 }
 
-/// Android: esconde a barra de navegação (voltar/home/recentes). O usuário pode
-/// deslizar de baixo para cima para exibi-la por um instante.
-Future<void> configurarBarraNavegacaoAndroidOculta() async {
+/// Android: mantém os botões do sistema (voltar/home/recentes) visíveis e o
+/// conteúdo do app (ex.: bottom nav) acima deles — mesmo padrão do Mercado Livre.
+Future<void> configurarBarraNavegacaoAndroidPadrao() async {
   if (kIsWeb || defaultTargetPlatform != TargetPlatform.android) return;
   await SystemChrome.setEnabledSystemUIMode(
     SystemUiMode.manual,
-    overlays: [SystemUiOverlay.top],
+    overlays: [SystemUiOverlay.top, SystemUiOverlay.bottom],
   );
   SystemChrome.setSystemUIOverlayStyle(
     const SystemUiOverlayStyle(
       statusBarColor: Colors.transparent,
       statusBarIconBrightness: Brightness.light,
-      systemNavigationBarColor: Colors.transparent,
+      systemNavigationBarColor: Colors.white,
       systemNavigationBarDividerColor: Colors.transparent,
       systemNavigationBarIconBrightness: Brightness.dark,
     ),
   );
+  await AndroidNavIntent.exibirBarraNavegacaoSistema();
 }
 
 /// App Check: valida que chamadas (Functions, etc.) vêm do app. Não interfere no FCM.
@@ -124,7 +128,7 @@ Future<void> ativarFirebaseAppCheck() async {
 void main() async {
   WidgetsFlutterBinding.ensureInitialized();
   await initializeDateFormatting('pt_BR', null);
-  await configurarBarraNavegacaoAndroidOculta();
+  await configurarBarraNavegacaoAndroidPadrao();
   await Firebase.initializeApp(options: DefaultFirebaseOptions.currentPlatform);
   await ativarFirebaseAppCheck();
 
@@ -239,6 +243,10 @@ class _DiPertinAppState extends State<DiPertinApp> with WidgetsBindingObserver {
   void initState() {
     super.initState();
     WidgetsBinding.instance.addObserver(this);
+    WidgetsBinding.instance.addPostFrameCallback((_) {
+      unawaited(configurarBarraNavegacaoAndroidPadrao());
+    });
+    unawaited(DeepLinkService.instance.iniciar());
   }
 
   @override
@@ -250,7 +258,7 @@ class _DiPertinAppState extends State<DiPertinApp> with WidgetsBindingObserver {
   @override
   void didChangeAppLifecycleState(AppLifecycleState state) {
     if (state == AppLifecycleState.resumed) {
-      configurarBarraNavegacaoAndroidOculta();
+      configurarBarraNavegacaoAndroidPadrao();
       unawaited(_consumirNavAndroidSeHouver());
     }
   }
@@ -270,6 +278,13 @@ class _DiPertinAppState extends State<DiPertinApp> with WidgetsBindingObserver {
       navigatorKey: navigatorKey,
       title: 'DiPertin - O que você precisa, bem aqui!',
       debugShowCheckedModeBanner: false,
+      locale: const Locale('pt', 'BR'),
+      supportedLocales: const [Locale('pt', 'BR')],
+      localizationsDelegates: const [
+        GlobalMaterialLocalizations.delegate,
+        GlobalWidgetsLocalizations.delegate,
+        GlobalCupertinoLocalizations.delegate,
+      ],
       theme: ThemeData(
         primaryColor: diPertinRoxo,
         colorScheme: ColorScheme.fromSeed(
@@ -279,8 +294,9 @@ class _DiPertinAppState extends State<DiPertinApp> with WidgetsBindingObserver {
         useMaterial3: true,
       ),
       // `child` pode ser null por um frame ao trocar a pilha de rotas.
-      builder: (context, child) =>
-          AppGuard(child: child ?? const SizedBox.shrink()),
+      builder: (context, child) => DiPertinSafeMediaQuery(
+        child: AppGuard(child: child ?? const SizedBox.shrink()),
+      ),
       home: const SplashScreen(),
       routes: {
         '/pedidos': (context) => const LojistaPedidosScreen(),
@@ -439,7 +455,10 @@ class _SplashScreenState extends State<SplashScreen> {
     await _aplicarDelayMinimoSplash(splashInicio);
     if (!mounted) return;
 
+    await configurarBarraNavegacaoAndroidPadrao();
+    if (!mounted) return;
     Navigator.pushReplacementNamed(context, '/home');
+    DeepLinkService.instance.appPronto();
   }
 
   Future<void> _abrirLojaParaAtualizarApp() async {
@@ -472,7 +491,10 @@ class _SplashScreenState extends State<SplashScreen> {
     }
     await _aplicarDelayMinimoSplash(splashInicio);
     if (!mounted) return;
+    await configurarBarraNavegacaoAndroidPadrao();
+    if (!mounted) return;
     Navigator.pushReplacementNamed(context, '/home');
+    DeepLinkService.instance.appPronto();
   }
 
   Future<void> _configurarFCM() async {
@@ -983,6 +1005,7 @@ class _MainNavigatorState extends State<MainNavigator> {
       () => unawaited(_executarOnboardingEnderecoPrimeiroAcesso()),
     );
     WidgetsBinding.instance.addPostFrameCallback((_) {
+      unawaited(configurarBarraNavegacaoAndroidPadrao());
       _executarOnboardingEnderecoPrimeiroAcesso().then((_) {
         _exibirComunicadosNaoLidos();
       });
@@ -1173,11 +1196,14 @@ class _MainNavigatorState extends State<MainNavigator> {
   Widget build(BuildContext context) {
     return Scaffold(
       body: _telas[_selectedIndex],
-      bottomNavigationBar: BottomNavigationBar(
-        currentIndex: _selectedIndex,
-        onTap: (index) => setState(() => _selectedIndex = index),
-        selectedItemColor: diPertinLaranja,
-        items: const [
+      bottomNavigationBar: SafeArea(
+        top: false,
+        minimum: EdgeInsets.zero,
+        child: BottomNavigationBar(
+          currentIndex: _selectedIndex,
+          onTap: (index) => setState(() => _selectedIndex = index),
+          selectedItemColor: diPertinLaranja,
+          items: const [
           BottomNavigationBarItem(
             icon: Icon(Icons.search),
             label: "Buscar/Serviços",
@@ -1187,7 +1213,8 @@ class _MainNavigatorState extends State<MainNavigator> {
             label: "Vitrine",
           ),
           BottomNavigationBarItem(icon: Icon(Icons.person), label: "Perfil"),
-        ],
+          ],
+        ),
       ),
     );
   }

@@ -1,0 +1,38 @@
+<!DOCTYPE html>
+<html lang="pt-BR">
+
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover" />
+  <meta name="theme-color" content="#6A1B9A" />
+  <title>Abrindo produto — DiPertin</title>
+  <meta name="robots" content="noindex, follow" />
+
+  <!-- Open Graph (prévia ao compartilhar). Como o site é estático, usamos a
+       imagem padrão; o app exibe a foto real do produto ao abrir. -->
+  <meta property="og:type" content="product" />
+  <meta property="og:site_name" content="DiPertin" />
+  <meta property="og:locale" content="pt_BR" />
+  <meta property="og:title" content="Veja este produto no DiPertin" />
+  <meta property="og:description" content="Abra no app DiPertin para ver detalhes, preço e comprar." />
+  <meta property="og:image" content="https://www.dipertin.com.br/assets/og-dipertin.png" />
+
+  <link rel="stylesheet" href="/p/produto-link.css" />
+</head>
+
+<body>
+  <main class="card">
+    <img class="logo" src="https://www.dipertin.com.br/assets/logo.png" alt="DiPertin" />
+    <div class="spin" id="spin"></div>
+    <h1 id="titulo">Abrindo no app DiPertin…</h1>
+    <p id="msg">Se você tem o app instalado, ele abrirá automaticamente. Caso contrário, baixe para ver o produto.</p>
+
+    <a class="btn btn--primary" id="btnApp" href="#">Abrir no app</a>
+    <a class="btn btn--outline" id="btnLoja" href="#">Baixar o app</a>
+    <p class="hint">Produto: <span id="pid">—</span></p>
+  </main>
+
+  <script src="/p/produto-link.js"></script>
+</body>
+
+</html>

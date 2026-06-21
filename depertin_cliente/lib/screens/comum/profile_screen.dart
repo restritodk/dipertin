@@ -22,8 +22,11 @@ import 'package:depertin_cliente/screens/entregador/entregador_home_screen.dart'
 import 'package:depertin_cliente/services/conta_bloqueio_entregador_service.dart';
 import 'package:depertin_cliente/services/conta_bloqueio_lojista_service.dart';
 import 'package:depertin_cliente/services/permissoes_app_service.dart';
+import 'package:depertin_cliente/services/sessao_erro_interceptor.dart';
 import 'package:depertin_cliente/utils/cpf_perfil_usuario.dart';
 import 'package:depertin_cliente/widgets/lojista_conta_bloqueada_overlay.dart';
+import 'package:depertin_cliente/widgets/dipertin_scroll_body.dart';
+import 'package:depertin_cliente/utils/safe_area_insets.dart';
 import '../auth/login_screen.dart';
 import '../cliente/orders_screen.dart';
 import '../cliente/cliente_encomendas_list_screen.dart';
@@ -34,6 +37,10 @@ import '../lojista/lojista_form_screen.dart';
 
 const Color diPertinRoxo = Color(0xFF6A1B9A);
 const Color diPertinLaranja = Color(0xFFFF8F00);
+const Color _fundoTela = Color(0xFFF5F4F8);
+const Color _textoPrimario = Color(0xFF1A1A2E);
+const Color _textoMuted = Color(0xFF64748B);
+const Color _bordaCard = Color(0xFFE8E6ED);
 
 const String _kTelefonePerfilVazio = 'Adicionar telefone';
 
@@ -52,8 +59,18 @@ String _telefonePerfilLegenda(Map<String, dynamic> userData) {
   return bruto;
 }
 
+String _normalizarRolePerfil(dynamic raw) {
+  return (raw ?? 'cliente').toString().trim().toLowerCase();
+}
+
+/// Cliente, lojista e entregador podem comprar e precisam ver pedidos/encomendas.
+bool _perfilComAcessoPedidosCliente(String role) {
+  final r = _normalizarRolePerfil(role);
+  return r == 'cliente' || r == 'lojista' || r == 'entregador';
+}
+
 String _rotuloTipoPerfil(String role) {
-  switch (role) {
+  switch (_normalizarRolePerfil(role)) {
     case 'lojista':
       return 'Lojista';
     case 'entregador':
@@ -229,9 +246,111 @@ class ProfileScreen extends StatefulWidget {
 
 class _ProfileScreenState extends State<ProfileScreen> {
   bool _isUploadingFoto = false;
+  bool _entradaAnimada = false;
   String? _statusLojaDono;
   String? _nomeLojaDono;
   String? _ownerUidCache;
+
+  @override
+  void initState() {
+    super.initState();
+    WidgetsBinding.instance.addPostFrameCallback((_) {
+      if (mounted) setState(() => _entradaAnimada = true);
+    });
+  }
+
+  Widget _buildHeaderGradient() {
+    return Container(
+      decoration: const BoxDecoration(
+        gradient: LinearGradient(
+          begin: Alignment.topCenter,
+          end: Alignment.bottomCenter,
+          colors: [Color(0xFF6A1B9A), Color(0xFF7B1FA2)],
+        ),
+      ),
+      child: SafeArea(
+        bottom: false,
+        child: Padding(
+          padding: const EdgeInsets.fromLTRB(20, 8, 4, 16),
+          child: Row(
+            children: const [
+              Expanded(
+                child: Text(
+                  'Meu perfil',
+                  style: TextStyle(
+                    color: Colors.white,
+                    fontWeight: FontWeight.w800,
+                    fontSize: 22,
+                    letterSpacing: -0.5,
+                  ),
+                ),
+              ),
+              _BotaoNotificacoesPerfil(),
+            ],
+          ),
+        ),
+      ),
+    );
+  }
+
+  Widget _buildSkeletonPerfil() {
+    return DiPertinScrollBody(
+      padding: diPertinScrollPaddingTabShell(context, top: 12, extraBottom: 16),
+      child: Column(
+        children: [
+          Container(
+            padding: const EdgeInsets.fromLTRB(20, 24, 20, 22),
+            decoration: BoxDecoration(
+              color: Colors.white,
+              borderRadius: BorderRadius.circular(20),
+              border: Border.all(color: _bordaCard),
+            ),
+            child: Column(
+              children: [
+                Container(
+                  width: 104,
+                  height: 104,
+                  decoration: BoxDecoration(
+                    shape: BoxShape.circle,
+                    color: Colors.grey.shade200,
+                  ),
+                ),
+                const SizedBox(height: 16),
+                Container(
+                  width: 160,
+                  height: 18,
+                  decoration: BoxDecoration(
+                    color: Colors.grey.shade200,
+                    borderRadius: BorderRadius.circular(6),
+                  ),
+                ),
+                const SizedBox(height: 10),
+                Container(
+                  width: 100,
+                  height: 28,
+                  decoration: BoxDecoration(
+                    color: Colors.grey.shade200,
+                    borderRadius: BorderRadius.circular(8),
+                  ),
+                ),
+              ],
+            ),
+          ),
+          const SizedBox(height: 20),
+          for (var i = 0; i < 3; i++) ...[
+            Container(
+              height: 88,
+              margin: const EdgeInsets.only(bottom: 12),
+              decoration: BoxDecoration(
+                color: Colors.grey.shade200,
+                borderRadius: BorderRadius.circular(16),
+              ),
+            ),
+          ],
+        ],
+      ),
+    );
+  }
 
   Future<void> _confirmarSair(BuildContext context) async {
     final bool? sair = await showDialog<bool>(
@@ -284,253 +403,427 @@ class _ProfileScreenState extends State<ProfileScreen> {
   @override
   Widget build(BuildContext context) {
     return Scaffold(
-      backgroundColor: const Color(0xFFF5F4F8),
-      appBar: AppBar(
-        title: const Text(
-          'Meu perfil',
-          style: TextStyle(
-            color: Colors.white,
-            fontWeight: FontWeight.bold,
-            letterSpacing: -0.2,
-          ),
-        ),
-        backgroundColor: diPertinRoxo,
-        elevation: 0,
-        surfaceTintColor: Colors.transparent,
-        actions: const [
-          _BotaoNotificacoesPerfil(),
-          SizedBox(width: 4),
-        ],
-      ),
-      body: StreamBuilder<User?>(
-        stream: FirebaseAuth.instance.authStateChanges(),
-        builder: (context, authSnapshot) {
-          if (authSnapshot.connectionState == ConnectionState.waiting &&
-              !authSnapshot.hasData) {
-            return const Center(
-              child: CircularProgressIndicator(color: diPertinRoxo),
-            );
-          }
+      backgroundColor: _fundoTela,
+      body: Column(
+        children: [
+          _buildHeaderGradient(),
+          Expanded(
+            child: StreamBuilder<User?>(
+              stream: FirebaseAuth.instance.authStateChanges(),
+              builder: (context, authSnapshot) {
+                if (authSnapshot.connectionState == ConnectionState.waiting &&
+                    !authSnapshot.hasData) {
+                  return _buildSkeletonPerfil();
+                }
 
-          if (!authSnapshot.hasData) {
-            return _construirTelaSemLogin(context);
-          }
+                if (!authSnapshot.hasData) {
+                  return _construirTelaSemLogin(context);
+                }
 
-          final User user = authSnapshot.data!;
+                final User user = authSnapshot.data!;
 
-          return StreamBuilder<DocumentSnapshot>(
-            stream: FirebaseFirestore.instance
-                .collection('users')
-                .doc(user.uid)
-                .snapshots(),
-            builder: (context, userSnapshot) {
-              if (userSnapshot.connectionState == ConnectionState.waiting &&
-                  !userSnapshot.hasData) {
-                return const Center(
-                  child: CircularProgressIndicator(color: diPertinRoxo),
+                return StreamBuilder<DocumentSnapshot>(
+                  stream: FirebaseFirestore.instance
+                      .collection('users')
+                      .doc(user.uid)
+                      .snapshots(),
+                  builder: (context, userSnapshot) {
+                    if (userSnapshot.connectionState ==
+                            ConnectionState.waiting &&
+                        !userSnapshot.hasData) {
+                      return _buildSkeletonPerfil();
+                    }
+
+                    if (userSnapshot.hasError) {
+                      // Sessão expirada (token expirado/revogado): aciona o
+                      // fluxo profissional global e nunca mostra o erro cru.
+                      if (SessaoErroInterceptor.ehErroSessaoExpirada(
+                        userSnapshot.error,
+                      )) {
+                        WidgetsBinding.instance.addPostFrameCallback((_) {
+                          SessaoErroInterceptor.processarErroSessaoExpirada(
+                            context,
+                          );
+                        });
+                        return _buildSkeletonPerfil();
+                      }
+                      return _erroCarregarPerfil(
+                        context,
+                        'Não foi possível carregar seus dados. '
+                        'Verifique sua conexão e tente novamente.',
+                      );
+                    }
+
+                    if (!userSnapshot.hasData || !userSnapshot.data!.exists) {
+                      return _erroPerfilNaoEncontrado(context);
+                    }
+
+                    final Map<String, dynamic> userData =
+                        userSnapshot.data!.data() as Map<String, dynamic>;
+                    final double saldo =
+                        (userData['saldo'] ?? 0.0).toDouble();
+
+                    return _construirTelaComLogin(
+                      context,
+                      user.email ?? '',
+                      userData,
+                      saldoCarteira: saldo,
+                    );
+                  },
                 );
-              }
-
-              if (userSnapshot.hasError) {
-                return _erroCarregarPerfil(context, '${userSnapshot.error}');
-              }
-
-              if (!userSnapshot.hasData || !userSnapshot.data!.exists) {
-                return _erroPerfilNaoEncontrado(context);
-              }
-
-              final Map<String, dynamic> userData =
-                  userSnapshot.data!.data() as Map<String, dynamic>;
-              final double saldo =
-                  (userData['saldo'] ?? 0.0).toDouble();
-
-              return _construirTelaComLogin(
-                context,
-                user.email ?? '',
-                userData,
-                saldoCarteira: saldo,
-              );
-            },
-          );
-        },
+              },
+            ),
+          ),
+        ],
       ),
     );
   }
 
   Widget _erroPerfilNaoEncontrado(BuildContext context) {
-    return Center(
-      child: Padding(
-        padding: const EdgeInsets.all(32),
-        child: Column(
-          mainAxisAlignment: MainAxisAlignment.center,
-          children: [
-            Icon(Icons.person_off_outlined, size: 64, color: Colors.grey.shade400),
-            const SizedBox(height: 16),
-            Text(
-              'Perfil não encontrado',
-              style: TextStyle(
-                fontSize: 18,
-                fontWeight: FontWeight.w800,
-                color: Colors.grey.shade800,
+    return DiPertinScrollBody(
+      padding: diPertinScrollPaddingTabShell(context, top: 24, extraBottom: 24),
+      child: Column(
+        mainAxisAlignment: MainAxisAlignment.center,
+        children: [
+          Icon(
+            Icons.person_off_outlined,
+            size: 64,
+            color: Colors.grey.shade400,
+          ),
+          const SizedBox(height: 16),
+          const Text(
+            'Perfil não encontrado',
+            style: TextStyle(
+              fontSize: 18,
+              fontWeight: FontWeight.w800,
+              color: _textoPrimario,
+            ),
+          ),
+          const SizedBox(height: 8),
+          Text(
+            'Não foi possível carregar seus dados. Tente novamente ou entre em contato com o suporte.',
+            textAlign: TextAlign.center,
+            style: TextStyle(color: _textoMuted, height: 1.4, fontSize: 14),
+          ),
+          const SizedBox(height: 24),
+          FilledButton.icon(
+            onPressed: () {
+              Navigator.of(context).pushReplacement(
+                MaterialPageRoute(builder: (_) => const ProfileScreen()),
+              );
+            },
+            style: FilledButton.styleFrom(
+              backgroundColor: diPertinLaranja,
+              foregroundColor: Colors.white,
+              minimumSize: const Size(double.infinity, 48),
+              shape: RoundedRectangleBorder(
+                borderRadius: BorderRadius.circular(14),
               ),
             ),
-            const SizedBox(height: 8),
-            Text(
-              'Não foi possível carregar seus dados. Tente novamente ou entre em contato com o suporte.',
-              textAlign: TextAlign.center,
-              style: TextStyle(color: Colors.grey.shade600, height: 1.4),
-            ),
-            const SizedBox(height: 24),
-            FilledButton.icon(
-              onPressed: () {
-                Navigator.of(context).pushReplacement(
-                  MaterialPageRoute(builder: (_) => const ProfileScreen()),
-                );
-              },
-              style: FilledButton.styleFrom(
-                backgroundColor: diPertinLaranja,
-                foregroundColor: Colors.white,
-              ),
-              icon: const Icon(Icons.refresh),
-              label: const Text('Tentar novamente'),
-            ),
-          ],
-        ),
+            icon: const Icon(Icons.refresh),
+            label: const Text('Tentar novamente'),
+          ),
+        ],
       ),
     );
   }
 
   Widget _erroCarregarPerfil(BuildContext context, String mensagem) {
-    return Center(
-      child: Padding(
-        padding: const EdgeInsets.all(24),
-        child: Column(
-          mainAxisAlignment: MainAxisAlignment.center,
-          children: [
-            const Icon(Icons.cloud_off_outlined, size: 56, color: Colors.orange),
-            const SizedBox(height: 16),
-            Text(
-              'Algo deu errado',
-              style: TextStyle(
-                fontSize: 18,
-                fontWeight: FontWeight.w800,
-                color: Colors.grey.shade800,
-              ),
+    return DiPertinScrollBody(
+      padding: diPertinScrollPaddingTabShell(context, top: 24, extraBottom: 24),
+      child: Column(
+        mainAxisAlignment: MainAxisAlignment.center,
+        children: [
+          const Icon(Icons.cloud_off_outlined, size: 56, color: Colors.orange),
+          const SizedBox(height: 16),
+          const Text(
+            'Algo deu errado',
+            style: TextStyle(
+              fontSize: 18,
+              fontWeight: FontWeight.w800,
+              color: _textoPrimario,
             ),
-            const SizedBox(height: 8),
-            Text(
-              mensagem,
-              textAlign: TextAlign.center,
-              style: const TextStyle(color: Colors.red, fontSize: 13),
-            ),
-            const SizedBox(height: 20),
-            TextButton.icon(
-              onPressed: () {
-                Navigator.of(context).pushReplacement(
-                  MaterialPageRoute(builder: (_) => const ProfileScreen()),
-                );
-              },
-              icon: const Icon(Icons.refresh),
-              label: const Text('Tentar novamente'),
-            ),
-          ],
-        ),
+          ),
+          const SizedBox(height: 8),
+          Text(
+            mensagem,
+            textAlign: TextAlign.center,
+            style: const TextStyle(color: Colors.red, fontSize: 13),
+          ),
+          const SizedBox(height: 20),
+          FilledButton.tonalIcon(
+            onPressed: () {
+              Navigator.of(context).pushReplacement(
+                MaterialPageRoute(builder: (_) => const ProfileScreen()),
+              );
+            },
+            icon: const Icon(Icons.refresh),
+            label: const Text('Tentar novamente'),
+          ),
+        ],
       ),
     );
   }
 
   Widget _construirTelaSemLogin(BuildContext context) {
-    return Center(
-      child: SingleChildScrollView(
-        padding: const EdgeInsets.symmetric(horizontal: 20, vertical: 24),
-        child: Container(
-          width: double.infinity,
-          padding: const EdgeInsets.fromLTRB(22, 28, 22, 26),
-          decoration: BoxDecoration(
-            color: Colors.white,
-            borderRadius: BorderRadius.circular(16),
-            border: Border.all(color: const Color(0xFFE8E6ED)),
-            boxShadow: [
-              BoxShadow(
-                color: Colors.black.withValues(alpha: 0.05),
-                blurRadius: 16,
-                offset: const Offset(0, 6),
-              ),
-            ],
-          ),
+    return DiPertinScrollBody(
+      padding: diPertinScrollPaddingTabShell(context, top: 12, extraBottom: 24),
+      child: AnimatedOpacity(
+        opacity: _entradaAnimada ? 1 : 0,
+        duration: const Duration(milliseconds: 260),
+        curve: Curves.easeOut,
+        child: AnimatedSlide(
+          offset: _entradaAnimada ? Offset.zero : const Offset(0, 0.04),
+          duration: const Duration(milliseconds: 320),
+          curve: Curves.easeOutCubic,
           child: Column(
             mainAxisSize: MainAxisSize.min,
             children: [
-              Image.asset(
-                'assets/logo.png',
-                height: 108,
-                fit: BoxFit.contain,
-                errorBuilder: (context, error, stackTrace) {
-                  return Icon(
-                    Icons.storefront_rounded,
-                    size: 80,
-                    color: diPertinRoxo.withValues(alpha: 0.85),
-                  );
-                },
-              ),
-              const SizedBox(height: 24),
-              const Text(
-                'Entre na sua conta',
-                textAlign: TextAlign.center,
-                style: TextStyle(
-                  fontSize: 22,
-                  fontWeight: FontWeight.w800,
-                  color: Color(0xFF1A1A2E),
-                  letterSpacing: -0.3,
-                ),
-              ),
-              const SizedBox(height: 10),
-              Text(
-                'Faça login para ver seu perfil, pedidos e benefícios.',
-                textAlign: TextAlign.center,
-                style: TextStyle(
-                  color: Colors.grey.shade600,
-                  fontSize: 15,
-                  height: 1.45,
-                ),
-              ),
-              const SizedBox(height: 8),
-              Text(
-                'Leva só um minuto.',
-                textAlign: TextAlign.center,
-                style: TextStyle(
-                  color: Colors.grey.shade500,
-                  fontSize: 13,
-                  fontWeight: FontWeight.w600,
-                ),
-              ),
-              const SizedBox(height: 26),
-              FilledButton(
-                onPressed: () {
-                  Navigator.push(
-                    context,
-                    MaterialPageRoute(
-                      builder: (context) => const LoginScreen(),
-                    ),
-                  );
-                },
-                style: FilledButton.styleFrom(
-                  backgroundColor: diPertinLaranja,
-                  foregroundColor: Colors.white,
-                  minimumSize: const Size(double.infinity, 52),
-                  shape: RoundedRectangleBorder(
-                    borderRadius: BorderRadius.circular(14),
-                  ),
-                ),
-                child: const Text(
-                  'Entrar ou cadastrar',
-                  style: TextStyle(fontWeight: FontWeight.w800, fontSize: 16),
-                ),
-              ),
+              _heroSemLogin(),
+              const SizedBox(height: 16),
+              _beneficiosSemLogin(),
+              const SizedBox(height: 18),
+              _ctaSemLogin(context),
+              const SizedBox(height: 16),
+              _confiancaSemLogin(),
             ],
           ),
         ),
       ),
+    );
+  }
+
+  Widget _heroSemLogin() {
+    return Container(
+      width: double.infinity,
+      padding: const EdgeInsets.fromLTRB(24, 30, 24, 30),
+      decoration: BoxDecoration(
+        borderRadius: BorderRadius.circular(26),
+        gradient: const LinearGradient(
+          begin: Alignment.topLeft,
+          end: Alignment.bottomRight,
+          colors: [diPertinRoxo, Color(0xFF8E24AA)],
+        ),
+        boxShadow: [
+          BoxShadow(
+            color: diPertinRoxo.withValues(alpha: 0.28),
+            blurRadius: 28,
+            offset: const Offset(0, 14),
+          ),
+        ],
+      ),
+      child: Column(
+        mainAxisSize: MainAxisSize.min,
+        children: [
+          Container(
+            padding: const EdgeInsets.all(16),
+            decoration: BoxDecoration(
+              color: Colors.white,
+              borderRadius: BorderRadius.circular(22),
+              boxShadow: [
+                BoxShadow(
+                  color: Colors.black.withValues(alpha: 0.12),
+                  blurRadius: 18,
+                  offset: const Offset(0, 8),
+                ),
+              ],
+            ),
+            child: Image.asset(
+              'assets/logo.png',
+              height: 76,
+              fit: BoxFit.contain,
+              errorBuilder: (context, error, stackTrace) {
+                return const Icon(
+                  Icons.storefront_rounded,
+                  size: 64,
+                  color: diPertinRoxo,
+                );
+              },
+            ),
+          ),
+          const SizedBox(height: 22),
+          const Text(
+            'Entre na sua conta',
+            textAlign: TextAlign.center,
+            style: TextStyle(
+              fontSize: 23,
+              fontWeight: FontWeight.w800,
+              color: Colors.white,
+              letterSpacing: -0.3,
+            ),
+          ),
+          const SizedBox(height: 10),
+          Text(
+            'Acesse seus pedidos, ofertas e benefícios em um só lugar.',
+            textAlign: TextAlign.center,
+            style: TextStyle(
+              color: Colors.white.withValues(alpha: 0.92),
+              fontSize: 14.5,
+              height: 1.45,
+            ),
+          ),
+        ],
+      ),
+    );
+  }
+
+  Widget _beneficiosSemLogin() {
+    final itens = const [
+      (
+        Icons.receipt_long_rounded,
+        'Acompanhe seus pedidos',
+        'Status em tempo real, do preparo à entrega.',
+      ),
+      (
+        Icons.local_offer_rounded,
+        'Cupons e ofertas exclusivas',
+        'Economize com promoções das lojas da sua região.',
+      ),
+      (
+        Icons.delivery_dining_rounded,
+        'Entrega rápida pertinho de você',
+        'Receba dos comércios locais com agilidade.',
+      ),
+      (
+        Icons.favorite_rounded,
+        'Tudo salvo e organizado',
+        'Endereços, favoritos e histórico sempre à mão.',
+      ),
+    ];
+
+    return Container(
+      width: double.infinity,
+      padding: const EdgeInsets.symmetric(horizontal: 18, vertical: 8),
+      decoration: BoxDecoration(
+        color: Colors.white,
+        borderRadius: BorderRadius.circular(22),
+        border: Border.all(color: _bordaCard),
+        boxShadow: [
+          BoxShadow(
+            color: Colors.black.withValues(alpha: 0.04),
+            blurRadius: 14,
+            offset: const Offset(0, 6),
+          ),
+        ],
+      ),
+      child: Column(
+        children: [
+          for (var i = 0; i < itens.length; i++) ...[
+            _beneficioLinha(itens[i].$1, itens[i].$2, itens[i].$3),
+            if (i != itens.length - 1)
+              Divider(height: 1, color: _bordaCard.withValues(alpha: 0.6)),
+          ],
+        ],
+      ),
+    );
+  }
+
+  Widget _beneficioLinha(IconData icone, String titulo, String subtitulo) {
+    return Padding(
+      padding: const EdgeInsets.symmetric(vertical: 14),
+      child: Row(
+        crossAxisAlignment: CrossAxisAlignment.center,
+        children: [
+          Container(
+            width: 44,
+            height: 44,
+            decoration: BoxDecoration(
+              color: diPertinRoxo.withValues(alpha: 0.10),
+              borderRadius: BorderRadius.circular(13),
+            ),
+            child: Icon(icone, color: diPertinRoxo, size: 22),
+          ),
+          const SizedBox(width: 14),
+          Expanded(
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                Text(
+                  titulo,
+                  style: const TextStyle(
+                    fontSize: 14.5,
+                    fontWeight: FontWeight.w800,
+                    color: _textoPrimario,
+                  ),
+                ),
+                const SizedBox(height: 2),
+                Text(
+                  subtitulo,
+                  style: const TextStyle(
+                    fontSize: 12.5,
+                    color: _textoMuted,
+                    height: 1.35,
+                  ),
+                ),
+              ],
+            ),
+          ),
+        ],
+      ),
+    );
+  }
+
+  Widget _ctaSemLogin(BuildContext context) {
+    return Column(
+      children: [
+        FilledButton.icon(
+          onPressed: () {
+            Navigator.push(
+              context,
+              MaterialPageRoute(builder: (context) => const LoginScreen()),
+            );
+          },
+          icon: const Icon(Icons.login_rounded, size: 20),
+          label: const Text(
+            'Entrar ou cadastrar',
+            style: TextStyle(fontWeight: FontWeight.w800, fontSize: 16),
+          ),
+          style: FilledButton.styleFrom(
+            backgroundColor: diPertinLaranja,
+            foregroundColor: Colors.white,
+            minimumSize: const Size(double.infinity, 54),
+            elevation: 0,
+            shape: RoundedRectangleBorder(
+              borderRadius: BorderRadius.circular(15),
+            ),
+          ),
+        ),
+        const SizedBox(height: 10),
+        Text(
+          'Leva só um minuto — é grátis.',
+          textAlign: TextAlign.center,
+          style: TextStyle(
+            color: _textoMuted.withValues(alpha: 0.9),
+            fontSize: 12.5,
+            fontWeight: FontWeight.w600,
+          ),
+        ),
+      ],
+    );
+  }
+
+  Widget _confiancaSemLogin() {
+    return Row(
+      mainAxisAlignment: MainAxisAlignment.center,
+      children: [
+        Icon(
+          Icons.lock_rounded,
+          size: 15,
+          color: _textoMuted.withValues(alpha: 0.7),
+        ),
+        const SizedBox(width: 6),
+        Flexible(
+          child: Text(
+            'Seus dados estão protegidos e nunca são compartilhados.',
+            textAlign: TextAlign.center,
+            style: TextStyle(
+              color: _textoMuted.withValues(alpha: 0.8),
+              fontSize: 11.5,
+              fontWeight: FontWeight.w500,
+            ),
+          ),
+        ),
+      ],
     );
   }
 
@@ -540,10 +833,10 @@ class _ProfileScreenState extends State<ProfileScreen> {
       children: [
         Text(
           titulo,
-          style: TextStyle(
+          style: const TextStyle(
             fontSize: 13,
             fontWeight: FontWeight.w800,
-            color: Colors.grey.shade700,
+            color: _textoPrimario,
             letterSpacing: 0.2,
           ),
         ),
@@ -551,13 +844,228 @@ class _ProfileScreenState extends State<ProfileScreen> {
           const SizedBox(height: 4),
           Text(
             subtitulo,
-            style: TextStyle(
+            style: const TextStyle(
               fontSize: 12,
-              color: Colors.grey.shade600,
+              color: _textoMuted,
               height: 1.35,
             ),
           ),
         ],
+      ],
+    );
+  }
+
+  List<Widget> _itensMenuAtividades({
+    required BuildContext context,
+    required String role,
+    required String nome,
+    required String enderecoPadrao,
+    required String nomeLojaDoc,
+  }) {
+    final itens = <Widget>[];
+
+    void addDivider() {
+      if (itens.isNotEmpty) {
+        itens.add(Divider(height: 1, color: Colors.grey.shade200));
+      }
+    }
+
+    if (_perfilComAcessoPedidosCliente(role)) {
+      itens.add(
+        _buildMenuItem(
+          icon: Icons.receipt_long_outlined,
+          color: diPertinRoxo,
+          title: 'Meus pedidos',
+          subtitle: 'Acompanhe suas compras',
+          onTap: () => Navigator.push(
+            context,
+            MaterialPageRoute(builder: (context) => const OrdersScreen()),
+          ),
+        ),
+      );
+      addDivider();
+      itens.add(
+        _buildMenuItem(
+          icon: Icons.inventory_2_outlined,
+          color: const Color(0xFF5E35B1),
+          title: 'Minhas encomendas',
+          subtitle: 'Negociações com lojas',
+          onTap: () => Navigator.push(
+            context,
+            MaterialPageRoute(
+              builder: (context) => const ClienteEncomendasListScreen(),
+            ),
+          ),
+        ),
+      );
+    }
+
+    if (itens.isNotEmpty) addDivider();
+    itens.add(
+      _buildMenuItem(
+        icon: Icons.campaign_rounded,
+        color: const Color(0xFF1D4ED8),
+        title: 'Comunicados',
+        subtitle: 'Avisos e novidades da plataforma',
+        onTap: () => Navigator.push(
+          context,
+          MaterialPageRoute(
+            builder: (context) => const ComunicadosAppScreen(),
+          ),
+        ),
+      ),
+    );
+    addDivider();
+    itens.add(
+      _buildMenuItem(
+        icon: Icons.support_agent_outlined,
+        color: diPertinLaranja,
+        title: 'Central de ajuda',
+        subtitle: 'Fale com nossa equipe',
+        onTap: () => Navigator.push(
+          context,
+          MaterialPageRoute(builder: (context) => const ChatSuporteScreen()),
+        ),
+      ),
+    );
+
+    return itens;
+  }
+
+  String _subtituloAtividades(String role) {
+    switch (_normalizarRolePerfil(role)) {
+      case 'lojista':
+        return 'Suas compras, comunicados e suporte';
+      case 'entregador':
+        return 'Suas compras, comunicados e suporte';
+      default:
+        return 'Pedidos e suporte';
+    }
+  }
+
+  Widget _buildPainelLojistaCta(
+    BuildContext context,
+    Map<String, dynamic> userData,
+    String statusLoja,
+  ) {
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.stretch,
+      children: [
+        _secaoTitulo(
+          'Painel da loja',
+          subtitulo: 'Gerencie pedidos e estoque',
+        ),
+        const SizedBox(height: 10),
+        FilledButton.icon(
+          onPressed: () => _abrirPainelLojistaOuCorrecao(context, userData),
+          icon: Icon(
+            ContaBloqueioLojistaService.estaBloqueadoParaOperacoes(userData)
+                ? Icons.block
+                : (ContaBloqueioLojistaService
+                        .lojaRecusadaSomenteCorrecaoCadastro(userData)
+                    ? Icons.error_outline
+                    : (_statusLojaAprovada(statusLoja)
+                        ? Icons.dashboard_outlined
+                        : Icons.hourglass_empty_rounded)),
+            color: Colors.white,
+          ),
+          label: Text(
+            ContaBloqueioLojistaService.estaBloqueadoParaOperacoes(userData)
+                ? 'Acesso bloqueado'
+                : (ContaBloqueioLojistaService
+                        .lojaRecusadaSomenteCorrecaoCadastro(userData)
+                    ? 'Corrigir cadastro da loja'
+                    : (_statusLojaAprovada(statusLoja)
+                        ? 'Acessar painel da loja'
+                        : 'Acompanhar análise da loja')),
+            style: const TextStyle(fontWeight: FontWeight.w700, fontSize: 15),
+          ),
+          style: FilledButton.styleFrom(
+            backgroundColor:
+                ContaBloqueioLojistaService.estaBloqueadoParaOperacoes(
+                        userData)
+                    ? Colors.red.shade700
+                    : (ContaBloqueioLojistaService
+                            .lojaRecusadaSomenteCorrecaoCadastro(userData)
+                        ? Colors.red.shade700
+                        : (_statusLojaAprovada(statusLoja)
+                            ? diPertinLaranja
+                            : Colors.orange.shade600)),
+            foregroundColor: Colors.white,
+            minimumSize: const Size(double.infinity, 52),
+            shape: RoundedRectangleBorder(
+              borderRadius: BorderRadius.circular(14),
+            ),
+          ),
+        ),
+        const SizedBox(height: 24),
+      ],
+    );
+  }
+
+  Widget _buildPainelEntregadorCta(
+    BuildContext context,
+    Map<String, dynamic> userData,
+    String statusEntregador,
+  ) {
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.stretch,
+      children: [
+        _secaoTitulo(
+          'Painel de entregas',
+          subtitulo: 'Corridas e ganhos',
+        ),
+        const SizedBox(height: 10),
+        FilledButton.icon(
+          onPressed: () =>
+              _abrirPainelEntregadorOuCorrecao(context, userData),
+          icon: Icon(
+            ContaBloqueioEntregadorService.estaBloqueadoParaOperacoes(userData)
+                ? (ContaBloqueioEntregadorService.isBloqueioTemporarioTipo(
+                        userData)
+                    ? Icons.schedule_rounded
+                    : Icons.block)
+                : (statusEntregador == 'aprovado'
+                    ? Icons.motorcycle_outlined
+                    : (statusEntregador == 'bloqueado'
+                        ? Icons.error_outline
+                        : Icons.hourglass_empty_rounded)),
+            color: Colors.white,
+          ),
+          label: Text(
+            ContaBloqueioEntregadorService.ehExclusaoPerfilSolicitada(userData)
+                ? 'Exclusão em andamento — ver detalhes'
+                : (ContaBloqueioEntregadorService.estaBloqueadoParaOperacoes(
+                        userData)
+                    ? (ContaBloqueioEntregadorService.isBloqueioTemporarioTipo(
+                            userData)
+                        ? 'Bloqueio temporário — ver detalhes'
+                        : 'Painel de entregas bloqueado — ver detalhes')
+                    : (statusEntregador == 'aprovado'
+                        ? 'Acessar painel de entregas'
+                        : (statusEntregador == 'bloqueado'
+                            ? 'Corrigir cadastro de entregador'
+                            : 'Cadastro em análise'))),
+            style: const TextStyle(fontWeight: FontWeight.w700, fontSize: 15),
+          ),
+          style: FilledButton.styleFrom(
+            backgroundColor:
+                ContaBloqueioEntregadorService.estaBloqueadoParaOperacoes(
+                        userData)
+                    ? Colors.red.shade700
+                    : (statusEntregador == 'aprovado'
+                        ? const Color(0xFF263238)
+                        : (statusEntregador == 'bloqueado'
+                            ? Colors.red.shade700
+                            : Colors.orange.shade600)),
+            foregroundColor: Colors.white,
+            minimumSize: const Size(double.infinity, 52),
+            shape: RoundedRectangleBorder(
+              borderRadius: BorderRadius.circular(14),
+            ),
+          ),
+        ),
+        const SizedBox(height: 24),
       ],
     );
   }
@@ -569,7 +1077,7 @@ class _ProfileScreenState extends State<ProfileScreen> {
     required double saldoCarteira,
   }) {
     final String nome = userData['nome'] ?? 'Sem nome';
-    final String role = userData['role'] ?? 'cliente';
+    final String role = _normalizarRolePerfil(userData['role']);
     final bool cpfBloqueado = CpfPerfilUsuario.edicaoBloqueada(userData);
     final String cpfLegenda = CpfPerfilUsuario.textoListaPerfil(userData);
     final String telefoneLegenda = _telefonePerfilLegenda(userData);
@@ -615,19 +1123,47 @@ class _ProfileScreenState extends State<ProfileScreen> {
     final String statusEntregador =
         userData['entregador_status'] ?? 'pendente';
 
-    return SingleChildScrollView(
-      padding: const EdgeInsets.fromLTRB(16, 12, 16, 32),
-      child: Column(
-        crossAxisAlignment: CrossAxisAlignment.stretch,
-        children: [
-          Center(
-            child: GestureDetector(
-              onTap: () => _mostrarOpcoesFotoPerfil(
-                context,
-                fotoPerfil,
-                travada: fotoPerfilTravada,
+    return DiPertinScrollBody(
+      padding: diPertinScrollPaddingTabShell(context, top: 12, extraBottom: 16),
+      child: AnimatedOpacity(
+        opacity: _entradaAnimada ? 1 : 0,
+        duration: const Duration(milliseconds: 220),
+        curve: Curves.easeOut,
+        child: Column(
+          crossAxisAlignment: CrossAxisAlignment.stretch,
+          children: [
+            Container(
+              padding: const EdgeInsets.fromLTRB(20, 24, 20, 22),
+              decoration: BoxDecoration(
+                color: Colors.white,
+                borderRadius: BorderRadius.circular(20),
+                border: Border.all(color: _bordaCard),
+                boxShadow: [
+                  BoxShadow(
+                    color: Colors.black.withValues(alpha: 0.04),
+                    blurRadius: 12,
+                    offset: const Offset(0, 4),
+                  ),
+                ],
               ),
-              child: Stack(
+              child: Column(
+                children: [
+                  Center(
+                    child: Semantics(
+                      label: fotoPerfilTravada
+                          ? 'Foto de perfil verificada'
+                          : 'Alterar foto do perfil',
+                      button: !fotoPerfilTravada,
+                      child: Material(
+                        color: Colors.transparent,
+                        child: InkWell(
+                          onTap: () => _mostrarOpcoesFotoPerfil(
+                            context,
+                            fotoPerfil,
+                            travada: fotoPerfilTravada,
+                          ),
+                          customBorder: const CircleBorder(),
+                          child: Stack(
                 children: [
                   Container(
                     padding: const EdgeInsets.all(4),
@@ -690,114 +1226,149 @@ class _ProfileScreenState extends State<ProfileScreen> {
                       ),
                     ),
                   ),
-                ],
-              ),
-            ),
-          ),
-          const SizedBox(height: 14),
-          Center(
-            child: Text(
-              nome,
-              textAlign: TextAlign.center,
-              style: const TextStyle(
-                fontSize: 22,
-                fontWeight: FontWeight.w800,
-                color: diPertinRoxo,
-                letterSpacing: -0.3,
-              ),
-            ),
-          ),
-          const SizedBox(height: 8),
-          () {
-            final String nomeLoja = isColaborador
-                ? (_nomeLojaDono ?? nomeLojaDoc)
-                : nomeLojaDoc;
-            if (nomeLoja.isNotEmpty) {
-              return Center(
-                child: Container(
-                  padding:
-                      const EdgeInsets.symmetric(horizontal: 14, vertical: 8),
-                  decoration: BoxDecoration(
-                    color: diPertinLaranja.withValues(alpha: 0.08),
-                    borderRadius: BorderRadius.circular(12),
-                    border: Border.all(
-                      color: diPertinLaranja.withValues(alpha: 0.25),
-                    ),
-                  ),
-                  child: Row(
-                    mainAxisSize: MainAxisSize.min,
-                    children: [
-                      Icon(
-                        Icons.storefront_rounded,
-                        size: 18,
-                        color: diPertinLaranja.withValues(alpha: 0.85),
-                      ),
-                      const SizedBox(width: 8),
-                      Flexible(
-                        child: Text(
-                          nomeLoja,
-                          textAlign: TextAlign.center,
-                          style: const TextStyle(
-                            fontSize: 14,
-                            color: diPertinLaranja,
-                            fontWeight: FontWeight.w700,
+                            ],
                           ),
                         ),
                       ),
-                    ],
-                  ),
-                ),
-              );
-            }
-            return Center(
-              child: Chip(
-                label: Text(
-                  _rotuloTipoPerfil(role),
-                  style: const TextStyle(
-                    fontWeight: FontWeight.w700,
-                    fontSize: 13,
-                  ),
-                ),
-                backgroundColor: diPertinRoxo.withValues(alpha: 0.1),
-                side: BorderSide(color: diPertinRoxo.withValues(alpha: 0.25)),
-                padding: const EdgeInsets.symmetric(horizontal: 4),
-              ),
-            );
-          }(),
-          const SizedBox(height: 6),
-          Center(
-            child: Text(
-              email,
-              textAlign: TextAlign.center,
-              style: TextStyle(color: Colors.grey.shade600, fontSize: 14),
-            ),
-          ),
-          const SizedBox(height: 16),
-          Center(
-            child: FilledButton.tonalIcon(
-              onPressed: () {
-                Navigator.push(
-                  context,
-                  MaterialPageRoute(
-                    builder: (context) => EditProfileScreen(
-                      nomeAtual: nome,
-                      enderecoAtual: enderecoPadrao,
-                      role: role,
-                      nomeLojaAtual: nomeLojaDoc,
                     ),
                   ),
-                );
-              },
-              icon: const Icon(Icons.edit_outlined, size: 20),
-              label: const Text('Editar perfil'),
-              style: FilledButton.styleFrom(
-                foregroundColor: diPertinRoxo,
-                backgroundColor: diPertinRoxo.withValues(alpha: 0.12),
+                  const SizedBox(height: 14),
+                  Text(
+                    nome,
+                    textAlign: TextAlign.center,
+                    style: const TextStyle(
+                      fontSize: 22,
+                      fontWeight: FontWeight.w800,
+                      color: _textoPrimario,
+                      letterSpacing: -0.3,
+                    ),
+                  ),
+                  const SizedBox(height: 8),
+                  () {
+                    final String nomeLoja = isColaborador
+                        ? (_nomeLojaDono ?? nomeLojaDoc)
+                        : nomeLojaDoc;
+                    if (nomeLoja.isNotEmpty) {
+                      return Center(
+                        child: Container(
+                          padding: const EdgeInsets.symmetric(
+                            horizontal: 14,
+                            vertical: 8,
+                          ),
+                          decoration: BoxDecoration(
+                            color: diPertinLaranja.withValues(alpha: 0.08),
+                            borderRadius: BorderRadius.circular(12),
+                            border: Border.all(
+                              color: diPertinLaranja.withValues(alpha: 0.25),
+                            ),
+                          ),
+                          child: Row(
+                            mainAxisSize: MainAxisSize.min,
+                            children: [
+                              Icon(
+                                Icons.storefront_rounded,
+                                size: 18,
+                                color: diPertinLaranja.withValues(alpha: 0.85),
+                              ),
+                              const SizedBox(width: 8),
+                              Flexible(
+                                child: Text(
+                                  nomeLoja,
+                                  textAlign: TextAlign.center,
+                                  style: const TextStyle(
+                                    fontSize: 14,
+                                    color: diPertinLaranja,
+                                    fontWeight: FontWeight.w700,
+                                  ),
+                                ),
+                              ),
+                            ],
+                          ),
+                        ),
+                      );
+                    }
+                    return Center(
+                      child: Chip(
+                        label: Text(
+                          _rotuloTipoPerfil(role),
+                          style: const TextStyle(
+                            fontWeight: FontWeight.w700,
+                            fontSize: 13,
+                          ),
+                        ),
+                        backgroundColor: diPertinRoxo.withValues(alpha: 0.1),
+                        side: BorderSide(
+                          color: diPertinRoxo.withValues(alpha: 0.25),
+                        ),
+                        padding: const EdgeInsets.symmetric(horizontal: 4),
+                      ),
+                    );
+                  }(),
+                  if (fotoPerfilTravada) ...[
+                    const SizedBox(height: 8),
+                    Row(
+                      mainAxisAlignment: MainAxisAlignment.center,
+                      children: [
+                        Icon(
+                          Icons.verified_user,
+                          size: 14,
+                          color: Colors.green.shade700,
+                        ),
+                        const SizedBox(width: 4),
+                        Text(
+                          'Foto verificada',
+                          style: TextStyle(
+                            fontSize: 11,
+                            fontWeight: FontWeight.w600,
+                            color: Colors.green.shade700,
+                          ),
+                        ),
+                      ],
+                    ),
+                  ],
+                  const SizedBox(height: 6),
+                  Text(
+                    email,
+                    textAlign: TextAlign.center,
+                    style: const TextStyle(
+                      color: _textoMuted,
+                      fontSize: 14,
+                    ),
+                  ),
+                  const SizedBox(height: 16),
+                  SizedBox(
+                    width: double.infinity,
+                    child: FilledButton.tonalIcon(
+                      onPressed: () {
+                        Navigator.push(
+                          context,
+                          MaterialPageRoute(
+                            builder: (context) => EditProfileScreen(
+                              nomeAtual: nome,
+                              enderecoAtual: enderecoPadrao,
+                              role: role,
+                              nomeLojaAtual: nomeLojaDoc,
+                            ),
+                          ),
+                        );
+                      },
+                      icon: const Icon(Icons.edit_outlined, size: 20),
+                      label: const Text('Editar perfil'),
+                      style: FilledButton.styleFrom(
+                        foregroundColor: diPertinRoxo,
+                        backgroundColor: diPertinRoxo.withValues(alpha: 0.12),
+                        minimumSize: const Size(double.infinity, 48),
+                        shape: RoundedRectangleBorder(
+                          borderRadius: BorderRadius.circular(14),
+                        ),
+                      ),
+                    ),
+                  ),
+                ],
               ),
             ),
-          ),
 
-          const SizedBox(height: 24),
+            const SizedBox(height: 20),
 
           if (saldoCarteira > 0) ...[
             Container(
@@ -847,67 +1418,27 @@ class _ProfileScreenState extends State<ProfileScreen> {
                 ],
               ),
             ),
-            const SizedBox(height: 24),
+            const SizedBox(height: 20),
           ],
+
+          if (role == 'lojista')
+            _buildPainelLojistaCta(context, userData, statusLoja),
+          if (role == 'entregador')
+            _buildPainelEntregadorCta(context, userData, statusEntregador),
 
           _secaoTitulo(
             'Atividades',
-            subtitulo: 'Pedidos e suporte',
+            subtitulo: _subtituloAtividades(role),
           ),
           const SizedBox(height: 10),
           _buildMenuCard(
-            children: [
-              _buildMenuItem(
-                icon: Icons.receipt_long_outlined,
-                color: diPertinRoxo,
-                title: 'Meus pedidos',
-                subtitle: 'Acompanhe suas compras',
-                onTap: () => Navigator.push(
-                  context,
-                  MaterialPageRoute(builder: (context) => const OrdersScreen()),
-                ),
-              ),
-              Divider(height: 1, color: Colors.grey.shade200),
-              _buildMenuItem(
-                icon: Icons.inventory_2_outlined,
-                color: const Color(0xFF5E35B1),
-                title: 'Minhas encomendas',
-                subtitle: 'Negociações com lojas',
-                onTap: () => Navigator.push(
-                  context,
-                  MaterialPageRoute(
-                    builder: (context) =>
-                        const ClienteEncomendasListScreen(),
-                  ),
-                ),
-              ),
-              Divider(height: 1, color: Colors.grey.shade200),
-              _buildMenuItem(
-                icon: Icons.campaign_rounded,
-                color: const Color(0xFF1D4ED8),
-                title: 'Comunicados',
-                subtitle: 'Avisos e novidades da plataforma',
-                onTap: () => Navigator.push(
-                  context,
-                  MaterialPageRoute(
-                    builder: (context) => const ComunicadosAppScreen(),
-                  ),
-                ),
-              ),
-              Divider(height: 1, color: Colors.grey.shade200),
-              _buildMenuItem(
-                icon: Icons.support_agent_outlined,
-                color: diPertinLaranja,
-                title: 'Central de ajuda',
-                subtitle: 'Fale com nossa equipe',
-                onTap: () => Navigator.push(
-                  context,
-                  MaterialPageRoute(
-                    builder: (context) => const ChatSuporteScreen(),
-                  ),
-                ),
-              ),
-            ],
+            children: _itensMenuAtividades(
+              context: context,
+              role: role,
+              nome: nome,
+              enderecoPadrao: enderecoPadrao,
+              nomeLojaDoc: nomeLojaDoc,
+            ),
           ),
 
           const SizedBox(height: 24),
@@ -1095,124 +1626,6 @@ class _ProfileScreenState extends State<ProfileScreen> {
             const SizedBox(height: 24),
           ],
 
-          if (role == 'lojista') ...[
-            _secaoTitulo(
-              'Painel da loja',
-              subtitulo: 'Gerencie pedidos e estoque',
-            ),
-            const SizedBox(height: 10),
-            FilledButton.icon(
-              onPressed: () =>
-                  _abrirPainelLojistaOuCorrecao(context, userData),
-              icon: Icon(
-                ContaBloqueioLojistaService.estaBloqueadoParaOperacoes(userData)
-                    ? Icons.block
-                    : (ContaBloqueioLojistaService
-                            .lojaRecusadaSomenteCorrecaoCadastro(userData)
-                        ? Icons.error_outline
-                        : (_statusLojaAprovada(statusLoja)
-                            ? Icons.dashboard_outlined
-                            : Icons.hourglass_empty_rounded)),
-                color: Colors.white,
-              ),
-              label: Text(
-                ContaBloqueioLojistaService.estaBloqueadoParaOperacoes(userData)
-                    ? 'Acesso bloqueado'
-                    : (ContaBloqueioLojistaService
-                            .lojaRecusadaSomenteCorrecaoCadastro(userData)
-                        ? 'Corrigir cadastro da loja'
-                        : (_statusLojaAprovada(statusLoja)
-                            ? 'Acessar painel da loja'
-                            : 'Acompanhar análise da loja')),
-                style: const TextStyle(
-                  fontWeight: FontWeight.w700,
-                  fontSize: 15,
-                ),
-              ),
-              style: FilledButton.styleFrom(
-                backgroundColor:
-                    ContaBloqueioLojistaService.estaBloqueadoParaOperacoes(
-                            userData)
-                        ? Colors.red.shade700
-                        : (ContaBloqueioLojistaService
-                                .lojaRecusadaSomenteCorrecaoCadastro(userData)
-                            ? Colors.red.shade700
-                            : (_statusLojaAprovada(statusLoja)
-                                ? diPertinLaranja
-                                : Colors.orange.shade600)),
-                foregroundColor: Colors.white,
-                minimumSize: const Size(double.infinity, 52),
-                shape: RoundedRectangleBorder(
-                  borderRadius: BorderRadius.circular(14),
-                ),
-              ),
-            ),
-            const SizedBox(height: 24),
-          ],
-
-          if (role == 'entregador') ...[
-            _secaoTitulo(
-              'Painel de entregas',
-              subtitulo: 'Corridas e ganhos',
-            ),
-            const SizedBox(height: 10),
-            FilledButton.icon(
-              onPressed: () =>
-                  _abrirPainelEntregadorOuCorrecao(context, userData),
-              icon: Icon(
-                ContaBloqueioEntregadorService.estaBloqueadoParaOperacoes(
-                        userData)
-                    ? (ContaBloqueioEntregadorService.isBloqueioTemporarioTipo(
-                            userData)
-                        ? Icons.schedule_rounded
-                        : Icons.block)
-                    : (statusEntregador == 'aprovado'
-                        ? Icons.motorcycle_outlined
-                        : (statusEntregador == 'bloqueado'
-                            ? Icons.error_outline
-                            : Icons.hourglass_empty_rounded)),
-                color: Colors.white,
-              ),
-              label: Text(
-                ContaBloqueioEntregadorService.ehExclusaoPerfilSolicitada(
-                        userData)
-                    ? 'Exclusão em andamento — ver detalhes'
-                    : (ContaBloqueioEntregadorService.estaBloqueadoParaOperacoes(
-                            userData)
-                        ? (ContaBloqueioEntregadorService
-                                .isBloqueioTemporarioTipo(userData)
-                            ? 'Bloqueio temporário — ver detalhes'
-                            : 'Painel de entregas bloqueado — ver detalhes')
-                        : (statusEntregador == 'aprovado'
-                            ? 'Acessar painel de entregas'
-                            : (statusEntregador == 'bloqueado'
-                                ? 'Corrigir cadastro de entregador'
-                                : 'Cadastro em análise'))),
-                style: const TextStyle(
-                  fontWeight: FontWeight.w700,
-                  fontSize: 15,
-                ),
-              ),
-              style: FilledButton.styleFrom(
-                backgroundColor:
-                    ContaBloqueioEntregadorService.estaBloqueadoParaOperacoes(
-                            userData)
-                        ? Colors.red.shade700
-                        : (statusEntregador == 'aprovado'
-                            ? const Color(0xFF263238)
-                            : (statusEntregador == 'bloqueado'
-                                ? Colors.red.shade700
-                                : Colors.orange.shade600)),
-                foregroundColor: Colors.white,
-                minimumSize: const Size(double.infinity, 52),
-                shape: RoundedRectangleBorder(
-                  borderRadius: BorderRadius.circular(14),
-                ),
-              ),
-            ),
-            const SizedBox(height: 24),
-          ],
-
           const SizedBox(height: 28),
 
           Center(
@@ -1230,6 +1643,7 @@ class _ProfileScreenState extends State<ProfileScreen> {
             ),
           ),
         ],
+        ),
       ),
     );
   }
@@ -1387,29 +1801,36 @@ class _ProfileScreenState extends State<ProfileScreen> {
     required String rotulo,
     required VoidCallback onTap,
   }) {
-    return GestureDetector(
-      onTap: onTap,
-      child: Column(
-        mainAxisSize: MainAxisSize.min,
-        children: [
-          Container(
-            padding: const EdgeInsets.all(14),
-            decoration: BoxDecoration(
-              color: cor.withValues(alpha: 0.1),
-              shape: BoxShape.circle,
-            ),
-            child: Icon(icone, color: cor, size: 26),
+    return Material(
+      color: Colors.transparent,
+      child: InkWell(
+        onTap: onTap,
+        borderRadius: BorderRadius.circular(12),
+        child: Padding(
+          padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
+          child: Column(
+            mainAxisSize: MainAxisSize.min,
+            children: [
+              Container(
+                padding: const EdgeInsets.all(14),
+                decoration: BoxDecoration(
+                  color: cor.withValues(alpha: 0.1),
+                  shape: BoxShape.circle,
+                ),
+                child: Icon(icone, color: cor, size: 26),
+              ),
+              const SizedBox(height: 8),
+              Text(
+                rotulo,
+                style: const TextStyle(
+                  fontSize: 12,
+                  fontWeight: FontWeight.w600,
+                  color: _textoMuted,
+                ),
+              ),
+            ],
           ),
-          const SizedBox(height: 8),
-          Text(
-            rotulo,
-            style: TextStyle(
-              fontSize: 12,
-              fontWeight: FontWeight.w600,
-              color: Colors.grey.shade700,
-            ),
-          ),
-        ],
+        ),
       ),
     );
   }
@@ -1700,7 +2121,7 @@ class _ProfileScreenState extends State<ProfileScreen> {
       decoration: BoxDecoration(
         color: Colors.white,
         borderRadius: BorderRadius.circular(16),
-        border: Border.all(color: const Color(0xFFE8E6ED)),
+        border: Border.all(color: _bordaCard),
         boxShadow: [
           BoxShadow(
             color: Colors.black.withValues(alpha: 0.04),
@@ -1741,7 +2162,7 @@ class _ProfileScreenState extends State<ProfileScreen> {
       ),
       subtitle: Text(
         subtitle,
-        style: TextStyle(fontSize: 12, color: Colors.grey.shade600),
+        style: const TextStyle(fontSize: 12, color: _textoMuted),
       ),
       trailing: trailing ??
           (onTap != null

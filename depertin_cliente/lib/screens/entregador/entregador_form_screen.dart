@@ -5,6 +5,7 @@ import 'package:flutter/foundation.dart' show kIsWeb;
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:cloud_firestore/cloud_firestore.dart';
+import 'package:cloud_functions/cloud_functions.dart';
 import 'package:firebase_auth/firebase_auth.dart';
 import 'package:firebase_storage/firebase_storage.dart';
 import 'package:file_picker/file_picker.dart';
@@ -12,6 +13,7 @@ import 'package:image_picker/image_picker.dart';
 import 'package:intl/intl.dart';
 
 import '../../services/conta_bloqueio_entregador_service.dart';
+import '../../services/entregador_perfil_operacional_service.dart';
 import '../../services/permissoes_app_service.dart';
 
 const Color diPertinRoxo = Color(0xFF6A1B9A);
@@ -359,10 +361,34 @@ class _EntregadorFormScreenState extends State<EntregadorFormScreen> {
           );
         }
 
+        // === Transição role→entregador validada no servidor (trava 30 dias) ===
+        // Única via permitida para virar entregador; as Firestore rules bloqueiam
+        // a auto-transição do dono enquanto o reingresso estiver bloqueado.
+        try {
+          await EntregadorPerfilOperacionalService.abrirCadastro();
+        } on FirebaseFunctionsException catch (e) {
+          if (mounted) {
+            final detalhes = e.details;
+            final ms = detalhes is Map
+                ? detalhes['reingresso_bloqueado_ate']
+                : null;
+            String msg =
+                e.message ?? 'Não foi possível abrir o cadastro de entregador.';
+            if (ms is int) {
+              final lib = DateTime.fromMillisecondsSinceEpoch(ms);
+              msg = 'Novo cadastro de entregador disponível a partir de '
+                  '${DateFormat('dd/MM/yyyy').format(lib)}.';
+            }
+            ScaffoldMessenger.of(context).showSnackBar(
+              SnackBar(content: Text(msg), backgroundColor: Colors.red),
+            );
+          }
+          return;
+        }
+
         // === Atualiza o doc principal (campos planos — painel web) ===
+        // role/entregador_status são definidos pela callable acima.
         final Map<String, dynamic> atualizacao = {
-          'role': 'entregador',
-          'entregador_status': 'pendente',
           'veiculoTipo': _veiculoSelecionado,
           'veiculoModelo': _modeloController.text.trim(),
           'placa_veiculo': _precisaPlaca ? placaNormalizada : '',

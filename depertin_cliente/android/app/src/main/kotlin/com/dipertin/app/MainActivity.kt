@@ -7,6 +7,7 @@ import android.content.Context
 import android.content.Intent
 import android.hardware.camera2.CameraCharacteristics
 import android.hardware.camera2.CameraManager
+import android.graphics.Color as AndroidColor
 import android.net.Uri
 import android.os.Build
 import android.os.Handler
@@ -119,6 +120,7 @@ class MainActivity : FlutterFragmentActivity() {
     override fun onResume() {
         super.onResume()
         isFlutterHostResumed = true
+        aplicarBarraNavegacaoSistemaVisivel()
     }
 
     override fun onPause() {
@@ -135,6 +137,7 @@ class MainActivity : FlutterFragmentActivity() {
     override fun onCreate(savedInstanceState: android.os.Bundle?) {
         captureLaunchIntent(intent)
         super.onCreate(savedInstanceState)
+        aplicarBarraNavegacaoSistemaVisivel()
     }
 
     override fun onNewIntent(intent: Intent) {
@@ -202,6 +205,10 @@ class MainActivity : FlutterFragmentActivity() {
                             "orderId" to (oid ?: ""),
                         ),
                     )
+                }
+                "exibirBarraNavegacaoSistema" -> {
+                    aplicarBarraNavegacaoSistemaVisivel()
+                    result.success(true)
                 }
                 "canUseFullScreenIntent" -> {
                     if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.UPSIDE_DOWN_CAKE) {
@@ -415,24 +422,35 @@ class MainActivity : FlutterFragmentActivity() {
                     }
                 }
             }
+        // Flutter pode reativar edge-to-edge após o 1º frame — reaplica no nativo.
+        window.decorView.post { aplicarBarraNavegacaoSistemaVisivel() }
     }
 
     override fun onPostResume() {
         super.onPostResume()
-        ocultarBarraNavegacao()
+        aplicarBarraNavegacaoSistemaVisivel()
     }
 
     override fun onWindowFocusChanged(hasFocus: Boolean) {
         super.onWindowFocusChanged(hasFocus)
-        if (hasFocus) ocultarBarraNavegacao()
+        if (hasFocus) aplicarBarraNavegacaoSistemaVisivel()
     }
 
-    private fun ocultarBarraNavegacao() {
-        WindowCompat.setDecorFitsSystemWindows(window, false)
+    /**
+     * Botões do Android (voltar/home/recentes) sempre visíveis; o Flutter
+     * desenha o bottom nav acima da área reservada (decor fits = true).
+     */
+    private fun aplicarBarraNavegacaoSistemaVisivel() {
+        WindowCompat.setDecorFitsSystemWindows(window, true)
+        window.navigationBarColor = AndroidColor.WHITE
+        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.Q) {
+            window.isNavigationBarContrastEnforced = true
+        }
         val controller = WindowCompat.getInsetsController(window, window.decorView)
-        controller.hide(WindowInsetsCompat.Type.navigationBars())
-        controller.systemBarsBehavior =
-            WindowInsetsControllerCompat.BEHAVIOR_SHOW_TRANSIENT_BARS_BY_SWIPE
+        controller.show(WindowInsetsCompat.Type.systemBars())
+        controller.systemBarsBehavior = WindowInsetsControllerCompat.BEHAVIOR_DEFAULT
+        controller.isAppearanceLightNavigationBars = true
+        window.decorView.requestApplyInsets()
     }
 }
 

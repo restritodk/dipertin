@@ -1,12 +1,19 @@
 // Arquivo: lib/screens/comum/sobre_screen.dart
 
 import 'package:flutter/material.dart';
+
+import 'package:depertin_cliente/widgets/dipertin_scroll_body.dart';
+import 'package:depertin_cliente/utils/safe_area_insets.dart'
+    show diPertinScrollPaddingInner;
 import 'package:package_info_plus/package_info_plus.dart';
 import 'package:url_launcher/url_launcher.dart';
 
 const Color _diPertinRoxo = Color(0xFF6A1B9A);
 const Color _diPertinLaranja = Color(0xFFFF8F00);
 const Color _fundoTela = Color(0xFFF5F4F8);
+
+/// Texto exibido em Sobre — alinhar com [pubspec.yaml] version (1.2.7).
+const String _versaoFallback = '1.2.7';
 
 /// Informações do aplicativo DiPertin (versão, descrição).
 class SobreScreen extends StatefulWidget {
@@ -60,8 +67,14 @@ class _SobreScreenState extends State<SobreScreen> {
         surfaceTintColor: Colors.transparent,
         iconTheme: const IconThemeData(color: Colors.white),
       ),
-      body: SingleChildScrollView(
-        padding: const EdgeInsets.fromLTRB(20, 24, 20, 40),
+      body: DiPertinScrollBody(
+        padding: diPertinScrollPaddingInner(
+          context,
+          left: 20,
+          right: 20,
+          top: 24,
+          extraBottom: 24,
+        ),
         child: Column(
           children: [
             Center(
@@ -153,6 +166,7 @@ class _SobreScreenState extends State<SobreScreen> {
                 'lojas parceiras e entregadores. Compre em diversas lojas da '
                 'sua cidade, acompanhe seus pedidos, converse com o suporte '
                 'e gerencie seu perfil em um só lugar.',
+                textAlign: TextAlign.justify,
                 style: TextStyle(
                   fontSize: 14.5,
                   height: 1.55,
@@ -164,10 +178,7 @@ class _SobreScreenState extends State<SobreScreen> {
             Text(
               '© ${DateTime.now().year} DiPertin',
               textAlign: TextAlign.center,
-              style: TextStyle(
-                fontSize: 12.5,
-                color: Colors.grey.shade600,
-              ),
+              style: TextStyle(fontSize: 12.5, color: Colors.grey.shade600),
             ),
             if (_erro != null) ...[
               const SizedBox(height: 12),
@@ -188,7 +199,7 @@ class _SobreScreenState extends State<SobreScreen> {
       return _info!.version;
     }
     if (_erro != null) {
-      return '1.1.0';
+      return _versaoFallback;
     }
     return '…';
   }
@@ -220,9 +231,7 @@ class _SobreScreenState extends State<SobreScreen> {
     VoidCallback? onTap,
     bool destaque = false,
   }) {
-    final Color corValor = destaque
-        ? _diPertinRoxo
-        : const Color(0xFF1A1A2E);
+    final Color corValor = destaque ? _diPertinRoxo : const Color(0xFF1A1A2E);
     final valorWidget = Text(
       valor,
       style: TextStyle(
@@ -309,10 +318,7 @@ class _SobreScreenState extends State<SobreScreen> {
   void _mostrarErroLink(String mensagem) {
     if (!mounted) return;
     ScaffoldMessenger.of(context).showSnackBar(
-      SnackBar(
-        content: Text(mensagem),
-        backgroundColor: Colors.red,
-      ),
+      SnackBar(content: Text(mensagem), backgroundColor: Colors.red),
     );
   }
 }

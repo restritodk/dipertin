@@ -20,6 +20,7 @@ import 'package:depertin_cliente/constants/tipos_entrega.dart';
 import 'package:depertin_cliente/services/android_nav_intent.dart';
 import 'package:depertin_cliente/services/conta_bloqueio_entregador_service.dart';
 import 'package:depertin_cliente/widgets/entregador_radar_bloqueio_painel.dart';
+import 'package:depertin_cliente/widgets/entregador_radar_vazio_panel.dart';
 import 'package:depertin_cliente/services/firebase_functions_config.dart';
 import 'package:depertin_cliente/services/permissoes_app_service.dart';
 import 'package:depertin_cliente/services/corrida_chamada_entregador_audio.dart';
@@ -2691,40 +2692,18 @@ class _EntregadorDashboardScreenState extends State<EntregadorDashboardScreen>
                             },
                             child: ListView(
                               physics: const AlwaysScrollableScrollPhysics(),
-                              padding: const EdgeInsets.all(24),
+                              padding: const EdgeInsets.fromLTRB(20, 8, 20, 32),
                               children: [
                                 SizedBox(
                                   height:
-                                      MediaQuery.of(context).size.height * 0.12,
+                                      MediaQuery.of(context).size.height * 0.06,
                                 ),
-                                Icon(
-                                  Icons.radar,
-                                  size: 72,
-                                  color: diPertinLaranja.withValues(
-                                    alpha: 0.45,
-                                  ),
-                                ),
-                                const SizedBox(height: 20),
-                                Text(
-                                  'Aguardando corridas',
-                                  textAlign: TextAlign.center,
-                                  style: TextStyle(
-                                    fontSize: 20,
-                                    fontWeight: FontWeight.w600,
-                                    color: Colors.grey[800],
-                                  ),
-                                ),
-                                const SizedBox(height: 12),
-                                Text(
-                                  'Fique online e com o app aberto. Quando um pedido '
-                                  'estiver pronto na loja, ele aparece aqui e um '
-                                  'alerta sonoro pode tocar.',
-                                  textAlign: TextAlign.center,
-                                  style: TextStyle(
-                                    color: Colors.grey[600],
-                                    fontSize: 15,
-                                    height: 1.45,
-                                  ),
+                                const EntregadorRadarVazioPanel(
+                                  titulo: 'Aguardando corridas',
+                                  subtitulo:
+                                      'Fique online e com o app aberto. Quando um pedido '
+                                      'estiver pronto na loja, ele aparece aqui e um '
+                                      'alerta sonoro pode tocar.',
                                 ),
                               ],
                             ),
@@ -2790,39 +2769,31 @@ class _EntregadorDashboardScreenState extends State<EntregadorDashboardScreen>
                             },
                             child: ListView(
                               physics: const AlwaysScrollableScrollPhysics(),
-                              padding: const EdgeInsets.all(24),
+                              padding: const EdgeInsets.fromLTRB(20, 8, 20, 32),
                               children: [
                                 SizedBox(
                                   height:
-                                      MediaQuery.of(context).size.height * 0.12,
+                                      MediaQuery.of(context).size.height * 0.06,
                                 ),
-                                Icon(
-                                  Icons.radar,
-                                  size: 72,
-                                  color: diPertinLaranja.withValues(
-                                    alpha: 0.45,
-                                  ),
-                                ),
-                                const SizedBox(height: 20),
-                                Text(
-                                  'Nada no radar agora',
-                                  textAlign: TextAlign.center,
-                                  style: TextStyle(
-                                    fontSize: 20,
-                                    fontWeight: FontWeight.w600,
-                                    color: Colors.grey[800],
-                                  ),
-                                ),
-                                const SizedBox(height: 12),
-                                Text(
-                                  'Novos pedidos surgem quando a loja marcar como '
-                                  'a caminho. Puxe para atualizar.',
-                                  textAlign: TextAlign.center,
-                                  style: TextStyle(
-                                    color: Colors.grey[600],
-                                    fontSize: 15,
-                                    height: 1.45,
-                                  ),
+                                const EntregadorRadarVazioPanel(
+                                  titulo: 'Nada no radar agora',
+                                  subtitulo:
+                                      'Novos pedidos surgem quando a loja marcar como '
+                                      'a caminho. Puxe para atualizar.',
+                                  dicas: [
+                                    EntregadorRadarVazioDica(
+                                      icone: Icons.refresh_rounded,
+                                      texto: 'Puxe p/ atualizar',
+                                    ),
+                                    EntregadorRadarVazioDica(
+                                      icone: Icons.delivery_dining_rounded,
+                                      texto: 'Loja despacha',
+                                    ),
+                                    EntregadorRadarVazioDica(
+                                      icone: Icons.notifications_active_rounded,
+                                      texto: 'Fique atento',
+                                    ),
+                                  ],
                                 ),
                               ],
                             ),

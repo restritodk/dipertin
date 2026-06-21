@@ -2,13 +2,14 @@
 
 const functions = require("firebase-functions/v1");
 const admin = require("firebase-admin");
+const H = require("./cupom_helpers");
 
 /**
  * validarCupom — onCall v1
  *
- * Valida cupom no servidor antes do checkout.
- * Checks: ativo, validade, limite_usos (global), limite_por_usuario, valor_minimo.
- * Retorna: { valid, cupom_id, tipo_desconto, valor_desconto, mensagem }
+ * Tipos: porcentagem, fixo, frete_gratis.
+ * Cupom de loja: escopo=loja + loja_id.
+ * Frete grátis: custo do frete para o lojista; entregador/plataforma sobre frete integral.
  */
 exports.validarCupom = functions.https.onCall(async (data, context) => {
     if (!context.auth) {
@@ -19,13 +20,11 @@ exports.validarCupom = functions.https.onCall(async (data, context) => {
     }
 
     const codigo = String(data?.codigo ?? "").trim().toUpperCase();
-    const subtotalProdutos = Number(data?.subtotal_produtos ?? 0);
+    const subtotalProdutos = H.roundMoney(Number(data?.subtotal_produtos ?? 0));
+    const taxaEntrega = H.roundMoney(Number(data?.taxa_entrega ?? 0));
     const lojaId = String(data?.loja_id ?? "").trim();
+    const retiradaNaLoja = data?.retirada_na_loja === true;
 
-    // `loja_ids` é a lista COMPLETA de lojas únicas presentes no carrinho.
-    // Para cupons de escopo "loja", essa lista define se podemos aceitar
-    // o cupom (não pode haver outras lojas no carrinho além da do cupom).
-    // Compat retroativa: se o app antigo não enviar `loja_ids`, usamos `loja_id`.
     let lojaIds = [];
     if (Array.isArray(data?.loja_ids)) {
         lojaIds = data.loja_ids
@@ -35,7 +34,6 @@ exports.validarCupom = functions.https.onCall(async (data, context) => {
     if (lojaIds.length === 0 && lojaId) {
         lojaIds = [lojaId];
     }
-    // Dedup final
     lojaIds = Array.from(new Set(lojaIds));
 
     const clienteId = context.auth.uid;
@@ -63,13 +61,9 @@ exports.validarCupom = functions.https.onCall(async (data, context) => {
         return { valid: false, mensagem: "Este cupom está desativado." };
     }
 
-    if (cupom.validade) {
-        const validade = cupom.validade.toDate
-            ? cupom.validade.toDate()
-            : new Date(cupom.validade);
-        if (validade < new Date()) {
-            return { valid: false, mensagem: "Este cupom expirou." };
-        }
+    const vigencia = H.cupomDentroDaVigencia(cupom);
+    if (!vigencia.ok) {
+        return { valid: false, mensagem: vigencia.mensagem };
     }
 
     const limiteUsos = Number(cupom.limite_usos ?? 0);
@@ -86,20 +80,13 @@ exports.validarCupom = functions.https.onCall(async (data, context) => {
             .where("cupom_codigo", "==", codigo)
             .get();
 
-        // Conta CHECKOUTS únicos, não pedidos. Em multi-loja, 1 compra
-        // gera N pedidos com o mesmo `checkout_grupo_id` mas representa
-        // apenas 1 uso do cupom (mesma regra do contador global em
-        // `processarFinanceiroPedidoOnCreate`). Pedidos cancelados/recusados
-        // antes da entrega NÃO consomem uso (cliente pode tentar de novo).
         const checkoutsUnicos = new Set();
-        pedidosSnap.docs.forEach((doc) => {
-            const data = doc.data() || {};
-            const st = String(data.status || "").toLowerCase();
-            // Pedidos cancelados (PIX expirado, cliente desistiu, recusa)
-            // não devem contar como uso consumido — libera o cupom de novo.
+        pedidosSnap.docs.forEach((pDoc) => {
+            const pData = pDoc.data() || {};
+            const st = String(pData.status || "").toLowerCase();
             if (st === "cancelado" || st === "recusado") return;
-            const grupo = String(data.checkout_grupo_id || "").trim();
-            const chave = grupo ? `g:${grupo}` : `p:${doc.id}`;
+            const grupo = String(pData.checkout_grupo_id || "").trim();
+            const chave = grupo ? `g:${grupo}` : `p:${pDoc.id}`;
             checkoutsUnicos.add(chave);
         });
 
@@ -121,11 +108,6 @@ exports.validarCupom = functions.https.onCall(async (data, context) => {
 
     if (cupom.escopo === "loja" && cupom.loja_id) {
         const lojaCupom = String(cupom.loja_id);
-
-        // Cupom restrito a UMA loja: o carrinho não pode conter itens
-        // de outras lojas — não há como aplicar parcial só nessa loja
-        // sem distorcer o desconto (rateio iria para outras lojas que
-        // não fazem parte do escopo do cupom). Regra: tudo ou nada.
         if (lojaIds.length > 1) {
             return {
                 valid: false,
@@ -148,28 +130,52 @@ exports.validarCupom = functions.https.onCall(async (data, context) => {
         }
     }
 
-    const tipo = String(cupom.tipo || "porcentagem").toLowerCase();
+    const tipo = String(cupom.tipo || H.TIPOS_CUPOM.PORCENTAGEM).toLowerCase();
     const valor = Number(cupom.valor || 0);
-    let desconto = 0;
 
-    if (tipo === "porcentagem") {
-        desconto = Math.round(subtotalProdutos * (valor / 100) * 100) / 100;
-    } else {
-        desconto = Math.round(Math.min(valor, subtotalProdutos) * 100) / 100;
+    if (tipo === H.TIPOS_CUPOM.FRETE_GRATIS) {
+        const freteCheck = H.validarFreteGratisRaio(cupom, {
+            retirada_na_loja: retiradaNaLoja,
+            taxa_entrega: taxaEntrega,
+            distancia_entrega_km: data?.distancia_entrega_km,
+            loja_latitude: data?.loja_latitude,
+            loja_longitude: data?.loja_longitude,
+            entrega_latitude: data?.entrega_latitude,
+            entrega_longitude: data?.entrega_longitude,
+        });
+        if (!freteCheck.ok) {
+            return { valid: false, mensagem: freteCheck.mensagem };
+        }
+        const descontoFrete = H.roundMoney(freteCheck.descontoFrete);
+        return {
+            valid: true,
+            cupom_id: doc.id,
+            tipo_desconto: H.TIPOS_CUPOM.FRETE_GRATIS,
+            valor_desconto: descontoFrete,
+            desconto_cupom_produto: 0,
+            desconto_cupom_frete: descontoFrete,
+            percentual: null,
+            mensagem: `Frete grátis aplicado! Você economiza R$ ${descontoFrete.toFixed(2)} na entrega.`,
+        };
     }
 
-    desconto = Math.min(desconto, subtotalProdutos);
-    desconto = Math.max(0, desconto);
+    const descontoProduto = H.calcularDescontoProduto(
+        tipo,
+        valor,
+        subtotalProdutos,
+    );
 
     return {
         valid: true,
         cupom_id: doc.id,
         tipo_desconto: tipo,
-        valor_desconto: desconto,
-        percentual: tipo === "porcentagem" ? valor : null,
+        valor_desconto: descontoProduto,
+        desconto_cupom_produto: descontoProduto,
+        desconto_cupom_frete: 0,
+        percentual: tipo === H.TIPOS_CUPOM.PORCENTAGEM ? valor : null,
         mensagem:
-            tipo === "porcentagem"
-                ? `Cupom aplicado! ${valor}% de desconto.`
-                : `Cupom aplicado! R$ ${desconto.toFixed(2)} de desconto.`,
+            tipo === H.TIPOS_CUPOM.PORCENTAGEM
+                ? `Cupom aplicado! ${valor}% de desconto nos produtos.`
+                : `Cupom aplicado! R$ ${descontoProduto.toFixed(2)} de desconto nos produtos.`,
     };
 });

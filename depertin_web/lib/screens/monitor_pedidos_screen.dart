@@ -7,6 +7,7 @@ import 'package:intl/intl.dart';
 import 'package:url_launcher/url_launcher.dart';
 
 import '../theme/painel_admin_theme.dart';
+import '../utils/codigo_pedido.dart';
 
 typedef _LinhaSecao = ({String label, String valor, String? copiar});
 
@@ -1043,7 +1044,7 @@ class _MonitorPedidosScreenState extends State<MonitorPedidosScreen> {
         (d['entregador_id'] != null ? '(${d['entregador_id']})' : '—');
     final itens =
         ((d['itens'] as List?) ?? (d['items'] as List?) ?? const []).length;
-    final codigoPedido = _gerarCodigoPedido(doc.id);
+    final codigoPedido = CodigoPedido.exibir(doc.id, d);
     final tipoCompra = (d['tipo_compra'] ?? d['tipo_venda'] ?? '')
         .toString()
         .trim();
@@ -1241,13 +1242,6 @@ class _MonitorPedidosScreenState extends State<MonitorPedidosScreen> {
     );
   }
 
-  String _gerarCodigoPedido(String firebaseId) {
-    // Gera um código amigável: "PED-" + 6 dígitos do hash do ID
-    final hash = firebaseId.hashCode.abs();
-    final numero = (hash % 999999).toString().padLeft(6, '0');
-    return 'PED-$numero';
-  }
-
   Widget _tag(IconData icon, String text) {
     return Row(
       mainAxisSize: MainAxisSize.min,
@@ -1307,7 +1301,7 @@ class _MonitorPedidosScreenState extends State<MonitorPedidosScreen> {
     final d = doc.data() as Map<String, dynamic>;
     final st = d['status']?.toString() ?? '';
     final ts = d['data_pedido'] as Timestamp?;
-    final codigoPedido = _gerarCodigoPedido(doc.id);
+    final codigoPedido = CodigoPedido.exibir(doc.id, d);
     final entregadorNome = d['entregador_nome']?.toString() ?? '—';
     final entregadorId = d['entregador_id']?.toString() ?? '—';
     final itens = (d['itens'] as List?) ?? (d['items'] as List?) ?? [];

@@ -14,6 +14,9 @@ import 'package:flutter_multi_formatter/flutter_multi_formatter.dart';
 import 'package:cloud_firestore/cloud_firestore.dart';
 import 'package:firebase_auth/firebase_auth.dart';
 import 'package:intl/intl.dart';
+import 'package:depertin_cliente/utils/carrinho_pedido_pago.dart';
+import 'package:depertin_cliente/utils/safe_area_insets.dart';
+import 'package:depertin_cliente/widgets/dipertin_safe_bottom_panel.dart';
 
 const Color diPertinRoxo = Color(0xFF6A1B9A);
 const Color diPertinLaranja = Color(0xFFFF8F00);
@@ -707,23 +710,231 @@ class _CheckoutPagamentoScreenState extends State<CheckoutPagamentoScreen> {
     });
   }
 
-  /// Esvazia a sacola de pronta-entrega após pagamento confirmado (não mexe em
-  /// itens de encomenda nem em checkout de pedido `tipo_compra: encomenda`).
+  /// Remove da sacola apenas itens das lojas com pagamento confirmado.
   Future<void> _limparCarrinhoProntaEntregaSeAplicavel() async {
     final pid = widget.pedidoFirestoreId?.trim() ?? '';
     if (pid.isEmpty) return;
+    if (!mounted) return;
     try {
+      final lojaIds = await lojaIdsParaLimparCarrinhoAposPagamento(pid);
+      if (!mounted) return;
+      final cart = context.read<CartProvider>();
+      if (lojaIds.isEmpty) {
+        await cart.removerItensPorTipo(encomenda: false);
+      } else {
+        await cart.removerItensDasLojas(lojaIds);
+      }
+    } catch (_) {}
+  }
+
+  void _pararEscutaPix() {
+    _pollTimer?.cancel();
+    _pedidoSub?.cancel();
+  }
+
+  void _voltarAoCarrinhoSemCancelar() {
+    if (_pixConcluido) return;
+    _pararEscutaPix();
+    if (!mounted) return;
+    ScaffoldMessenger.of(context).showSnackBar(
+      const SnackBar(
+        content: Text(
+          'Pedido em Meus Pedidos → Aguardando pagamento. '
+          'Itens mantidos no carrinho até você concluir o pagamento.',
+        ),
+        duration: Duration(seconds: 5),
+        behavior: SnackBarBehavior.floating,
+      ),
+    );
+    Navigator.of(context).pop();
+  }
+
+  Future<void> _alterarFormaPagamento() async {
+    if (_pixConcluido) return;
+    _pararEscutaPix();
+    setState(() {
+      _pixGerado = false;
+      _pixQrImageBytes = null;
+      _pixCopiaECola = '';
+      _mpPaymentId = null;
+      _aguardandoConfirmacaoPix = false;
+      _pixPrazoFim = null;
+      _pixExpiradoJaTratado = false;
+      _metodoAtual = _metodoAtual == 'PIX' ? 'Cartão' : 'PIX';
+    });
+    if (_metodoAtual == 'Cartão') {
+      _agendarAtualizacaoParcelasMercadoPago();
+    }
+    if (!mounted) return;
+    ScaffoldMessenger.of(context).showSnackBar(
+      const SnackBar(
+        content: Text(
+          'Forma de pagamento alterada. O pedido continua aguardando pagamento.',
+        ),
+        behavior: SnackBarBehavior.floating,
+      ),
+    );
+  }
+
+  Future<void> _cancelarPagamentoPixCliente() async {
+    if (_pixConcluido || !_temPedidoFirestore) return;
+    final pid = widget.pedidoFirestoreId!.trim();
+
+    final confirmar = await showDialog<bool>(
+      context: context,
+      builder: (ctx) => AlertDialog(
+        title: const Text('Cancelar pagamento?'),
+        content: const Text(
+          'O pedido será cancelado e o PIX deixará de ser válido. '
+          'Você poderá refazer a compra pelo carrinho.',
+        ),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.pop(ctx, false),
+            child: const Text('Voltar'),
+          ),
+          FilledButton(
+            style: FilledButton.styleFrom(
+              backgroundColor: Colors.red,
+              foregroundColor: Colors.white,
+            ),
+            onPressed: () => Navigator.pop(ctx, true),
+            child: const Text('Cancelar pedido'),
+          ),
+        ],
+      ),
+    );
+    if (confirmar != true || !mounted) return;
+
+    _pararEscutaPix();
+    setState(() => _isProcessando = true);
+    try {
+      await _cancelarReservaDeSaldo(motivo: 'Cliente cancelou PIX no checkout');
       final snap = await FirebaseFirestore.instance
           .collection('pedidos')
           .doc(pid)
           .get();
-      final tipo = (snap.data()?['tipo_compra'] ?? '').toString();
-      if (tipo == 'encomenda') return;
-    } catch (_) {
+      if (snap.exists &&
+          (snap.data()?['status'] ?? '').toString() ==
+              'aguardando_pagamento') {
+        await FirebaseFirestore.instance.collection('pedidos').doc(pid).update({
+          'status': 'cancelado',
+          'cancelado_motivo': 'cliente_cancelou_pix',
+          'cancelado_em': FieldValue.serverTimestamp(),
+        });
+      }
+      if (!mounted) return;
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(
+          content: Text('Pedido cancelado.'),
+          behavior: SnackBarBehavior.floating,
+        ),
+      );
+      Navigator.of(context).pop();
+    } catch (e) {
+      if (!mounted) return;
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(
+          content: Text('Não foi possível cancelar: $e'),
+          backgroundColor: Colors.red,
+        ),
+      );
+    } finally {
+      if (mounted) setState(() => _isProcessando = false);
+    }
+  }
+
+  Future<void> _confirmarSaidaComPixGerado() async {
+    if (!_pixGerado || _pixConcluido) {
+      if (mounted) Navigator.of(context).pop();
       return;
     }
+    final escolha = await showModalBottomSheet<String>(
+      context: context,
+      backgroundColor: const Color(0xFFF4F2F9),
+      shape: const RoundedRectangleBorder(
+        borderRadius: BorderRadius.vertical(top: Radius.circular(20)),
+      ),
+      builder: (ctx) => Padding(
+        padding: EdgeInsets.fromLTRB(
+          20,
+          12,
+          20,
+          20 + diPertinSafeAreaBottom(ctx),
+        ),
+        child: Column(
+          mainAxisSize: MainAxisSize.min,
+          crossAxisAlignment: CrossAxisAlignment.stretch,
+          children: [
+            Center(
+              child: Container(
+                width: 40,
+                height: 4,
+                decoration: BoxDecoration(
+                  color: Colors.grey.shade300,
+                  borderRadius: BorderRadius.circular(2),
+                ),
+              ),
+            ),
+            const SizedBox(height: 16),
+            const Text(
+              'Sair do pagamento PIX?',
+              style: TextStyle(
+                fontSize: 18,
+                fontWeight: FontWeight.w800,
+                color: Colors.black87,
+              ),
+            ),
+            const SizedBox(height: 8),
+            const Text(
+              'O pedido permanece em Meus Pedidos → Aguardando pagamento.',
+              style: TextStyle(color: Colors.grey, height: 1.35),
+            ),
+            const SizedBox(height: 16),
+            FilledButton.icon(
+              onPressed: () => Navigator.pop(ctx, 'carrinho'),
+              icon: const Icon(Icons.shopping_cart_outlined),
+              label: const Text('Voltar ao carrinho'),
+              style: FilledButton.styleFrom(
+                backgroundColor: diPertinLaranja,
+                foregroundColor: Colors.white,
+                minimumSize: const Size.fromHeight(48),
+              ),
+            ),
+            const SizedBox(height: 8),
+            OutlinedButton.icon(
+              onPressed: () => Navigator.pop(ctx, 'metodo'),
+              icon: const Icon(Icons.swap_horiz_rounded),
+              label: const Text('Alterar forma de pagamento'),
+              style: OutlinedButton.styleFrom(
+                foregroundColor: diPertinRoxo,
+                minimumSize: const Size.fromHeight(46),
+              ),
+            ),
+            const SizedBox(height: 8),
+            TextButton.icon(
+              onPressed: () => Navigator.pop(ctx, 'cancelar'),
+              icon: const Icon(Icons.cancel_outlined, color: Colors.red),
+              label: const Text(
+                'Cancelar pagamento',
+                style: TextStyle(color: Colors.red, fontWeight: FontWeight.w700),
+              ),
+            ),
+          ],
+        ),
+      ),
+    );
     if (!mounted) return;
-    await context.read<CartProvider>().removerItensPorTipo(encomenda: false);
+    switch (escolha) {
+      case 'carrinho':
+        _voltarAoCarrinhoSemCancelar();
+      case 'metodo':
+        await _alterarFormaPagamento();
+      case 'cancelar':
+        await _cancelarPagamentoPixCliente();
+      default:
+        break;
+    }
   }
 
   Future<void> _finalizarPixComSucesso() async {
@@ -1299,7 +1510,13 @@ class _CheckoutPagamentoScreenState extends State<CheckoutPagamentoScreen> {
   @override
   Widget build(BuildContext context) {
     const checkoutFundo = Color(0xFFF4F2F9);
-    return Scaffold(
+    return PopScope(
+      canPop: !_pixGerado || _pixConcluido,
+      onPopInvokedWithResult: (didPop, result) {
+        if (didPop) return;
+        unawaited(_confirmarSaidaComPixGerado());
+      },
+      child: Scaffold(
       backgroundColor: checkoutFundo,
       appBar: AppBar(
         elevation: 0,
@@ -1313,6 +1530,16 @@ class _CheckoutPagamentoScreenState extends State<CheckoutPagamentoScreen> {
         ),
         backgroundColor: diPertinRoxo,
         iconTheme: const IconThemeData(color: Colors.white),
+        leading: IconButton(
+          icon: const Icon(Icons.arrow_back),
+          onPressed: () {
+            if (_pixGerado && !_pixConcluido) {
+              unawaited(_confirmarSaidaComPixGerado());
+            } else {
+              Navigator.of(context).maybePop();
+            }
+          },
+        ),
       ),
       body: Column(
         children: [
@@ -1509,7 +1736,13 @@ class _CheckoutPagamentoScreenState extends State<CheckoutPagamentoScreen> {
 
           Expanded(
             child: SingleChildScrollView(
-              padding: const EdgeInsets.symmetric(horizontal: 18, vertical: 8),
+              padding: diPertinScrollPadding(
+                context,
+                left: 18,
+                right: 18,
+                top: 8,
+                extraBottom: _pixGerado ? 24 : 8,
+              ),
               child: _pixGerado
                   ? _buildPixGeradoOficial()
                   : (_metodoAtual == 'PIX'
@@ -1520,19 +1753,89 @@ class _CheckoutPagamentoScreenState extends State<CheckoutPagamentoScreen> {
         ],
       ),
       bottomNavigationBar: _pixGerado
-          ? null // Se gerou o pix, tira o botão de baixo para o usuário focar em pagar
-          : Container(
-              padding: const EdgeInsets.all(20),
-              decoration: const BoxDecoration(
-                color: Colors.white,
-                boxShadow: [
-                  BoxShadow(
-                    color: Colors.black12,
-                    blurRadius: 10,
-                    offset: Offset(0, -5),
+          ? DiPertinSafeBottomPanel(
+              child: Column(
+                mainAxisSize: MainAxisSize.min,
+                crossAxisAlignment: CrossAxisAlignment.stretch,
+                children: [
+                  SizedBox(
+                    height: 46,
+                    child: OutlinedButton.icon(
+                      onPressed: _pixConcluido ? null : _voltarAoCarrinhoSemCancelar,
+                      icon: const Icon(Icons.shopping_cart_outlined, size: 20),
+                      label: const Text(
+                        'Voltar ao carrinho',
+                        style: TextStyle(fontWeight: FontWeight.w700),
+                      ),
+                      style: OutlinedButton.styleFrom(
+                        foregroundColor: diPertinRoxo,
+                        side: BorderSide(color: diPertinRoxo.withValues(alpha: 0.4)),
+                        shape: RoundedRectangleBorder(
+                          borderRadius: BorderRadius.circular(14),
+                        ),
+                      ),
+                    ),
+                  ),
+                  const SizedBox(height: 8),
+                  Row(
+                    children: [
+                      Expanded(
+                        child: SizedBox(
+                          height: 44,
+                          child: OutlinedButton(
+                            onPressed: _pixConcluido || _isProcessando
+                                ? null
+                                : _alterarFormaPagamento,
+                            style: OutlinedButton.styleFrom(
+                              foregroundColor: diPertinRoxo,
+                              shape: RoundedRectangleBorder(
+                                borderRadius: BorderRadius.circular(12),
+                              ),
+                            ),
+                            child: const Text(
+                              'Alterar pagamento',
+                              style: TextStyle(
+                                fontSize: 12.5,
+                                fontWeight: FontWeight.w700,
+                              ),
+                              textAlign: TextAlign.center,
+                            ),
+                          ),
+                        ),
+                      ),
+                      const SizedBox(width: 8),
+                      Expanded(
+                        child: SizedBox(
+                          height: 44,
+                          child: OutlinedButton(
+                            onPressed: _pixConcluido || _isProcessando
+                                ? null
+                                : _cancelarPagamentoPixCliente,
+                            style: OutlinedButton.styleFrom(
+                              foregroundColor: Colors.red.shade700,
+                              side: BorderSide(
+                                color: Colors.red.shade300,
+                              ),
+                              shape: RoundedRectangleBorder(
+                                borderRadius: BorderRadius.circular(12),
+                              ),
+                            ),
+                            child: const Text(
+                              'Cancelar',
+                              style: TextStyle(
+                                fontSize: 12.5,
+                                fontWeight: FontWeight.w700,
+                              ),
+                            ),
+                          ),
+                        ),
+                      ),
+                    ],
                   ),
                 ],
               ),
+            )
+          : DiPertinSafeBottomPanel(
               child: SizedBox(
                 height: 55,
                 child: ElevatedButton(
@@ -1584,6 +1887,7 @@ class _CheckoutPagamentoScreenState extends State<CheckoutPagamentoScreen> {
                 ),
               ),
             ),
+    ),
     );
   }
 

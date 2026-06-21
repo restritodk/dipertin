@@ -79,94 +79,114 @@ class ColaboradoresLojistaPainelCard extends StatefulWidget {
 
 class _ColaboradoresLojistaPainelCardState
     extends State<ColaboradoresLojistaPainelCard> {
+  String _filtroBusca = '';
+
   @override
   Widget build(BuildContext context) {
     final authUid = FirebaseAuth.instance.currentUser?.uid ?? '';
 
-    return Container(
-      decoration: PainelAdminTheme.dashboardCard(),
-      clipBehavior: Clip.antiAlias,
-      child: Column(
-        crossAxisAlignment: CrossAxisAlignment.stretch,
-        children: [
-          _CabecalhoEquipe(
-            onNovo: () async {
-              final ok = await showDialog<bool>(
-                context: context,
-                barrierDismissible: false,
-                builder: (ctx) => const _DialogoColaborador(
-                  modo: _ModoDialogColaborador.criar,
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.stretch,
+      children: [
+        _BarraAcoesEquipe(
+          onNovo: () async {
+            final ok = await showDialog<bool>(
+              context: context,
+              barrierDismissible: false,
+              builder: (ctx) => const _DialogoColaborador(
+                modo: _ModoDialogColaborador.criar,
+              ),
+            );
+            if (ok == true && context.mounted) {
+              await _mostrarAnimacaoSucesso(context);
+            }
+          },
+          onBusca: (v) => setState(() => _filtroBusca = v),
+        ),
+        const SizedBox(height: 24),
+        StreamBuilder<QuerySnapshot<Map<String, dynamic>>>(
+          stream: FirebaseFirestore.instance
+              .collection('users')
+              .where('lojista_owner_uid', isEqualTo: widget.uidLoja)
+              .snapshots(),
+          builder: (context, snap) {
+            if (snap.hasError) {
+              return _ErroLista(mensagem: '${snap.error}');
+            }
+            if (snap.connectionState == ConnectionState.waiting &&
+                !snap.hasData) {
+              return const Center(
+                child: Padding(
+                  padding: EdgeInsets.all(48),
+                  child: CircularProgressIndicator(
+                    color: PainelAdminTheme.roxo,
+                  ),
                 ),
               );
-              if (ok == true && context.mounted) {
-                await _mostrarAnimacaoSucesso(context);
-              }
-            },
-          ),
-          const Divider(height: 1, thickness: 1),
-          Padding(
-            padding: const EdgeInsets.fromLTRB(24, 20, 24, 24),
-            child: StreamBuilder<QuerySnapshot<Map<String, dynamic>>>(
-              stream: FirebaseFirestore.instance
-                  .collection('users')
-                  .where('lojista_owner_uid', isEqualTo: widget.uidLoja)
-                  .snapshots(),
-              builder: (context, snap) {
-                if (snap.hasError) {
-                  return _ErroLista(mensagem: '${snap.error}');
-                }
-                if (snap.connectionState == ConnectionState.waiting &&
-                    !snap.hasData) {
-                  return const Center(
-                    child: Padding(
-                      padding: EdgeInsets.all(32),
-                      child: CircularProgressIndicator(
-                        color: PainelAdminTheme.roxo,
-                      ),
-                    ),
-                  );
-                }
-                final docs = snap.data?.docs ?? [];
-                if (docs.isEmpty) {
-                  return _EstadoVazio(
-                    onAdicionar: () async {
-                      final ok = await showDialog<bool>(
-                        context: context,
-                        barrierDismissible: false,
-                        builder: (ctx) => const _DialogoColaborador(
-                          modo: _ModoDialogColaborador.criar,
-                        ),
-                      );
-                      if (ok == true && context.mounted) {
-                        await _mostrarAnimacaoSucesso(context);
-                      }
-                    },
-                  );
-                }
-                return _TabelaColaboradores(
-                  docs: docs,
+            }
+            var docs = snap.data?.docs ?? [];
+
+            // Aplicar busca client-side
+            if (_filtroBusca.isNotEmpty) {
+              docs = docs.where((d) {
+                final m = d.data();
+                final nome = (m['nome'] ?? m['nome_completo'] ?? '').toString().toLowerCase();
+                final email = (m['email'] ?? '').toString().toLowerCase();
+                final cpf = (m['cpf'] ?? '').toString().toLowerCase();
+                final b = _filtroBusca.toLowerCase();
+                return nome.contains(b) || email.contains(b) || cpf.contains(b);
+              }).toList();
+            }
+
+            if (docs.isEmpty) {
+              return _filtroBusca.isEmpty
+                  ? _EstadoVazio(
+                      onAdicionar: () async {
+                        final ok = await showDialog<bool>(
+                          context: context,
+                          barrierDismissible: false,
+                          builder: (ctx) => const _DialogoColaborador(
+                            modo: _ModoDialogColaborador.criar,
+                          ),
+                        );
+                        if (ok == true && context.mounted) {
+                          await _mostrarAnimacaoSucesso(context);
+                        }
+                      },
+                    )
+                  : _EstadoBuscaVazia(onLimpar: () => setState(() => _filtroBusca = ''));
+            }
+
+            return ListView.separated(
+              shrinkWrap: true,
+              physics: const NeverScrollableScrollPhysics(),
+              itemCount: docs.length,
+              separatorBuilder: (_, __) => const SizedBox(height: 12),
+              itemBuilder: (context, index) {
+                final d = docs[index];
+                return _CardColaborador(
+                  doc: d,
                   authUid: authUid,
-                  onEditar: (doc) async {
+                  onEditar: () async {
                     final ok = await showDialog<bool>(
                       context: context,
                       barrierDismissible: false,
                       builder: (ctx) => _DialogoColaborador(
                         modo: _ModoDialogColaborador.editar,
-                        documento: doc,
+                        documento: d,
                       ),
                     );
                     if (ok == true && context.mounted) {
                       await _mostrarAnimacaoSucesso(context);
                     }
                   },
-                  onEliminar: (doc) =>
-                      _confirmarEliminar(context, doc.id, doc.data()),
+                  onEliminar: () => _confirmarEliminar(context, d.id, d.data()),
                 );
               },
-            ),
-          ),
-        ],
-      ),
+            );
+          },
+        ),
+      ],
     );
   }
 
@@ -291,92 +311,283 @@ class _ColaboradoresLojistaPainelCardState
   }
 }
 
-// ——— Cabeçalho ———
+// ——— Barra de Ações ———
 
-class _CabecalhoEquipe extends StatelessWidget {
-  const _CabecalhoEquipe({required this.onNovo});
+class _BarraAcoesEquipe extends StatelessWidget {
+  const _BarraAcoesEquipe({required this.onNovo, required this.onBusca});
 
   final VoidCallback onNovo;
+  final ValueChanged<String> onBusca;
 
   @override
   Widget build(BuildContext context) {
-    final botao = FilledButton.icon(
-      onPressed: onNovo,
-      icon: const Icon(Icons.person_add_alt_1_rounded, size: 20),
-      label: Text(
-        'Novo colaborador',
-        style: GoogleFonts.plusJakartaSans(fontWeight: FontWeight.w700),
-      ),
-      style: FilledButton.styleFrom(
-        backgroundColor: PainelAdminTheme.roxo,
-        foregroundColor: Colors.white,
-        padding: const EdgeInsets.symmetric(horizontal: 20, vertical: 14),
-        shape: RoundedRectangleBorder(
-          borderRadius: BorderRadius.circular(12),
-        ),
-      ),
-    );
-
-    final icone = Container(
-      padding: const EdgeInsets.all(12),
-      decoration: BoxDecoration(
-        gradient: LinearGradient(
-          colors: [
-            PainelAdminTheme.roxo.withValues(alpha: 0.14),
-            PainelAdminTheme.roxo.withValues(alpha: 0.06),
-          ],
-          begin: Alignment.topLeft,
-          end: Alignment.bottomRight,
-        ),
-        borderRadius: BorderRadius.circular(14),
-        border: Border.all(
-          color: PainelAdminTheme.roxo.withValues(alpha: 0.2),
-        ),
-      ),
-      child: Icon(
-        Icons.groups_2_outlined,
-        color: PainelAdminTheme.roxo,
-        size: 26,
-      ),
-    );
-
-    final blocoTexto = Column(
-      crossAxisAlignment: CrossAxisAlignment.center,
+    return Row(
       children: [
-        Text(
-          'CADASTRE SUA EQUIPE DE COLABORADORES',
-          textAlign: TextAlign.center,
-          style: GoogleFonts.plusJakartaSans(
-            fontSize: 20,
-            fontWeight: FontWeight.w800,
-            color: PainelAdminTheme.dashboardInk,
-            letterSpacing: -0.3,
+        Expanded(
+          child: Container(
+            height: 48,
+            decoration: BoxDecoration(
+              color: Colors.white,
+              borderRadius: BorderRadius.circular(12),
+              boxShadow: PainelAdminTheme.sombraCardSuave(),
+            ),
+            child: TextField(
+              onChanged: onBusca,
+              style: GoogleFonts.plusJakartaSans(fontSize: 14),
+              decoration: InputDecoration(
+                hintText: 'Buscar por nome, e-mail ou CPF...',
+                hintStyle: GoogleFonts.plusJakartaSans(
+                  color: PainelAdminTheme.textoSecundario.withValues(alpha: 0.6),
+                  fontSize: 14,
+                ),
+                prefixIcon: const Icon(Icons.search_rounded, size: 20),
+                border: InputBorder.none,
+                contentPadding: const EdgeInsets.symmetric(vertical: 14),
+              ),
+            ),
           ),
         ),
-        const SizedBox(height: 8),
-        Text(
-          'Gerencie sua equipe de colaboradores para compartilhar o acesso ao painel.',
-          textAlign: TextAlign.center,
-          style: GoogleFonts.plusJakartaSans(
-            fontSize: 13.5,
-            color: PainelAdminTheme.textoSecundario,
-            height: 1.5,
+        const SizedBox(width: 16),
+        FilledButton.icon(
+          onPressed: onNovo,
+          icon: const Icon(Icons.add_rounded, size: 20),
+          label: const Text('Novo colaborador'),
+          style: FilledButton.styleFrom(
+            backgroundColor: PainelAdminTheme.roxo,
+            foregroundColor: Colors.white,
+            padding: const EdgeInsets.symmetric(horizontal: 24, vertical: 16),
+            shape: RoundedRectangleBorder(
+              borderRadius: BorderRadius.circular(12),
+            ),
+            elevation: 0,
           ),
         ),
       ],
     );
+  }
+}
 
-    return Padding(
-      padding: const EdgeInsets.fromLTRB(24, 22, 24, 18),
-      child: Column(
-        crossAxisAlignment: CrossAxisAlignment.center,
+// ——— Cards ———
+
+class _CardColaborador extends StatelessWidget {
+  const _CardColaborador({
+    required this.doc,
+    required this.authUid,
+    required this.onEditar,
+    required this.onEliminar,
+  });
+
+  final QueryDocumentSnapshot<Map<String, dynamic>> doc;
+  final String authUid;
+  final VoidCallback onEditar;
+  final VoidCallback onEliminar;
+
+  static String _formatarCpf(String? raw) {
+    final d = (raw ?? '').replaceAll(RegExp(r'\D'), '');
+    if (d.length != 11) return (raw == null || raw.isEmpty) ? '—' : raw;
+    return '${d.substring(0, 3)}.${d.substring(3, 6)}.${d.substring(6, 9)}-${d.substring(9)}';
+  }
+
+  static String _textoNivelPainel(Map<String, dynamic> m) {
+    final nv = m['painel_colaborador_nivel'];
+    int? n;
+    if (nv is num) n = nv.toInt();
+    else if (nv is String) n = int.tryParse(nv);
+    if (n == null) return 'Nível I';
+    n = n.clamp(1, 3);
+    if (n == 1) return 'Nível I';
+    if (n == 2) return 'Nível II';
+    return 'Nível III';
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    final m = doc.data();
+    final nome = (m['nome'] ?? m['nome_completo'] ?? '—').toString();
+    final email = (m['email'] ?? '—').toString();
+    final cpf = _formatarCpf(m['cpf']?.toString());
+    final nivelTxt = _textoNivelPainel(m);
+    final mesmoEu = doc.id == authUid;
+
+    return Container(
+      padding: const EdgeInsets.all(16),
+      decoration: BoxDecoration(
+        color: Colors.white,
+        borderRadius: BorderRadius.circular(16),
+        boxShadow: PainelAdminTheme.sombraCardSuave(),
+        border: Border.all(color: Colors.white),
+      ),
+      child: Row(
         children: [
-          icone,
-          const SizedBox(height: 16),
-          blocoTexto,
-          const SizedBox(height: 20),
-          botao,
+          Container(
+            width: 48,
+            height: 48,
+            decoration: BoxDecoration(
+              color: PainelAdminTheme.roxo.withValues(alpha: 0.1),
+              shape: BoxShape.circle,
+            ),
+            child: Center(
+              child: Text(
+                nome.isNotEmpty ? nome[0].toUpperCase() : '?',
+                style: GoogleFonts.plusJakartaSans(
+                  fontWeight: FontWeight.w800,
+                  color: PainelAdminTheme.roxo,
+                  fontSize: 18,
+                ),
+              ),
+            ),
+          ),
+          const SizedBox(width: 16),
+          Expanded(
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                Row(
+                  children: [
+                    Text(
+                      nome,
+                      style: GoogleFonts.plusJakartaSans(
+                        fontWeight: FontWeight.w700,
+                        fontSize: 15,
+                        color: PainelAdminTheme.dashboardInk,
+                      ),
+                    ),
+                    if (mesmoEu) ...[
+                      const SizedBox(width: 8),
+                      Container(
+                        padding: const EdgeInsets.symmetric(horizontal: 6, vertical: 2),
+                        decoration: BoxDecoration(
+                          color: PainelAdminTheme.roxo.withValues(alpha: 0.1),
+                          borderRadius: BorderRadius.circular(4),
+                        ),
+                        child: Text(
+                          'VOCÊ',
+                          style: GoogleFonts.plusJakartaSans(
+                            fontSize: 9,
+                            fontWeight: FontWeight.w800,
+                            color: PainelAdminTheme.roxo,
+                          ),
+                        ),
+                      ),
+                    ],
+                  ],
+                ),
+                const SizedBox(height: 4),
+                Row(
+                  children: [
+                    Icon(Icons.email_outlined, size: 14, color: PainelAdminTheme.textoSecundario),
+                    const SizedBox(width: 4),
+                    Text(
+                      email,
+                      style: GoogleFonts.plusJakartaSans(
+                        fontSize: 13,
+                        color: PainelAdminTheme.textoSecundario,
+                      ),
+                    ),
+                    const SizedBox(width: 12),
+                    Icon(Icons.badge_outlined, size: 14, color: PainelAdminTheme.textoSecundario),
+                    const SizedBox(width: 4),
+                    Text(
+                      cpf,
+                      style: GoogleFonts.plusJakartaSans(
+                        fontSize: 13,
+                        color: PainelAdminTheme.textoSecundario,
+                      ),
+                    ),
+                  ],
+                ),
+              ],
+            ),
+          ),
+          Container(
+            padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 6),
+            decoration: BoxDecoration(
+              color: PainelAdminTheme.roxo.withValues(alpha: 0.05),
+              borderRadius: BorderRadius.circular(20),
+              border: Border.all(color: PainelAdminTheme.roxo.withValues(alpha: 0.1)),
+            ),
+            child: Text(
+              nivelTxt,
+              style: GoogleFonts.plusJakartaSans(
+                fontSize: 12,
+                fontWeight: FontWeight.w700,
+                color: PainelAdminTheme.roxo,
+              ),
+            ),
+          ),
+          const SizedBox(width: 16),
+          PopupMenuButton<String>(
+            icon: Icon(Icons.more_vert_rounded, color: Colors.grey.shade400),
+            tooltip: 'Ações',
+            shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
+            onSelected: (val) {
+              if (val == 'editar') onEditar();
+              if (val == 'remover') onEliminar();
+            },
+            itemBuilder: (ctx) => [
+              PopupMenuItem(
+                value: 'editar',
+                enabled: !mesmoEu,
+                child: Row(
+                  children: [
+                    Icon(Icons.edit_outlined, size: 18, color: mesmoEu ? Colors.grey : PainelAdminTheme.roxo),
+                    const SizedBox(width: 12),
+                    Text('Editar dados', style: GoogleFonts.plusJakartaSans(fontSize: 14)),
+                  ],
+                ),
+              ),
+              PopupMenuItem(
+                value: 'remover',
+                enabled: !mesmoEu,
+                child: Row(
+                  children: [
+                    const Icon(Icons.delete_outline_rounded, size: 18, color: Color(0xFFB91C1C)),
+                    const SizedBox(width: 12),
+                    Text('Remover acesso', style: GoogleFonts.plusJakartaSans(fontSize: 14, color: const Color(0xFFB91C1C))),
+                  ],
+                ),
+              ),
+            ],
+          ),
         ],
+      ),
+    );
+  }
+}
+
+class _EstadoBuscaVazia extends StatelessWidget {
+  const _EstadoBuscaVazia({required this.onLimpar});
+  final VoidCallback onLimpar;
+
+  @override
+  Widget build(BuildContext context) {
+    return Center(
+      child: Padding(
+        padding: const EdgeInsets.symmetric(vertical: 60),
+        child: Column(
+          children: [
+            Icon(Icons.search_off_rounded, size: 64, color: Colors.grey.shade300),
+            const SizedBox(height: 16),
+            Text(
+              'Nenhum colaborador encontrado',
+              style: GoogleFonts.plusJakartaSans(
+                fontSize: 18,
+                fontWeight: FontWeight.w700,
+                color: PainelAdminTheme.dashboardInk,
+              ),
+            ),
+            const SizedBox(height: 8),
+            Text(
+              'Tente ajustar os termos da sua busca.',
+              style: GoogleFonts.plusJakartaSans(color: PainelAdminTheme.textoSecundario),
+            ),
+            const SizedBox(height: 24),
+            TextButton(
+              onPressed: onLimpar,
+              child: const Text('Limpar busca'),
+            ),
+          ],
+        ),
       ),
     );
   }
@@ -392,49 +603,63 @@ class _EstadoVazio extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     return Container(
-      padding: const EdgeInsets.symmetric(vertical: 40, horizontal: 16),
+      padding: const EdgeInsets.symmetric(vertical: 80, horizontal: 24),
       decoration: BoxDecoration(
-        color: const Color(0xFFF8FAFC),
-        borderRadius: BorderRadius.circular(14),
-        border: Border.all(color: PainelAdminTheme.dashboardBorder),
+        color: Colors.white,
+        borderRadius: BorderRadius.circular(20),
+        boxShadow: PainelAdminTheme.sombraCardSuave(),
       ),
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.center,
         children: [
-          Icon(
-            Icons.people_outline_rounded,
-            size: 48,
-            color: PainelAdminTheme.textoSecundario.withValues(alpha: 0.5),
+          Container(
+            width: 80,
+            height: 80,
+            decoration: BoxDecoration(
+              color: PainelAdminTheme.roxo.withValues(alpha: 0.05),
+              shape: BoxShape.circle,
+            ),
+            child: Icon(
+              Icons.people_outline_rounded,
+              size: 40,
+              color: PainelAdminTheme.roxo.withValues(alpha: 0.4),
+            ),
           ),
-          const SizedBox(height: 12),
+          const SizedBox(height: 24),
           Text(
-            'Ainda não há colaboradores',
+            'Sua equipe ainda está vazia',
             textAlign: TextAlign.center,
             style: GoogleFonts.plusJakartaSans(
-              fontSize: 16,
-              fontWeight: FontWeight.w700,
+              fontSize: 20,
+              fontWeight: FontWeight.w800,
               color: PainelAdminTheme.dashboardInk,
             ),
           ),
-          const SizedBox(height: 8),
-          Text(
-            'Adicione o primeiro membro da equipe para compartilhar o acesso ao painel.',
-            textAlign: TextAlign.center,
-            style: GoogleFonts.plusJakartaSans(
-              fontSize: 14,
-              color: PainelAdminTheme.textoSecundario,
-              height: 1.45,
+          const SizedBox(height: 12),
+          ConstrainedBox(
+            constraints: const BoxConstraints(maxWidth: 400),
+            child: Text(
+              'Adicione colaboradores para ajudar na gestão da sua loja. Você pode definir diferentes níveis de acesso para cada um.',
+              textAlign: TextAlign.center,
+              style: GoogleFonts.plusJakartaSans(
+                fontSize: 15,
+                color: PainelAdminTheme.textoSecundario,
+                height: 1.5,
+              ),
             ),
           ),
-          const SizedBox(height: 20),
-          OutlinedButton.icon(
+          const SizedBox(height: 32),
+          FilledButton.icon(
             onPressed: onAdicionar,
             icon: const Icon(Icons.add_rounded),
-            label: const Text('Adicionar colaborador'),
-            style: OutlinedButton.styleFrom(
-              foregroundColor: PainelAdminTheme.roxo,
-              side: BorderSide(color: PainelAdminTheme.roxo.withValues(alpha: 0.5)),
-              padding: const EdgeInsets.symmetric(horizontal: 20, vertical: 12),
+            label: const Text('Adicionar primeiro colaborador'),
+            style: FilledButton.styleFrom(
+              backgroundColor: PainelAdminTheme.roxo,
+              foregroundColor: Colors.white,
+              padding: const EdgeInsets.symmetric(horizontal: 24, vertical: 18),
+              shape: RoundedRectangleBorder(
+                borderRadius: BorderRadius.circular(12),
+              ),
             ),
           ),
         ],
@@ -459,296 +684,6 @@ class _ErroLista extends StatelessWidget {
           Expanded(child: Text(mensagem)),
         ],
       ),
-    );
-  }
-}
-
-// ——— Tabela ———
-
-class _TabelaColaboradores extends StatelessWidget {
-  const _TabelaColaboradores({
-    required this.docs,
-    required this.authUid,
-    required this.onEditar,
-    required this.onEliminar,
-  });
-
-  final List<QueryDocumentSnapshot<Map<String, dynamic>>> docs;
-  final String authUid;
-  final void Function(QueryDocumentSnapshot<Map<String, dynamic>>) onEditar;
-  final void Function(QueryDocumentSnapshot<Map<String, dynamic>>) onEliminar;
-
-  static String _formatarCpf(String? raw) {
-    final d = (raw ?? '').replaceAll(RegExp(r'\D'), '');
-    if (d.length != 11) {
-      return (raw == null || raw.isEmpty) ? '—' : raw;
-    }
-    return '${d.substring(0, 3)}.${d.substring(3, 6)}.${d.substring(6, 9)}-${d.substring(9)}';
-  }
-
-  /// Texto curto para a coluna (alinha com o formulário de cadastro).
-  static String _textoNivelPainel(Map<String, dynamic> m) {
-    final nv = m['painel_colaborador_nivel'];
-    int? n;
-    if (nv is int) {
-      n = nv;
-    } else if (nv is num) {
-      n = nv.toInt();
-    } else if (nv is String) {
-      n = int.tryParse(nv.trim());
-    }
-    if (n == null) return '—';
-    n = n.clamp(1, 3);
-    switch (n) {
-      case 1:
-        return 'Nível I';
-      case 2:
-        return 'Nível II';
-      case 3:
-        return 'Nível III';
-      default:
-        return '—';
-    }
-  }
-
-  @override
-  Widget build(BuildContext context) {
-    return LayoutBuilder(
-      builder: (context, constraints) {
-        final table = Table(
-          columnWidths: const {
-            0: FlexColumnWidth(2.0),
-            1: FlexColumnWidth(1.35),
-            2: FlexColumnWidth(2.1),
-            3: FlexColumnWidth(1.15),
-            4: FixedColumnWidth(108),
-          },
-          defaultVerticalAlignment: TableCellVerticalAlignment.middle,
-          children: [
-            TableRow(
-              decoration: BoxDecoration(
-                color: const Color(0xFFF1F5F9),
-                borderRadius: BorderRadius.circular(10),
-              ),
-              children: [
-                _th('Nome'),
-                _th('CPF'),
-                _th('E-mail'),
-                _th('Nível'),
-                _th('Ação'),
-              ],
-            ),
-            ...docs.map((d) {
-              final m = d.data();
-              final nome =
-                  (m['nome'] ?? m['nome_completo'] ?? '—').toString();
-              final cpf = _formatarCpf(m['cpf']?.toString());
-              final email = (m['email'] ?? '—').toString();
-              final nivelTxt = _textoNivelPainel(m);
-              final mesmoEu = d.id == authUid;
-              return TableRow(
-                key: ValueKey(d.id),
-                decoration: BoxDecoration(
-                  border: Border(
-                    bottom: BorderSide(
-                      color: PainelAdminTheme.dashboardBorder.withValues(
-                        alpha: 0.7,
-                      ),
-                    ),
-                  ),
-                ),
-                children: [
-                  _td(
-                    Row(
-                      children: [
-                        Expanded(
-                          child: Text(
-                            nome,
-                            maxLines: 2,
-                            overflow: TextOverflow.ellipsis,
-                            style: GoogleFonts.plusJakartaSans(
-                              fontWeight: FontWeight.w600,
-                              fontSize: 14,
-                              color: PainelAdminTheme.dashboardInk,
-                            ),
-                          ),
-                        ),
-                        if (mesmoEu)
-                          Padding(
-                            padding: const EdgeInsets.only(left: 8),
-                            child: Container(
-                              padding: const EdgeInsets.symmetric(
-                                horizontal: 8,
-                                vertical: 2,
-                              ),
-                              decoration: BoxDecoration(
-                                color: PainelAdminTheme.roxo.withValues(alpha: 0.1),
-                                borderRadius: BorderRadius.circular(6),
-                              ),
-                              child: Text(
-                                'Você',
-                                style: GoogleFonts.plusJakartaSans(
-                                  fontSize: 11,
-                                  fontWeight: FontWeight.w700,
-                                  color: PainelAdminTheme.roxo,
-                                ),
-                              ),
-                            ),
-                          ),
-                      ],
-                    ),
-                  ),
-                  _td(
-                    Text(
-                      cpf,
-                      textAlign: TextAlign.center,
-                      style: GoogleFonts.plusJakartaSans(
-                        fontSize: 13.5,
-                        color: const Color(0xFF475569),
-                        letterSpacing: 0.2,
-                      ),
-                    ),
-                    center: true,
-                  ),
-                  _td(
-                    Tooltip(
-                      message: email,
-                      child: Text(
-                        email,
-                        textAlign: TextAlign.center,
-                        maxLines: 1,
-                        overflow: TextOverflow.ellipsis,
-                        style: GoogleFonts.plusJakartaSans(
-                          fontSize: 13.5,
-                          color: const Color(0xFF475569),
-                        ),
-                      ),
-                    ),
-                    center: true,
-                  ),
-                  _td(
-                    nivelTxt == '—'
-                        ? Text(
-                            '—',
-                            textAlign: TextAlign.center,
-                            style: GoogleFonts.plusJakartaSans(
-                              fontSize: 13.5,
-                              color: PainelAdminTheme.textoSecundario,
-                            ),
-                          )
-                        : Tooltip(
-                            message:
-                                'Permissões no painel: $nivelTxt',
-                            child: Center(
-                              child: Container(
-                                padding: const EdgeInsets.symmetric(
-                                  horizontal: 10,
-                                  vertical: 5,
-                                ),
-                                decoration: BoxDecoration(
-                                  color: PainelAdminTheme.roxo.withValues(
-                                    alpha: 0.08,
-                                  ),
-                                  borderRadius: BorderRadius.circular(8),
-                                  border: Border.all(
-                                    color: PainelAdminTheme.roxo.withValues(
-                                      alpha: 0.22,
-                                    ),
-                                  ),
-                                ),
-                                child: Text(
-                                  nivelTxt,
-                                  style: GoogleFonts.plusJakartaSans(
-                                    fontSize: 12.5,
-                                    fontWeight: FontWeight.w700,
-                                    color: PainelAdminTheme.roxo,
-                                  ),
-                                ),
-                              ),
-                            ),
-                          ),
-                    center: true,
-                  ),
-                  _td(
-                    Row(
-                      mainAxisAlignment: MainAxisAlignment.center,
-                      children: [
-                        IconButton(
-                          tooltip: 'Alterar dados',
-                          onPressed: mesmoEu ? null : () => onEditar(d),
-                          icon: Icon(
-                            Icons.edit_outlined,
-                            size: 20,
-                            color: mesmoEu
-                                ? Colors.grey.shade400
-                                : PainelAdminTheme.roxo,
-                          ),
-                        ),
-                        IconButton(
-                          tooltip: 'Remover',
-                          onPressed: mesmoEu ? null : () => onEliminar(d),
-                          icon: Icon(
-                            Icons.delete_outline_rounded,
-                            size: 20,
-                            color: mesmoEu
-                                ? Colors.grey.shade400
-                                : const Color(0xFFB91C1C),
-                          ),
-                        ),
-                      ],
-                    ),
-                    center: true,
-                  ),
-                ],
-              );
-            }),
-          ],
-        );
-
-        if (constraints.maxWidth < 720) {
-          return SingleChildScrollView(
-            scrollDirection: Axis.horizontal,
-            child: ConstrainedBox(
-              constraints: BoxConstraints(
-                minWidth: constraints.maxWidth > 680 ? constraints.maxWidth : 680,
-              ),
-              child: table,
-            ),
-          );
-        }
-        return table;
-      },
-    );
-  }
-
-  static Widget _th(String t, {bool center = true}) {
-    return Padding(
-      padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 10),
-      child: Text(
-        t.toUpperCase(),
-        textAlign: center ? TextAlign.center : TextAlign.start,
-        style: GoogleFonts.plusJakartaSans(
-          fontSize: 11,
-          fontWeight: FontWeight.w800,
-          letterSpacing: 0.9,
-          color: PainelAdminTheme.textoSecundario,
-        ),
-      ),
-    );
-  }
-
-  static Widget _td(Widget child, {bool center = false}) {
-    return Padding(
-      padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 14),
-      child: center
-          ? Align(
-              alignment: Alignment.center,
-              child: SizedBox(
-                width: double.infinity,
-                child: child,
-              ),
-            )
-          : child,
     );
   }
 }
@@ -926,13 +861,30 @@ class _DialogoColaboradorState extends State<_DialogoColaborador> {
   InputDecoration _dec(String label, IconData icon) {
     return InputDecoration(
       labelText: label,
-      prefixIcon: Icon(icon, size: 20, color: PainelAdminTheme.textoSecundario),
+      labelStyle: GoogleFonts.plusJakartaSans(
+        color: PainelAdminTheme.textoSecundario,
+        fontSize: 14,
+      ),
+      floatingLabelBehavior: FloatingLabelBehavior.always,
+      prefixIcon: Container(
+        margin: const EdgeInsets.only(right: 12, left: 12),
+        padding: const EdgeInsets.all(8),
+        decoration: BoxDecoration(
+          color: PainelAdminTheme.roxo.withValues(alpha: 0.05),
+          borderRadius: BorderRadius.circular(8),
+        ),
+        child: Icon(icon, size: 18, color: PainelAdminTheme.roxo),
+      ),
       filled: true,
-      fillColor: const Color(0xFFF8FAFC),
-      border: OutlineInputBorder(borderRadius: BorderRadius.circular(12)),
+      fillColor: Colors.white,
+      contentPadding: const EdgeInsets.symmetric(horizontal: 16, vertical: 20),
+      border: OutlineInputBorder(
+        borderRadius: BorderRadius.circular(12),
+        borderSide: BorderSide(color: Colors.grey.shade200),
+      ),
       enabledBorder: OutlineInputBorder(
         borderRadius: BorderRadius.circular(12),
-        borderSide: BorderSide(color: Colors.grey.shade300),
+        borderSide: BorderSide(color: Colors.grey.shade200),
       ),
       focusedBorder: OutlineInputBorder(
         borderRadius: BorderRadius.circular(12),
@@ -1116,6 +1068,9 @@ class _DialogoColaboradorState extends State<_DialogoColaborador> {
                 children: [
                   TextButton(
                     onPressed: _enviando ? null : () => Navigator.pop(context),
+                    style: TextButton.styleFrom(
+                      padding: const EdgeInsets.symmetric(horizontal: 20, vertical: 18),
+                    ),
                     child: Text(
                       'Cancelar',
                       style: GoogleFonts.plusJakartaSans(
@@ -1128,27 +1083,28 @@ class _DialogoColaboradorState extends State<_DialogoColaborador> {
                   FilledButton(
                     onPressed: _enviando ? null : _salvar,
                     style: FilledButton.styleFrom(
-                      backgroundColor: PainelAdminTheme.laranja,
+                      backgroundColor: PainelAdminTheme.roxo,
                       foregroundColor: Colors.white,
                       padding: const EdgeInsets.symmetric(
-                        horizontal: 28,
-                        vertical: 14,
+                        horizontal: 32,
+                        vertical: 18,
                       ),
                       shape: RoundedRectangleBorder(
                         borderRadius: BorderRadius.circular(12),
                       ),
+                      elevation: 0,
                     ),
                     child: _enviando
                         ? const SizedBox(
-                            width: 22,
-                            height: 22,
+                            width: 20,
+                            height: 20,
                             child: CircularProgressIndicator(
-                              strokeWidth: 2.5,
+                              strokeWidth: 2,
                               color: Colors.white,
                             ),
                           )
                         : Text(
-                            editar ? 'Salvar alterações' : 'Cadastrar',
+                            editar ? 'Salvar alterações' : 'Confirmar e criar',
                             style: GoogleFonts.plusJakartaSans(
                               fontWeight: FontWeight.w700,
                             ),

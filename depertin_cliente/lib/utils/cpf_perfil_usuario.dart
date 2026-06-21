@@ -50,6 +50,38 @@ class CpfPerfilUsuario {
     return true;
   }
 
+  static bool digitosCnpjValidos(String digitos) {
+    if (digitos.length != 14) return false;
+    if (RegExp(r'^(\d)\1{13}$').hasMatch(digitos)) return false;
+    return true;
+  }
+
+  /// Validação completa de CNPJ (Mod 11) a partir de entrada livre (com ou sem máscara).
+  static bool cnpjValido(String entrada) {
+    final d = somenteDigitos(entrada);
+    if (!digitosCnpjValidos(d)) return false;
+
+    const pesos1 = [5, 4, 3, 2, 9, 8, 7, 6, 5, 4, 3, 2];
+    var soma = 0;
+    for (var i = 0; i < 12; i++) {
+      soma += int.parse(d[i]) * pesos1[i];
+    }
+    var resto = soma % 11;
+    final dig1 = resto < 2 ? 0 : 11 - resto;
+    if (dig1 != int.parse(d[12])) return false;
+
+    const pesos2 = [6, 5, 4, 3, 2, 9, 8, 7, 6, 5, 4, 3, 2];
+    soma = 0;
+    for (var i = 0; i < 13; i++) {
+      soma += int.parse(d[i]) * pesos2[i];
+    }
+    resto = soma % 11;
+    final dig2 = resto < 2 ? 0 : 11 - resto;
+    if (dig2 != int.parse(d[13])) return false;
+
+    return true;
+  }
+
   static String comMascara11(String onzeDigitos) {
     final d = somenteDigitos(onzeDigitos);
     if (d.length != 11) return onzeDigitos;

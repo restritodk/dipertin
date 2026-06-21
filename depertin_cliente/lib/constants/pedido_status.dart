@@ -49,7 +49,30 @@ abstract class PedidoStatus {
   };
 
   static const String canceladoMotivoClienteSolicitou = 'cliente_solicitou';
+  static const String canceladoMotivoClienteCancelouPix = 'cliente_cancelou_pix';
+  static const String canceladoMotivoPixExpirado = 'pix_expirado';
+  /// Lojista recusou/cancelou o pedido (visível para loja e cliente).
+  static const String canceladoMotivoLojistaRecusou = 'lojista_recusou';
+
   static const String cancelClienteCodDesistencia = 'desistencia';
   static const String cancelClienteCodDemoraLoja = 'demora_loja';
   static const String cancelClienteCodOutro = 'outro';
+
+  static const Set<String> canceladoMotivosSomenteCliente = {
+    canceladoMotivoClienteSolicitou,
+    canceladoMotivoClienteCancelouPix,
+    canceladoMotivoPixExpirado,
+  };
+
+  /// Cancelamento iniciado pelo cliente — não exibir na área do lojista.
+  static bool canceladoPeloCliente(Map<String, dynamic> pedido) {
+    final motivo = (pedido['cancelado_motivo'] ?? '').toString().trim();
+    return canceladoMotivosSomenteCliente.contains(motivo);
+  }
+
+  /// Pedido `cancelado` que o lojista deve ver (recusa própria ou legado sem motivo).
+  static bool canceladoVisivelParaLojista(Map<String, dynamic> pedido) {
+    if ((pedido['status'] ?? '').toString() != cancelado) return false;
+    return !canceladoPeloCliente(pedido);
+  }
 }

@@ -2,6 +2,7 @@
 
 import 'dart:typed_data';
 
+import 'package:depertin_cliente/utils/codigo_pedido.dart';
 import 'package:flutter/material.dart';
 import 'package:cloud_firestore/cloud_firestore.dart';
 import 'package:firebase_auth/firebase_auth.dart';
@@ -781,8 +782,7 @@ class _ChatPedidoScreenState extends State<ChatPedidoScreen> {
     final tituloPrincipal = widget.tituloOverride?.trim().isNotEmpty == true
         ? widget.tituloOverride!.trim()
         : widget.lojaNome;
-    final subtituloPadrao =
-        "Pedido #${widget.pedidoId.substring(0, widget.pedidoId.length >= 5 ? 5 : widget.pedidoId.length).toUpperCase()}";
+    final subtituloPadrao = 'Pedido ${CodigoPedido.gerar(widget.pedidoId)}';
     final subtitulo = widget.subtituloOverride?.trim().isNotEmpty == true
         ? widget.subtituloOverride!.trim()
         : subtituloPadrao;

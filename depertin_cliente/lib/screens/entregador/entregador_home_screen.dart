@@ -52,17 +52,20 @@ class _EntregadorHomeScreenState extends State<EntregadorHomeScreen> {
 
         return Scaffold(
           body: IndexedStack(index: _indiceAtual, children: _telas),
-          bottomNavigationBar: BottomNavigationBar(
-            currentIndex: _indiceAtual,
-            onTap: (index) {
-              setState(() {
-                _indiceAtual = index;
-              });
-            },
-            selectedItemColor: const Color(0xFFFF8F00),
-            unselectedItemColor: Colors.grey,
-            type: BottomNavigationBarType.fixed,
-            items: const [
+          bottomNavigationBar: SafeArea(
+            top: false,
+            minimum: EdgeInsets.zero,
+            child: BottomNavigationBar(
+              currentIndex: _indiceAtual,
+              onTap: (index) {
+                setState(() {
+                  _indiceAtual = index;
+                });
+              },
+              selectedItemColor: const Color(0xFFFF8F00),
+              unselectedItemColor: Colors.grey,
+              type: BottomNavigationBarType.fixed,
+              items: const [
               BottomNavigationBarItem(icon: Icon(Icons.radar), label: 'Radar'),
               BottomNavigationBarItem(
                 icon: Icon(Icons.history),
@@ -76,7 +79,8 @@ class _EntregadorHomeScreenState extends State<EntregadorHomeScreen> {
                 icon: Icon(Icons.settings_rounded),
                 label: 'Configurações',
               ),
-            ],
+              ],
+            ),
           ),
         );
       },

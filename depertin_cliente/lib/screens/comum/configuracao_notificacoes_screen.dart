@@ -3,6 +3,8 @@
 import 'package:flutter/material.dart';
 
 import '../../services/notificacoes_prefs.dart';
+import '../../widgets/dipertin_scroll_body.dart';
+import '../../utils/safe_area_insets.dart' show diPertinScrollPaddingInner;
 
 const Color _diPertinRoxo = Color(0xFF6A1B9A);
 const Color _diPertinLaranja = Color(0xFFFF8F00);
@@ -81,8 +83,11 @@ class _ConfiguracaoNotificacoesScreenState
       ),
       body: _carregando
           ? const Center(child: CircularProgressIndicator(color: _diPertinRoxo))
-          : SingleChildScrollView(
-              padding: const EdgeInsets.fromLTRB(16, 16, 16, 32),
+          : DiPertinScrollBody(
+              padding: diPertinScrollPaddingInner(
+                context,
+                extraBottom: 24,
+              ),
               child: Column(
                 crossAxisAlignment: CrossAxisAlignment.stretch,
                 children: [

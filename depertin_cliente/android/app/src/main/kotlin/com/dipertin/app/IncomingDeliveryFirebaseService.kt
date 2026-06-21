@@ -134,6 +134,24 @@ class IncomingDeliveryFirebaseService : FlutterFirebaseMessagingService() {
             } else if (orderId.isBlank()) {
                 Log.w(tag, "Evento de corrida ignorado por falta de orderId")
             }
+
+            // Campanha do painel web: reexibe com largeIcon (logo do app), pois o
+            // auto-display do FCM só usa o smallIcon monocromático na status bar.
+            val tipoCampanha = data["tipoNotificacao"]?.toString().orEmpty()
+            if (tipoCampanha == "campanha_marketing") {
+                val titulo = message.notification?.title?.toString()
+                    ?: data["titulo"]?.toString()
+                    ?: "DiPertin"
+                val corpo = message.notification?.body?.toString()
+                    ?: data["mensagem"]?.toString()
+                    ?: ""
+                CampanhaNotificationHelper.show(
+                    this,
+                    titulo,
+                    corpo,
+                    data["campanhaId"]?.toString(),
+                )
+            }
         } catch (e: Exception) {
             Log.e(tag, "Erro no IncomingDeliveryFirebaseService", e)
         }

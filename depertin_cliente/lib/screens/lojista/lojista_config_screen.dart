@@ -16,6 +16,7 @@ import '../../services/location_service.dart';
 import '../../services/permissoes_app_service.dart';
 import '../../utils/loja_fachada_foto.dart';
 import '../../utils/loja_pausa.dart';
+import '../../widgets/dipertin_scroll_body.dart';
 import '../../widgets/loja_pausa_motivo_dialog.dart';
 import 'configuracoes/tipos_entrega_loja_screen.dart';
 
@@ -900,8 +901,7 @@ class _LojistaConfigScreenState extends State<LojistaConfigScreen> {
         iconTheme: const IconThemeData(color: Colors.white),
         surfaceTintColor: Colors.transparent,
       ),
-      body: SingleChildScrollView(
-        padding: const EdgeInsets.fromLTRB(16, 16, 16, 32),
+      body: DiPertinScrollBody(
         child: Column(
           crossAxisAlignment: CrossAxisAlignment.stretch,
           children: [

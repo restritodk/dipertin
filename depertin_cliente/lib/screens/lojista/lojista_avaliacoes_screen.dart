@@ -2,6 +2,7 @@
 
 import 'package:cloud_firestore/cloud_firestore.dart';
 import 'package:firebase_auth/firebase_auth.dart';
+import 'package:depertin_cliente/utils/codigo_pedido.dart';
 import 'package:flutter/material.dart';
 
 const Color diPertinRoxo = Color(0xFF6A1B9A);
@@ -219,10 +220,10 @@ class LojistaAvaliacoesScreen extends StatelessWidget {
                               ts != null ? _formatarDataHoraAvaliacao(ts.toDate()) : null;
                           final String? pedidoIdRaw =
                               avaliacao['pedido_id']?.toString();
-                          final String pedidoCurto = (pedidoIdRaw != null &&
-                                  pedidoIdRaw.length > 8)
-                              ? pedidoIdRaw.substring(pedidoIdRaw.length - 8).toUpperCase()
-                              : (pedidoIdRaw ?? '').toUpperCase();
+                          final String pedidoCurto = pedidoIdRaw != null &&
+                                  pedidoIdRaw.isNotEmpty
+                              ? CodigoPedido.gerar(pedidoIdRaw)
+                              : '';
                           final String nomeCliente =
                               avaliacao['cliente_nome_exibicao']?.toString() ?? '';
 

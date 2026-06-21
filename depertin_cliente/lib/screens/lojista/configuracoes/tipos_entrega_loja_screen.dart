@@ -17,6 +17,7 @@ import 'package:firebase_auth/firebase_auth.dart';
 import 'package:flutter/material.dart';
 
 import '../../../constants/tipos_entrega.dart';
+import '../../../widgets/dipertin_scroll_body.dart';
 
 const Color _roxo = Color(0xFF6A1B9A);
 const Color _laranja = Color(0xFFFF8F00);
@@ -153,8 +154,7 @@ class _TiposEntregaLojaScreenState extends State<TiposEntregaLojaScreen> {
       ),
       body: _carregando
           ? const Center(child: CircularProgressIndicator(color: _laranja))
-          : SingleChildScrollView(
-              padding: const EdgeInsets.fromLTRB(16, 16, 16, 32),
+          : DiPertinScrollBody(
               child: Column(
                 crossAxisAlignment: CrossAxisAlignment.stretch,
                 children: [

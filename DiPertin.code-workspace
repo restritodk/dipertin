@@ -1,0 +1,15 @@
+{
+  "folders": [
+    {
+      "name": "App mobile",
+      "path": "depertin_cliente"
+    },
+    {
+      "name": "Painel web",
+      "path": "depertin_web"
+    }
+  ],
+  "settings": {
+    "dart.showTodos": false
+  }
+}

@@ -6,8 +6,11 @@ import 'package:intl/intl.dart';
 
 import '../../constants/encomenda_negociacao_status.dart';
 import '../../services/firebase_functions_config.dart';
+import '../../utils/safe_area_insets.dart';
+import '../../widgets/dipertin_safe_bottom_panel.dart';
 import 'checkout_pagamento_screen.dart';
 import 'chat_pedido_screen.dart';
+import 'selecionar_endereco_entrega_sheet.dart';
 
 /// Detalhe da negociação + ações do cliente (aceitar proposta, pagamento entrada).
 /// Design premium DiPertin com cards, gradientes e hierarquia visual clara.
@@ -24,17 +27,85 @@ class ClienteEncomendaDetalheScreen extends StatefulWidget {
 class _ClienteEncomendaDetalheScreenState
     extends State<ClienteEncomendaDetalheScreen> {
   bool _processando = false;
+  bool _entradaAnimada = false;
+  String? _chaveFutLojaNome;
+  Future<String>? _futLojaNomeRemoto;
+  String? _chaveFutEndereco;
+  Future<String>? _futEnderecoPerfil;
 
   static final NumberFormat _moeda = NumberFormat.currency(
     locale: 'pt_BR',
     symbol: r'R$',
   );
 
-  // Cores do tema DiPertin
   static const Color _roxo = Color(0xFF6A1B9A);
   static const Color _laranja = Color(0xFFFF8F00);
   static const Color _roxoClaro = Color(0xFFF3E5F5);
   static const Color _laranjaClaro = Color(0xFFFFF3E0);
+  static const Color _fundo = Color(0xFFF5F4F8);
+  static const Color _textoPrimario = Color(0xFF1A1A2E);
+  static const Color _textoMuted = Color(0xFF6B7280);
+  static const Color _bordaCampo = Color(0xFFE8E6EF);
+
+  @override
+  void initState() {
+    super.initState();
+    WidgetsBinding.instance.addPostFrameCallback((_) {
+      if (mounted) setState(() => _entradaAnimada = true);
+    });
+  }
+
+  String _idCurtoEncomenda() {
+    final id = widget.encomendaId;
+    final n = id.length >= 5 ? 5 : id.length;
+    return id.substring(0, n).toUpperCase();
+  }
+
+  BoxDecoration _decorCartaoPro({
+    Color? corBorda,
+    bool destacado = false,
+  }) {
+    return BoxDecoration(
+      color: Colors.white,
+      borderRadius: BorderRadius.circular(16),
+      boxShadow: [
+        BoxShadow(
+          color: _roxo.withValues(alpha: 0.06),
+          blurRadius: 20,
+          offset: const Offset(0, 6),
+        ),
+      ],
+      border: Border.all(
+        color: corBorda ??
+            (destacado
+                ? _roxo.withValues(alpha: 0.15)
+                : _bordaCampo),
+      ),
+    );
+  }
+
+  Widget _tituloSecao(String titulo, {IconData? icone}) {
+    return Padding(
+      padding: const EdgeInsets.only(bottom: 10),
+      child: Row(
+        children: [
+          if (icone != null) ...[
+            Icon(icone, size: 20, color: _roxo),
+            const SizedBox(width: 8),
+          ],
+          Text(
+            titulo,
+            style: const TextStyle(
+              fontSize: 16,
+              fontWeight: FontWeight.w800,
+              color: _textoPrimario,
+              letterSpacing: -0.3,
+            ),
+          ),
+        ],
+      ),
+    );
+  }
 
   Future<String?> _criarOuRenovarPedidoEntrada({
     String pedidoExistente = '',
@@ -164,7 +235,12 @@ class _ClienteEncomendaDetalheScreenState
               children: [
                 Icon(Icons.handshake, color: _roxo),
                 const SizedBox(width: 8),
-                const Text('Contrapropor entrada'),
+                const Expanded(
+                  child: Text(
+                    'Contrapropor entrada',
+                    style: TextStyle(fontWeight: FontWeight.w700),
+                  ),
+                ),
               ],
             ),
             content: SingleChildScrollView(
@@ -281,38 +357,134 @@ class _ClienteEncomendaDetalheScreenState
     final ok =
         await showDialog<bool>(
           context: context,
-          builder: (ctx) => AlertDialog(
+          barrierDismissible: true,
+          builder: (ctx) => Dialog(
+            backgroundColor: Colors.white,
+            insetPadding: const EdgeInsets.symmetric(horizontal: 28),
             shape: RoundedRectangleBorder(
-              borderRadius: BorderRadius.circular(16),
+              borderRadius: BorderRadius.circular(22),
             ),
-            title: Row(
-              children: [
-                Icon(Icons.cancel_outlined, color: Colors.red.shade700),
-                const SizedBox(width: 8),
-                const Text('Cancelar encomenda'),
-              ],
-            ),
-            content: const Text(
-              'Tem certeza? A negociação será encerrada. '
-              'Se existir cobrança da entrada ainda não paga (PIX ou cartão), ela será cancelada.',
-            ),
-            actions: [
-              TextButton(
-                onPressed: () => Navigator.pop(ctx, false),
-                child: const Text('Voltar'),
-              ),
-              FilledButton(
-                onPressed: () => Navigator.pop(ctx, true),
-                style: FilledButton.styleFrom(
-                  backgroundColor: Colors.red.shade700,
-                  foregroundColor: Colors.white,
-                  shape: RoundedRectangleBorder(
-                    borderRadius: BorderRadius.circular(12),
+            child: Padding(
+              padding: const EdgeInsets.fromLTRB(24, 28, 24, 20),
+              child: Column(
+                mainAxisSize: MainAxisSize.min,
+                children: [
+                  Container(
+                    width: 56,
+                    height: 56,
+                    decoration: BoxDecoration(
+                      color: const Color(0xFFFFEBEE),
+                      shape: BoxShape.circle,
+                      border: Border.all(
+                        color: Colors.red.shade100,
+                        width: 1.5,
+                      ),
+                    ),
+                    child: Icon(
+                      Icons.cancel_outlined,
+                      color: Colors.red.shade700,
+                      size: 30,
+                    ),
                   ),
-                ),
-                child: const Text('Cancelar negociação'),
+                  const SizedBox(height: 18),
+                  const Text(
+                    'Cancelar encomenda?',
+                    textAlign: TextAlign.center,
+                    style: TextStyle(
+                      fontSize: 20,
+                      fontWeight: FontWeight.w800,
+                      color: Color(0xFF1A1A2E),
+                      letterSpacing: -0.3,
+                    ),
+                  ),
+                  const SizedBox(height: 12),
+                  Text(
+                    'A negociação com a loja será encerrada e não poderá ser retomada.',
+                    textAlign: TextAlign.center,
+                    style: TextStyle(
+                      fontSize: 15,
+                      height: 1.45,
+                      color: Colors.grey.shade700,
+                    ),
+                  ),
+                  const SizedBox(height: 10),
+                  Container(
+                    width: double.infinity,
+                    padding: const EdgeInsets.symmetric(
+                      horizontal: 14,
+                      vertical: 12,
+                    ),
+                    decoration: BoxDecoration(
+                      color: _roxoClaro.withValues(alpha: 0.55),
+                      borderRadius: BorderRadius.circular(12),
+                      border: Border.all(
+                        color: _roxo.withValues(alpha: 0.12),
+                      ),
+                    ),
+                    child: Row(
+                      crossAxisAlignment: CrossAxisAlignment.start,
+                      children: [
+                        Icon(
+                          Icons.info_outline_rounded,
+                          size: 20,
+                          color: _roxo.withValues(alpha: 0.85),
+                        ),
+                        const SizedBox(width: 10),
+                        Expanded(
+                          child: Text(
+                            'Cobrança da entrada ainda não paga (PIX ou cartão), '
+                            'se existir, será cancelada automaticamente.',
+                            style: TextStyle(
+                              fontSize: 13,
+                              height: 1.4,
+                              color: Colors.grey.shade800,
+                            ),
+                          ),
+                        ),
+                      ],
+                    ),
+                  ),
+                  const SizedBox(height: 24),
+                  SizedBox(
+                    width: double.infinity,
+                    child: FilledButton(
+                      onPressed: () => Navigator.pop(ctx, true),
+                      style: FilledButton.styleFrom(
+                        backgroundColor: const Color(0xFFB91C1C),
+                        foregroundColor: Colors.white,
+                        elevation: 0,
+                        padding: const EdgeInsets.symmetric(vertical: 14),
+                        shape: RoundedRectangleBorder(
+                          borderRadius: BorderRadius.circular(14),
+                        ),
+                      ),
+                      child: const Text(
+                        'Sim, cancelar negociação',
+                        style: TextStyle(
+                          fontWeight: FontWeight.w700,
+                          fontSize: 15,
+                        ),
+                      ),
+                    ),
+                  ),
+                  const SizedBox(height: 6),
+                  SizedBox(
+                    width: double.infinity,
+                    child: TextButton(
+                      onPressed: () => Navigator.pop(ctx, false),
+                      style: TextButton.styleFrom(
+                        foregroundColor: _roxo,
+                        padding: const EdgeInsets.symmetric(vertical: 12),
+                      ),
+                      child: const Text(
+                        'Voltar',
+                        style: TextStyle(fontWeight: FontWeight.w600),
+                      ),
+                    ),
+                  ),
+                ],
               ),
-            ],
+            ),
           ),
         ) ??
         false;
@@ -382,76 +554,102 @@ class _ClienteEncomendaDetalheScreenState
     }
   }
 
-  /// Widget de status com badge colorido
-  Widget _buildStatusBadge(String status) {
-    Color bgColor;
-    Color textColor = Colors.white;
-    IconData icon;
-
+  int _passoTimeline(String status) {
     switch (status) {
       case EncomendaNegociacaoStatus.aguardandoNegociacao:
-        bgColor = Colors.grey.shade600;
-        icon = Icons.hourglass_empty;
-        break;
       case EncomendaNegociacaoStatus.negociacaoEmAndamento:
-        bgColor = Colors.blue;
-        icon = Icons.swap_horiz;
-        break;
+        return 0;
       case EncomendaNegociacaoStatus.propostaEnviada:
-        bgColor = _laranja;
-        icon = Icons.assignment_turned_in;
-        break;
       case EncomendaNegociacaoStatus.aguardandoRespostaLojaContraproposta:
-        bgColor = Colors.orange;
-        icon = Icons.hourglass_top;
-        break;
+        return 1;
       case EncomendaNegociacaoStatus.propostaAceitaPendenteEntrada:
       case EncomendaNegociacaoStatus.entradaAguardandoPagamento:
-        bgColor = Colors.deepOrange;
-        icon = Icons.payment;
-        break;
+        return 2;
       case EncomendaNegociacaoStatus.entradaPagaEmProducao:
-        bgColor = Colors.teal;
-        icon = Icons.build;
-        break;
       case EncomendaNegociacaoStatus.saldoFinalAguardandoPgto:
-        bgColor = Colors.deepOrange;
-        icon = Icons.shopping_cart_checkout;
-        break;
+        return 3;
       case EncomendaNegociacaoStatus.emExecucaoLogistica:
-        bgColor = Colors.green;
-        icon = Icons.local_shipping;
-        break;
+        return 4;
       default:
-        bgColor = Colors.red.shade700;
-        icon = Icons.block;
-        textColor = Colors.white;
+        return -1;
     }
+  }
 
+  Widget _buildHeroEncomenda({
+    required String status,
+    required String lojaNome,
+    required String tipoEntrega,
+  }) {
+    final retirada = tipoEntrega == 'retirada';
     return Container(
-      padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 10),
-      decoration: BoxDecoration(
-        color: bgColor,
-        borderRadius: BorderRadius.circular(20),
-        boxShadow: [
-          BoxShadow(
-            color: bgColor.withOpacity(0.3),
-            blurRadius: 8,
-            offset: const Offset(0, 2),
-          ),
-        ],
+      decoration: const BoxDecoration(
+        gradient: LinearGradient(
+          begin: Alignment.topLeft,
+          end: Alignment.bottomRight,
+          colors: [Color(0xFF4A148C), _roxo, Color(0xFF8E24AA)],
+        ),
       ),
-      child: Row(
-        mainAxisSize: MainAxisSize.min,
+      child: Stack(
         children: [
-          Icon(icon, color: textColor, size: 18),
-          const SizedBox(width: 8),
-          Text(
-            EncomendaNegociacaoStatus.rotuloPt(status),
-            style: TextStyle(
-              color: textColor,
-              fontWeight: FontWeight.w600,
-              fontSize: 14,
+          Positioned(
+            top: -20,
+            right: -24,
+            child: Container(
+              width: 100,
+              height: 100,
+              decoration: BoxDecoration(
+                shape: BoxShape.circle,
+                gradient: RadialGradient(
+                  colors: [
+                    Colors.white.withValues(alpha: 0.1),
+                    Colors.transparent,
+                  ],
+                ),
+              ),
+            ),
+          ),
+          Padding(
+            padding: const EdgeInsets.fromLTRB(20, 14, 20, 20),
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                Text(
+                  'Encomenda #${_idCurtoEncomenda()}',
+                  style: TextStyle(
+                    fontSize: 13,
+                    fontWeight: FontWeight.w600,
+                    color: Colors.white.withValues(alpha: 0.82),
+                    letterSpacing: 0.4,
+                  ),
+                ),
+                const SizedBox(height: 6),
+                Text(
+                  lojaNome,
+                  style: const TextStyle(
+                    fontSize: 22,
+                    fontWeight: FontWeight.w800,
+                    color: Colors.white,
+                    letterSpacing: -0.4,
+                  ),
+                ),
+                const SizedBox(height: 10),
+                Wrap(
+                  spacing: 8,
+                  runSpacing: 8,
+                  children: [
+                    _chipHero(
+                      EncomendaNegociacaoStatus.rotuloPt(status),
+                      Icons.sync_alt_rounded,
+                    ),
+                    _chipHero(
+                      retirada ? 'Retirar na loja' : 'Entrega',
+                      retirada
+                          ? Icons.storefront_outlined
+                          : Icons.local_shipping_outlined,
+                    ),
+                  ],
+                ),
+              ],
             ),
           ),
         ],
@@ -459,36 +657,161 @@ class _ClienteEncomendaDetalheScreenState
     );
   }
 
-  /// Card de informação com ícone
+  Widget _chipHero(String texto, IconData icone) {
+    return Container(
+      padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 6),
+      decoration: BoxDecoration(
+        color: Colors.white.withValues(alpha: 0.14),
+        borderRadius: BorderRadius.circular(999),
+        border: Border.all(color: Colors.white.withValues(alpha: 0.22)),
+      ),
+      child: Row(
+        mainAxisSize: MainAxisSize.min,
+        children: [
+          Icon(icone, size: 14, color: Colors.white.withValues(alpha: 0.95)),
+          const SizedBox(width: 6),
+          Text(
+            texto,
+            style: const TextStyle(
+              color: Colors.white,
+              fontSize: 12,
+              fontWeight: FontWeight.w700,
+            ),
+          ),
+        ],
+      ),
+    );
+  }
+
+  Widget _buildTimelineNegociacao(String status) {
+    if (EncomendaNegociacaoStatus.encerradaDefinitivamente(status)) {
+      return Container(
+        padding: const EdgeInsets.all(14),
+        decoration: _decorCartaoPro(corBorda: Colors.red.shade100),
+        child: Row(
+          children: [
+            Icon(Icons.block, color: Colors.red.shade700, size: 22),
+            const SizedBox(width: 10),
+            Expanded(
+              child: Text(
+                EncomendaNegociacaoStatus.rotuloPt(status),
+                style: TextStyle(
+                  color: Colors.red.shade900,
+                  fontWeight: FontWeight.w700,
+                  fontSize: 14,
+                ),
+              ),
+            ),
+          ],
+        ),
+      );
+    }
+
+    const passos = ['Enviado', 'Proposta', 'Entrada', 'Saldo', 'Entrega'];
+    final ativo = _passoTimeline(status);
+
+    return Container(
+      padding: const EdgeInsets.fromLTRB(14, 16, 14, 14),
+      decoration: _decorCartaoPro(),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.stretch,
+        children: [
+          const Text(
+            'Andamento da negociação',
+            style: TextStyle(
+              fontSize: 13,
+              fontWeight: FontWeight.w700,
+              color: _textoMuted,
+            ),
+          ),
+          const SizedBox(height: 14),
+          Row(
+            children: List.generate(passos.length * 2 - 1, (i) {
+              if (i.isOdd) {
+                final linhaIdx = i ~/ 2;
+                final concluida = linhaIdx < ativo;
+                return Expanded(
+                  child: Container(
+                    height: 2,
+                    margin: const EdgeInsets.only(bottom: 18),
+                    color: concluida
+                        ? _laranja
+                        : _bordaCampo,
+                  ),
+                );
+              }
+              final passoIdx = i ~/ 2;
+              final concluido = passoIdx < ativo;
+              final atual = passoIdx == ativo;
+              final corCirculo = concluido || atual ? _roxo : _bordaCampo;
+              return Expanded(
+                child: Column(
+                  children: [
+                    Container(
+                      width: 26,
+                      height: 26,
+                      decoration: BoxDecoration(
+                        shape: BoxShape.circle,
+                        color: atual
+                            ? _laranja
+                            : (concluido ? _roxo : Colors.white),
+                        border: Border.all(color: corCirculo, width: 2),
+                      ),
+                      child: concluido
+                          ? const Icon(
+                              Icons.check,
+                              size: 14,
+                              color: Colors.white,
+                            )
+                          : (atual
+                                ? const Icon(
+                                    Icons.circle,
+                                    size: 8,
+                                    color: Colors.white,
+                                  )
+                                : null),
+                    ),
+                    const SizedBox(height: 6),
+                    Text(
+                      passos[passoIdx],
+                      textAlign: TextAlign.center,
+                      maxLines: 1,
+                      overflow: TextOverflow.ellipsis,
+                      style: TextStyle(
+                        fontSize: 10,
+                        fontWeight: atual ? FontWeight.w800 : FontWeight.w600,
+                        color: atual ? _roxo : _textoMuted,
+                      ),
+                    ),
+                  ],
+                ),
+              );
+            }),
+          ),
+        ],
+      ),
+    );
+  }
+
   Widget _buildInfoCard({
     required IconData icon,
     required String label,
     required String value,
     Color? iconColor,
   }) {
+    final cor = iconColor ?? _roxo;
     return Container(
       padding: const EdgeInsets.all(14),
-      decoration: BoxDecoration(
-        color: Colors.white,
-        borderRadius: BorderRadius.circular(14),
-        border: Border.all(color: Colors.grey.shade200),
-        boxShadow: [
-          BoxShadow(
-            color: Colors.grey.withOpacity(0.05),
-            blurRadius: 4,
-            offset: const Offset(0, 2),
-          ),
-        ],
-      ),
+      decoration: _decorCartaoPro(),
       child: Row(
         children: [
           Container(
             padding: const EdgeInsets.all(10),
             decoration: BoxDecoration(
-              color: (iconColor ?? _roxo).withOpacity(0.1),
+              color: cor.withValues(alpha: 0.1),
               borderRadius: BorderRadius.circular(12),
             ),
-            child: Icon(icon, color: iconColor ?? _roxo, size: 22),
+            child: Icon(icon, color: cor, size: 22),
           ),
           const SizedBox(width: 14),
           Expanded(
@@ -497,19 +820,20 @@ class _ClienteEncomendaDetalheScreenState
               children: [
                 Text(
                   label,
-                  style: TextStyle(
+                  style: const TextStyle(
                     fontSize: 12,
-                    color: Colors.grey.shade600,
-                    fontWeight: FontWeight.w500,
+                    color: _textoMuted,
+                    fontWeight: FontWeight.w600,
                   ),
                 ),
                 const SizedBox(height: 2),
                 Text(
                   value,
                   style: const TextStyle(
-                    fontSize: 16,
+                    fontSize: 15,
                     fontWeight: FontWeight.w700,
-                    color: Colors.black87,
+                    color: _textoPrimario,
+                    height: 1.3,
                   ),
                 ),
               ],
@@ -559,133 +883,395 @@ class _ClienteEncomendaDetalheScreenState
     return _formasPagamentoTexto(m);
   }
 
-  /// Resolve nome da loja e cidade/estado para exibição ao cliente.
-  /// Usa os snapshots gravados na encomenda; em dados antigos faz fallback
-  /// para `lojas_public` (nome) e ao próprio doc do cliente (cidade/UF).
-  Future<_ResumoEncomendaCliente> _carregarResumo(Map<String, dynamic> m) async {
-    final lojaId = (m['loja_id'] ?? '').toString().trim();
-    final uid = FirebaseAuth.instance.currentUser?.uid ?? '';
-    var lojaNome = (m['loja_nome_snapshot'] ?? m['loja_nome'] ?? '')
-        .toString()
-        .trim();
-    var cidade = (m['cidade_entrega'] ?? '').toString().trim();
-    var uf = (m['uf_entrega'] ?? '').toString().trim();
-
-    if (lojaNome.isEmpty && lojaId.isNotEmpty) {
-      try {
-        final s = await FirebaseFirestore.instance
-            .collection('lojas_public')
-            .doc(lojaId)
-            .get();
-        final d = s.data() ?? {};
-        lojaNome =
-            (d['loja_nome'] ??
-                    d['nome_loja'] ??
-                    d['nome_fantasia'] ??
-                    d['nome'] ??
-                    '')
-                .toString()
-                .trim();
-      } catch (_) {}
-    }
-
-    if ((cidade.isEmpty || uf.isEmpty) && uid.isNotEmpty) {
-      try {
-        final s = await FirebaseFirestore.instance
-            .collection('users')
-            .doc(uid)
-            .get();
-        final d = s.data() ?? {};
-        if (cidade.isEmpty) {
-          cidade =
-              (d['cidade'] ??
-                      d['endereco_cidade'] ??
-                      d['cidade_normalizada'] ??
-                      '')
-                  .toString()
-                  .trim();
-        }
-        if (uf.isEmpty) {
-          uf = (d['uf'] ?? d['estado'] ?? d['endereco_estado'] ?? '')
-              .toString()
-              .trim();
-        }
-      } catch (_) {}
-    }
-
-    return _ResumoEncomendaCliente(
-      lojaNome: lojaNome.isEmpty ? 'Loja' : lojaNome,
-      cidade: cidade,
-      uf: uf,
-    );
+  static String _stringCampo(
+    Map<String, dynamic> m,
+    String chave, {
+    String fallback = '',
+  }) {
+    final raw = m[chave];
+    if (raw == null) return fallback;
+    final s = raw.toString().trim();
+    if (s.isEmpty || s == 'null') return fallback;
+    return s;
   }
 
-  String _enderecoCidadeEstado(_ResumoEncomendaCliente r) {
-    if (r.cidade.isNotEmpty && r.uf.isNotEmpty) return '${r.cidade} - ${r.uf}';
-    if (r.cidade.isNotEmpty) return r.cidade;
-    if (r.uf.isNotEmpty) return r.uf;
+  String _tipoEntregaDoMapa(Map<String, dynamic> m) {
+    return _stringCampo(m, 'tipo_entrega', fallback: 'entrega');
+  }
+
+  String _lojaNomeExibicao(Map<String, dynamic> m) {
+    final nome = _stringCampo(m, 'loja_nome_snapshot');
+    if (nome.isNotEmpty) return nome;
+    final legado = _stringCampo(m, 'loja_nome');
+    return legado.isNotEmpty ? legado : 'Loja';
+  }
+
+  /// Endereço síncrono a partir do doc da encomenda (sem Future).
+  String _textoEntregaDoMapa(Map<String, dynamic> m) {
+    final tipo = _tipoEntregaDoMapa(m);
+    if (tipo == 'retirada') return 'Retirada no balcão';
+
+    final endereco = _stringCampo(m, 'endereco_entrega');
+    if (endereco.isNotEmpty) return endereco;
+
+    final cidade = _stringCampo(m, 'cidade_entrega');
+    final uf = _stringCampo(m, 'uf_entrega');
+    if (cidade.isNotEmpty && uf.isNotEmpty) return '$cidade - $uf';
+    if (cidade.isNotEmpty) return cidade;
+    if (uf.isNotEmpty) return uf;
     return '-';
   }
 
-  Future<_ResumoEncomendaCliente>? _futResumo;
+  Future<String> _resolverLojaNomeRemoto(Map<String, dynamic> m) async {
+    final lojaId = _stringCampo(m, 'loja_id');
+    if (lojaId.isEmpty) return 'Loja';
+    try {
+      final s = await FirebaseFirestore.instance
+          .collection('lojas_public')
+          .doc(lojaId)
+          .get();
+      final d = s.data() ?? {};
+      for (final chave in [
+        'loja_nome',
+        'nome_loja',
+        'nome_fantasia',
+        'nome',
+      ]) {
+        final nome = _stringCampo(d, chave);
+        if (nome.isNotEmpty) return nome;
+      }
+    } catch (_) {}
+    return 'Loja';
+  }
 
-  /// Card de valor destacado
-  Widget _buildValorCard({
-    required String label,
-    required String value,
-    required Color color,
+  Future<String> _resolverEnderecoFallbackPerfil(Map<String, dynamic> m) async {
+    if (_tipoEntregaDoMapa(m) == 'retirada') return 'Retirada no balcão';
+
+    final sync = _textoEntregaDoMapa(m);
+    if (sync != '-') return sync;
+
+    final uid = FirebaseAuth.instance.currentUser?.uid ?? '';
+    if (uid.isEmpty) return '-';
+
+    try {
+      final s = await FirebaseFirestore.instance
+          .collection('users')
+          .doc(uid)
+          .get();
+      final d = s.data() ?? {};
+      final endPadrao = d['endereco_entrega_padrao'];
+      if (endPadrao is Map) {
+        final texto = formatarEnderecoEntregaMapa(
+          Map<String, dynamic>.from(endPadrao),
+        );
+        if (texto != 'Endereço não informado') return texto;
+      }
+      final legado = _stringCampo(d, 'endereco');
+      if (legado.isNotEmpty) return legado;
+    } catch (_) {}
+    return '-';
+  }
+
+  Future<String> _futuroLojaNomeRemoto(Map<String, dynamic> m) {
+    final chave = _stringCampo(m, 'loja_id');
+    if (_chaveFutLojaNome == chave && _futLojaNomeRemoto != null) {
+      return _futLojaNomeRemoto!;
+    }
+    _chaveFutLojaNome = chave;
+    _futLojaNomeRemoto = _resolverLojaNomeRemoto(m);
+    return _futLojaNomeRemoto!;
+  }
+
+  Future<String> _futuroEnderecoPerfil(Map<String, dynamic> m) {
+    final chave =
+        '${_stringCampo(m, 'endereco_entrega')}|${_tipoEntregaDoMapa(m)}';
+    if (_chaveFutEndereco == chave && _futEnderecoPerfil != null) {
+      return _futEnderecoPerfil!;
+    }
+    _chaveFutEndereco = chave;
+    _futEnderecoPerfil = _resolverEnderecoFallbackPerfil(m);
+    return _futEnderecoPerfil!;
+  }
+
+  Widget _buildHeroEncomendaResolvido({
+    required String status,
+    required Map<String, dynamic> m,
+    required String tipoEntrega,
+  }) {
+    final nomeSync = _lojaNomeExibicao(m);
+    final precisaRemoto =
+        nomeSync == 'Loja' && _stringCampo(m, 'loja_id').isNotEmpty;
+
+    if (!precisaRemoto) {
+      return _buildHeroEncomenda(
+        status: status,
+        lojaNome: nomeSync,
+        tipoEntrega: tipoEntrega,
+      );
+    }
+
+    return FutureBuilder<String>(
+      future: _futuroLojaNomeRemoto(m),
+      builder: (context, snap) {
+        final nome = (snap.data ?? '').trim();
+        return _buildHeroEncomenda(
+          status: status,
+          lojaNome: nome.isNotEmpty ? nome : nomeSync,
+          tipoEntrega: tipoEntrega,
+        );
+      },
+    );
+  }
+
+  Widget _buildCardEntrega(Map<String, dynamic> m) {
+    final tipo = _tipoEntregaDoMapa(m);
+    final textoSync = _textoEntregaDoMapa(m);
+    final icone = tipo == 'retirada'
+        ? Icons.storefront_outlined
+        : Icons.location_on_outlined;
+    final rotulo = tipo == 'retirada' ? 'Retirada em' : 'Entregar em';
+
+    if (textoSync != '-') {
+      return _buildInfoCard(
+        icon: icone,
+        label: rotulo,
+        value: textoSync,
+        iconColor: _laranja,
+      );
+    }
+
+    return FutureBuilder<String>(
+      future: _futuroEnderecoPerfil(m),
+      builder: (context, snap) {
+        final valor = (snap.data ?? '-').trim();
+        return _buildInfoCard(
+          icon: icone,
+          label: rotulo,
+          value: valor.isEmpty ? '-' : valor,
+          iconColor: _laranja,
+        );
+      },
+    );
+  }
+
+  Widget _linhaFinanceira(
+    String label,
+    String valor, {
     bool destaque = false,
+    bool divisorApos = false,
+  }) {
+    return Column(
+      children: [
+        Padding(
+          padding: const EdgeInsets.symmetric(vertical: 8),
+          child: Row(
+            children: [
+              Expanded(
+                child: Text(
+                  label,
+                  style: TextStyle(
+                    fontSize: destaque ? 14 : 13,
+                    fontWeight: destaque ? FontWeight.w800 : FontWeight.w600,
+                    color: destaque ? _textoPrimario : _textoMuted,
+                  ),
+                ),
+              ),
+              Text(
+                valor,
+                style: TextStyle(
+                  fontSize: destaque ? 18 : 15,
+                  fontWeight: FontWeight.w800,
+                  color: destaque ? _laranja : _roxo,
+                ),
+              ),
+            ],
+          ),
+        ),
+        if (divisorApos)
+          Divider(height: 1, color: _bordaCampo.withValues(alpha: 0.9)),
+      ],
+    );
+  }
+
+  Widget _buildResumoFinanceiro({
+    required Map<String, dynamic> m,
+    required String st,
+    required double? totalRef,
+    required double? entradaRef,
+    required double freteEnc,
+    required double? restanteProduto,
+    required double? totalGeral,
+    required double? totalPagamentoFinal,
+  }) {
+    if (totalRef == null || totalRef <= 0) {
+      return const SizedBox.shrink();
+    }
+
+    return Container(
+      padding: const EdgeInsets.fromLTRB(16, 14, 16, 10),
+      decoration: _decorCartaoPro(destacado: true),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.stretch,
+        children: [
+          _tituloSecao('Resumo financeiro', icone: Icons.receipt_long_outlined),
+          _linhaFinanceira(
+            'Produto (negociado)',
+            _moeda.format(totalRef),
+            destaque: true,
+          ),
+          if (freteEnc > 0)
+            _linhaFinanceira('Frete', _moeda.format(freteEnc)),
+          if (totalGeral != null)
+            _linhaFinanceira(
+              'Total (produto + frete)',
+              _moeda.format(totalGeral),
+              divisorApos: true,
+            ),
+          if (entradaRef != null && entradaRef > 0)
+            _linhaFinanceira(
+              _entradaJaPaga(st)
+                  ? 'Entrada paga (produto)'
+                  : 'Entrada combinada (produto)',
+              _moeda.format(entradaRef),
+            ),
+          if (restanteProduto != null && restanteProduto > 0)
+            _linhaFinanceira(
+              'Restante do produto',
+              _moeda.format(restanteProduto),
+            ),
+          if (totalPagamentoFinal != null &&
+              totalPagamentoFinal > 0 &&
+              !_entradaJaPaga(st)) ...[
+            if (freteEnc > 0)
+              _linhaFinanceira(
+                'Frete no pagamento final',
+                _moeda.format(freteEnc),
+              ),
+            _linhaFinanceira(
+              'Total do pagamento final',
+              _moeda.format(totalPagamentoFinal),
+              destaque: true,
+            ),
+          ],
+          const SizedBox(height: 6),
+          Container(
+            padding: const EdgeInsets.all(12),
+            decoration: BoxDecoration(
+              color: _roxoClaro.withValues(alpha: 0.55),
+              borderRadius: BorderRadius.circular(12),
+            ),
+            child: Text(
+              'A entrada cobre só o produto. O frete entra no pagamento final, '
+              'junto com o restante.',
+              style: TextStyle(
+                fontSize: 12,
+                height: 1.35,
+                color: _textoMuted.withValues(alpha: 0.95),
+              ),
+            ),
+          ),
+          const SizedBox(height: 4),
+          _linhaFinanceira(
+            'Forma da entrada',
+            _textoPagamentoEntrada(m, st),
+          ),
+        ],
+      ),
+    );
+  }
+
+  Widget _buildAlertaContextual(String st, {required bool pagoIntegralmente}) {
+    if (pagoIntegralmente) {
+      return _alertaCard(
+        icone: Icons.verified_outlined,
+        texto: 'Pago integralmente — entrada e saldo confirmados.',
+        corFundo: const Color(0xFFE8F5E9),
+        corIcone: const Color(0xFF2E7D32),
+        corTexto: const Color(0xFF1B5E20),
+      );
+    }
+    if (st == EncomendaNegociacaoStatus.entradaPagaEmProducao) {
+      return _alertaCard(
+        icone: Icons.build_circle_outlined,
+        texto:
+            'Sua entrada foi confirmada! A loja está produzindo seu pedido. '
+            'Quando ela gerar a cobrança do saldo, você poderá pagar aqui.',
+        corFundo: _laranjaClaro,
+        corIcone: _laranja,
+        corTexto: const Color(0xFFE65100),
+      );
+    }
+    if (st == EncomendaNegociacaoStatus.emExecucaoLogistica) {
+      return _alertaCard(
+        icone: Icons.local_shipping_outlined,
+        texto: 'Saldo pago! Acompanhe a entrega em «Meus pedidos».',
+        corFundo: const Color(0xFFE8F5E9),
+        corIcone: const Color(0xFF2E7D32),
+        corTexto: const Color(0xFF1B5E20),
+      );
+    }
+    return const SizedBox.shrink();
+  }
+
+  Widget _alertaCard({
+    required IconData icone,
+    required String texto,
+    required Color corFundo,
+    required Color corIcone,
+    required Color corTexto,
   }) {
     return Container(
-      padding: const EdgeInsets.all(16),
+      padding: const EdgeInsets.all(14),
       decoration: BoxDecoration(
-        gradient: destaque
-            ? LinearGradient(
-                colors: [color, color.withOpacity(0.7)],
-                begin: Alignment.topLeft,
-                end: Alignment.bottomRight,
-              )
-            : LinearGradient(
-                colors: [Colors.white, color.withOpacity(0.05)],
-                begin: Alignment.topLeft,
-                end: Alignment.bottomRight,
-              ),
-        borderRadius: BorderRadius.circular(16),
-        border: Border.all(
-          color: destaque ? Colors.transparent : color.withOpacity(0.2),
-        ),
-        boxShadow: destaque
-            ? [
-                BoxShadow(
-                  color: color.withOpacity(0.3),
-                  blurRadius: 12,
-                  offset: const Offset(0, 4),
-                ),
-              ]
-            : null,
+        color: corFundo,
+        borderRadius: BorderRadius.circular(14),
+        border: Border.all(color: corIcone.withValues(alpha: 0.25)),
       ),
-      child: Column(
+      child: Row(
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
-          Text(
-            label,
-            style: TextStyle(
-              fontSize: 13,
-              fontWeight: FontWeight.w500,
-              color: destaque
-                  ? Colors.white.withOpacity(0.9)
-                  : Colors.grey.shade600,
+          Icon(icone, color: corIcone, size: 24),
+          const SizedBox(width: 10),
+          Expanded(
+            child: Text(
+              texto,
+              style: TextStyle(
+                color: corTexto,
+                fontWeight: FontWeight.w600,
+                height: 1.35,
+                fontSize: 14,
+              ),
             ),
           ),
-          const SizedBox(height: 6),
-          Text(
-            value,
-            style: TextStyle(
-              fontSize: 24,
-              fontWeight: FontWeight.bold,
-              color: destaque ? Colors.white : color,
-            ),
-          ),
+        ],
+      ),
+    );
+  }
+
+  Widget _buildSkeletonCarregamento() {
+    Widget bloco({double h = 16, double w = double.infinity}) {
+      return Container(
+        height: h,
+        width: w,
+        decoration: BoxDecoration(
+          color: _bordaCampo,
+          borderRadius: BorderRadius.circular(10),
+        ),
+      );
+    }
+
+    return SingleChildScrollView(
+      padding: const EdgeInsets.all(16),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.stretch,
+        children: [
+          bloco(h: 120),
+          const SizedBox(height: 16),
+          bloco(h: 88),
+          const SizedBox(height: 16),
+          bloco(h: 200),
+          const SizedBox(height: 16),
+          bloco(h: 140),
         ],
       ),
     );
@@ -708,45 +1294,33 @@ class _ClienteEncomendaDetalheScreenState
     final tamanho = (variacoes['tamanho'] ?? '').toString().trim();
     final resumo = (item['variacoes_resumo'] ?? '').toString().trim();
 
+    final subtotal = preco * q;
+    final refNegociado = preco <= 0;
+
     return Container(
       margin: const EdgeInsets.only(bottom: 10),
       padding: const EdgeInsets.all(12),
       decoration: BoxDecoration(
-        color: Colors.white,
+        color: _fundo.withValues(alpha: 0.65),
         borderRadius: BorderRadius.circular(12),
-        border: Border.all(color: Colors.grey.shade200),
+        border: Border.all(color: _bordaCampo),
       ),
       child: Row(
+        crossAxisAlignment: CrossAxisAlignment.start,
         children: [
           if (imagemUrl.isNotEmpty)
             ClipRRect(
-              borderRadius: BorderRadius.circular(8),
+              borderRadius: BorderRadius.circular(10),
               child: Image.network(
                 imagemUrl,
-                width: 50,
-                height: 50,
+                width: 56,
+                height: 56,
                 fit: BoxFit.cover,
-                errorBuilder: (_, __, ___) => Container(
-                  width: 50,
-                  height: 50,
-                  decoration: BoxDecoration(
-                    color: _roxoClaro,
-                    borderRadius: BorderRadius.circular(8),
-                  ),
-                  child: const Icon(Icons.image, color: _roxo),
-                ),
+                errorBuilder: (_, __, ___) => _thumbItemPlaceholder(),
               ),
             )
           else
-            Container(
-              width: 50,
-              height: 50,
-              decoration: BoxDecoration(
-                color: _roxoClaro,
-                borderRadius: BorderRadius.circular(8),
-              ),
-              child: const Icon(Icons.shopping_bag, color: _roxo),
-            ),
+            _thumbItemPlaceholder(),
           const SizedBox(width: 12),
           Expanded(
             child: Column(
@@ -755,8 +1329,9 @@ class _ClienteEncomendaDetalheScreenState
                 Text(
                   nome,
                   style: const TextStyle(
-                    fontWeight: FontWeight.w600,
+                    fontWeight: FontWeight.w700,
                     fontSize: 14,
+                    color: _textoPrimario,
                   ),
                   maxLines: 2,
                   overflow: TextOverflow.ellipsis,
@@ -764,7 +1339,7 @@ class _ClienteEncomendaDetalheScreenState
                 const SizedBox(height: 4),
                 Text(
                   'Qtd: $q',
-                  style: TextStyle(fontSize: 12, color: Colors.grey.shade600),
+                  style: const TextStyle(fontSize: 12, color: _textoMuted),
                 ),
                 if (cor.isNotEmpty ||
                     tamanho.isNotEmpty ||
@@ -782,19 +1357,58 @@ class _ClienteEncomendaDetalheScreenState
                     ],
                   ),
                 ],
+                const SizedBox(height: 8),
+                Wrap(
+                  spacing: 8,
+                  runSpacing: 4,
+                  crossAxisAlignment: WrapCrossAlignment.center,
+                  children: [
+                    if (refNegociado)
+                      Container(
+                        padding: const EdgeInsets.symmetric(
+                          horizontal: 8,
+                          vertical: 3,
+                        ),
+                        decoration: BoxDecoration(
+                          color: _laranjaClaro,
+                          borderRadius: BorderRadius.circular(999),
+                        ),
+                        child: const Text(
+                          'A combinar',
+                          style: TextStyle(
+                            color: _laranja,
+                            fontSize: 11,
+                            fontWeight: FontWeight.w800,
+                          ),
+                        ),
+                      ),
+                    Text(
+                      refNegociado ? 'Ref. sob consulta' : _moeda.format(subtotal),
+                      style: TextStyle(
+                        fontWeight: FontWeight.w800,
+                        fontSize: 15,
+                        color: refNegociado ? _textoMuted : _roxo,
+                      ),
+                    ),
+                  ],
+                ),
               ],
-            ),
-          ),
-          Text(
-            _moeda.format(preco * q),
-            style: const TextStyle(
-              fontWeight: FontWeight.w700,
-              fontSize: 15,
-              color: _roxo,
             ),
           ),
         ],
       ),
+    );
+  }
+
+  Widget _thumbItemPlaceholder() {
+    return Container(
+      width: 56,
+      height: 56,
+      decoration: BoxDecoration(
+        color: _roxoClaro,
+        borderRadius: BorderRadius.circular(10),
+      ),
+      child: const Icon(Icons.shopping_bag_outlined, color: _roxo, size: 26),
     );
   }
 
@@ -868,6 +1482,82 @@ class _ClienteEncomendaDetalheScreenState
     );
   }
 
+  void _abrirChatEncomenda(Map<String, dynamic> m) {
+    Navigator.push(
+      context,
+      MaterialPageRoute(
+        builder: (_) => ChatPedidoScreen(
+          pedidoId: widget.encomendaId,
+          lojaId: (m['loja_id'] ?? '').toString(),
+          lojaNome: (m['loja_nome'] ?? '').toString(),
+          colecaoRaiz: 'encomendas',
+          remetenteTipo: 'cliente',
+          tituloOverride: (m['loja_nome'] ?? 'Loja').toString(),
+          subtituloOverride:
+              'Encomenda #${_idCurtoEncomenda()}',
+        ),
+      ),
+    );
+  }
+
+  Widget? _buildPainelInferiorAcoes({
+    required String st,
+    required double? totalRef,
+    required double? entradaRef,
+    required String pedidoEntrada,
+    required String pedidoSaldo,
+    required bool podeAceitarPagamento,
+    required bool podeContrapropor,
+  }) {
+    final filhos = <Widget>[];
+
+    if (podeAceitarPagamento &&
+        totalRef != null &&
+        entradaRef != null) {
+      filhos.add(
+        _buildBotaoPrimario(
+          texto: 'Aceitar proposta e pagar entrada',
+          onPressed: () => _aceitarPropostaGerarPedido(pedidoEntrada),
+        ),
+      );
+      if (podeContrapropor) {
+        filhos.add(const SizedBox(height: 10));
+        filhos.add(
+          _buildBotaoSecundario(
+            onPressed: () => _mostrarDialogContraproposta(totalRef),
+            texto: 'Enviar contraproposta',
+          ),
+        );
+      }
+    } else if (st == EncomendaNegociacaoStatus.entradaAguardandoPagamento &&
+        pedidoEntrada.isNotEmpty) {
+      filhos.add(
+        _buildBotaoPrimario(
+          texto: 'Continuar pagamento da entrada',
+          onPressed: () => _abrirCheckoutEntrada(pedidoEntrada),
+        ),
+      );
+    } else if (st == EncomendaNegociacaoStatus.saldoFinalAguardandoPgto &&
+        pedidoSaldo.isNotEmpty) {
+      filhos.add(
+        _buildBotaoPrimario(
+          texto: 'Pagar saldo da encomenda',
+          onPressed: () => _abrirCheckoutPedidoSaldo(pedidoSaldo),
+        ),
+      );
+    }
+
+    if (filhos.isEmpty) return null;
+
+    return DiPertinSafeBottomPanel(
+      child: Column(
+        mainAxisSize: MainAxisSize.min,
+        crossAxisAlignment: CrossAxisAlignment.stretch,
+        children: filhos,
+      ),
+    );
+  }
+
   /// Botão secundário
   Widget _buildBotaoSecundario({
     required String texto,
@@ -923,28 +1613,46 @@ class _ClienteEncomendaDetalheScreenState
         .doc(widget.encomendaId);
 
     return Scaffold(
-      backgroundColor: const Color(0xFFF5F5F5),
+      backgroundColor: _fundo,
       appBar: AppBar(
         backgroundColor: _roxo,
         foregroundColor: Colors.white,
         elevation: 0,
+        surfaceTintColor: Colors.transparent,
         title: const Text(
           'Detalhe da Encomenda',
-          style: TextStyle(fontWeight: FontWeight.w600),
+          style: TextStyle(fontWeight: FontWeight.w800, letterSpacing: -0.3),
         ),
         centerTitle: true,
         leading: IconButton(
-          icon: const Icon(Icons.arrow_back),
+          icon: const Icon(Icons.arrow_back_rounded),
           onPressed: () => Navigator.pop(context),
         ),
+        actions: [
+          if (uid != null)
+            IconButton(
+              tooltip: 'Chat da encomenda',
+              icon: const Icon(Icons.chat_bubble_outline_rounded),
+              onPressed: () {
+                ref.get().then((snap) {
+                  if (!mounted || !snap.exists) return;
+                  _abrirChatEncomenda(snap.data() ?? {});
+                });
+              },
+            ),
+        ],
       ),
       body: uid == null
           ? const Center(child: Text('Login necessário.'))
           : StreamBuilder<DocumentSnapshot<Map<String, dynamic>>>(
               stream: ref.snapshots(),
               builder: (context, snap) {
+                if (snap.connectionState == ConnectionState.waiting &&
+                    !snap.hasData) {
+                  return _buildSkeletonCarregamento();
+                }
                 if (!snap.hasData || !snap.data!.exists) {
-                  return const Center(child: CircularProgressIndicator());
+                  return _buildSkeletonCarregamento();
                 }
                 final m = snap.data!.data() ?? {};
                 if (m['cliente_id']?.toString() != uid) {
@@ -976,7 +1684,7 @@ class _ClienteEncomendaDetalheScreenState
                         : 0.0);
                 final restanteProduto =
                     (totalRef != null && entradaRef != null)
-                    ? (totalRef - entradaRef).clamp(0, double.infinity)
+                    ? (totalRef - entradaRef).clamp(0.0, double.infinity)
                     : null;
                 final totalGeral = totalRef != null
                     ? totalRef + freteEnc
@@ -997,449 +1705,174 @@ class _ClienteEncomendaDetalheScreenState
                     totalRef != null &&
                     totalRef > 0;
 
-                return SingleChildScrollView(
-                  padding: const EdgeInsets.all(16),
-                  child: Column(
-                    crossAxisAlignment: CrossAxisAlignment.stretch,
-                    children: [
-                      // Status Badge
-                      Center(child: _buildStatusBadge(st)),
-                      const SizedBox(height: 12),
-                      // Informações principais: loja, endereço (cidade/UF) e pagamento
-                      Builder(
-                        builder: (context) {
-                          _futResumo ??= _carregarResumo(m);
-                          return FutureBuilder<_ResumoEncomendaCliente>(
-                            future: _futResumo,
-                            builder: (context, resumoSnap) {
-                              final r =
-                                  resumoSnap.data ??
-                                  const _ResumoEncomendaCliente(
-                                    lojaNome: 'Loja',
-                                    cidade: '',
-                                    uf: '',
-                                  );
-                              final larguraCard =
-                                  MediaQuery.of(context).size.width < 600
-                                  ? MediaQuery.of(context).size.width
-                                  : (MediaQuery.of(context).size.width - 48) / 2;
-                              return Wrap(
-                                spacing: 12,
-                                runSpacing: 12,
-                                children: [
-                                  SizedBox(
-                                    width: larguraCard,
-                                    child: _buildInfoCard(
-                                      icon: Icons.storefront,
-                                      label: 'Loja',
-                                      value: r.lojaNome,
-                                      iconColor: Colors.blue,
-                                    ),
-                                  ),
-                                  SizedBox(
-                                    width: larguraCard,
-                                    child: _buildInfoCard(
-                                      icon: Icons.location_on,
-                                      label: 'Endereço',
-                                      value: _enderecoCidadeEstado(r),
-                                      iconColor: Colors.deepOrange,
-                                    ),
-                                  ),
-                                  SizedBox(
-                                    width: larguraCard,
-                                    child: _buildInfoCard(
-                                      icon: Icons.payment,
-                                      label: 'Pagamento',
-                                      value: _textoPagamentoEntrada(m, st),
-                                      iconColor: Colors.purple,
-                                    ),
-                                  ),
-                                ],
-                              );
-                            },
-                          );
-                        },
-                      ),
-                      const SizedBox(height: 12),
-                      // Botão rápido para abrir chat da encomenda
-                      _buildBotaoSecundario(
-                        texto: 'Abrir chat da encomenda',
-                        onPressed: () {
-                          Navigator.push(
-                            context,
-                            MaterialPageRoute(
-                              builder: (_) => ChatPedidoScreen(
-                                pedidoId: widget.encomendaId,
-                                lojaId: (m['loja_id'] ?? '').toString(),
-                                lojaNome: (m['loja_nome'] ?? '').toString(),
-                                colecaoRaiz: 'encomendas',
-                                remetenteTipo: 'cliente',
-                                tituloOverride: (m['loja_nome'] ?? 'Loja')
-                                    .toString(),
-                                subtituloOverride:
-                                    'Encomenda #${widget.encomendaId.substring(0, widget.encomendaId.length >= 5 ? 5 : widget.encomendaId.length).toUpperCase()}',
-                              ),
-                            ),
-                          );
-                        },
-                      ),
-                      const SizedBox(height: 20),
+                final painelInferior = _buildPainelInferiorAcoes(
+                  st: st,
+                  totalRef: totalRef,
+                  entradaRef: entradaRef,
+                  pedidoEntrada: pedidoEntrada,
+                  pedidoSaldo: pedidoSaldo,
+                  podeAceitarPagamento: podeAceitarPagamento,
+                  podeContrapropor: podeContrapropor,
+                );
 
-                      if (pagoIntegralmente) ...[
-                        Container(
-                          padding: const EdgeInsets.all(14),
-                          decoration: BoxDecoration(
-                            color: Colors.green.shade50,
-                            borderRadius: BorderRadius.circular(14),
-                            border: Border.all(color: Colors.green.shade200),
-                          ),
-                          child: Row(
-                            children: [
-                              Icon(
-                                Icons.verified,
-                                color: Colors.green.shade700,
-                              ),
-                              const SizedBox(width: 10),
-                              Expanded(
-                                child: Text(
-                                  'Pago integralmente — entrada e saldo confirmados.',
-                                  style: TextStyle(
-                                    color: Colors.green.shade900,
-                                    fontWeight: FontWeight.w800,
-                                  ),
-                                ),
-                              ),
-                            ],
-                          ),
-                        ),
-                        const SizedBox(height: 16),
-                      ],
+                final paddingRodape = painelInferior != null
+                    ? 140.0 + diPertinSafeAreaBottom(context)
+                    : 24.0 + diPertinSafeAreaBottom(context);
 
-                      // Valores: produto, frete e pagamentos
-                      if (totalRef != null && totalRef > 0) ...[
-                        const Text(
-                          'Valores da encomenda',
-                          style: TextStyle(
-                            fontSize: 16,
-                            fontWeight: FontWeight.w700,
-                            color: Colors.black87,
-                          ),
-                        ),
-                        const SizedBox(height: 10),
-                        _buildValorCard(
-                          label: 'Produto (negociado)',
-                          value: _moeda.format(totalRef),
-                          color: _laranja,
-                          destaque: true,
-                        ),
-                        if (freteEnc > 0) ...[
-                          const SizedBox(height: 10),
-                          _buildValorCard(
-                            label: 'Frete',
-                            value: _moeda.format(freteEnc),
-                            color: Colors.blue.shade700,
-                          ),
-                        ],
-                        if (totalGeral != null) ...[
-                          const SizedBox(height: 10),
-                          _buildValorCard(
-                            label: 'Total (produto + frete)',
-                            value: _moeda.format(totalGeral),
-                            color: Colors.deepPurple.shade700,
-                          ),
-                        ],
-                        if (entradaRef != null && entradaRef > 0) ...[
-                          const SizedBox(height: 10),
-                          _buildValorCard(
-                            label: _entradaJaPaga(st)
-                                ? 'Entrada paga (produto)'
-                                : 'Entrada combinada (produto)',
-                            value: _moeda.format(entradaRef),
-                            color: _roxo,
-                          ),
-                        ],
-                        if (restanteProduto != null && restanteProduto > 0) ...[
-                          const SizedBox(height: 10),
-                          _buildValorCard(
-                            label: 'Restante do produto',
-                            value: _moeda.format(restanteProduto),
-                            color: Colors.teal.shade700,
-                          ),
-                        ],
-                        if (totalPagamentoFinal != null &&
-                            totalPagamentoFinal > 0 &&
-                            !_entradaJaPaga(st)) ...[
-                          const SizedBox(height: 10),
-                          if (freteEnc > 0)
-                            _buildValorCard(
-                              label: 'Frete no pagamento final',
-                              value: _moeda.format(freteEnc),
-                              color: Colors.blueGrey.shade700,
-                            ),
-                          const SizedBox(height: 10),
-                          _buildValorCard(
-                            label: 'Total do pagamento final',
-                            value: _moeda.format(totalPagamentoFinal),
-                            color: Colors.indigo.shade700,
-                            destaque: true,
-                          ),
-                        ],
-                        const SizedBox(height: 12),
-                        Container(
-                          padding: const EdgeInsets.all(12),
-                          decoration: BoxDecoration(
-                            color: const Color(0xFFF8F5FA),
-                            borderRadius: BorderRadius.circular(12),
-                            border: Border.all(color: Colors.grey.shade200),
-                          ),
-                          child: Text(
-                            'A entrada refere-se apenas ao valor do produto. '
-                            'O frete é cobrado no pagamento final, junto com o '
-                            'restante do produto.',
-                            style: TextStyle(
-                              fontSize: 12.5,
-                              height: 1.35,
-                              color: Colors.grey.shade800,
-                            ),
-                          ),
-                        ),
-                        const SizedBox(height: 12),
-                        _buildInfoCard(
-                          icon: Icons.payments_outlined,
-                          label: 'Pagamento da entrada',
-                          value: _textoPagamentoEntrada(m, st),
-                          iconColor: Colors.indigo,
-                        ),
-                      ],
-
-                      const SizedBox(height: 20),
-
-                      // Mensagem do cliente
-                      if (msgCliente.isNotEmpty) ...[
-                        _buildInfoCard(
-                          icon: Icons.description,
-                          label: 'Seu pedido à loja',
-                          value: msgCliente,
-                          iconColor: Colors.blue,
-                        ),
-                        const SizedBox(height: 16),
-                      ],
-
-                      // Lista de itens
-                      if (m['itens'] is List &&
-                          (m['itens'] as List).isNotEmpty) ...[
-                        const Text(
-                          'Itens da Encomenda',
-                          style: TextStyle(
-                            fontSize: 16,
-                            fontWeight: FontWeight.w700,
-                            color: Colors.black87,
-                          ),
-                        ),
-                        const SizedBox(height: 10),
-                        Container(
-                          padding: const EdgeInsets.all(14),
-                          decoration: BoxDecoration(
-                            color: Colors.white,
-                            borderRadius: BorderRadius.circular(16),
-                            border: Border.all(color: Colors.grey.shade200),
-                          ),
+                return Column(
+                  crossAxisAlignment: CrossAxisAlignment.stretch,
+                  children: [
+                    Expanded(
+                      child: AnimatedOpacity(
+                        opacity: _entradaAnimada ? 1 : 0,
+                        duration: const Duration(milliseconds: 220),
+                        curve: Curves.easeOut,
+                        child: SingleChildScrollView(
+                          physics: const AlwaysScrollableScrollPhysics(),
                           child: Column(
-                            children: (m['itens'] as List).whereType<Map>().map(
-                              (raw) {
-                                final it = Map<String, dynamic>.from(raw);
-                                return _buildItemEncomenda(it);
-                              },
-                            ).toList(),
-                          ),
-                        ),
-                      ],
-
-                      const SizedBox(height: 24),
-
-                      // Botões de ação baseados no status
-                      if (podeAceitarPagamento &&
-                          totalRef != null &&
-                          entradaRef != null)
-                        _buildBotaoPrimario(
-                          texto: 'Aceitar proposta e pagar entrada',
-                          onPressed: () =>
-                              _aceitarPropostaGerarPedido(pedidoEntrada),
-                        ),
-
-                      if (podeContrapropor) ...[
-                        const SizedBox(height: 12),
-                        _buildBotaoSecundario(
-                          onPressed: () =>
-                              _mostrarDialogContraproposta(totalRef),
-                          texto: 'Enviar contraproposta',
-                        ),
-                      ],
-
-                      if (st ==
-                              EncomendaNegociacaoStatus
-                                  .entradaAguardandoPagamento &&
-                          pedidoEntrada.isNotEmpty) ...[
-                        const SizedBox(height: 16),
-                        _buildBotaoPrimario(
-                          texto: 'Continuar pagamento da entrada',
-                          onPressed: () => _abrirCheckoutEntrada(pedidoEntrada),
-                        ),
-                      ],
-
-                      if (st ==
-                          EncomendaNegociacaoStatus.entradaPagaEmProducao) ...[
-                        const SizedBox(height: 16),
-                        Container(
-                          padding: const EdgeInsets.all(16),
-                          decoration: BoxDecoration(
-                            gradient: LinearGradient(
-                              colors: [
-                                Colors.amber.shade50,
-                                Colors.amber.shade100,
-                              ],
-                            ),
-                            borderRadius: BorderRadius.circular(14),
-                            border: Border.all(color: Colors.amber.shade200),
-                          ),
-                          child: Row(
+                            crossAxisAlignment: CrossAxisAlignment.stretch,
                             children: [
-                              Icon(
-                                Icons.check_circle,
-                                color: Colors.amber.shade700,
-                                size: 28,
+                              _buildHeroEncomendaResolvido(
+                                status: st,
+                                m: m,
+                                tipoEntrega: tipoEntrega,
                               ),
-                              const SizedBox(width: 12),
-                              Expanded(
-                                child: Text(
-                                  'Sua entrada foi confirmada! A loja está produzindo seu pedido. '
-                                  'Quando ela gerar a cobrança do saldo, você poderá pagar aqui.',
-                                  style: TextStyle(
-                                    color: Colors.amber.shade900,
-                                    fontWeight: FontWeight.w500,
-                                    height: 1.35,
-                                  ),
-                                ),
-                              ),
-                            ],
-                          ),
-                        ),
-                      ],
-
-                      if (st ==
-                              EncomendaNegociacaoStatus
-                                  .saldoFinalAguardandoPgto &&
-                          pedidoSaldo.isNotEmpty) ...[
-                        const SizedBox(height: 16),
-                        _buildBotaoPrimario(
-                          texto: 'Pagar saldo da encomenda',
-                          onPressed: () =>
-                              _abrirCheckoutPedidoSaldo(pedidoSaldo),
-                        ),
-                      ],
-
-                      if (st == EncomendaNegociacaoStatus.emExecucaoLogistica)
-                        Container(
-                          padding: const EdgeInsets.all(16),
-                          decoration: BoxDecoration(
-                            color: Colors.green.shade50,
-                            borderRadius: BorderRadius.circular(14),
-                            border: Border.all(color: Colors.green.shade200),
-                          ),
-                          child: Row(
-                            children: [
-                              Icon(
-                                Icons.local_shipping,
-                                color: Colors.green.shade700,
-                                size: 28,
-                              ),
-                              const SizedBox(width: 12),
-                              Expanded(
-                                child: Text(
-                                  'Saldo pago! Acompanhe a entrega em «Meus pedidos».',
-                                  style: TextStyle(
-                                    color: Colors.green.shade900,
-                                    fontWeight: FontWeight.w600,
-                                    fontSize: 15,
-                                  ),
-                                ),
-                              ),
-                            ],
-                          ),
-                        ),
-
-                      // Botão de cancelar (quando aplicável)
-                      if (!EncomendaNegociacaoStatus.encerradaDefinitivamente(
-                        st,
-                      )) ...[
-                        const SizedBox(height: 28),
-                        Builder(
-                          builder: (context) {
-                            final podeCancelar =
-                                EncomendaNegociacaoStatus.podeCancelarNegociacaoAntesPagamentoEntrada(
-                                  st,
-                                );
-                            return Column(
-                              children: [
-                                TextButton.icon(
-                                  onPressed: (podeCancelar && !_processando)
-                                      ? _confirmarCancelarNegociacao
-                                      : null,
-                                  icon: Icon(
-                                    Icons.cancel_outlined,
-                                    color: podeCancelar
-                                        ? Colors.red.shade700
-                                        : Colors.grey.shade400,
-                                  ),
-                                  label: Text(
-                                    'Cancelar negociação',
-                                    style: TextStyle(
-                                      color: podeCancelar
-                                          ? Colors.red.shade700
-                                          : Colors.grey.shade400,
-                                      fontWeight: FontWeight.w600,
+                              Padding(
+                                padding: const EdgeInsets.fromLTRB(16, 16, 16, 0),
+                                child: Column(
+                                  crossAxisAlignment:
+                                      CrossAxisAlignment.stretch,
+                                  children: [
+                                    _buildTimelineNegociacao(st),
+                                    const SizedBox(height: 16),
+                                    _buildCardEntrega(m),
+                                    const SizedBox(height: 16),
+                                    _buildAlertaContextual(
+                                      st,
+                                      pagoIntegralmente: pagoIntegralmente,
                                     ),
-                                  ),
-                                ),
-                                if (!podeCancelar)
-                                  Padding(
-                                    padding: const EdgeInsets.only(top: 4),
-                                    child: Text(
-                                      'Após o pagamento da entrada o cancelamento '
-                                      'por aqui fica indisponível.',
-                                      textAlign: TextAlign.center,
-                                      style: TextStyle(
-                                        fontSize: 12,
-                                        height: 1.35,
-                                        color: Colors.grey.shade600,
+                                    if (pagoIntegralmente ||
+                                        st ==
+                                            EncomendaNegociacaoStatus
+                                                .entradaPagaEmProducao ||
+                                        st ==
+                                            EncomendaNegociacaoStatus
+                                                .emExecucaoLogistica)
+                                      const SizedBox(height: 16),
+                                    _buildResumoFinanceiro(
+                                      m: m,
+                                      st: st,
+                                      totalRef: totalRef,
+                                      entradaRef: entradaRef,
+                                      freteEnc: freteEnc,
+                                      restanteProduto: restanteProduto,
+                                      totalGeral: totalGeral,
+                                      totalPagamentoFinal: totalPagamentoFinal,
+                                    ),
+                                    if (totalRef != null && totalRef > 0)
+                                      const SizedBox(height: 20),
+                                    if (msgCliente.isNotEmpty) ...[
+                                      _buildInfoCard(
+                                        icon: Icons.description_outlined,
+                                        label: 'Seu pedido à loja',
+                                        value: msgCliente,
+                                        iconColor: _roxo,
                                       ),
-                                    ),
-                                  ),
-                              ],
-                            );
-                          },
+                                      const SizedBox(height: 16),
+                                    ],
+                                    if (m['itens'] is List &&
+                                        (m['itens'] as List).isNotEmpty) ...[
+                                      _tituloSecao(
+                                        'Itens da encomenda',
+                                        icone: Icons.inventory_2_outlined,
+                                      ),
+                                      Container(
+                                        padding: const EdgeInsets.all(14),
+                                        decoration: _decorCartaoPro(),
+                                        child: Column(
+                                          children: (m['itens'] as List)
+                                              .whereType<Map>()
+                                              .map((raw) {
+                                                final it =
+                                                    Map<String, dynamic>.from(
+                                                      raw,
+                                                    );
+                                                return _buildItemEncomenda(it);
+                                              })
+                                              .toList(),
+                                        ),
+                                      ),
+                                    ],
+                                    if (!EncomendaNegociacaoStatus
+                                        .encerradaDefinitivamente(st)) ...[
+                                      const SizedBox(height: 28),
+                                      Builder(
+                                        builder: (context) {
+                                          final podeCancelar =
+                                              EncomendaNegociacaoStatus
+                                                  .podeCancelarNegociacaoAntesPagamentoEntrada(
+                                                    st,
+                                                  );
+                                          return Column(
+                                            children: [
+                                              TextButton.icon(
+                                                onPressed:
+                                                    (podeCancelar &&
+                                                        !_processando)
+                                                    ? _confirmarCancelarNegociacao
+                                                    : null,
+                                                icon: Icon(
+                                                  Icons.cancel_outlined,
+                                                  color: podeCancelar
+                                                      ? Colors.red.shade700
+                                                      : Colors.grey.shade400,
+                                                ),
+                                                label: Text(
+                                                  'Cancelar negociação',
+                                                  style: TextStyle(
+                                                    color: podeCancelar
+                                                        ? Colors.red.shade700
+                                                        : Colors.grey.shade400,
+                                                    fontWeight: FontWeight.w600,
+                                                  ),
+                                                ),
+                                              ),
+                                              if (!podeCancelar)
+                                                Padding(
+                                                  padding:
+                                                      const EdgeInsets.only(
+                                                        top: 4,
+                                                      ),
+                                                  child: Text(
+                                                    'Após o pagamento da entrada o cancelamento '
+                                                    'por aqui fica indisponível.',
+                                                    textAlign: TextAlign.center,
+                                                    style: TextStyle(
+                                                      fontSize: 12,
+                                                      height: 1.35,
+                                                      color: _textoMuted,
+                                                    ),
+                                                  ),
+                                                ),
+                                            ],
+                                          );
+                                        },
+                                      ),
+                                    ],
+                                    SizedBox(height: paddingRodape),
+                                  ],
+                                ),
+                              ),
+                            ],
+                          ),
                         ),
-                      ],
-
-                      const SizedBox(height: 20),
-                    ],
-                  ),
+                      ),
+                    ),
+                    if (painelInferior != null) painelInferior,
+                  ],
                 );
               },
             ),
     );
   }
-}
-
-/// Resumo leve para exibição ao cliente (nome da loja + cidade/estado de entrega).
-class _ResumoEncomendaCliente {
-  const _ResumoEncomendaCliente({
-    required this.lojaNome,
-    required this.cidade,
-    required this.uf,
-  });
-
-  final String lojaNome;
-  final String cidade;
-  final String uf;
 }

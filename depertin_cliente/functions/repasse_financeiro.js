@@ -8,9 +8,10 @@
  *   subtotal_frete    → comissão entregador (planos_taxas publico=entregador)
  *
  * Cupom:
- *   desconto_cupom reduz o valor pago pelo cliente.
- *   A comissão do lojista incide sobre o valor bruto dos produtos (antes do cupom).
- *   O custo do cupom é absorvido pela plataforma.
+ *   desconto_cupom_produto / desconto_cupom_frete reduzem o valor pago pelo cliente.
+ *   Comissão da plataforma sobre produtos incide após desconto de produtos (base líquida).
+ *   Frete grátis: cliente não paga frete; entregador e comissão sobre frete usam taxa integral;
+ *   subsídio do frete é debitado do líquido do lojista.
  *
  * Distribuição:
  *   valor_liquido_lojista     = valor_produto - taxa_plataforma
@@ -51,10 +52,10 @@ function normalizarVeiculo(s) {
 function calcularComissao(base, plano) {
     if (!plano || base <= 0) return 0;
     const tipo = String(plano.tipo_cobranca || "").toLowerCase();
-    const v = Number(plano.valor || 0);
-    if (Number.isNaN(v)) return 0;
+    const v = Number(plano.valor ?? 0);
+    if (Number.isNaN(v) || v <= 0) return 0;
     if (tipo === "fixo") {
-        return roundMoney(Math.min(base, Math.max(0, v)));
+        return roundMoney(Math.min(base, v));
     }
     return roundMoney(base * (v / 100));
 }
@@ -127,7 +128,26 @@ async function carregarPlanoComissao(db, publico, cidadeLoja, opcoes = {}) {
     return { id: lista[0].id, data: lista[0].data };
 }
 
-async function carregarPlanoComissaoLojista(db, cidadeLoja) {
+/**
+ * Plano atribuído à loja no painel (`users.plano_taxa_id`).
+ * Tem prioridade sobre busca por cidade.
+ */
+async function carregarPlanoComissaoPorId(db, planoId, publicoEsperado) {
+    const id = String(planoId || "").trim();
+    if (!id) return null;
+    const snap = await db.collection("planos_taxas").doc(id).get();
+    if (!snap.exists) return null;
+    const d = snap.data() || {};
+    if (d.ativo === false) return null;
+    if (publicoEsperado && String(d.publico || "") !== publicoEsperado) {
+        return null;
+    }
+    return { id: snap.id, data: d };
+}
+
+async function carregarPlanoComissaoLojista(db, cidadeLoja, planoIdLoja) {
+    const porId = await carregarPlanoComissaoPorId(db, planoIdLoja, "lojista");
+    if (porId) return porId;
     return carregarPlanoComissao(db, "lojista", cidadeLoja);
 }
 
@@ -155,12 +175,35 @@ async function calcularCamposFinanceirosPedido(db, pedido, opcoes = {}) {
     );
     const valorFrete = roundMoney(Number(pedido.taxa_entrega ?? 0));
     const descontoSaldo = roundMoney(Number(pedido.desconto_saldo ?? 0));
-    const descontoCupom = roundMoney(Number(pedido.desconto_cupom ?? 0));
+    let descontoCupomProduto = roundMoney(
+        Number(pedido.desconto_cupom_produto ?? 0),
+    );
+    let descontoCupomFrete = roundMoney(
+        Number(pedido.desconto_cupom_frete ?? 0),
+    );
+    const descontoCupomLegado = roundMoney(Number(pedido.desconto_cupom ?? 0));
+    if (
+        descontoCupomProduto === 0 &&
+        descontoCupomFrete === 0 &&
+        descontoCupomLegado > 0
+    ) {
+        descontoCupomProduto = descontoCupomLegado;
+    }
+    const descontoCupom = roundMoney(
+        descontoCupomProduto + descontoCupomFrete,
+    );
     const cupomId = pedido.cupom_id || null;
     const cupomCodigo = pedido.cupom_codigo || null;
 
     const valorTotalPagoCliente = roundMoney(
-        Math.max(0, valorProduto + valorFrete - descontoCupom - descontoSaldo),
+        Math.max(
+            0,
+            valorProduto +
+                valorFrete -
+                descontoCupomProduto -
+                descontoCupomFrete -
+                descontoSaldo,
+        ),
     );
 
     const lojaId = pedido.loja_id || pedido.lojista_id;
@@ -177,6 +220,7 @@ async function calcularCamposFinanceirosPedido(db, pedido, opcoes = {}) {
             planoLojistaWrap = await carregarPlanoComissaoLojista(
                 db,
                 String(cidadeLoja),
+                u.plano_taxa_id,
             );
         }
     }
@@ -224,11 +268,22 @@ async function calcularCamposFinanceirosPedido(db, pedido, opcoes = {}) {
         ),
     );
 
-    // Comissão lojista (incide sobre bruto dos produtos, antes do cupom)
+    // Comissão lojista sobre produtos após desconto de cupom (custo do cupom = lojista)
+    const baseComissaoProduto = roundMoney(
+        Math.max(0, valorProduto - descontoCupomProduto),
+    );
     const planoLojista = planoLojistaWrap ? planoLojistaWrap.data : null;
-    const taxaPlataformaProduto = calcularComissao(valorProduto, planoLojista);
+    const taxaPlataformaProduto = calcularComissao(
+        baseComissaoProduto,
+        planoLojista,
+    );
     let valorLiquidoLojista = roundMoney(
-        Math.max(0, valorProduto - taxaPlataformaProduto),
+        Math.max(
+            0,
+            baseComissaoProduto -
+                taxaPlataformaProduto -
+                descontoCupomFrete,
+        ),
     );
 
     // Encomenda saldo: entrada já paga sem taxa — soma no crédito do lojista na entrega.
@@ -258,6 +313,9 @@ async function calcularCamposFinanceirosPedido(db, pedido, opcoes = {}) {
         valor_produto: valorProduto,
         valor_frete: valorFrete,
         desconto_cupom: descontoCupom,
+        desconto_cupom_produto: descontoCupomProduto,
+        desconto_cupom_frete: descontoCupomFrete,
+        cupom_tipo: pedido.cupom_tipo || null,
         cupom_id: cupomId,
         cupom_codigo: cupomCodigo,
         taxa_plataforma: taxaPlataforma,
@@ -322,6 +380,7 @@ module.exports = {
     calcularComissao,
     calcularTaxaPlataforma,
     carregarPlanoComissao,
+    carregarPlanoComissaoPorId,
     carregarPlanoComissaoLojista,
     carregarPlanoComissaoEntregador,
     calcularCamposFinanceirosPedido,

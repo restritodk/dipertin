@@ -148,14 +148,14 @@ service cloud.firestore {
 
     function lojistaLojaPodeOperar() {
       return !userExists()
-        || role() != 'lojista'
+        || !isLojistaRoleDoc(userData())
         || !lojistaDocumentoBloqueado(dadosDonoLojaParaBloqueio());
     }
 
     function isLojistaRoleDoc(d) {
-      return fieldStr(d, 'role') == 'lojista'
-        || fieldStr(d, 'tipoUsuario') == 'lojista'
-        || fieldStr(d, 'tipo') == 'lojista';
+      return normStr(fieldStr(d, 'role')) == 'lojista'
+        || normStr(fieldStr(d, 'tipoUsuario')) == 'lojista'
+        || normStr(fieldStr(d, 'tipo')) == 'lojista';
     }
 
     function colaboradorPainelNivel3EditaDono(userId) {
@@ -213,6 +213,40 @@ service cloud.firestore {
     // Bloqueio efetivo:
     //   - Anônimo não lê mais nada.
     //   - Cliente/lojista/entregador não consegue baixar docs de outros users.
+    // --- Proteção do perfil de entregador (pausa/exclusão/reingresso) ---
+    // O dono NÃO pode burlar a trava de 30 dias pós-exclusão, adulterar as datas
+    // de exclusão/reingresso, nem reverter uma exclusão em andamento por conta
+    // própria. A transição role→entregador legítima passa pela callable
+    // `entregadorAbrirCadastro` (Admin SDK, que ignora estas regras).
+    function donoVaiVirarEntregador() {
+      return request.resource.data.get('role', '') == 'entregador'
+        && resource.data.get('role', '') != 'entregador';
+    }
+    function reingressoEntregadorBloqueado() {
+      return resource.data.get('entregador_reingresso_bloqueado_ate', null) != null
+        && request.time < resource.data.entregador_reingresso_bloqueado_ate;
+    }
+    function exclusaoEntregadorEmAndamento() {
+      return resource.data.get('entregador_perfil_operacional', '') == 'exclusao_solicitada';
+    }
+    function donoCampoEntregadorImutavel(campo) {
+      return request.resource.data.get(campo, null) == resource.data.get(campo, null);
+    }
+    function donoUpdateEntregadorPermitido() {
+      return !(donoVaiVirarEntregador() && reingressoEntregadorBloqueado())
+        && donoCampoEntregadorImutavel('entregador_reingresso_bloqueado_ate')
+        && donoCampoEntregadorImutavel('entregador_exclusao_perfil_em')
+        && donoCampoEntregadorImutavel('entregador_exclusao_perfil_solicitada_em')
+        && (
+          !exclusaoEntregadorEmAndamento()
+          || (
+            donoCampoEntregadorImutavel('role')
+            && donoCampoEntregadorImutavel('entregador_status')
+            && donoCampoEntregadorImutavel('entregador_perfil_operacional')
+          )
+        );
+    }
+
     match /users/{userId} {
       allow read: if signedIn() && (
         request.auth.uid == userId
@@ -222,7 +256,7 @@ service cloud.firestore {
       );
       allow create: if signedIn() && request.auth.uid == userId;
       allow update: if signedIn() && (
-        request.auth.uid == userId
+        (request.auth.uid == userId && donoUpdateEntregadorPermitido())
         || isStaff()
         || (
           colaboradorPainelNivel3EditaDono(userId)
@@ -242,6 +276,64 @@ service cloud.firestore {
       // Dono lê e escreve. Staff (master/master_city) lê para Central de Clientes.
       allow read: if signedIn() && (request.auth.uid == userId || isStaff());
       allow write: if signedIn() && request.auth.uid == userId;
+    }
+
+    // Gestão Comercial — crédito/fiado de clientes da loja (Dashboard + módulo comercial).
+    match /users/{userId}/clientes_comercial/{clienteId} {
+      allow read: if signedIn() && (
+        isStaff()
+        || request.auth.uid == userId
+        || colaboradorLeDono(userId)
+      );
+      allow create, update, delete: if signedIn() && (
+        isStaff()
+        || (
+          isLojistaRoleDoc(userData())
+          && lojistaLojaPodeOperar()
+          && userId == idLojaUsuarioLogado()
+        )
+        || colaboradorPainelNivel3EditaDono(userId)
+        || colaboradorLeDono(userId)
+      );
+    }
+
+    match /users/{userId}/vendas_credito/{vendaId} {
+      allow read, create, update, delete: if signedIn() && (
+        isStaff()
+        || (
+          isLojistaRoleDoc(userData())
+          && lojistaLojaPodeOperar()
+          && userId == idLojaUsuarioLogado()
+        )
+        || colaboradorPainelNivel3EditaDono(userId)
+        || colaboradorLeDono(userId)
+      );
+    }
+
+    match /users/{userId}/parcelas_cliente/{parcelaId} {
+      allow read, create, update, delete: if signedIn() && (
+        isStaff()
+        || (
+          isLojistaRoleDoc(userData())
+          && lojistaLojaPodeOperar()
+          && userId == idLojaUsuarioLogado()
+        )
+        || colaboradorPainelNivel3EditaDono(userId)
+        || colaboradorLeDono(userId)
+      );
+    }
+
+    match /users/{userId}/recebimentos_cliente/{recebimentoId} {
+      allow read, create, update, delete: if signedIn() && (
+        isStaff()
+        || (
+          isLojistaRoleDoc(userData())
+          && lojistaLojaPodeOperar()
+          && userId == idLojaUsuarioLogado()
+        )
+        || colaboradorPainelNivel3EditaDono(userId)
+        || colaboradorLeDono(userId)
+      );
     }
 
     // Configurações → Veículos do entregador (subcoleção).
@@ -380,8 +472,23 @@ service cloud.firestore {
 
       allow read: if podeLerPedido();
 
-      allow create: if signedIn()
-        && request.resource.data.cliente_id == request.auth.uid;
+      // PDV web: lojista/colaborador da loja registra venda (balcão ou cliente comercial).
+      function lojistaPdvWebCriaPedido() {
+        return request.resource.data.loja_id == idLojaUsuarioLogado()
+          && lojistaLojaPodeOperar()
+          && isLojistaRoleDoc(userData())
+          && request.resource.data.get('origem', '') == 'pdv_web'
+          && request.resource.data.status == 'entregue';
+      }
+
+      allow create: if signedIn() && (
+        request.resource.data.cliente_id == request.auth.uid
+        || (
+          request.resource.data.loja_id == idLojaUsuarioLogado()
+          && request.resource.data.cliente_id == 'venda_balcao'
+        )
+        || lojistaPdvWebCriaPedido()
+      );
 
       function entregadorConvocadoParaEstePedido() {
         return p().despacho_oferta_uid == request.auth.uid
@@ -488,9 +595,22 @@ service cloud.firestore {
             ]);
       }
 
+      // Lojista não pode marcar `entregue` direto no cliente — só via callable
+      // `lojistaConfirmarRetiradaBalcao` (retirada) ou fluxo do entregador.
+      function lojistaTentaMarcarEntregueDireto() {
+        return lojistaDonoDoPedido()
+          && lojistaLojaPodeOperar()
+          && p().status != 'entregue'
+          && request.resource.data.status == 'entregue';
+      }
+
       allow update: if signedIn() && (
         isStaff() ||
-        (lojistaDonoDoPedido() && lojistaLojaPodeOperar()) ||
+        (
+          lojistaDonoDoPedido()
+          && lojistaLojaPodeOperar()
+          && !lojistaTentaMarcarEntregueDireto()
+        ) ||
         clienteCancelaPedidoPixPendente() ||
         clienteCancelaPedidoCartaoInterrompidoNoCheckout() ||
         clienteCancelaPedidoEmAndamento() ||
@@ -691,6 +811,43 @@ service cloud.firestore {
       allow read: if true;
       allow create: if criacaoAvaliacaoPedidoEntregue() || isStaff();
       allow update: if isStaff() || avaliacaoLojaPodeResponder();
+      allow delete: if isStaff()
+        || ('cliente_id' in resource.data && resource.data.cliente_id == request.auth.uid);
+    }
+
+    match /avaliacoes_produto/{avalId} {
+      function pedidoDoCliente(pedidoId) {
+        return exists(/databases/$(database)/documents/pedidos/$(pedidoId))
+          && get(/databases/$(database)/documents/pedidos/$(pedidoId)).data.cliente_id == request.auth.uid
+          && get(/databases/$(database)/documents/pedidos/$(pedidoId)).data.status == 'entregue';
+      }
+
+      function criacaoAvaliacaoProduto() {
+        return signedIn()
+          && request.resource.data.cliente_id == request.auth.uid
+          && request.resource.data.produto_id is string
+          && request.resource.data.pedido_id is string
+          && avalId == request.resource.data.pedido_id + '_' + request.resource.data.produto_id
+          && request.resource.data.nota >= 1
+          && request.resource.data.nota <= 5
+          && pedidoDoCliente(request.resource.data.pedido_id);
+      }
+
+      function edicaoAvaliacaoProdutoDono() {
+        return signedIn()
+          && resource.data.cliente_id == request.auth.uid
+          && request.resource.data.cliente_id == resource.data.cliente_id
+          && request.resource.data.produto_id == resource.data.produto_id
+          && request.resource.data.pedido_id == resource.data.pedido_id
+          && request.resource.data.nota >= 1
+          && request.resource.data.nota <= 5;
+      }
+
+      // Públicas (vitrine/detalhe do produto). Criar exige pedido entregue do
+      // próprio cliente; editar/excluir apenas o dono (ou staff).
+      allow read: if true;
+      allow create: if criacaoAvaliacaoProduto() || isStaff();
+      allow update: if isStaff() || edicaoAvaliacaoProdutoDono();
       allow delete: if isStaff()
         || ('cliente_id' in resource.data && resource.data.cliente_id == request.auth.uid);
     }
@@ -954,9 +1111,63 @@ service cloud.firestore {
       }
     }
 
-    // Cupons criados no painel administrativo.
+    // Cupons — staff (plataforma) ou lojista no escopo da própria loja.
+    // Leitura: filtro obrigatório na query = loja_id (paridade idLojaUsuarioLogado).
+    // Não exigir `escopo` na rule de read — senão queries sem .where('escopo') falham.
     match /cupons/{id} {
-      allow read, write: if isStaff();
+      allow read: if isStaff()
+        || (signedIn()
+          && isLojistaRoleDoc(userData())
+          && lojistaLojaPodeOperar()
+          && resource.data.get('loja_id', '') == idLojaUsuarioLogado());
+
+      allow create: if isStaff()
+        || (signedIn()
+          && isLojistaRoleDoc(userData())
+          && lojistaLojaPodeOperar()
+          && request.resource.data.get('escopo', '') == 'loja'
+          && request.resource.data.get('loja_id', '') == idLojaUsuarioLogado()
+          && request.resource.data.get('criado_por_uid', '') == request.auth.uid);
+
+      allow update: if isStaff()
+        || (signedIn()
+          && isLojistaRoleDoc(userData())
+          && lojistaLojaPodeOperar()
+          && resource.data.get('escopo', '') == 'loja'
+          && resource.data.get('loja_id', '') == idLojaUsuarioLogado()
+          && request.resource.data.get('loja_id', '') == resource.data.get('loja_id', '')
+          && request.resource.data.get('escopo', '') == 'loja');
+
+      allow delete: if isStaff()
+        || (signedIn()
+          && isLojistaRoleDoc(userData())
+          && lojistaLojaPodeOperar()
+          && resource.data.get('escopo', '') == 'loja'
+          && resource.data.get('loja_id', '') == idLojaUsuarioLogado());
+    }
+
+    // Sessões de caixa (PDV)
+    match /sessoes_caixa/{sessaoId} {
+      allow read: if isStaff()
+        || (signedIn()
+          && isLojistaRoleDoc(userData())
+          && lojistaLojaPodeOperar()
+          && resource.data.get('loja_id', '') == idLojaUsuarioLogado());
+
+      allow create: if isStaff()
+        || (signedIn()
+          && isLojistaRoleDoc(userData())
+          && lojistaLojaPodeOperar()
+          && request.resource.data.get('loja_id', '') == idLojaUsuarioLogado());
+
+      allow update: if isStaff()
+        || (signedIn()
+          && isLojistaRoleDoc(userData())
+          && lojistaLojaPodeOperar()
+          && resource.data.get('loja_id', '') == idLojaUsuarioLogado()
+          && request.resource.data.get('loja_id', '') == resource.data.get('loja_id', ''));
+
+      allow delete: if isMaster();
     }
 
     // Estornos de pedido (master debita na carteira da loja). Lojista lê só os seus.
@@ -1012,6 +1223,22 @@ service cloud.firestore {
     // Agenda operacional staff (Centro de operações — calendário na web).
     match /centro_ops_agenda/{id} {
       allow read, write: if isStaff();
+    }
+
+    // CRM de marketing — leads de lojistas (Centro de operações, staff only).
+    match /marketing_leads_lojistas/{id} {
+      allow read, write: if isStaff();
+      match /historico/{histId} {
+        allow read, write: if isStaff();
+      }
+    }
+
+    // CRM de marketing — leads de entregadores (Centro de operações, staff only).
+    match /marketing_leads_entregadores/{id} {
+      allow read, write: if isStaff();
+      match /historico/{histId} {
+        allow read, write: if isStaff();
+      }
     }
 
     match /{document=**} {

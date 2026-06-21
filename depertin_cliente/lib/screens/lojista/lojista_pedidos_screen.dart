@@ -12,6 +12,7 @@ import 'package:flutter/material.dart';
 import 'package:depertin_cliente/constants/pedido_status.dart';
 import 'package:depertin_cliente/constants/tipos_entrega.dart';
 import 'package:depertin_cliente/services/firebase_functions_config.dart';
+import 'package:depertin_cliente/utils/codigo_pedido.dart';
 import 'package:depertin_cliente/utils/lojista_acesso_app.dart';
 import 'package:depertin_cliente/widgets/badge_entregador_acessibilidade.dart';
 import 'package:depertin_cliente/widgets/chat_pedido_botao.dart';
@@ -20,6 +21,11 @@ import 'widgets/escolher_tipo_entrega_dialog.dart';
 
 const Color diPertinRoxo = Color(0xFF6A1B9A);
 const Color diPertinLaranja = Color(0xFFFF8F00);
+
+/// Aviso exibido antes do lojista confirmar retirada no balcão.
+const String _avisoConfirmarEntregaRetirada =
+    'Atenção: confirme a entrega somente após o cliente retirar o pedido na loja. '
+    'Esta ação não poderá ser desfeita e indicará que o pedido foi entregue ao cliente.';
 const Color _diPertinRoxoEscuro = Color(0xFF4A0B7C);
 const Color _fundoTela = Color(0xFFF7F5FA);
 const Color _tintaForte = Color(0xFF17162A);
@@ -201,6 +207,7 @@ class _LojistaPedidosScreenState extends State<LojistaPedidosScreen> {
   final Set<String> _abrindoConfirmacaoChamarDeNovo = <String>{};
   final Set<String> _chamandoDeNovoEmProgresso = <String>{};
   final Set<String> _gerandoPedidoSaldoEncEmProgresso = <String>{};
+  final Set<String> _confirmandoRetiradaEmProgresso = <String>{};
 
   /// Dono (sem `lojista_owner_uid`) = 3. Colaborador = `painel_colaborador_nivel`.
   /// Apenas nível >= 3 (dono + colaborador nível III) pode ver a caixa financeira.
@@ -900,15 +907,105 @@ class _LojistaPedidosScreenState extends State<LojistaPedidosScreen> {
     }
   }
 
+  Future<void> _confirmarEntregaRetiradaNaLoja(String pedidoId) async {
+    if (_confirmandoRetiradaEmProgresso.contains(pedidoId)) return;
+
+    final confirmar = await showDialog<bool>(
+      context: context,
+      barrierDismissible: false,
+      builder: (ctx) => AlertDialog(
+        title: const Row(
+          children: [
+            Icon(Icons.warning_amber_rounded, color: diPertinLaranja),
+            SizedBox(width: 10),
+            Expanded(
+              child: Text(
+                'Confirmar entrega',
+                style: TextStyle(fontSize: 18, fontWeight: FontWeight.w800),
+              ),
+            ),
+          ],
+        ),
+        content: const Text(
+          _avisoConfirmarEntregaRetirada,
+          style: TextStyle(fontSize: 14, height: 1.45),
+        ),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.pop(ctx, false),
+            child: const Text('Voltar'),
+          ),
+          FilledButton(
+            style: FilledButton.styleFrom(
+              backgroundColor: _verdeSucesso,
+              foregroundColor: Colors.white,
+            ),
+            onPressed: () => Navigator.pop(ctx, true),
+            child: const Text('Confirmar entrega'),
+          ),
+        ],
+      ),
+    );
+    if (confirmar != true || !mounted) return;
+
+    setState(() => _confirmandoRetiradaEmProgresso.add(pedidoId));
+    try {
+      final callable = appFirebaseFunctions.httpsCallable(
+        'lojistaConfirmarRetiradaBalcao',
+        options: HttpsCallableOptions(timeout: const Duration(seconds: 60)),
+      );
+      await callable.call(<String, dynamic>{'pedidoId': pedidoId});
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          const SnackBar(
+            content: Text('Entrega confirmada. Pedido concluído.'),
+            backgroundColor: Colors.green,
+          ),
+        );
+      }
+    } on FirebaseFunctionsException catch (e) {
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(
+            content: Text(
+              e.message ?? 'Não foi possível confirmar a entrega.',
+            ),
+            backgroundColor: Colors.red,
+          ),
+        );
+      }
+    } catch (e) {
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(
+            content: Text('Erro: $e'),
+            backgroundColor: Colors.red,
+          ),
+        );
+      }
+    } finally {
+      if (mounted) {
+        setState(() => _confirmandoRetiradaEmProgresso.remove(pedidoId));
+      } else {
+        _confirmandoRetiradaEmProgresso.remove(pedidoId);
+      }
+    }
+  }
+
   Future<void> _atualizarStatusPedido(
     String pedidoId,
     String novoStatus,
   ) async {
     try {
+      final patch = <String, dynamic>{'status': novoStatus};
+      if (novoStatus == PedidoStatus.cancelado) {
+        patch['cancelado_motivo'] = PedidoStatus.canceladoMotivoLojistaRecusou;
+        patch['cancelado_em'] = FieldValue.serverTimestamp();
+      }
       await FirebaseFirestore.instance
           .collection('pedidos')
           .doc(pedidoId)
-          .update({'status': novoStatus});
+          .update(patch);
       if (mounted) {
         ScaffoldMessenger.of(context).showSnackBar(
           SnackBar(
@@ -1088,38 +1185,6 @@ class _LojistaPedidosScreenState extends State<LojistaPedidosScreen> {
     );
   }
 
-  Widget? _painelMotivoCancelamentoCliente(Map<String, dynamic> pedido) {
-    if (pedido['status'] != PedidoStatus.cancelado) return null;
-    if (pedido['cancelado_motivo']?.toString() !=
-        PedidoStatus.canceladoMotivoClienteSolicitou) {
-      return null;
-    }
-    final cod = pedido['cancelado_cliente_codigo']?.toString().trim() ?? '';
-    final det = pedido['cancelado_cliente_detalhe']?.toString().trim() ?? '';
-    String linha;
-    switch (cod) {
-      case PedidoStatus.cancelClienteCodDesistencia:
-        linha = 'Cliente desistiu do pedido.';
-        break;
-      case PedidoStatus.cancelClienteCodDemoraLoja:
-        linha = 'Motivo: a loja está demorando para o envio.';
-        break;
-      case PedidoStatus.cancelClienteCodOutro:
-        linha = det.isEmpty ? 'Outro motivo informado pelo cliente.' : det;
-        break;
-      default:
-        linha = 'Cancelamento solicitado pelo cliente.';
-    }
-    return _blocoAviso(
-      cor: _vermelhoPerigo,
-      fundo: const Color(0xFFFFF1F2),
-      borda: const Color(0xFFFBD5D8),
-      icone: Icons.info_outline_rounded,
-      titulo: 'Cancelado pelo cliente',
-      mensagem: linha,
-    );
-  }
-
   /// Bloco de aviso refinado — usa paleta de tinta consistente (não shade50/400 cru).
   Widget _blocoAviso({
     required Color cor,
@@ -1226,11 +1291,6 @@ class _LojistaPedidosScreenState extends State<LojistaPedidosScreen> {
     final DateTime data = timestamp.toDate();
     return '${data.day.toString().padLeft(2, '0')}/${data.month.toString().padLeft(2, '0')} '
         'às ${data.hour.toString().padLeft(2, '0')}:${data.minute.toString().padLeft(2, '0')}';
-  }
-
-  String _rotuloPedido(String id) {
-    if (id.length <= 5) return id.toUpperCase();
-    return '#${id.substring(0, 5).toUpperCase()}';
   }
 
   double _precoItem(dynamic raw) {
@@ -1356,14 +1416,12 @@ class _LojistaPedidosScreenState extends State<LojistaPedidosScreen> {
               )
               .toList();
 
-          final historico = todosPedidos
-              .where(
-                (p) => [
-                  'entregue',
-                  'cancelado',
-                ].contains((p.data() as Map)['status']),
-              )
-              .toList();
+          final historico = todosPedidos.where((p) {
+            final data = p.data() as Map<String, dynamic>;
+            final status = (data['status'] ?? '').toString();
+            if (status == PedidoStatus.entregue) return true;
+            return PedidoStatus.canceladoVisivelParaLojista(data);
+          }).toList();
 
           // Único TabBarView — `_buildListaPedidos` já renderiza o estado
           // vazio por aba, então não precisa alternar o widget-raiz. Isso
@@ -1587,9 +1645,6 @@ class _LojistaPedidosScreenState extends State<LojistaPedidosScreen> {
   }) {
     final paleta = _paletaStatus(status);
     final List<dynamic> itens = pedido['itens'] ?? [];
-    final Widget? painelMotivoCliente = _painelMotivoCancelamentoCliente(
-      pedido,
-    );
 
     return Container(
       decoration: BoxDecoration(
@@ -1634,10 +1689,6 @@ class _LojistaPedidosScreenState extends State<LojistaPedidosScreen> {
                       const SizedBox(height: 14),
                     ] else
                       _avisoFinanceiroOculto(isRetirada),
-                    if (painelMotivoCliente != null) ...[
-                      painelMotivoCliente,
-                      const SizedBox(height: 12),
-                    ],
                     ChatPedidoBotao(
                       pedidoId: id,
                       lojaId: _uid,
@@ -1648,7 +1699,7 @@ class _LojistaPedidosScreenState extends State<LojistaPedidosScreen> {
                             .trim();
                         return n.isNotEmpty ? n : 'Cliente';
                       }(),
-                      subtituloOverride: 'Pedido ${_rotuloPedido(id)}',
+                      subtituloOverride: 'Pedido ${CodigoPedido.exibir(id, pedido)}',
                       rotuloAtivo: 'Chat com o cliente',
                       rotuloEncerrado: 'Ver conversa do pedido',
                       encerrado:
@@ -1689,7 +1740,7 @@ class _LojistaPedidosScreenState extends State<LojistaPedidosScreen> {
               Row(
                 children: [
                   Text(
-                    'Pedido ${_rotuloPedido(id)}',
+                    'Pedido ${CodigoPedido.exibir(id, pedido)}',
                     style: const TextStyle(
                       fontWeight: FontWeight.w800,
                       fontSize: 16,
@@ -2333,11 +2384,13 @@ class _LojistaPedidosScreenState extends State<LojistaPedidosScreen> {
     }
 
     if (isRetirada && status == PedidoStatus.pronto) {
+      final carregando = _confirmandoRetiradaEmProgresso.contains(id);
       return _botaoPrimario(
-        rotulo: 'Confirmar retirada no balcão',
+        rotulo: carregando ? 'Confirmando...' : 'Confirmar entrega',
         icone: Icons.task_alt_rounded,
         cor: _verdeSucesso,
-        onPressed: () => _atualizarStatusPedido(id, PedidoStatus.entregue),
+        carregando: carregando,
+        onPressed: carregando ? null : () => _confirmarEntregaRetiradaNaLoja(id),
       );
     }
 
@@ -2353,7 +2406,16 @@ class _LojistaPedidosScreenState extends State<LojistaPedidosScreen> {
           pedido['entregador_id'] == null ||
           pedido['entregador_id'].toString().isEmpty;
       if (semEntregadorVinculado) {
-        return _blocoTokenEntrega(id, pedido);
+        return _blocoAviso(
+          cor: _azulInfo,
+          fundo: const Color(0xFFEFF5FE),
+          borda: const Color(0xFFC8DAF9),
+          icone: Icons.delivery_dining_rounded,
+          titulo: 'Aguardando entregador',
+          mensagem:
+              'Pedidos com entrega são concluídos pelo entregador no app DiPertin. '
+              'A confirmação manual fica disponível apenas para retirada na loja.',
+        );
       }
       return Padding(
         padding: const EdgeInsets.only(top: 2),
@@ -2382,77 +2444,6 @@ class _LojistaPedidosScreenState extends State<LojistaPedidosScreen> {
 
     // Fallback para status terminais: entregue/cancelado/desconhecido.
     return const SizedBox.shrink();
-  }
-
-  Widget _blocoTokenEntrega(String id, Map<String, dynamic> pedido) {
-    return _blocoAviso(
-      cor: _ambarAviso,
-      fundo: const Color(0xFFFFF8E1),
-      borda: const Color(0xFFF1D583),
-      icone: Icons.vpn_key_rounded,
-      titulo: 'Aguardando entregador aceitar',
-      mensagem:
-          'Se você mesmo entregar com motoboy da loja, digite o token que o cliente informar:',
-      acaoInferior: TextField(
-        decoration: InputDecoration(
-          hintText: 'Token do cliente (6 caracteres)',
-          hintStyle: const TextStyle(
-            color: _tintaSuave,
-            fontSize: 13,
-            fontWeight: FontWeight.w500,
-          ),
-          isDense: true,
-          filled: true,
-          fillColor: Colors.white,
-          contentPadding: const EdgeInsets.symmetric(
-            horizontal: 14,
-            vertical: 14,
-          ),
-          border: OutlineInputBorder(
-            borderRadius: BorderRadius.circular(12),
-            borderSide: const BorderSide(color: _bordaSuave),
-          ),
-          enabledBorder: OutlineInputBorder(
-            borderRadius: BorderRadius.circular(12),
-            borderSide: const BorderSide(color: _bordaSuave),
-          ),
-          focusedBorder: OutlineInputBorder(
-            borderRadius: BorderRadius.circular(12),
-            borderSide: const BorderSide(color: diPertinRoxo, width: 1.5),
-          ),
-          prefixIcon: const Icon(
-            Icons.key_rounded,
-            color: _tintaMedia,
-            size: 20,
-          ),
-        ),
-        style: const TextStyle(
-          fontFamily: 'monospace',
-          fontWeight: FontWeight.w800,
-          fontSize: 15,
-          letterSpacing: 2,
-          color: _tintaForte,
-        ),
-        textCapitalization: TextCapitalization.characters,
-        keyboardType: TextInputType.text,
-        onSubmitted: (value) async {
-          String tokenReal = pedido['token_entrega']?.toString() ?? '';
-          if (tokenReal.isEmpty && id.length >= 6) {
-            tokenReal = id.substring(id.length - 6).toUpperCase();
-          }
-          if (value.trim().toUpperCase() == tokenReal.toUpperCase()) {
-            _atualizarStatusPedido(id, PedidoStatus.entregue);
-          } else {
-            ScaffoldMessenger.of(context).showSnackBar(
-              const SnackBar(
-                content: Text('Token incorreto.'),
-                backgroundColor: _vermelhoPerigo,
-              ),
-            );
-          }
-        },
-      ),
-    );
   }
 
   // =========================================================================

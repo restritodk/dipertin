@@ -131,3 +131,82 @@ exports.lojistaConfirmarRetiradaNaLojaComEstorno = functions.https.onCall(
         return resultado;
     },
 );
+
+/**
+ * Lojista confirma que o cliente retirou o pedido no balcão
+ * (`tipo_entrega === "retirada"`, status `pronto` → `entregue`).
+ * Pedidos de entrega/delivery devem ser concluídos pelo entregador no app.
+ *
+ * Request: { pedidoId: string }
+ * Response: { ok: true }
+ */
+exports.lojistaConfirmarRetiradaBalcao = functions.https.onCall(
+    async (data, context) => {
+        if (!context.auth) {
+            throw new functions.https.HttpsError(
+                "unauthenticated",
+                "Faça login para confirmar a entrega.",
+            );
+        }
+
+        const pedidoId = (data && data.pedidoId ? data.pedidoId : "")
+            .toString()
+            .trim();
+        if (!pedidoId) {
+            throw new functions.https.HttpsError(
+                "invalid-argument",
+                "pedidoId é obrigatório.",
+            );
+        }
+
+        const uidCaller = context.auth.uid;
+        const lojaCaller = await resolverLojaDoCaller(uidCaller);
+        const db = admin.firestore();
+        const pedidoRef = db.collection("pedidos").doc(pedidoId);
+
+        await db.runTransaction(async (tx) => {
+            const pedidoSnap = await tx.get(pedidoRef);
+            if (!pedidoSnap.exists) {
+                throw new functions.https.HttpsError(
+                    "not-found",
+                    "Pedido não encontrado.",
+                );
+            }
+            const pedido = pedidoSnap.data() || {};
+            const lojaIdPedido = (pedido.loja_id || "").toString();
+            if (lojaIdPedido !== lojaCaller) {
+                throw new functions.https.HttpsError(
+                    "permission-denied",
+                    "Este pedido não pertence à sua loja.",
+                );
+            }
+            const tipoEntrega = (pedido.tipo_entrega || "").toString().trim();
+            if (tipoEntrega !== "retirada") {
+                throw new functions.https.HttpsError(
+                    "failed-precondition",
+                    "Confirmação manual só é permitida para pedidos com retirada na loja.",
+                );
+            }
+            const statusAtual = (pedido.status || "").toString();
+            if (STATUS_FINAIS.includes(statusAtual)) {
+                throw new functions.https.HttpsError(
+                    "failed-precondition",
+                    "O pedido já foi finalizado e não pode ser alterado.",
+                );
+            }
+            if (statusAtual !== "pronto") {
+                throw new functions.https.HttpsError(
+                    "failed-precondition",
+                    "O pedido precisa estar pronto para retirada antes da confirmação.",
+                );
+            }
+
+            tx.update(pedidoRef, {
+                status: "entregue",
+                data_entregue: admin.firestore.FieldValue.serverTimestamp(),
+            });
+        });
+
+        return { ok: true };
+    },
+);

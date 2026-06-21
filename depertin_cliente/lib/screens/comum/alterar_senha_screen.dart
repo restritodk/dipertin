@@ -4,6 +4,7 @@ import 'package:firebase_auth/firebase_auth.dart';
 import 'package:flutter/material.dart';
 
 import '../../services/biometria_service.dart';
+import '../../widgets/dipertin_scroll_body.dart';
 
 const Color _diPertinRoxo = Color(0xFF6A1B9A);
 const Color _diPertinLaranja = Color(0xFFFF8F00);
@@ -273,8 +274,7 @@ class _AlterarSenhaScreenState extends State<AlterarSenhaScreen> {
                 ),
               ),
             )
-          : SingleChildScrollView(
-              padding: const EdgeInsets.fromLTRB(20, 16, 20, 32),
+          : DiPertinScrollBody(
               child: Column(
                 crossAxisAlignment: CrossAxisAlignment.stretch,
                 children: [

@@ -1,7 +1,9 @@
 import 'dart:math' show min, Random;
 
 import 'package:cloud_firestore/cloud_firestore.dart';
+import 'package:depertin_web/constants/cupom_tipos.dart';
 import 'package:depertin_web/theme/painel_admin_theme.dart';
+import 'package:depertin_web/widgets/dipertin_date_picker.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:intl/intl.dart';
@@ -93,16 +95,34 @@ class _CuponsScreenState extends State<CuponsScreen> {
 
   void _abrirFormulario({String? docId, Map<String, dynamic>? dados}) {
     final isEdit = docId != null;
+    final nomeC = TextEditingController(
+        text: isEdit ? (dados!['nome'] ?? '') : '');
     final codigoC = TextEditingController(
         text: isEdit ? (dados!['codigo'] ?? '') : _gerarCodigo());
     final valorC = TextEditingController(
         text: isEdit ? (dados!['valor']?.toString() ?? '') : '');
     final limiteC = TextEditingController(
         text: isEdit ? (dados!['limite_usos']?.toString() ?? '') : '');
-    String tipo = isEdit ? (dados!['tipo'] ?? 'porcentagem') : 'porcentagem';
+    final limiteClienteC = TextEditingController(
+        text: isEdit
+            ? (dados!['limite_por_usuario']?.toString() ?? '1')
+            : '1');
+    final raioC = TextEditingController(
+        text: isEdit
+            ? (dados!['frete_gratis_raio_km']?.toString() ?? '')
+            : '');
+    String tipo =
+        isEdit ? (dados!['tipo'] ?? CupomTipos.porcentagem) : CupomTipos.porcentagem;
+    String freteMod = isEdit
+        ? (dados!['frete_gratis_modalidade'] ?? CupomTipos.freteSemLimite)
+            .toString()
+        : CupomTipos.freteSemLimite;
+    DateTime? validadeInicio = isEdit && dados!['validade_inicio'] is Timestamp
+        ? (dados['validade_inicio'] as Timestamp).toDate()
+        : DateTime.now();
     DateTime? validade = isEdit && dados!['validade'] != null
         ? (dados['validade'] as Timestamp).toDate()
-        : null;
+        : DateTime.now().add(const Duration(days: 30));
     bool ativo = isEdit ? (dados!['ativo'] ?? true) : true;
     var loading = false;
 
@@ -115,23 +135,47 @@ class _CuponsScreenState extends State<CuponsScreen> {
           final mq = MediaQuery.sizeOf(ctx);
           final w = min(480.0, mq.width - 40);
 
+          final precisaValor = tipo != CupomTipos.freteGratis;
+
           Future<void> salvar() async {
-            if (codigoC.text.trim().isEmpty || valorC.text.trim().isEmpty) {
+            if (nomeC.text.trim().isEmpty || codigoC.text.trim().isEmpty) {
               ScaffoldMessenger.of(ctx).showSnackBar(
-                  const SnackBar(content: Text('Preencha código e valor.')));
+                  const SnackBar(content: Text('Preencha nome e código.')));
+              return;
+            }
+            if (precisaValor && valorC.text.trim().isEmpty) {
+              ScaffoldMessenger.of(ctx).showSnackBar(
+                  const SnackBar(content: Text('Preencha o valor do desconto.')));
+              return;
+            }
+            if (validade == null) {
+              ScaffoldMessenger.of(ctx).showSnackBar(
+                  const SnackBar(content: Text('Informe a data de término.')));
               return;
             }
             setS(() => loading = true);
             try {
               final d = <String, dynamic>{
+                'nome': nomeC.text.trim(),
                 'codigo': codigoC.text.trim().toUpperCase(),
                 'tipo': tipo,
-                'valor':
-                    double.tryParse(valorC.text.replaceAll(',', '.')) ?? 0.0,
+                'valor': precisaValor
+                    ? (double.tryParse(valorC.text.replaceAll(',', '.')) ?? 0.0)
+                    : 0.0,
                 'limite_usos': int.tryParse(limiteC.text) ?? 0,
+                'limite_por_usuario': int.tryParse(limiteClienteC.text) ?? 1,
                 'usos_atual': isEdit ? (dados!['usos_atual'] ?? 0) : 0,
                 'ativo': ativo,
-                if (validade != null) 'validade': Timestamp.fromDate(validade!),
+                'escopo': CupomTipos.escopoGlobal,
+                if (validadeInicio != null)
+                  'validade_inicio': Timestamp.fromDate(validadeInicio!),
+                'validade': Timestamp.fromDate(validade!),
+                if (tipo == CupomTipos.freteGratis) ...{
+                  'frete_gratis_modalidade': freteMod,
+                  if (freteMod == CupomTipos.freteRaioKm)
+                    'frete_gratis_raio_km':
+                        double.tryParse(raioC.text.replaceAll(',', '.')) ?? 0,
+                },
                 if (!isEdit) 'data_criacao': FieldValue.serverTimestamp(),
                 if (isEdit) 'data_atualizacao': FieldValue.serverTimestamp(),
               };
@@ -174,6 +218,11 @@ class _CuponsScreenState extends State<CuponsScreen> {
                       child: Column(
                         crossAxisAlignment: CrossAxisAlignment.stretch,
                         children: [
+                          _fieldTF(
+                            controller: nomeC,
+                            label: 'Nome do cupom',
+                          ),
+                          const SizedBox(height: 16),
                           Row(
                             children: [
                               Expanded(
@@ -201,77 +250,96 @@ class _CuponsScreenState extends State<CuponsScreen> {
                             decoration: _dec('Tipo de desconto'),
                             items: const [
                               DropdownMenuItem(
-                                  value: 'porcentagem',
+                                  value: CupomTipos.porcentagem,
                                   child: Text('Percentual (%)')),
                               DropdownMenuItem(
-                                  value: 'fixo',
+                                  value: CupomTipos.fixo,
                                   child: Text('Valor fixo (R\$)')),
+                              DropdownMenuItem(
+                                  value: CupomTipos.freteGratis,
+                                  child: Text('Frete grátis')),
                             ],
                             onChanged: (v) => setS(() => tipo = v!),
                           ),
                           const SizedBox(height: 16),
-                          _fieldTF(
-                            controller: valorC,
-                            label: tipo == 'porcentagem'
-                                ? 'Desconto (%)'
-                                : 'Desconto (R\$)',
-                            keyboardType: const TextInputType.numberWithOptions(
-                                decimal: true),
-                          ),
-                          const SizedBox(height: 16),
+                          if (precisaValor)
+                            _fieldTF(
+                              controller: valorC,
+                              label: tipo == CupomTipos.porcentagem
+                                  ? 'Desconto (%)'
+                                  : 'Desconto (R\$)',
+                              keyboardType:
+                                  const TextInputType.numberWithOptions(
+                                      decimal: true),
+                            ),
+                          if (tipo == CupomTipos.freteGratis) ...[
+                            DropdownButtonFormField<String>(
+                              value: freteMod,
+                              decoration: _dec('Modalidade frete grátis'),
+                              items: const [
+                                DropdownMenuItem(
+                                  value: CupomTipos.freteSemLimite,
+                                  child: Text('Sem limite de distância'),
+                                ),
+                                DropdownMenuItem(
+                                  value: CupomTipos.freteRaioKm,
+                                  child: Text('Raio máximo (km)'),
+                                ),
+                              ],
+                              onChanged: (v) => setS(() => freteMod = v!),
+                            ),
+                            if (freteMod == CupomTipos.freteRaioKm) ...[
+                              const SizedBox(height: 16),
+                              _fieldTF(
+                                controller: raioC,
+                                label: 'Distância máxima (km)',
+                                keyboardType:
+                                    const TextInputType.numberWithOptions(
+                                        decimal: true),
+                              ),
+                            ],
+                          ],
+                          if (precisaValor ||
+                              tipo == CupomTipos.freteGratis)
+                            const SizedBox(height: 16),
                           _fieldTF(
                             controller: limiteC,
                             label: 'Limite de usos (0 = ilimitado)',
                             keyboardType: TextInputType.number,
                           ),
                           const SizedBox(height: 16),
-                          InkWell(
-                            onTap: () async {
-                              final d = await showDatePicker(
-                                context: ctx,
-                                initialDate: validade ??
-                                    DateTime.now()
-                                        .add(const Duration(days: 30)),
-                                firstDate: DateTime.now(),
-                                lastDate: DateTime.now()
-                                    .add(const Duration(days: 365 * 3)),
-                              );
-                              if (d != null) setS(() => validade = d);
-                            },
-                            child: Container(
-                              padding: const EdgeInsets.symmetric(
-                                  horizontal: 16, vertical: 14),
-                              decoration: BoxDecoration(
-                                color: const Color(0xFFF8F7FC),
-                                borderRadius: BorderRadius.circular(12),
-                                border:
-                                    Border.all(color: Colors.grey.shade300),
-                              ),
-                              child: Row(
-                                children: [
-                                  Icon(Icons.calendar_today_outlined,
-                                      size: 18, color: Colors.grey.shade600),
-                                  const SizedBox(width: 8),
-                                  Text(
-                                    validade != null
-                                        ? 'Válido até: ${DateFormat('dd/MM/yyyy').format(validade!)}'
-                                        : 'Sem validade definida',
-                                    style: TextStyle(
-                                        color: Colors.grey.shade700,
-                                        fontSize: 14),
-                                  ),
-                                  const Spacer(),
-                                  if (validade != null)
-                                    GestureDetector(
-                                      onTap: () =>
-                                          setS(() => validade = null),
-                                      child: Icon(Icons.close_rounded,
-                                          size: 18,
-                                          color: Colors.grey.shade500),
-                                    ),
-                                ],
-                              ),
-                            ),
+                          _fieldTF(
+                            controller: limiteClienteC,
+                            label: 'Limite por cliente',
+                            keyboardType: TextInputType.number,
+                          ),
+                          const SizedBox(height: 16),
+                          DiPertinDateField(
+                            label: 'Início da vigência',
+                            tituloPicker: 'Quando o cupom começa',
+                            data: validadeInicio,
+                            dataMinima: DateTime.now()
+                                .subtract(const Duration(days: 1)),
+                            dataMaxima: DateTime.now()
+                                .add(const Duration(days: 365 * 3)),
+                            onChanged: (d) => setS(() {
+                              validadeInicio = d;
+                              if (validade != null && validade!.isBefore(d)) {
+                                validade = d;
+                              }
+                            }),
+                          ),
+                          const SizedBox(height: 12),
+                          DiPertinDateField(
+                            label: 'Término da vigência',
+                            tituloPicker: 'Quando o cupom expira',
+                            data: validade,
+                            destaque: true,
+                            obrigatorio: true,
+                            dataMinima: validadeInicio ?? DateTime.now(),
+                            dataMaxima: DateTime.now()
+                                .add(const Duration(days: 365 * 3)),
+                            onChanged: (d) => setS(() => validade = d),
                           ),
                           const SizedBox(height: 12),
                           SwitchListTile(
@@ -395,7 +463,7 @@ class _CuponsScreenState extends State<CuponsScreen> {
                         ),
                         SizedBox(height: 6),
                         Text(
-                          'Crie códigos de desconto percentual ou valor fixo para o app.',
+                          'Cupons globais da plataforma: percentual, valor fixo ou frete grátis.',
                           style: TextStyle(
                               color: PainelAdminTheme.textoSecundario,
                               fontSize: 15),
@@ -473,16 +541,14 @@ class _CuponsScreenState extends State<CuponsScreen> {
                 final doc = docs[i];
                 final d = doc.data() as Map<String, dynamic>;
                 final codigo = d['codigo']?.toString() ?? '—';
-                final tipo = d['tipo'] ?? 'porcentagem';
-                final valor = (d['valor'] as num?)?.toDouble() ?? 0;
+                final nome = d['nome']?.toString() ?? '';
+                final escopo = d['escopo']?.toString() ?? CupomTipos.escopoGlobal;
                 final limite = d['limite_usos'] ?? 0;
                 final usos = d['usos_atual'] ?? 0;
                 final ativo = d['ativo'] ?? true;
                 final validade = d['validade'] as Timestamp?;
 
-                final descontoLabel = tipo == 'porcentagem'
-                    ? '${valor.toStringAsFixed(0)}% OFF'
-                    : 'R\$ ${valor.toStringAsFixed(2)} OFF';
+                final descontoLabel = CupomTipos.resumoValor(d);
 
                 final expirado = validade != null &&
                     validade.toDate().isBefore(DateTime.now());
@@ -557,10 +623,26 @@ class _CuponsScreenState extends State<CuponsScreen> {
                                     _badge('INATIVO', Colors.grey.shade600),
                                 ],
                               ),
+                              if (nome.isNotEmpty) ...[
+                                const SizedBox(height: 4),
+                                Text(
+                                  nome,
+                                  style: TextStyle(
+                                    fontWeight: FontWeight.w600,
+                                    color: Colors.grey.shade800,
+                                  ),
+                                ),
+                              ],
                               const SizedBox(height: 6),
                               Wrap(
                                 spacing: 12,
                                 children: [
+                                  _infoSmall(
+                                    Icons.public_outlined,
+                                    escopo == CupomTipos.escopoLoja
+                                        ? 'Loja'
+                                        : 'Global',
+                                  ),
                                   _infoSmall(
                                       Icons.bar_chart_rounded,
                                       '$usos / ${limite == 0 ? '∞' : '$limite'} usos'),

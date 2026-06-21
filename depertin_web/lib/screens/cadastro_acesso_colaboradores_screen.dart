@@ -40,51 +40,16 @@ class CadastroAcessoColaboradoresScreen extends StatelessWidget {
         return Scaffold(
           backgroundColor: PainelAdminTheme.fundoCanvas,
           body: SingleChildScrollView(
-            padding: const EdgeInsets.fromLTRB(24, 28, 24, 120),
+            padding: const EdgeInsets.fromLTRB(40, 48, 40, 120),
             child: Align(
               alignment: Alignment.topCenter,
               child: ConstrainedBox(
-                constraints: const BoxConstraints(maxWidth: 960),
+                constraints: const BoxConstraints(maxWidth: 1000),
                 child: Column(
                   crossAxisAlignment: CrossAxisAlignment.stretch,
                   children: [
-                    Column(
-                      crossAxisAlignment: CrossAxisAlignment.center,
-                      children: [
-                        Text(
-                          'CONFIGURAÇÃO',
-                          textAlign: TextAlign.center,
-                          style: GoogleFonts.plusJakartaSans(
-                            fontSize: 11,
-                            fontWeight: FontWeight.w700,
-                            letterSpacing: 0.7,
-                            color: PainelAdminTheme.textoSecundario,
-                          ),
-                        ),
-                        const SizedBox(height: 8),
-                        Text(
-                          'Cadastro de acesso',
-                          textAlign: TextAlign.center,
-                          style: GoogleFonts.plusJakartaSans(
-                            fontSize: 28,
-                            fontWeight: FontWeight.w700,
-                            color: PainelAdminTheme.dashboardInk,
-                          ),
-                        ),
-                        const SizedBox(height: 8),
-                        Text(
-                          'Crie contas para a sua equipa.',
-                          textAlign: TextAlign.center,
-                          style: GoogleFonts.plusJakartaSans(
-                            fontSize: 15,
-                            fontWeight: FontWeight.w400,
-                            color: PainelAdminTheme.textoSecundario,
-                            height: 1.45,
-                          ),
-                        ),
-                      ],
-                    ),
-                    const SizedBox(height: 24),
+                    _buildHeader(),
+                    const SizedBox(height: 40),
                     ColaboradoresLojistaPainelCard(uidLoja: uidLoja),
                   ],
                 ),
@@ -93,6 +58,72 @@ class CadastroAcessoColaboradoresScreen extends StatelessWidget {
           ),
         );
       },
+    );
+  }
+
+  Widget _buildHeader() {
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.start,
+      children: [
+        Row(
+          children: [
+            Container(
+              padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 4),
+              decoration: BoxDecoration(
+                color: PainelAdminTheme.roxo.withValues(alpha: 0.1),
+                borderRadius: BorderRadius.circular(20),
+              ),
+              child: Text(
+                'EQUIPE',
+                style: GoogleFonts.plusJakartaSans(
+                  fontSize: 10,
+                  fontWeight: FontWeight.w800,
+                  letterSpacing: 1.2,
+                  color: PainelAdminTheme.roxo,
+                ),
+              ),
+            ),
+            const SizedBox(width: 12),
+            Container(
+              width: 4,
+              height: 4,
+              decoration: BoxDecoration(
+                color: Colors.grey.shade300,
+                shape: BoxShape.circle,
+              ),
+            ),
+            const SizedBox(width: 12),
+            Text(
+              'Controle de Acesso',
+              style: GoogleFonts.plusJakartaSans(
+                fontSize: 12,
+                fontWeight: FontWeight.w600,
+                color: PainelAdminTheme.textoSecundario,
+              ),
+            ),
+          ],
+        ),
+        const SizedBox(height: 16),
+        Text(
+          'Membros do Painel',
+          style: GoogleFonts.plusJakartaSans(
+            fontSize: 32,
+            fontWeight: FontWeight.w800,
+            letterSpacing: -1,
+            color: PainelAdminTheme.dashboardInk,
+            height: 1.1,
+          ),
+        ),
+        const SizedBox(height: 12),
+        Text(
+          'Gerencie as permissões e contas dos colaboradores que ajudam a administrar sua loja.',
+          style: GoogleFonts.plusJakartaSans(
+            fontSize: 16,
+            color: PainelAdminTheme.textoSecundario,
+            height: 1.5,
+          ),
+        ),
+      ],
     );
   }
 }

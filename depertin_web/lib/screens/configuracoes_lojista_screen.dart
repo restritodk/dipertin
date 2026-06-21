@@ -158,7 +158,8 @@ class ConfiguracoesLojistaScreen extends StatefulWidget {
       _ConfiguracoesLojistaScreenState();
 }
 
-class _ConfiguracoesLojistaScreenState extends State<ConfiguracoesLojistaScreen> {
+class _ConfiguracoesLojistaScreenState
+    extends State<ConfiguracoesLojistaScreen> {
   static const _roxo = PainelAdminTheme.roxo;
   static const _laranja = PainelAdminTheme.laranja;
 
@@ -439,7 +440,8 @@ class _ConfiguracoesLojistaScreenState extends State<ConfiguracoesLojistaScreen>
       SnackBar(
         content: Text(msg),
         behavior: SnackBarBehavior.floating,
-        backgroundColor: erro ? const Color(0xFFB91C1C) : const Color(0xFF15803D),
+        backgroundColor:
+            erro ? const Color(0xFFB91C1C) : const Color(0xFF15803D),
       ),
     );
   }
@@ -472,19 +474,25 @@ class _ConfiguracoesLojistaScreenState extends State<ConfiguracoesLojistaScreen>
   InputDecoration _dec(String label, {IconData? icon}) {
     return InputDecoration(
       labelText: label,
+      floatingLabelBehavior: FloatingLabelBehavior.always,
+      hintText: 'Informe o(a) $label',
       prefixIcon: icon != null
-          ? Icon(icon, size: 20, color: _muted)
+          ? Container(
+              margin: const EdgeInsets.only(right: 8),
+              padding: const EdgeInsets.all(8),
+              child: Icon(icon, size: 20, color: _roxo.withValues(alpha: 0.6)),
+            )
           : null,
       filled: true,
       fillColor: Colors.white,
-      contentPadding: const EdgeInsets.symmetric(horizontal: 16, vertical: 14),
+      contentPadding: const EdgeInsets.symmetric(horizontal: 16, vertical: 16),
       border: OutlineInputBorder(
         borderRadius: BorderRadius.circular(12),
-        borderSide: const BorderSide(color: _borderLight),
+        borderSide: const BorderSide(color: _borderLight, width: 1),
       ),
       enabledBorder: OutlineInputBorder(
         borderRadius: BorderRadius.circular(12),
-        borderSide: const BorderSide(color: _borderLight),
+        borderSide: const BorderSide(color: _borderLight, width: 1),
       ),
       focusedBorder: OutlineInputBorder(
         borderRadius: BorderRadius.circular(12),
@@ -493,7 +501,7 @@ class _ConfiguracoesLojistaScreenState extends State<ConfiguracoesLojistaScreen>
       labelStyle: GoogleFonts.plusJakartaSans(
         fontSize: 14,
         color: _muted,
-        fontWeight: FontWeight.w500,
+        fontWeight: FontWeight.w600,
       ),
     );
   }
@@ -532,7 +540,8 @@ class _ConfiguracoesLojistaScreenState extends State<ConfiguracoesLojistaScreen>
                 child: Column(
                   mainAxisSize: MainAxisSize.min,
                   children: [
-                    Icon(Icons.error_outline_rounded, size: 44, color: Colors.red.shade400),
+                    Icon(Icons.error_outline_rounded,
+                        size: 44, color: Colors.red.shade400),
                     const SizedBox(height: 12),
                     Text(
                       _erroCarregar!,
@@ -556,39 +565,139 @@ class _ConfiguracoesLojistaScreenState extends State<ConfiguracoesLojistaScreen>
       backgroundColor: PainelAdminTheme.fundoCanvas,
       body: LayoutBuilder(
         builder: (context, constraints) {
-          final wide = constraints.maxWidth >= 900;
+          final wide = constraints.maxWidth >= 960;
           final horariosEmLinha = constraints.maxWidth >= 720;
-          return SingleChildScrollView(
-            padding: EdgeInsets.fromLTRB(
-              wide ? 40 : 20,
-              28,
-              wide ? 40 : 20,
-              120,
-            ),
-            child: Align(
-              alignment: Alignment.topCenter,
-              child: ConstrainedBox(
-                constraints: const BoxConstraints(maxWidth: 880),
-                child: Column(
-                  crossAxisAlignment: CrossAxisAlignment.stretch,
-                  children: [
-                    _buildHeader(),
-                    const SizedBox(height: 28),
-                    _buildCardIdentificacao(wide),
-                    const SizedBox(height: 16),
-                    _buildCardPausa(),
-                    const SizedBox(height: 16),
-                    _buildCardTiposEntrega(),
-                    const SizedBox(height: 16),
-                    _buildCardHorarios(horariosEmLinha),
-                    const SizedBox(height: 32),
-                    _buildSaveButton(),
-                  ],
+          return Stack(
+            children: [
+              SingleChildScrollView(
+                padding: EdgeInsets.fromLTRB(
+                  wide ? 60 : 20,
+                  40,
+                  wide ? 60 : 20,
+                  160,
+                ),
+                child: Align(
+                  alignment: Alignment.topCenter,
+                  child: ConstrainedBox(
+                    constraints: const BoxConstraints(maxWidth: 1000),
+                    child: Column(
+                      crossAxisAlignment: CrossAxisAlignment.stretch,
+                      children: [
+                        _buildHeader(),
+                        const SizedBox(height: 32),
+                        if (wide)
+                          Row(
+                            crossAxisAlignment: CrossAxisAlignment.start,
+                            children: [
+                              Expanded(
+                                flex: 3,
+                                child: Column(
+                                  children: [
+                                    _buildCardIdentificacao(true),
+                                    const SizedBox(height: 24),
+                                    _buildCardHorarios(horariosEmLinha),
+                                  ],
+                                ),
+                              ),
+                              const SizedBox(width: 24),
+                              Expanded(
+                                flex: 2,
+                                child: Column(
+                                  children: [
+                                    _buildCardStatusLoja(),
+                                    const SizedBox(height: 24),
+                                    _buildCardTiposEntrega(),
+                                  ],
+                                ),
+                              ),
+                            ],
+                          )
+                        else
+                          Column(
+                            children: [
+                              _buildCardStatusLoja(),
+                              const SizedBox(height: 24),
+                              _buildCardIdentificacao(false),
+                              const SizedBox(height: 24),
+                              _buildCardTiposEntrega(),
+                              const SizedBox(height: 24),
+                              _buildCardHorarios(horariosEmLinha),
+                            ],
+                          ),
+                      ],
+                    ),
+                  ),
                 ),
               ),
-            ),
+              Positioned(
+                bottom: 0,
+                left: 0,
+                right: 0,
+                child: _buildFloatingSaveBar(wide),
+              ),
+            ],
           );
         },
+      ),
+    );
+  }
+
+  Widget _buildCardStatusLoja() {
+    return Container(
+      decoration: PainelAdminTheme.dashboardCard(),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.stretch,
+        children: [
+          Padding(
+            padding: const EdgeInsets.all(24),
+            child: _sectionTitle(
+              icon: Icons.power_settings_new_rounded,
+              title: 'Status Operacional',
+              subtitle: 'Controle a visibilidade da loja agora',
+            ),
+          ),
+          const Divider(height: 1),
+          _buildCardPausa(),
+        ],
+      ),
+    );
+  }
+
+  Widget _buildFloatingSaveBar(bool wide) {
+    return Container(
+      padding: EdgeInsets.symmetric(
+        horizontal: wide ? 60 : 20,
+        vertical: 20,
+      ),
+      decoration: BoxDecoration(
+        color: Colors.white,
+        boxShadow: [
+            BoxShadow(
+              color: Colors.black.withValues(alpha: 0.05),
+              blurRadius: 10,
+              offset: const Offset(0, -4),
+            ),
+        ],
+      ),
+      child: Center(
+        child: ConstrainedBox(
+          constraints: const BoxConstraints(maxWidth: 1000),
+          child: Row(
+            children: [
+              Expanded(
+                child: Text(
+                  'Lembre-se de salvar suas alterações para que elas entrem em vigor na vitrine.',
+                  style: GoogleFonts.plusJakartaSans(
+                    fontSize: 13,
+                    color: _muted,
+                  ),
+                ),
+              ),
+              const SizedBox(width: 24),
+              _buildSaveButton(),
+            ],
+          ),
+        ),
       ),
     );
   }
@@ -597,33 +706,60 @@ class _ConfiguracoesLojistaScreenState extends State<ConfiguracoesLojistaScreen>
     return Column(
       crossAxisAlignment: CrossAxisAlignment.start,
       children: [
-        Text(
-          'CONFIGURAÇÕES DA LOJA',
-          style: GoogleFonts.plusJakartaSans(
-            fontSize: 11,
-            fontWeight: FontWeight.w700,
-            letterSpacing: 0.7,
-            color: _muted,
-          ),
+        Row(
+          children: [
+            Container(
+              padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 4),
+              decoration: BoxDecoration(
+                color: _roxo.withValues(alpha: 0.1),
+                borderRadius: BorderRadius.circular(20),
+              ),
+              child: Text(
+                'CONFIGURAÇÕES',
+                style: GoogleFonts.plusJakartaSans(
+                  fontSize: 10,
+                  fontWeight: FontWeight.w800,
+                  letterSpacing: 1.2,
+                  color: _roxo,
+                ),
+              ),
+            ),
+            const SizedBox(width: 12),
+            Container(
+              width: 4,
+              height: 4,
+              decoration: BoxDecoration(
+                color: Colors.grey.shade300,
+                shape: BoxShape.circle,
+              ),
+            ),
+            const SizedBox(width: 12),
+            Text(
+              'Unidade: ${_nomeLojaC.text}',
+              style: GoogleFonts.plusJakartaSans(
+                fontSize: 12,
+                fontWeight: FontWeight.w600,
+                color: _muted,
+              ),
+            ),
+          ],
         ),
-        const SizedBox(height: 8),
+        const SizedBox(height: 16),
         Text(
-          'Dados e horários',
+          'Perfil e Operação',
           style: GoogleFonts.plusJakartaSans(
-            fontSize: 28,
-            fontWeight: FontWeight.w700,
-            letterSpacing: -0.5,
+            fontSize: 32,
+            fontWeight: FontWeight.w800,
+            letterSpacing: -1,
             color: _ink,
-            height: 1.15,
+            height: 1.1,
           ),
         ),
-        const SizedBox(height: 10),
+        const SizedBox(height: 12),
         Text(
-          'Informações operacionais visíveis aos clientes na vitrine. '
-          'Alterações aplicam-se conforme as regras do aplicativo.',
+          'Gerencie as informações que seus clientes veem no aplicativo e defina como sua loja opera no dia a dia.',
           style: GoogleFonts.plusJakartaSans(
-            fontSize: 15,
-            fontWeight: FontWeight.w400,
+            fontSize: 16,
             color: _muted,
             height: 1.5,
           ),
@@ -635,132 +771,136 @@ class _ConfiguracoesLojistaScreenState extends State<ConfiguracoesLojistaScreen>
   Widget _buildCardIdentificacao(bool wide) {
     return Container(
       decoration: PainelAdminTheme.dashboardCard(),
-      padding: const EdgeInsets.all(24),
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.stretch,
         children: [
-          _sectionTitle(
-            icon: Icons.storefront_outlined,
-            title: 'Identificação e contato',
-            subtitle: 'Nome, local e forma de contato da loja',
-          ),
-          const SizedBox(height: 22),
-          TextField(
-            controller: _nomeLojaC,
-            decoration: _dec('Nome da loja', icon: Icons.badge_outlined),
-          ),
-          const SizedBox(height: 16),
-          TextField(
-            controller: _enderecoC,
-            maxLines: 2,
-            decoration: _dec(
-              'Endereço de retirada / atendimento',
-              icon: Icons.location_on_outlined,
+          Padding(
+            padding: const EdgeInsets.all(24),
+            child: _sectionTitle(
+              icon: Icons.storefront_rounded,
+              title: 'Identificação',
+              subtitle: 'Dados públicos da sua loja no DiPertin',
             ),
           ),
-          const SizedBox(height: 16),
-          TextField(
-            controller: _telefoneC,
-            keyboardType: TextInputType.phone,
-            decoration: _dec('Telefone / WhatsApp', icon: Icons.phone_outlined),
-          ),
-          const SizedBox(height: 16),
-          wide
-              ? Row(
-                  crossAxisAlignment: CrossAxisAlignment.start,
+          const Divider(height: 1),
+          Padding(
+            padding: const EdgeInsets.all(24),
+            child: Column(
+              children: [
+                TextField(
+                  controller: _nomeLojaC,
+                  decoration: _dec('Nome da loja', icon: Icons.badge_outlined),
+                ),
+                const SizedBox(height: 24),
+                TextField(
+                  controller: _enderecoC,
+                  maxLines: 2,
+                  decoration: _dec(
+                    'Endereço de retirada',
+                    icon: Icons.location_on_outlined,
+                  ),
+                ),
+                const SizedBox(height: 24),
+                Row(
                   children: [
                     Expanded(
-                      flex: 3,
+                      flex: 2,
+                      child: TextField(
+                        controller: _telefoneC,
+                        keyboardType: TextInputType.phone,
+                        decoration:
+                            _dec('WhatsApp', icon: Icons.phone_outlined),
+                      ),
+                    ),
+                    const SizedBox(width: 16),
+                    Expanded(
                       child: TextField(
                         controller: _cidadeC,
-                        decoration: _dec('Cidade', icon: Icons.location_city_outlined),
+                        decoration: _dec('Cidade'),
                       ),
                     ),
                     const SizedBox(width: 16),
                     SizedBox(
-                      width: 120,
+                      width: 80,
                       child: TextField(
                         controller: _ufC,
                         maxLength: 2,
+                        textAlign: TextAlign.center,
                         textCapitalization: TextCapitalization.characters,
                         decoration: _dec('UF'),
                       ),
                     ),
                   ],
-                )
-              : Column(
-                  children: [
-                    TextField(
-                      controller: _cidadeC,
-                      decoration: _dec('Cidade', icon: Icons.location_city_outlined),
-                    ),
-                    const SizedBox(height: 16),
-                    TextField(
-                      controller: _ufC,
-                      maxLength: 2,
-                      textCapitalization: TextCapitalization.characters,
-                      decoration: _dec('UF'),
-                    ),
-                  ],
                 ),
+              ],
+            ),
+          ),
         ],
       ),
     );
   }
 
   Widget _buildCardPausa() {
-    return AnimatedContainer(
-      duration: const Duration(milliseconds: 200),
-      decoration: BoxDecoration(
-        color: Colors.white,
-        borderRadius: BorderRadius.circular(16),
-        border: Border.all(
-          color: _pausadoManual
-              ? const Color(0xFFF59E0B).withValues(alpha: 0.55)
-              : _borderLight,
-          width: _pausadoManual ? 1.5 : 1,
-        ),
-        boxShadow: PainelAdminTheme.sombraCardSuave(),
-      ),
-      child: SwitchListTile(
-        contentPadding: const EdgeInsets.symmetric(horizontal: 20, vertical: 12),
-        secondary: Container(
-          padding: const EdgeInsets.all(10),
-          decoration: BoxDecoration(
-            color: _pausadoManual
-                ? const Color(0xFFFFFBEB)
-                : _surfaceMuted,
-            borderRadius: BorderRadius.circular(12),
+    return Material(
+      color: Colors.transparent,
+      child: InkWell(
+        onTap: () async => _aoMudarPausa(!_pausadoManual),
+        child: Padding(
+          padding: const EdgeInsets.all(20),
+          child: Row(
+            children: [
+              Container(
+                padding: const EdgeInsets.all(12),
+                decoration: BoxDecoration(
+                  color: _pausadoManual
+                      ? const Color(0xFFFFFBEB)
+                      : const Color(0xFFF0FDF4),
+                  borderRadius: BorderRadius.circular(14),
+                ),
+                child: Icon(
+                  _pausadoManual
+                      ? Icons.pause_rounded
+                      : Icons.check_circle_outline_rounded,
+                  color: _pausadoManual
+                      ? const Color(0xFFD97706)
+                      : const Color(0xFF16A34A),
+                  size: 28,
+                ),
+              ),
+              const SizedBox(width: 16),
+              Expanded(
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    Text(
+                      _pausadoManual ? 'Loja Pausada' : 'Loja Ativa',
+                      style: GoogleFonts.plusJakartaSans(
+                        fontWeight: FontWeight.w800,
+                        fontSize: 16,
+                        color: _ink,
+                      ),
+                    ),
+                    const SizedBox(height: 4),
+                    Text(
+                      _subtituloCardPausa(),
+                      style: GoogleFonts.plusJakartaSans(
+                        fontSize: 13,
+                        color: _muted,
+                        height: 1.4,
+                      ),
+                    ),
+                  ],
+                ),
+              ),
+              Switch.adaptive(
+                value: !_pausadoManual,
+                activeThumbColor: const Color(0xFF16A34A),
+                activeTrackColor: const Color(0xFF16A34A).withValues(alpha: 0.4),
+                onChanged: (v) async => _aoMudarPausa(!v),
+              ),
+            ],
           ),
-          child: Icon(
-            _pausadoManual ? Icons.pause_circle_filled_rounded : Icons.play_circle_outline_rounded,
-            color: _pausadoManual ? const Color(0xFFD97706) : _muted,
-            size: 26,
-          ),
         ),
-        title: Text(
-          'Pausar pedidos manualmente',
-          style: GoogleFonts.plusJakartaSans(
-            fontWeight: FontWeight.w700,
-            fontSize: 16,
-            color: _ink,
-          ),
-        ),
-        subtitle: Padding(
-          padding: const EdgeInsets.only(top: 6),
-          child: Text(
-            _subtituloCardPausa(),
-            style: GoogleFonts.plusJakartaSans(
-              fontSize: 13,
-              height: 1.45,
-              color: _muted,
-            ),
-          ),
-        ),
-        value: _pausadoManual,
-        activeThumbColor: _laranja,
-        activeTrackColor: _laranja.withValues(alpha: 0.45),
-        onChanged: (v) async => _aoMudarPausa(v),
       ),
     );
   }
@@ -772,412 +912,87 @@ class _ConfiguracoesLojistaScreenState extends State<ConfiguracoesLojistaScreen>
             .compareTo(TiposEntrega.hierarquia[b] ?? 0),
       );
     final String? maior = TiposEntrega.maiorTipoDaLista(selecOrdenada);
-    final bool temSomenteLeve = selecOrdenada.isNotEmpty &&
-        !selecOrdenada.contains(TiposEntrega.codCarro) &&
-        !selecOrdenada.contains(TiposEntrega.codCarroFrete);
-    final bool marcouBike =
-        selecOrdenada.contains(TiposEntrega.codBicicleta);
 
     final alerta = _alertaIncompat;
     return Container(
       decoration: PainelAdminTheme.dashboardCard(),
-      padding: const EdgeInsets.all(24),
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.stretch,
         children: [
-          _sectionTitle(
-            icon: Icons.two_wheeler_rounded,
-            title: 'Tipos de entrega aceitos',
-            subtitle:
-                'Define a tabela de frete e os entregadores convocados para sua loja',
+          Padding(
+            padding: const EdgeInsets.all(24),
+            child: _sectionTitle(
+              icon: Icons.local_shipping_rounded,
+              title: 'Logística',
+              subtitle: 'Modos de entrega e precificação',
+            ),
           ),
+          const Divider(height: 1),
           if (alerta != null && alerta.ativo) ...[
-            const SizedBox(height: 16),
-            _blocoAlertaIncompat(alerta),
-          ],
-          const SizedBox(height: 18),
-          Container(
-            padding: const EdgeInsets.all(14),
-            decoration: BoxDecoration(
-              color: _surfaceMuted,
-              borderRadius: BorderRadius.circular(10),
-              border: Border.all(color: _borderLight),
-            ),
-            child: Row(
-              crossAxisAlignment: CrossAxisAlignment.start,
-              children: [
-                Icon(Icons.lightbulb_outline, color: _laranja, size: 20),
-                const SizedBox(width: 10),
-                Expanded(
-                  child: Text(
-                    'Selecione os tipos de veículos compatíveis com seus produtos. '
-                    'Se sua loja vende itens grandes ou pesados (móveis, eletrodomésticos, caixas volumosas), '
-                    'habilite Carro ou Carro frete. O frete é calculado pelo tipo de maior custo '
-                    'entre os marcados — isso protege sua operação de prejuízo quando um entregador maior aceita a corrida.',
-                    style: GoogleFonts.plusJakartaSans(
-                      fontSize: 13,
-                      color: _ink,
-                      height: 1.45,
-                    ),
-                  ),
-                ),
-              ],
-            ),
-          ),
-          const SizedBox(height: 16),
-          Wrap(
-            spacing: 10,
-            runSpacing: 10,
-            children: TiposEntrega.ordemCanonica
-                .map((codigo) => _chipTipoEntregaWeb(codigo))
-                .toList(),
-          ),
-          if (temSomenteLeve) ...[
-            const SizedBox(height: 14),
-            _avisoTipoEntrega(
-              cor: Colors.red.shade400,
-              bg: Colors.red.shade50,
-              icon: Icons.warning_amber_rounded,
-              texto:
-                  'Você habilitou apenas tipos leves. Se a loja vender produtos volumosos ou pesados, '
-                  'habilite também Carro ou Carro frete — caso contrário o entregador pode recusar a corrida na hora da retirada.',
+            Padding(
+              padding: const EdgeInsets.fromLTRB(24, 24, 24, 0),
+              child: _blocoAlertaIncompat(alerta),
             ),
           ],
-          if (marcouBike) ...[
-            const SizedBox(height: 14),
-            _avisoTipoEntrega(
-              cor: _laranja.withValues(alpha: 0.7),
-              bg: _laranja.withValues(alpha: 0.08),
-              icon: Icons.info_outline,
-              texto:
-                  'Bicicleta é indicada apenas para entregas pequenas e próximas (até ~2 km da loja). '
-                  'Para pedidos maiores ou mais distantes, o sistema acionará entregador de moto ou carro automaticamente.',
-            ),
-          ],
-          if (maior != null) ...[
-            const SizedBox(height: 14),
-            Container(
-              padding: const EdgeInsets.all(14),
-              decoration: BoxDecoration(
-                color: _roxo.withValues(alpha: 0.06),
-                borderRadius: BorderRadius.circular(10),
-                border: Border.all(color: _roxo.withValues(alpha: 0.25)),
-              ),
-              child: Row(
-                crossAxisAlignment: CrossAxisAlignment.start,
-                children: [
-                  Icon(Icons.calculate_outlined, color: _roxo, size: 20),
-                  const SizedBox(width: 10),
-                  Expanded(
-                    child: Text(
-                      'Tabela de frete aplicada: "${TiposEntrega.rotulo(maior)}" — o tipo '
-                      'de maior hierarquia entre os que você aceita.',
-                      style: GoogleFonts.plusJakartaSans(
-                        fontSize: 13,
-                        color: _ink,
-                        height: 1.4,
-                        fontWeight: FontWeight.w600,
-                      ),
-                    ),
-                  ),
-                ],
-              ),
-            ),
-          ],
-        ],
-      ),
-    );
-  }
-
-  /// Banner de alerta para cancelamentos por incompatibilidade reportados
-  /// por entregadores. Aparece apenas dentro do card de tipos de entrega
-  /// — é onde o lojista corrige a config.
-  Widget _blocoAlertaIncompat(_AlertaIncompatWeb a) {
-    final ultimo = a.ultimoEm;
-    final ultimoTxt = ultimo == null
-        ? ''
-        : ' (último em ${_fmtDataHora(ultimo)})';
-    final tiposAceitos =
-        a.ultimoTiposAceitosLoja.map(TiposEntrega.rotulo).join(', ');
-    final tipoEntreg = a.ultimoTipoEntregador.isEmpty
-        ? 'não informado'
-        : TiposEntrega.rotulo(a.ultimoTipoEntregador);
-
-    return Container(
-      padding: const EdgeInsets.all(14),
-      decoration: BoxDecoration(
-        color: Colors.amber.shade50,
-        borderRadius: BorderRadius.circular(10),
-        border: Border.all(color: Colors.amber.shade400, width: 1.2),
-      ),
-      child: Column(
-        crossAxisAlignment: CrossAxisAlignment.start,
-        children: [
-          Row(
-            children: [
-              Icon(
-                Icons.pedal_bike_rounded,
-                color: Colors.amber.shade900,
-                size: 20,
-              ),
-              const SizedBox(width: 8),
-              Text(
-                'Cancelamentos por incompatibilidade',
-                style: GoogleFonts.plusJakartaSans(
-                  fontSize: 13.5,
-                  fontWeight: FontWeight.w800,
-                  color: Colors.amber.shade900,
-                ),
-              ),
-            ],
-          ),
-          const SizedBox(height: 6),
-          Text(
-            'Entregadores já reportaram ${a.totalUltimos30d} cancelamento(s) '
-            'desta loja marcando "produto incompatível com meu veículo"$ultimoTxt. '
-            'Sem penalidade ao entregador e com redespacho automático — mas '
-            'indica que a configuração atual pode não refletir a carga real.',
-            style: GoogleFonts.plusJakartaSans(
-              fontSize: 12.5,
-              color: Colors.amber.shade900,
-              height: 1.4,
-            ),
-          ),
-          const SizedBox(height: 8),
-          Container(
-            padding: const EdgeInsets.all(10),
-            decoration: BoxDecoration(
-              color: Colors.white,
-              borderRadius: BorderRadius.circular(8),
-              border: Border.all(color: Colors.amber.shade200),
-            ),
+          Padding(
+            padding: const EdgeInsets.all(24),
             child: Column(
-              crossAxisAlignment: CrossAxisAlignment.start,
+              crossAxisAlignment: CrossAxisAlignment.stretch,
               children: [
-                Text(
-                  'Último evento',
-                  style: GoogleFonts.plusJakartaSans(
-                    fontSize: 10.5,
-                    fontWeight: FontWeight.w800,
-                    letterSpacing: 0.8,
-                    color: Colors.amber.shade900,
-                  ),
-                ),
-                const SizedBox(height: 3),
-                Text(
-                  'Veículo do entregador: $tipoEntreg',
-                  style: GoogleFonts.plusJakartaSans(fontSize: 12),
-                ),
-                if (tiposAceitos.isNotEmpty)
-                  Text(
-                    'Sua loja aceita: $tiposAceitos',
-                    style: GoogleFonts.plusJakartaSans(fontSize: 12),
-                  ),
-              ],
-            ),
-          ),
-          const SizedBox(height: 10),
-          Align(
-            alignment: Alignment.centerRight,
-            child: OutlinedButton.icon(
-              onPressed: _dispensandoIncompat ? null : _dispensarAlertaIncompat,
-              style: OutlinedButton.styleFrom(
-                foregroundColor: Colors.amber.shade900,
-                side: BorderSide(color: Colors.amber.shade400),
-                padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 10),
-                shape: RoundedRectangleBorder(
-                  borderRadius: BorderRadius.circular(8),
-                ),
-              ),
-              icon: _dispensandoIncompat
-                  ? const SizedBox(
-                      width: 14,
-                      height: 14,
-                      child: CircularProgressIndicator(strokeWidth: 2),
-                    )
-                  : const Icon(Icons.check_rounded, size: 16),
-              label: Text(
-                _dispensandoIncompat ? 'Dispensando…' : 'Já revisei',
-                style: GoogleFonts.plusJakartaSans(
-                  fontSize: 12.5,
-                  fontWeight: FontWeight.w700,
-                ),
-              ),
-            ),
-          ),
-        ],
-      ),
-    );
-  }
-
-  /// Grava `alerta_tipos_entrega_incompat.dispensado_em = now` no doc do
-  /// usuário logado. Só esconde o alerta — preserva o histórico.
-  Future<void> _dispensarAlertaIncompat() async {
-    if (_dispensandoIncompat) return;
-    setState(() => _dispensandoIncompat = true);
-    try {
-      await widget.docRef.set({
-        'alerta_tipos_entrega_incompat': {
-          'dispensado_em': FieldValue.serverTimestamp(),
-        },
-      }, SetOptions(merge: true));
-      if (!mounted) return;
-      final snap = await widget.docRef.get();
-      if (!mounted) return;
-      setState(() {
-        if (snap.data() != null) {
-          _alertaIncompat = _AlertaIncompatWeb.deDados(snap.data()!);
-        }
-        _dispensandoIncompat = false;
-      });
-      ScaffoldMessenger.of(context).showSnackBar(
-        const SnackBar(
-          content: Text('Alerta dispensado. Reaparece se houver novo caso.'),
-          duration: Duration(seconds: 2),
-        ),
-      );
-    } catch (e) {
-      if (!mounted) return;
-      setState(() => _dispensandoIncompat = false);
-      ScaffoldMessenger.of(context).showSnackBar(
-        SnackBar(content: Text('Falha ao dispensar: $e')),
-      );
-    }
-  }
-
-  String _fmtDataHora(DateTime dt) {
-    String d2(int n) => n.toString().padLeft(2, '0');
-    return '${d2(dt.day)}/${d2(dt.month)} ${d2(dt.hour)}:${d2(dt.minute)}';
-  }
-
-  Widget _chipTipoEntregaWeb(String codigo) {
-    final bool selecionado = _tiposEntregaSelecionados.contains(codigo);
-    final IconData icone;
-    switch (codigo) {
-      case TiposEntrega.codBicicleta:
-        icone = Icons.pedal_bike_rounded;
-        break;
-      case TiposEntrega.codMoto:
-        icone = Icons.two_wheeler_rounded;
-        break;
-      case TiposEntrega.codCarro:
-        icone = Icons.directions_car_rounded;
-        break;
-      case TiposEntrega.codCarroFrete:
-        icone = Icons.local_shipping_rounded;
-        break;
-      default:
-        icone = Icons.inventory_2_outlined;
-    }
-    return InkWell(
-      borderRadius: BorderRadius.circular(14),
-      onTap: () {
-        setState(() {
-          if (selecionado) {
-            _tiposEntregaSelecionados.remove(codigo);
-          } else {
-            _tiposEntregaSelecionados.add(codigo);
-          }
-        });
-      },
-      child: Container(
-        width: 240,
-        padding: const EdgeInsets.all(14),
-        decoration: BoxDecoration(
-          color: selecionado ? _laranja.withValues(alpha: 0.07) : Colors.white,
-          borderRadius: BorderRadius.circular(14),
-          border: Border.all(
-            color: selecionado ? _laranja : _borderLight,
-            width: selecionado ? 1.5 : 1,
-          ),
-        ),
-        child: Row(
-          crossAxisAlignment: CrossAxisAlignment.start,
-          children: [
-            Container(
-              padding: const EdgeInsets.all(8),
-              decoration: BoxDecoration(
-                color: selecionado
-                    ? _laranja.withValues(alpha: 0.15)
-                    : _surfaceMuted,
-                borderRadius: BorderRadius.circular(10),
-              ),
-              child: Icon(
-                icone,
-                color: selecionado ? _laranja : _muted,
-                size: 20,
-              ),
-            ),
-            const SizedBox(width: 12),
-            Expanded(
-              child: Column(
-                crossAxisAlignment: CrossAxisAlignment.start,
-                children: [
-                  Row(
-                    children: [
-                      Expanded(
-                        child: Text(
-                          TiposEntrega.rotulo(codigo),
-                          style: GoogleFonts.plusJakartaSans(
-                            fontSize: 14,
-                            fontWeight: FontWeight.w700,
-                            color: _ink,
+                if (maior != null) ...[
+                  Container(
+                    padding: const EdgeInsets.all(16),
+                    decoration: BoxDecoration(
+                      gradient: LinearGradient(
+                        colors: [
+                          _roxo.withValues(alpha: 0.05),
+                          _roxo.withValues(alpha: 0.02)
+                        ],
+                      ),
+                      borderRadius: BorderRadius.circular(12),
+                      border: Border.all(color: _roxo.withValues(alpha: 0.1)),
+                    ),
+                    child: Row(
+                      children: [
+                        Icon(Icons.auto_awesome_rounded,
+                            color: _roxo, size: 20),
+                        const SizedBox(width: 12),
+                        Expanded(
+                          child: RichText(
+                            text: TextSpan(
+                              style: GoogleFonts.plusJakartaSans(
+                                fontSize: 13,
+                                color: _ink,
+                                height: 1.4,
+                              ),
+                              children: [
+                                const TextSpan(text: 'Tabela ativa: '),
+                                TextSpan(
+                                  text: TiposEntrega.rotulo(maior),
+                                  style: const TextStyle(
+                                      fontWeight: FontWeight.w800),
+                                ),
+                                const TextSpan(
+                                    text:
+                                        '. O sistema usará este custo base para o cálculo de frete.'),
+                              ],
+                            ),
                           ),
                         ),
-                      ),
-                      Icon(
-                        selecionado
-                            ? Icons.check_circle_rounded
-                            : Icons.radio_button_unchecked_rounded,
-                        size: 18,
-                        color: selecionado ? _laranja : _muted,
-                      ),
-                    ],
-                  ),
-                  const SizedBox(height: 4),
-                  Text(
-                    TiposEntrega.descricaoCurta(codigo),
-                    style: GoogleFonts.plusJakartaSans(
-                      fontSize: 11.5,
-                      color: _muted,
-                      height: 1.35,
+                      ],
                     ),
                   ),
+                  const SizedBox(height: 24),
                 ],
-              ),
-            ),
-          ],
-        ),
-      ),
-    );
-  }
-
-  Widget _avisoTipoEntrega({
-    required Color cor,
-    required Color bg,
-    required IconData icon,
-    required String texto,
-  }) {
-    return Container(
-      padding: const EdgeInsets.all(12),
-      decoration: BoxDecoration(
-        color: bg,
-        borderRadius: BorderRadius.circular(10),
-        border: Border.all(color: cor),
-      ),
-      child: Row(
-        crossAxisAlignment: CrossAxisAlignment.start,
-        children: [
-          Icon(icon, color: cor, size: 18),
-          const SizedBox(width: 10),
-          Expanded(
-            child: Text(
-              texto,
-              style: GoogleFonts.plusJakartaSans(
-                fontSize: 12.5,
-                color: _ink,
-                height: 1.4,
-              ),
+                Column(
+                  children: TiposEntrega.ordemCanonica
+                      .map((codigo) => Padding(
+                            padding: const EdgeInsets.only(bottom: 12),
+                            child: _chipTipoEntregaWeb(codigo),
+                          ))
+                      .toList(),
+                ),
+              ],
             ),
           ),
         ],
@@ -1188,26 +1003,23 @@ class _ConfiguracoesLojistaScreenState extends State<ConfiguracoesLojistaScreen>
   Widget _buildCardHorarios(bool emLinha) {
     return Container(
       decoration: PainelAdminTheme.dashboardCard(),
-      padding: const EdgeInsets.all(24),
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.stretch,
         children: [
-          _sectionTitle(
-            icon: Icons.schedule_rounded,
-            title: 'Horário de funcionamento',
-            subtitle: 'Marque os dias úteis e defina abertura e encerramento',
-          ),
-          const SizedBox(height: 8),
-          Container(
-            decoration: BoxDecoration(
-              color: _surfaceMuted,
-              borderRadius: BorderRadius.circular(12),
-              border: Border.all(color: _borderLight),
+          Padding(
+            padding: const EdgeInsets.all(24),
+            child: _sectionTitle(
+              icon: Icons.calendar_today_rounded,
+              title: 'Horários',
+              subtitle: 'Disponibilidade semanal da loja',
             ),
+          ),
+          const Divider(height: 1),
+          Padding(
+            padding: const EdgeInsets.all(12),
             child: Column(
               children: [
                 for (var i = 0; i < _horarios.length; i++) ...[
-                  if (i > 0) const Divider(height: 1, thickness: 1, color: Color(0xFFE2E8F0)),
                   _linhaHorario(_horarios.keys.elementAt(i), emLinha),
                 ],
               ],
@@ -1332,7 +1144,8 @@ class _ConfiguracoesLojistaScreenState extends State<ConfiguracoesLojistaScreen>
             value: cfg['abre'].toString(),
             onTap: () => _pickHora(chave, true),
           ),
-          Icon(Icons.arrow_forward_rounded, size: 18, color: _muted.withValues(alpha: 0.7)),
+          Icon(Icons.arrow_forward_rounded,
+              size: 18, color: _muted.withValues(alpha: 0.4)),
           _timeChip(
             label: 'Fecha',
             value: cfg['fecha'].toString(),
@@ -1440,6 +1253,268 @@ class _ConfiguracoesLojistaScreenState extends State<ConfiguracoesLojistaScreen>
       ),
     );
   }
+
+  /// Banner de alerta para cancelamentos por incompatibilidade reportados
+  /// por entregadores. Aparece apenas dentro do card de tipos de entrega
+  /// — é onde o lojista corrige a config.
+  Widget _blocoAlertaIncompat(_AlertaIncompatWeb a) {
+    final ultimo = a.ultimoEm;
+    final ultimoTxt = ultimo == null ? '' : ' (último em ${_fmtDataHora(ultimo)})';
+    final tiposAceitos =
+        a.ultimoTiposAceitosLoja.map(TiposEntrega.rotulo).join(', ');
+    final tipoEntreg = a.ultimoTipoEntregador.isEmpty
+        ? 'não informado'
+        : TiposEntrega.rotulo(a.ultimoTipoEntregador);
+
+    return Container(
+      padding: const EdgeInsets.all(14),
+      decoration: BoxDecoration(
+        color: Colors.amber.shade50,
+        borderRadius: BorderRadius.circular(10),
+        border: Border.all(color: Colors.amber.shade400, width: 1.2),
+      ),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          Row(
+            children: [
+              Icon(
+                Icons.pedal_bike_rounded,
+                color: Colors.amber.shade900,
+                size: 20,
+              ),
+              const SizedBox(width: 8),
+              Text(
+                'Cancelamentos por incompatibilidade',
+                style: GoogleFonts.plusJakartaSans(
+                  fontSize: 13.5,
+                  fontWeight: FontWeight.w800,
+                  color: Colors.amber.shade900,
+                ),
+              ),
+            ],
+          ),
+          const SizedBox(height: 6),
+          Text(
+            'Entregadores já reportaram ${a.totalUltimos30d} cancelamento(s) '
+            'desta loja marcando "produto incompatível com meu veículo"$ultimoTxt. '
+            'Sem penalidade ao entregador e com redespacho automático — mas '
+            'indica que a configuração atual pode não refletir a carga real.',
+            style: GoogleFonts.plusJakartaSans(
+              fontSize: 12.5,
+              color: Colors.amber.shade900,
+              height: 1.4,
+            ),
+          ),
+          const SizedBox(height: 8),
+          Container(
+            padding: const EdgeInsets.all(10),
+            decoration: BoxDecoration(
+              color: Colors.white,
+              borderRadius: BorderRadius.circular(8),
+              border: Border.all(color: Colors.amber.shade200),
+            ),
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                Text(
+                  'Último evento',
+                  style: GoogleFonts.plusJakartaSans(
+                    fontSize: 10.5,
+                    fontWeight: FontWeight.w800,
+                    letterSpacing: 0.8,
+                    color: Colors.amber.shade900,
+                  ),
+                ),
+                const SizedBox(height: 3),
+                Text(
+                  'Veículo do entregador: $tipoEntreg',
+                  style: GoogleFonts.plusJakartaSans(fontSize: 12),
+                ),
+                if (tiposAceitos.isNotEmpty)
+                  Text(
+                    'Sua loja aceita: $tiposAceitos',
+                    style: GoogleFonts.plusJakartaSans(fontSize: 12),
+                  ),
+              ],
+            ),
+          ),
+          const SizedBox(height: 10),
+          Align(
+            alignment: Alignment.centerRight,
+            child: OutlinedButton.icon(
+              onPressed: _dispensandoIncompat ? null : _dispensarAlertaIncompat,
+              style: OutlinedButton.styleFrom(
+                foregroundColor: Colors.amber.shade900,
+                side: BorderSide(color: Colors.amber.shade400),
+                padding:
+                    const EdgeInsets.symmetric(horizontal: 16, vertical: 10),
+                shape: RoundedRectangleBorder(
+                  borderRadius: BorderRadius.circular(8),
+                ),
+              ),
+              icon: _dispensandoIncompat
+                  ? const SizedBox(
+                      width: 14,
+                      height: 14,
+                      child: CircularProgressIndicator(strokeWidth: 2),
+                    )
+                  : const Icon(Icons.check_rounded, size: 16),
+              label: Text(
+                _dispensandoIncompat ? 'Dispensando…' : 'Já revisei',
+                style: GoogleFonts.plusJakartaSans(
+                  fontSize: 12.5,
+                  fontWeight: FontWeight.w700,
+                ),
+              ),
+            ),
+          ),
+        ],
+      ),
+    );
+  }
+
+  /// Grava `alerta_tipos_entrega_incompat.dispensado_em = now` no doc do
+  /// usuário logado. Só esconde o alerta — preserva o histórico.
+  Future<void> _dispensarAlertaIncompat() async {
+    if (_dispensandoIncompat) return;
+    setState(() => _dispensandoIncompat = true);
+    try {
+      await widget.docRef.set({
+        'alerta_tipos_entrega_incompat': {
+          'dispensado_em': FieldValue.serverTimestamp(),
+        },
+      }, SetOptions(merge: true));
+      if (!mounted) return;
+      final snap = await widget.docRef.get();
+      if (!mounted) return;
+      setState(() {
+        if (snap.data() != null) {
+          _alertaIncompat = _AlertaIncompatWeb.deDados(snap.data()!);
+        }
+        _dispensandoIncompat = false;
+      });
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(
+          content: Text('Alerta dispensado. Reaparece se houver novo caso.'),
+          duration: Duration(seconds: 2),
+        ),
+      );
+    } catch (e) {
+      if (!mounted) return;
+      setState(() => _dispensandoIncompat = false);
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(content: Text('Falha ao dispensar: $e')),
+      );
+    }
+  }
+
+  String _fmtDataHora(DateTime dt) {
+    String d2(int n) => n.toString().padLeft(2, '0');
+    return '${d2(dt.day)}/${d2(dt.month)} ${d2(dt.hour)}:${d2(dt.minute)}';
+  }
+
+  Widget _chipTipoEntregaWeb(String codigo) {
+    final bool selecionado = _tiposEntregaSelecionados.contains(codigo);
+    final IconData icone;
+    switch (codigo) {
+      case TiposEntrega.codBicicleta:
+        icone = Icons.pedal_bike_rounded;
+        break;
+      case TiposEntrega.codMoto:
+        icone = Icons.two_wheeler_rounded;
+        break;
+      case TiposEntrega.codCarro:
+        icone = Icons.directions_car_rounded;
+        break;
+      case TiposEntrega.codCarroFrete:
+        icone = Icons.local_shipping_rounded;
+        break;
+      default:
+        icone = Icons.inventory_2_outlined;
+    }
+    return InkWell(
+      borderRadius: BorderRadius.circular(14),
+      onTap: () {
+        setState(() {
+          if (selecionado) {
+            _tiposEntregaSelecionados.remove(codigo);
+          } else {
+            _tiposEntregaSelecionados.add(codigo);
+          }
+        });
+      },
+      child: Container(
+        padding: const EdgeInsets.all(14),
+        decoration: BoxDecoration(
+          color: selecionado ? _laranja.withValues(alpha: 0.07) : Colors.white,
+          borderRadius: BorderRadius.circular(14),
+          border: Border.all(
+            color: selecionado ? _laranja : _borderLight,
+            width: selecionado ? 1.5 : 1,
+          ),
+        ),
+        child: Row(
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            Container(
+              padding: const EdgeInsets.all(8),
+              decoration: BoxDecoration(
+                color: selecionado
+                    ? _laranja.withValues(alpha: 0.15)
+                    : _surfaceMuted,
+                borderRadius: BorderRadius.circular(10),
+              ),
+              child: Icon(
+                icone,
+                color: selecionado ? _laranja : _muted,
+                size: 20,
+              ),
+            ),
+            const SizedBox(width: 12),
+            Expanded(
+              child: Column(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  Row(
+                    children: [
+                      Expanded(
+                        child: Text(
+                          TiposEntrega.rotulo(codigo),
+                          style: GoogleFonts.plusJakartaSans(
+                            fontSize: 14,
+                            fontWeight: FontWeight.w700,
+                            color: _ink,
+                          ),
+                        ),
+                      ),
+                      Icon(
+                        selecionado
+                            ? Icons.check_circle_rounded
+                            : Icons.radio_button_unchecked_rounded,
+                        size: 18,
+                        color: selecionado ? _laranja : _muted,
+                      ),
+                    ],
+                  ),
+                  const SizedBox(height: 4),
+                  Text(
+                    TiposEntrega.descricaoCurta(codigo),
+                    style: GoogleFonts.plusJakartaSans(
+                      fontSize: 11.5,
+                      color: _muted,
+                      height: 1.35,
+                    ),
+                  ),
+                ],
+              ),
+            ),
+          ],
+        ),
+      ),
+    );
+  }
+
 }
 
 /// Snapshot imutável do campo `alerta_tipos_entrega_incompat` persistido no

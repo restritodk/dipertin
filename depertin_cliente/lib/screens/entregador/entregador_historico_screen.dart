@@ -1,6 +1,7 @@
 // Arquivo: lib/screens/entregador/entregador_historico_screen.dart
 
 import 'package:depertin_cliente/constants/pedido_status.dart';
+import 'package:depertin_cliente/utils/codigo_pedido.dart';
 import 'package:depertin_cliente/widgets/pedido_estorno_detalhe_cards.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
@@ -611,9 +612,7 @@ class _DetalhesCorridaSheet extends StatelessWidget {
         ? (pedido['data_pedido'] as Timestamp).toDate()
         : null;
 
-    final idCurto = docId.length > 8
-        ? docId.substring(docId.length - 8).toUpperCase()
-        : docId.toUpperCase();
+    final idCurto = CodigoPedido.exibir(docId, pedido);
 
     return DraggableScrollableSheet(
       expand: false,

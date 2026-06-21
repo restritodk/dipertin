@@ -113,6 +113,11 @@ exports.notificarClienteConfirmacaoCancelamento =
 const avaliacaoPedido = require("./avaliacao_pedido");
 exports.atualizarRatingLojaAposAvaliacao = avaliacaoPedido.atualizarRatingLojaAposAvaliacao;
 
+const avaliacaoProduto = require("./avaliacao_produto");
+exports.atualizarRatingProdutoOnCreate = avaliacaoProduto.atualizarRatingProdutoOnCreate;
+exports.atualizarRatingProdutoOnUpdate = avaliacaoProduto.atualizarRatingProdutoOnUpdate;
+exports.atualizarRatingProdutoOnDelete = avaliacaoProduto.atualizarRatingProdutoOnDelete;
+
 // Carimbos de status no pedido (monitor / investigação). Sem FCM.
 const pedidoOperacaoTimeline = require("./pedido_operacao_timeline");
 exports.gravarOperacaoStatusEmPedidoOnCreate =
@@ -254,8 +259,13 @@ exports.processarFinanceiroPedidoOnCreate = functions.firestore
         const d = snap.data();
         const pedidoId = context.params.pedidoId;
         try {
+            const codigoPedido = require("./codigo_pedido");
+            const codigoPedidoValor =
+                d.codigo_pedido || codigoPedido.gerarCodigoPedido(pedidoId);
+
             if (d.tipo_compra === "encomenda" && d.encomenda_fase_financeira === "entrada") {
                 await snap.ref.update({
+                    codigo_pedido: codigoPedidoValor,
                     financeiro_servidor_ok: true,
                     financeiro_version: 2,
                     financeiro_skip_motivo: "encomenda_entrada_sem_split_repasse",
@@ -324,6 +334,7 @@ exports.processarFinanceiroPedidoOnCreate = functions.firestore
 
             await snap.ref.update({
                 ...campos,
+                codigo_pedido: codigoPedidoValor,
                 financeiro_servidor_ok: true,
                 financeiro_version: 2,
                 financeiro_processado_em: admin.firestore.FieldValue.serverTimestamp(),
@@ -792,6 +803,13 @@ exports.sincronizarIdentidadePedidosOnUpdate =
 const lojistaEstornoFrete = require("./lojista_estorno_frete");
 exports.lojistaConfirmarRetiradaNaLojaComEstorno =
     lojistaEstornoFrete.lojistaConfirmarRetiradaNaLojaComEstorno;
+exports.lojistaConfirmarRetiradaBalcao =
+    lojistaEstornoFrete.lojistaConfirmarRetiradaBalcao;
+
+// Baixa/restaura `estoque_qtd` dos produtos conforme venda/cancelamento do pedido.
+const estoquePedido = require("./estoque_pedido");
+exports.baixarEstoquePedidoOnCreate = estoquePedido.baixarEstoquePedidoOnCreate;
+exports.sincronizarEstoquePedidoOnUpdate = estoquePedido.sincronizarEstoquePedidoOnUpdate;
 
 // Compra por encomenda — negociação e pedido de entrada (avisos via alerta_* no users; sem FCM aqui).
 const encomendasNegociacao = require("./encomendas_negociacao");
@@ -828,6 +846,8 @@ exports.entregadorSolicitarExclusaoPerfil =
     entregadorPerfilOperacional.entregadorSolicitarExclusaoPerfil;
 exports.entregadorAutoDesbloquearConta =
     entregadorPerfilOperacional.entregadorAutoDesbloquearConta;
+exports.entregadorAbrirCadastro =
+    entregadorPerfilOperacional.entregadorAbrirCadastro;
 exports.processarExclusoesPerfilEntregador =
     entregadorPerfilOperacional.processarExclusoesPerfilEntregador;
 
@@ -842,6 +862,7 @@ exports.estornarPagamentoPedidoCancelado = mercadopago.estornarPagamentoPedidoCa
 exports.cancelarPedidosPixExpirados = mercadopago.cancelarPedidosPixExpirados;
 exports.cancelarPedidoPixExpirado = mercadopago.cancelarPedidoPixExpirado;
 exports.processarEstornoPainel = mercadopago.processarEstornoPainel;
+exports.lojistaCancelarPedidoComEstorno = mercadopago.lojistaCancelarPedidoComEstorno;
 
 function motivoRecusaIndicaOperacionalJs(motivo) {
     const s = String(motivo || "").toLowerCase();
@@ -1274,12 +1295,22 @@ exports.enviarCampanhaNotificacao = functions
         /** Trava de segurança: máximo de docs processados por campanha. */
         const MAX_USERS_PROCESSADOS = 200000;
 
+        // Logo hospedado no site — mesmo padrão de lojista/entregador status push.
+        const LOGO_DIPERTIN_URL = 'https://www.dipertin.com.br/assets/logo.png';
+
         const notificationPayload = {
-            notification: { title: titulo, body: mensagem },
+            notification: {
+                title: titulo,
+                body: mensagem,
+                imageUrl: LOGO_DIPERTIN_URL,
+            },
             android: {
                 priority: 'high',
                 notification: {
                     channelId: 'high_importance_channel',
+                    icon: 'ic_stat_notify',
+                    color: '#6A1B9A',
+                    imageUrl: LOGO_DIPERTIN_URL,
                     sound: 'default',
                     priority: 'max',
                     visibility: 'public',
@@ -1290,7 +1321,12 @@ exports.enviarCampanhaNotificacao = functions
             },
             apns: {
                 headers: { 'apns-priority': '10' },
-                payload: { aps: { sound: 'default' } },
+                payload: {
+                    aps: {
+                        sound: 'default',
+                        alert: { title: titulo, body: mensagem },
+                    },
+                },
             },
             data: {
                 tipoNotificacao: 'campanha_marketing',
@@ -1495,6 +1531,12 @@ exports.enviarCampanhaNotificacao = functions
 // Candidatura a vaga de emprego — envia e-mail para a empresa
 const candidaturaVaga = require("./candidatura_vaga");
 exports.enviarCandidaturaVaga = candidaturaVaga.enviarCandidaturaVaga;
+
+// Debug temporário — listar últimas encomendas (somente leitura, staff).
+// REMOVER após corrigir o bug do "Negociações vazias no painel web".
+const debugListarEncomendas = require("./debug_listar_encomendas_recentes");
+exports.debugListarEncomendasRecentes =
+    debugListarEncomendas.debugListarEncomendasRecentes;
 
 // Validação de cupons (callable para o app)
 const validarCupomModule = require("./validar_cupom");

@@ -17,6 +17,7 @@ import 'package:flutter_multi_formatter/flutter_multi_formatter.dart';
 import '../../services/cadastro_sms_consent_android.dart';
 import '../../services/firebase_functions_config.dart';
 import '../../services/location_service.dart';
+import '../../widgets/dipertin_scroll_body.dart';
 import '../../services/permissoes_app_service.dart';
 import '../../utils/cpf_perfil_usuario.dart';
 
@@ -1065,8 +1066,7 @@ class _EditProfileScreenState extends State<EditProfileScreen> {
       ),
       body: _carregandoDados
           ? const Center(child: CircularProgressIndicator(color: diPertinRoxo))
-          : SingleChildScrollView(
-              padding: const EdgeInsets.fromLTRB(16, 16, 16, 32),
+          : DiPertinScrollBody(
               child: Column(
                 crossAxisAlignment: CrossAxisAlignment.stretch,
                 children: [

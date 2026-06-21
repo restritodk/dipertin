@@ -10,6 +10,7 @@ import '../navigation/painel_navigation_scope.dart';
 import '../services/firebase_functions_config.dart';
 import '../theme/painel_admin_theme.dart';
 import '../utils/admin_perfil.dart';
+import '../utils/codigo_pedido.dart';
 /// Filtro do extrato: entradas (lucro), saídas (despesa) ou ambos.
 enum _FiltroExtratoMovimento { todos, lucro, despesa }
 
@@ -2581,9 +2582,8 @@ class _FinanceiroScreenState extends State<FinanceiroScreen> {
     final nomeCliente = (pedidoCache?['cliente'] as String?) ?? '';
     final formaPgto = (pedidoCache?['forma_pagamento'] as String?) ?? '';
     final valorPagamento = pedidoCache != null ? (pedidoCache['total_pedido'] as double?) ?? 0.0 : 0.0;
-    final idCurto = pedidoId.isNotEmpty
-        ? '#${pedidoId.substring(0, pedidoId.length.clamp(0, 5)).toUpperCase()}'
-        : '';
+    final idCurto =
+        pedidoId.isNotEmpty ? CodigoPedido.gerar(pedidoId) : '';
     final parcial = _pedidoValorSelecionado != null && valor < _pedidoValorSelecionado!;
 
     final confirmar = await showDialog<bool>(
@@ -3286,7 +3286,7 @@ class _FinanceiroScreenState extends State<FinanceiroScreen> {
                             ),
                             Text(
                               'Loja: ${d['loja_id'] ?? '—'}'
-                              '${(d['pedido_id'] ?? '').toString().isNotEmpty ? ' · Pedido: ${d['pedido_id']?.toString().substring(0, math.min(8, d['pedido_id'].toString().length))}' : ''}'
+                              '${(d['pedido_id'] ?? '').toString().isNotEmpty ? ' · Pedido: ${CodigoPedido.gerar(d['pedido_id'].toString())}' : ''}'
                               ' · ${fmt.format(dt)}',
                               style: GoogleFonts.plusJakartaSans(
                                 fontSize: 11,

@@ -5,6 +5,7 @@ import 'package:firebase_auth/firebase_auth.dart';
 import 'package:flutter/material.dart';
 
 import 'package:depertin_cliente/screens/cliente/address_screen.dart';
+import 'package:depertin_cliente/utils/safe_area_insets.dart';
 
 const Color _diPertinRoxo = Color(0xFF6A1B9A);
 const Color _diPertinLaranja = Color(0xFFFF8F00);
@@ -605,7 +606,13 @@ class _MeusEnderecosScreenState extends State<MeusEnderecosScreen> {
                     }
 
                     return ListView(
-                      padding: const EdgeInsets.fromLTRB(16, 16, 16, 100),
+                      padding: diPertinScrollPadding(
+                        context,
+                        left: 16,
+                        right: 16,
+                        top: 16,
+                        extraBottom: 24,
+                      ),
                       children: [
                         Text(
                           'Endereços cadastrados',

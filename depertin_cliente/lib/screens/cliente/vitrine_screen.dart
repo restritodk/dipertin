@@ -13,12 +13,16 @@ import '../../models/cart_item_model.dart';
 import '../../providers/cart_provider.dart';
 import '../../services/location_service.dart';
 import '../../utils/loja_pausa.dart';
-import 'cart_screen.dart';
+import '../../utils/safe_area_insets.dart';
+import '../../widgets/botao_carrinho_app_bar.dart';
 import 'product_details_screen.dart';
 import '../lojista/loja_catalogo_screen.dart';
 
 const Color diPertinRoxo = Color(0xFF6A1B9A);
 const Color diPertinLaranja = Color(0xFFFF8F00);
+const Color _fundoTela = Color(0xFFF5F4F8);
+const Color _textoPrimario = Color(0xFF1A1A2E);
+const Color _textoMuted = Color(0xFF64748B);
 
 class VitrineScreen extends StatefulWidget {
   const VitrineScreen({super.key});
@@ -36,11 +40,157 @@ class _VitrineScreenState extends State<VitrineScreen> {
 
   StreamSubscription<QuerySnapshot>? _bannersSubscription;
   List<QueryDocumentSnapshot> _bannersDocsBrutos = [];
+  bool _entradaAnimada = false;
 
   @override
   void initState() {
     super.initState();
     _iniciarEscutaBanners();
+    WidgetsBinding.instance.addPostFrameCallback((_) {
+      if (mounted) setState(() => _entradaAnimada = true);
+    });
+  }
+
+  Widget _buildHeaderGradient(
+    LocationService locationService,
+    String cidadeExibicao,
+  ) {
+    return Container(
+      decoration: const BoxDecoration(
+        gradient: LinearGradient(
+          begin: Alignment.topCenter,
+          end: Alignment.bottomCenter,
+          colors: [Color(0xFF6A1B9A), Color(0xFF7B1FA2)],
+        ),
+      ),
+      child: SafeArea(
+        bottom: false,
+        child: Padding(
+          padding: const EdgeInsets.fromLTRB(20, 8, 4, 14),
+          child: Row(
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              Expanded(
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    const Text(
+                      'DiPertin',
+                      style: TextStyle(
+                        color: Colors.white,
+                        fontWeight: FontWeight.w800,
+                        fontSize: 22,
+                        letterSpacing: -0.5,
+                      ),
+                    ),
+                    Text(
+                      'O que você precisa, bem aqui',
+                      style: TextStyle(
+                        color: Colors.white.withValues(alpha: 0.9),
+                        fontSize: 12,
+                        fontWeight: FontWeight.w500,
+                      ),
+                    ),
+                    const SizedBox(height: 6),
+                    Row(
+                      children: [
+                        const Icon(
+                          Icons.place,
+                          size: 14,
+                          color: diPertinLaranja,
+                        ),
+                        const SizedBox(width: 4),
+                        Expanded(
+                          child: Text(
+                            cidadeExibicao.isNotEmpty
+                                ? 'Comprando em $cidadeExibicao'
+                                : 'Detectando sua cidade…',
+                            style: const TextStyle(
+                              color: Colors.white70,
+                              fontSize: 12,
+                              fontWeight: FontWeight.w600,
+                            ),
+                            maxLines: 1,
+                            overflow: TextOverflow.ellipsis,
+                          ),
+                        ),
+                      ],
+                    ),
+                  ],
+                ),
+              ),
+              IconButton(
+                icon: Icon(
+                  Icons.my_location,
+                  color: locationService.detectandoCidade
+                      ? Colors.white38
+                      : Colors.white,
+                ),
+                tooltip: 'Atualizar cidade pelo GPS',
+                onPressed: locationService.detectandoCidade
+                    ? null
+                    : () => locationService.detectarCidade(),
+              ),
+              const BotaoCarrinhoAppBar(),
+            ],
+          ),
+        ),
+      ),
+    );
+  }
+
+  Widget _buildSkeletonCarregamentoVitrine() {
+    Widget linhaProduto() {
+      return Padding(
+        padding: const EdgeInsets.only(bottom: 12),
+        child: SizedBox(
+          height: 280,
+          child: Row(
+            children: [
+              Expanded(
+                child: Container(
+                  decoration: BoxDecoration(
+                    color: Colors.grey.shade200,
+                    borderRadius: BorderRadius.circular(16),
+                  ),
+                ),
+              ),
+              const SizedBox(width: 12),
+              Expanded(
+                child: Container(
+                  decoration: BoxDecoration(
+                    color: Colors.grey.shade200,
+                    borderRadius: BorderRadius.circular(16),
+                  ),
+                ),
+              ),
+            ],
+          ),
+        ),
+      );
+    }
+
+    return ListView(
+      physics: const NeverScrollableScrollPhysics(),
+      padding: diPertinScrollPaddingTabShell(
+        context,
+        left: 12,
+        right: 12,
+        top: 8,
+        extraBottom: 16,
+      ),
+      children: [
+        Container(
+          height: 150,
+          decoration: BoxDecoration(
+            color: Colors.grey.shade200,
+            borderRadius: BorderRadius.circular(16),
+          ),
+        ),
+        const SizedBox(height: 16),
+        for (var i = 0; i < 3; i++) linhaProduto(),
+      ],
+    );
   }
 
   @override
@@ -173,21 +323,12 @@ class _VitrineScreenState extends State<VitrineScreen> {
 
     if (!locationService.cidadePronta) {
       return Scaffold(
-        backgroundColor: Colors.grey[100],
-        appBar: AppBar(
-          backgroundColor: diPertinRoxo,
-          elevation: 0,
-          title: const Text(
-            'DiPertin',
-            style: TextStyle(
-              color: Colors.white,
-              fontWeight: FontWeight.bold,
-              fontSize: 20,
-            ),
-          ),
-        ),
-        body: const Center(
-          child: CircularProgressIndicator(color: diPertinRoxo),
+        backgroundColor: _fundoTela,
+        body: Column(
+          children: [
+            _buildHeaderGradient(locationService, cidadeExibicao),
+            Expanded(child: _buildSkeletonCarregamentoVitrine()),
+          ],
         ),
       );
     }
@@ -200,142 +341,44 @@ class _VitrineScreenState extends State<VitrineScreen> {
     );
 
     return Scaffold(
-      backgroundColor: Colors.grey[100],
-      appBar: AppBar(
-        backgroundColor: diPertinRoxo,
-        elevation: 0,
-        toolbarHeight: 92,
-        title: Column(
-          crossAxisAlignment: CrossAxisAlignment.start,
-          mainAxisSize: MainAxisSize.min,
-          children: [
-            const Text(
-              'DiPertin',
-              style: TextStyle(
-                color: Colors.white,
-                fontWeight: FontWeight.bold,
-                fontSize: 20,
-              ),
-            ),
-            Text(
-              'O que você precisa, bem aqui',
-              style: TextStyle(
-                color: Colors.white.withValues(alpha: 0.88),
-                fontSize: 12,
-                fontWeight: FontWeight.w500,
-              ),
-            ),
-            const SizedBox(height: 4),
-            Row(
-              children: [
-                const Icon(Icons.location_on, size: 13, color: diPertinLaranja),
-                const SizedBox(width: 4),
-                Expanded(
-                  child: Text(
-                    'Comprando em $cidadeExibicao',
-                    style: const TextStyle(color: Colors.white70, fontSize: 12),
-                    maxLines: 1,
-                    overflow: TextOverflow.ellipsis,
-                  ),
-                ),
-              ],
-            ),
-          ],
-        ),
-        actions: [
-          IconButton(
-            icon: const Icon(Icons.my_location, color: Colors.white),
-            tooltip: 'Atualizar cidade pelo GPS',
-            onPressed: locationService.detectandoCidade
-                ? null
-                : () => locationService.detectarCidade(),
-          ),
-          Stack(
-            alignment: Alignment.center,
-            children: [
-              IconButton(
-                icon: const Icon(Icons.shopping_cart, color: Colors.white),
-                tooltip: 'Abrir carrinho',
-                onPressed: () => Navigator.push(
-                  context,
-                  MaterialPageRoute(builder: (context) => const CartScreen()),
-                ),
-              ),
-              Positioned(
-                right: 8,
-                top: 8,
-                child: Container(
-                  padding: const EdgeInsets.all(2),
-                  decoration: BoxDecoration(
-                    color: diPertinLaranja,
-                    borderRadius: BorderRadius.circular(10),
-                  ),
-                  constraints: const BoxConstraints(
-                    minWidth: 16,
-                    minHeight: 16,
-                  ),
-                  child: Text(
-                    context.watch<CartProvider>().itemCount.toString(),
-                    style: const TextStyle(
-                      color: Colors.white,
-                      fontSize: 10,
-                      fontWeight: FontWeight.bold,
-                    ),
-                    textAlign: TextAlign.center,
-                  ),
-                ),
-              ),
-            ],
-          ),
-        ],
-      ),
+      backgroundColor: _fundoTela,
       body: Column(
         children: [
-          // 1. CARROSSEL DE BANNERS (uma escuta Firestore; carrossel com key estável)
-          RepaintBoundary(
-            child: Container(
-              margin: EdgeInsets.symmetric(
-                vertical: bannersDoBanco.isEmpty ? 6 : 10,
-              ),
-              child: AutoSlidingBanner(
-                key: const ValueKey<String>('vitrine_banner_topo'),
-                banners: bannersDoBanco,
-                altura: 150,
-                paddingHorizontal: 16,
-              ),
-            ),
-          ),
-
-          Padding(
-            padding: const EdgeInsets.fromLTRB(16, 8, 16, 4),
-            child: Column(
-              crossAxisAlignment: CrossAxisAlignment.start,
-              children: [
-                // Text(
-                //   'Destaques da sua região — $cidadeExibicao',
-                //   style: const TextStyle(
-                //     fontSize: 18,
-                //     fontWeight: FontWeight.bold,
-                //     color: Colors.black87,
-                //   ),
-                // ),
-                const SizedBox(height: 4),
-                // Text(
-                //   'Lojas abertas no horário aparecem primeiro. Toque no produto '
-                //   'para ver detalhes ou na loja para ver o cardápio.',
-                //   style: TextStyle(
-                //     fontSize: 13,
-                //     height: 1.35,
-                //     color: Colors.grey[700],
-                //   ),
-                // ),
-              ],
-            ),
-          ),
-
-          // 2. VITRINE DE PRODUTOS
+          _buildHeaderGradient(locationService, cidadeExibicao),
           Expanded(
-            child: StreamBuilder<QuerySnapshot>(
+            child: AnimatedOpacity(
+              opacity: _entradaAnimada ? 1 : 0,
+              duration: const Duration(milliseconds: 220),
+              curve: Curves.easeOut,
+              child: Column(
+                children: [
+                  RepaintBoundary(
+                    child: Container(
+                      margin: EdgeInsets.symmetric(
+                        vertical: bannersDoBanco.isEmpty ? 6 : 10,
+                      ),
+                      child: AutoSlidingBanner(
+                        key: const ValueKey<String>('vitrine_banner_topo'),
+                        banners: bannersDoBanco,
+                        altura: 150,
+                        paddingHorizontal: 16,
+                      ),
+                    ),
+                  ),
+                  Padding(
+                    padding: const EdgeInsets.fromLTRB(16, 4, 16, 8),
+                    // child: Text(
+                    //   'Lojas abertas aparecem primeiro. Toque no produto '
+                    //   'para detalhes ou na loja para o cardápio.',
+                    //   style: TextStyle(
+                    //     fontSize: 12.5,
+                    //     height: 1.35,
+                    //     color: _textoMuted,
+                    //   ),
+                    // ),
+                  ),
+                  Expanded(
+                    child: StreamBuilder<QuerySnapshot>(
               // Fase 3G.2 — vitrine lê `lojas_public` (mirror só com dados de
               // fachada) em vez de `users`. CPF/email/telefone pessoal/saldo
               // do lojista não são mais expostos na vitrine pública.
@@ -345,9 +388,7 @@ class _VitrineScreenState extends State<VitrineScreen> {
               builder: (context, snapshotLojas) {
                 if (snapshotLojas.connectionState == ConnectionState.waiting &&
                     !snapshotLojas.hasData) {
-                  return const Center(
-                    child: CircularProgressIndicator(color: diPertinRoxo),
-                  );
+                  return _buildSkeletonCarregamentoVitrine();
                 }
                 if (!snapshotLojas.hasData ||
                     snapshotLojas.data!.docs.isEmpty) {
@@ -432,11 +473,7 @@ class _VitrineScreenState extends State<VitrineScreen> {
                         if (snapshotProdutos.connectionState ==
                                 ConnectionState.waiting &&
                             !snapshotProdutos.hasData) {
-                          return const Center(
-                            child: CircularProgressIndicator(
-                              color: diPertinRoxo,
-                            ),
-                          );
+                          return _buildSkeletonCarregamentoVitrine();
                         }
                         if (!snapshotProdutos.hasData ||
                             snapshotProdutos.data!.docs.isEmpty) {
@@ -497,6 +534,10 @@ class _VitrineScreenState extends State<VitrineScreen> {
                       },
                 );
               },
+                    ),
+                  ),
+                ],
+              ),
             ),
           ),
         ],
@@ -516,20 +557,20 @@ class _VitrineScreenState extends State<VitrineScreen> {
             Text(
               titulo,
               textAlign: TextAlign.center,
-              style: TextStyle(
+              style: const TextStyle(
                 fontSize: 17,
-                fontWeight: FontWeight.w600,
-                color: Colors.grey[800],
+                fontWeight: FontWeight.w700,
+                color: _textoPrimario,
               ),
             ),
             const SizedBox(height: 8),
             Text(
               subtitulo,
               textAlign: TextAlign.center,
-              style: TextStyle(
+              style: const TextStyle(
                 fontSize: 14,
                 height: 1.35,
-                color: Colors.grey[600],
+                color: _textoMuted,
               ),
             ),
           ],
@@ -921,7 +962,7 @@ class _VitrineScreenState extends State<VitrineScreen> {
                               textAlign: TextAlign.right,
                               style: const TextStyle(
                                 color: Colors.white,
-                                fontSize: 9.5,
+                                fontSize: 11,
                                 fontWeight: FontWeight.w700,
                                 height: 1.2,
                               ),
@@ -1017,11 +1058,9 @@ class _VitrineScreenState extends State<VitrineScreen> {
                           right: 4,
                         ),
                         child: LojaRatingRow(
-                          media: (produto['loja_rating_media'] as num?)
-                              ?.toDouble(),
+                          media: (produto['rating_media'] as num?)?.toDouble(),
                           total:
-                              (produto['loja_total_avaliacoes'] as num?)
-                                  ?.toInt() ??
+                              (produto['total_avaliacoes'] as num?)?.toInt() ??
                               0,
                           dense: true,
                           fontSize: 10,
@@ -1258,6 +1297,14 @@ class _VitrineListaProdutosComPausaState
       }
     }
 
+    final scrollPadding = diPertinScrollPaddingTabShell(
+      context,
+      left: 12,
+      right: 12,
+      top: 0,
+      extraBottom: 16,
+    );
+
     return RefreshIndicator(
       color: diPertinLaranja,
       onRefresh: widget.onRefresh,
@@ -1265,7 +1312,7 @@ class _VitrineListaProdutosComPausaState
         child: ListView(
           key: const PageStorageKey<String>('vitrine_lista_produtos'),
           physics: const AlwaysScrollableScrollPhysics(),
-          padding: const EdgeInsets.symmetric(horizontal: 12),
+          padding: scrollPadding,
           children: itensDaVitrine,
         ),
       ),

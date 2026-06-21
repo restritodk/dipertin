@@ -15,7 +15,8 @@ import '../../services/conta_bloqueio_lojista_service.dart';
 import '../../services/conta_exclusao_service.dart';
 import '../../services/sessao_timeout_service.dart';
 import '../../services/pos_login_onboarding_gate.dart';
-import '../../widgets/entregador_conta_bloqueada_overlay.dart';
+import '../../widgets/dipertin_scroll_body.dart';
+import '../../widgets/dipertin_versao_rodape.dart';
 import '../../widgets/lojista_conta_bloqueada_overlay.dart';
 import '../../services/location_service.dart';
 import 'ativacao_biometria_screen.dart';
@@ -27,6 +28,9 @@ import 'widgets/termos_aceite_cadastro.dart';
 const Color _diPertinRoxo = Color(0xFF6A1B9A);
 const Color _diPertinLaranja = Color(0xFFFF8F00);
 const Color _fundoTela = Color(0xFFF5F4F8);
+const Color _textoPrimario = Color(0xFF1A1A2E);
+const Color _textoMuted = Color(0xFF64748B);
+const Color _erroCampo = Color(0xFFD32F2F);
 
 class LoginScreen extends StatefulWidget {
   const LoginScreen({super.key, this.emailPreenchido});
@@ -38,11 +42,15 @@ class LoginScreen extends StatefulWidget {
 }
 
 class _LoginScreenState extends State<LoginScreen> {
+  final _formKey = GlobalKey<FormState>();
   final _emailController = TextEditingController();
   final _senhaController = TextEditingController();
   bool _isLoading = false;
   bool _senhaOculta = true;
   bool _biometriaDisponivelParaLogin = false;
+  bool _entradaAnimada = false;
+  String? _erroCampoEmail;
+  String? _erroCampoSenha;
 
   /// Evita pedir a ativação da biometria várias vezes se o usuário
   /// declinou recentemente. Cooldown gravado em SharedPreferences.
@@ -59,6 +67,39 @@ class _LoginScreenState extends State<LoginScreen> {
       _emailController.text = email;
     }
     _verificarDisponibilidadeBiometriaLogin();
+    WidgetsBinding.instance.addPostFrameCallback((_) {
+      if (mounted) setState(() => _entradaAnimada = true);
+    });
+  }
+
+  void _limparErrosCampos() {
+    if (_erroCampoEmail != null || _erroCampoSenha != null) {
+      setState(() {
+        _erroCampoEmail = null;
+        _erroCampoSenha = null;
+      });
+    }
+  }
+
+  String? _validarCampoEmail(String? valor) {
+    if (_erroCampoEmail != null) return _erroCampoEmail;
+    final texto = (valor ?? '').trim();
+    if (texto.isEmpty) return 'Informe seu e-mail';
+    if (!RegExp(r'^[\w-\.]+@([\w-]+\.)+[\w-]{2,4}$').hasMatch(texto)) {
+      return 'Digite um e-mail válido (ex: seuemail@gmail.com)';
+    }
+    return null;
+  }
+
+  String? _validarCampoSenha(String? valor) {
+    if (_erroCampoSenha != null) return _erroCampoSenha;
+    if ((valor ?? '').trim().isEmpty) return 'Informe sua senha';
+    return null;
+  }
+
+  void _definirErroSenha(String mensagem) {
+    setState(() => _erroCampoSenha = mensagem);
+    _formKey.currentState?.validate();
   }
 
   Future<void> _verificarDisponibilidadeBiometriaLogin() async {
@@ -72,7 +113,7 @@ class _LoginScreenState extends State<LoginScreen> {
       labelText: label,
       prefixIcon: Icon(icon, color: _diPertinRoxo.withValues(alpha: 0.88), size: 22),
       filled: true,
-      fillColor: Colors.white,
+      fillColor: const Color(0xFFF9F8FC),
       contentPadding: const EdgeInsets.symmetric(horizontal: 14, vertical: 14),
       labelStyle: TextStyle(
         color: Colors.grey.shade700,
@@ -91,27 +132,28 @@ class _LoginScreenState extends State<LoginScreen> {
         borderRadius: BorderRadius.circular(12),
         borderSide: const BorderSide(color: _diPertinLaranja, width: 2),
       ),
+      errorBorder: OutlineInputBorder(
+        borderRadius: BorderRadius.circular(12),
+        borderSide: const BorderSide(color: _erroCampo, width: 1.5),
+      ),
+      focusedErrorBorder: OutlineInputBorder(
+        borderRadius: BorderRadius.circular(12),
+        borderSide: const BorderSide(color: _erroCampo, width: 2),
+      ),
+      errorStyle: const TextStyle(
+        color: _erroCampo,
+        fontSize: 12.5,
+        fontWeight: FontWeight.w500,
+        height: 1.2,
+      ),
     );
   }
 
   Widget _iconeGoogle() {
-    return Container(
-      width: 26,
-      height: 26,
-      decoration: BoxDecoration(
-        color: Colors.white,
-        borderRadius: BorderRadius.circular(4),
-        border: Border.all(color: Colors.grey.shade300),
-      ),
-      alignment: Alignment.center,
-      child: const Text(
-        'G',
-        style: TextStyle(
-          fontSize: 15,
-          fontWeight: FontWeight.w800,
-          color: Color(0xFF4285F4),
-        ),
-      ),
+    return const SizedBox(
+      width: 22,
+      height: 22,
+      child: CustomPaint(painter: _GoogleLogoPainter()),
     );
   }
 
@@ -672,20 +714,8 @@ class _LoginScreenState extends State<LoginScreen> {
   }
 
   Future<void> _fazerLogin() async {
-    if (!RegExp(
-      r'^[\w-\.]+@([\w-]+\.)+[\w-]{2,4}$',
-    ).hasMatch(_emailController.text.trim())) {
-      ScaffoldMessenger.of(context).showSnackBar(
-        const SnackBar(
-          content: Text(
-            'Por favor, digite um e-mail válido (ex: seuemail@gmail.com).',
-          ),
-          backgroundColor: Colors.red,
-          behavior: SnackBarBehavior.floating,
-        ),
-      );
-      return;
-    }
+    _limparErrosCampos();
+    if (!(_formKey.currentState?.validate() ?? false)) return;
 
     setState(() => _isLoading = true);
     try {
@@ -749,18 +779,17 @@ class _LoginScreenState extends State<LoginScreen> {
       PosLoginOnboardingGate.abortouFluxoLiberarSemOnboarding();
       if (e.code == 'user-not-found') {
         if (mounted) await _mostrarDialogoContaNaoEncontrada();
-      } else {
-        String mensagem = 'Erro no login.';
+      } else if (mounted) {
         if (e.code == 'wrong-password') {
-          mensagem = 'Senha incorreta.';
+          _definirErroSenha('Senha incorreta.');
         } else if (e.code == 'invalid-credential') {
-          mensagem =
-              'E-mail ou senha incorretos. Se não tiver conta, cadastre-se.';
-        }
-        if (mounted) {
+          _definirErroSenha(
+            'E-mail ou senha incorretos. Se não tiver conta, cadastre-se.',
+          );
+        } else {
           ScaffoldMessenger.of(context).showSnackBar(
             SnackBar(
-              content: Text(mensagem),
+              content: Text('Erro no login: ${e.message ?? e.code}'),
               backgroundColor: Colors.red,
               behavior: SnackBarBehavior.floating,
             ),
@@ -1066,279 +1095,343 @@ class _LoginScreenState extends State<LoginScreen> {
     );
   }
 
-  @override
-  Widget build(BuildContext context) {
-    return Scaffold(
-      backgroundColor: _fundoTela,
-      appBar: AppBar(
-        title: const Text(
-          'Entrar',
-          style: TextStyle(
-            color: Colors.white,
-            fontWeight: FontWeight.bold,
-            letterSpacing: -0.2,
+  Widget _divisorOu() {
+    return Row(
+      children: [
+        Expanded(child: Divider(color: Colors.grey.shade300)),
+        Padding(
+          padding: const EdgeInsets.symmetric(horizontal: 12),
+          child: Text(
+            'ou',
+            style: TextStyle(
+              color: Colors.grey.shade600,
+              fontSize: 12,
+              fontWeight: FontWeight.w600,
+            ),
           ),
         ),
-        backgroundColor: _diPertinRoxo,
-        elevation: 0,
-        surfaceTintColor: Colors.transparent,
-        iconTheme: const IconThemeData(color: Colors.white),
-        leading: Navigator.canPop(context)
-            ? null
-            : IconButton(
-                icon: const Icon(Icons.arrow_back),
-                tooltip: 'Voltar à vitrine',
-                onPressed: () {
-                  Navigator.of(context).pushReplacementNamed('/home');
-                },
-              ),
+        Expanded(child: Divider(color: Colors.grey.shade300)),
+      ],
+    );
+  }
+
+  Widget _cardFormulario() {
+    final emailPreenchido = (widget.emailPreenchido ?? '').trim().isNotEmpty;
+
+    return Container(
+      decoration: BoxDecoration(
+        color: Colors.white,
+        borderRadius: BorderRadius.circular(16),
+        boxShadow: [
+          BoxShadow(
+            color: _diPertinRoxo.withValues(alpha: 0.07),
+            blurRadius: 24,
+            offset: const Offset(0, 8),
+          ),
+        ],
       ),
-      body: SafeArea(
-        child: SingleChildScrollView(
-          padding: const EdgeInsets.symmetric(horizontal: 20, vertical: 16),
-          child: Column(
-            crossAxisAlignment: CrossAxisAlignment.stretch,
-            children: [
-              const SizedBox(height: 8),
-              Center(
-                child: Image.asset(
-                  'assets/logo.png',
-                  height: 108,
-                  fit: BoxFit.contain,
-                  errorBuilder: (context, error, stackTrace) {
-                    return Icon(
-                      Icons.storefront_rounded,
-                      size: 80,
-                      color: _diPertinRoxo.withValues(alpha: 0.9),
-                    );
-                  },
-                ),
-              ),
-              const SizedBox(height: 12),
-              Text(
-                'Acesse com e-mail ou conta Google',
-                textAlign: TextAlign.center,
-                style: TextStyle(
-                  color: Colors.grey.shade600,
-                  fontSize: 14,
-                  height: 1.35,
-                ),
-              ),
-              const SizedBox(height: 28),
-              TextField(
-                controller: _emailController,
-                keyboardType: TextInputType.emailAddress,
-                decoration: _decorCampo('E-mail', Icons.email_outlined),
-                textInputAction: TextInputAction.next,
-                enabled: !_isLoading,
-              ),
-              const SizedBox(height: 14),
-              TextField(
-                controller: _senhaController,
-                obscureText: _senhaOculta,
-                decoration: _decorCampo('Senha', Icons.lock_outline_rounded).copyWith(
-                  suffixIcon: IconButton(
-                    tooltip: _senhaOculta ? 'Mostrar senha' : 'Ocultar senha',
-                    onPressed: _isLoading
-                        ? null
-                        : () {
-                            setState(() => _senhaOculta = !_senhaOculta);
-                          },
-                    icon: Icon(
-                      _senhaOculta
-                          ? Icons.visibility_outlined
-                          : Icons.visibility_off_outlined,
-                      color: _diPertinRoxo.withValues(alpha: 0.75),
-                      size: 22,
-                    ),
-                  ),
-                ),
-                onSubmitted: (_) => _isLoading ? null : _fazerLogin(),
-                enabled: !_isLoading,
-              ),
-              Align(
-                alignment: Alignment.centerRight,
-                child: TextButton(
+      padding: const EdgeInsets.fromLTRB(20, 22, 20, 20),
+      child: Form(
+        key: _formKey,
+        child: Column(
+          crossAxisAlignment: CrossAxisAlignment.stretch,
+          children: [
+            TextFormField(
+              controller: _emailController,
+              keyboardType: TextInputType.emailAddress,
+              autofillHints: const [AutofillHints.email],
+              textInputAction: TextInputAction.next,
+              enabled: !_isLoading,
+              autofocus: !emailPreenchido,
+              autovalidateMode: AutovalidateMode.onUserInteraction,
+              validator: _validarCampoEmail,
+              onChanged: (_) {
+                if (_erroCampoEmail != null) {
+                  setState(() => _erroCampoEmail = null);
+                  _formKey.currentState?.validate();
+                }
+              },
+              decoration: _decorCampo('E-mail', Icons.email_outlined),
+            ),
+            const SizedBox(height: 14),
+            TextFormField(
+              controller: _senhaController,
+              obscureText: _senhaOculta,
+              autofillHints: const [AutofillHints.password],
+              textInputAction: TextInputAction.done,
+              enabled: !_isLoading,
+              autofocus: emailPreenchido,
+              autovalidateMode: AutovalidateMode.onUserInteraction,
+              validator: _validarCampoSenha,
+              onChanged: (_) {
+                if (_erroCampoSenha != null) {
+                  setState(() => _erroCampoSenha = null);
+                  _formKey.currentState?.validate();
+                }
+              },
+              onFieldSubmitted: (_) => _isLoading ? null : _fazerLogin(),
+              decoration: _decorCampo('Senha', Icons.lock_outline_rounded)
+                  .copyWith(
+                suffixIcon: IconButton(
+                  tooltip: _senhaOculta ? 'Mostrar senha' : 'Ocultar senha',
                   onPressed: _isLoading
                       ? null
-                      : () {
-                          Navigator.push(
-                            context,
-                            MaterialPageRoute(
-                              builder: (context) => const RecuperarSenhaScreen(),
-                            ),
-                          );
-                        },
-                  child: const Text(
-                    'Esqueci minha senha',
-                    style: TextStyle(
-                      color: _diPertinRoxo,
-                      fontWeight: FontWeight.w600,
-                    ),
+                      : () => setState(() => _senhaOculta = !_senhaOculta),
+                  icon: Icon(
+                    _senhaOculta
+                        ? Icons.visibility_outlined
+                        : Icons.visibility_off_outlined,
+                    color: _diPertinRoxo.withValues(alpha: 0.75),
+                    size: 22,
                   ),
                 ),
               ),
-              const SizedBox(height: 8),
-              FilledButton(
-                onPressed: _isLoading ? null : _fazerLogin,
-                style: FilledButton.styleFrom(
-                  backgroundColor: _diPertinLaranja,
-                  foregroundColor: Colors.white,
-                  disabledBackgroundColor: _diPertinLaranja.withValues(alpha: 0.5),
-                  minimumSize: const Size(double.infinity, 52),
-                  shape: RoundedRectangleBorder(
-                    borderRadius: BorderRadius.circular(14),
-                  ),
+            ),
+            Align(
+              alignment: Alignment.centerRight,
+              child: TextButton(
+                style: TextButton.styleFrom(
+                  minimumSize: const Size(48, 44),
+                  padding: const EdgeInsets.symmetric(horizontal: 8),
                 ),
-                child: _isLoading
-                    ? const SizedBox(
-                        width: 22,
-                        height: 22,
-                        child: CircularProgressIndicator(
-                          color: Colors.white,
-                          strokeWidth: 2.5,
-                        ),
-                      )
-                    : const Text(
-                        'Entrar',
-                        style: TextStyle(
-                          fontSize: 16,
-                          fontWeight: FontWeight.w800,
-                          letterSpacing: -0.2,
-                        ),
-                      ),
-              ),
-              if (_biometriaDisponivelParaLogin) ...[
-                const SizedBox(height: 14),
-                _botaoAcessarPorDigital(),
-              ],
-              const SizedBox(height: 22),
-              Row(
-                children: [
-                  Expanded(child: Divider(color: Colors.grey.shade300)),
-                  Padding(
-                    padding: const EdgeInsets.symmetric(horizontal: 12),
-                    child: Text(
-                      'ou',
-                      style: TextStyle(
-                        color: Colors.grey.shade600,
-                        fontSize: 12,
-                        fontWeight: FontWeight.w600,
-                      ),
-                    ),
-                  ),
-                  Expanded(child: Divider(color: Colors.grey.shade300)),
-                ],
-              ),
-              const SizedBox(height: 22),
-              OutlinedButton(
-                onPressed: _isLoading ? null : _entrarComGoogle,
-                style: OutlinedButton.styleFrom(
-                  foregroundColor: const Color(0xFF1A1A2E),
-                  padding: const EdgeInsets.symmetric(vertical: 14),
-                  side: BorderSide(color: Colors.grey.shade300),
-                  shape: RoundedRectangleBorder(
-                    borderRadius: BorderRadius.circular(12),
-                  ),
-                ),
-                child: Row(
-                  mainAxisAlignment: MainAxisAlignment.center,
-                  children: [
-                    _iconeGoogle(),
-                    const SizedBox(width: 12),
-                    const Text(
-                      'Entrar com o Google',
-                      style: TextStyle(
-                        fontWeight: FontWeight.w700,
-                        fontSize: 15,
-                      ),
-                    ),
-                  ],
-                ),
-              ),
-              const SizedBox(height: 12),
-              TextButton(
                 onPressed: _isLoading
                     ? null
                     : () {
                         Navigator.push(
                           context,
                           MaterialPageRoute(
-                            builder: (context) => const RegisterScreen(),
+                            builder: (context) =>
+                                const RecuperarSenhaScreen(),
                           ),
                         );
                       },
                 child: const Text(
-                  'Não tem conta? Cadastre-se',
+                  'Esqueci minha senha',
                   style: TextStyle(
                     color: _diPertinRoxo,
-                    fontWeight: FontWeight.w700,
-                    fontSize: 15,
+                    fontWeight: FontWeight.w600,
                   ),
                 ),
               ),
-              const SizedBox(height: 24),
-              StreamBuilder<DocumentSnapshot>(
-                stream: FirebaseFirestore.instance
-                    .collection('configuracoes')
-                    .doc('status_app')
-                    .snapshots(),
-                builder: (context, snapshot) {
-                  var estavel = true;
-                  if (snapshot.hasData && snapshot.data!.exists) {
-                    final dados = snapshot.data!.data() as Map<String, dynamic>?;
-                    estavel = dados?['estavel'] ?? true;
-                  }
-
-                  return Column(
-                    children: [
-                      Row(
-                        mainAxisAlignment: MainAxisAlignment.center,
-                        children: [
-                          Icon(
-                            estavel
-                                ? Icons.check_circle_outline_rounded
-                                : Icons.warning_amber_rounded,
-                            size: 18,
-                            color: estavel
-                                ? Colors.green.shade700
-                                : Colors.amber.shade800,
-                          ),
-                          const SizedBox(width: 8),
-                          Flexible(
-                            child: Text(
-                              estavel
-                                  ? 'Aplicativo operando normalmente.'
-                                  : 'Aplicativo instável no momento.',
-                              textAlign: TextAlign.center,
-                              style: TextStyle(
-                                color: estavel
-                                    ? Colors.green.shade700
-                                    : Colors.amber.shade800,
-                                fontSize: 12,
-                                fontWeight: FontWeight.w600,
-                              ),
-                            ),
-                          ),
-                        ],
+            ),
+            const SizedBox(height: 4),
+            FilledButton(
+              onPressed: _isLoading ? null : _fazerLogin,
+              style: FilledButton.styleFrom(
+                backgroundColor: _diPertinLaranja,
+                foregroundColor: Colors.white,
+                disabledBackgroundColor:
+                    _diPertinLaranja.withValues(alpha: 0.5),
+                minimumSize: const Size(double.infinity, 52),
+                shape: RoundedRectangleBorder(
+                  borderRadius: BorderRadius.circular(14),
+                ),
+              ),
+              child: _isLoading
+                  ? const SizedBox(
+                      width: 22,
+                      height: 22,
+                      child: CircularProgressIndicator(
+                        color: Colors.white,
+                        strokeWidth: 2.5,
                       ),
-                      const SizedBox(height: 8),
-                      Text(
-                        'DiPertin v1.0.0',
-                        textAlign: TextAlign.center,
+                    )
+                  : const Text(
+                      'Entrar',
+                      style: TextStyle(
+                        fontSize: 16,
+                        fontWeight: FontWeight.w800,
+                        letterSpacing: -0.2,
+                      ),
+                    ),
+            ),
+            if (_biometriaDisponivelParaLogin) ...[
+              const SizedBox(height: 14),
+              _botaoAcessarPorDigital(),
+            ],
+          ],
+        ),
+      ),
+    );
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    final podeVoltar = Navigator.canPop(context);
+    final subtitulo = _biometriaDisponivelParaLogin
+        ? 'Use e-mail, Google ou sua digital'
+        : 'Peça das lojas da sua cidade';
+
+    return PopScope(
+      canPop: podeVoltar,
+      onPopInvokedWithResult: (didPop, result) {
+        if (didPop || podeVoltar) return;
+        Navigator.of(context).pushReplacementNamed('/home');
+      },
+      child: Scaffold(
+        resizeToAvoidBottomInset: true,
+        backgroundColor: _fundoTela,
+        appBar: AppBar(
+          title: const SizedBox.shrink(),
+          backgroundColor: _diPertinRoxo,
+          elevation: 0,
+          surfaceTintColor: Colors.transparent,
+          iconTheme: const IconThemeData(color: Colors.white),
+          leading: podeVoltar
+              ? null
+              : IconButton(
+                  icon: const Icon(Icons.arrow_back),
+                  tooltip: 'Voltar à vitrine',
+                  onPressed: () {
+                    Navigator.of(context).pushReplacementNamed('/home');
+                  },
+                ),
+        ),
+        body: DiPertinScrollBody(
+          padding: const EdgeInsets.fromLTRB(20, 12, 20, 20),
+          child: AnimatedOpacity(
+            opacity: _entradaAnimada ? 1 : 0,
+            duration: const Duration(milliseconds: 220),
+            curve: Curves.easeOut,
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.stretch,
+              children: [
+                Center(
+                  child: Image.asset(
+                    'assets/logo.png',
+                    height: 96,
+                    fit: BoxFit.contain,
+                    errorBuilder: (context, error, stackTrace) {
+                      return Icon(
+                        Icons.storefront_rounded,
+                        size: 72,
+                        color: _diPertinRoxo.withValues(alpha: 0.9),
+                      );
+                    },
+                  ),
+                ),
+                const SizedBox(height: 16),
+                const Text(
+                  'Entrar na sua conta',
+                  textAlign: TextAlign.center,
+                  style: TextStyle(
+                    color: _textoPrimario,
+                    fontSize: 22,
+                    fontWeight: FontWeight.w800,
+                    letterSpacing: -0.5,
+                    height: 1.15,
+                  ),
+                ),
+                const SizedBox(height: 8),
+                Text(
+                  subtitulo,
+                  textAlign: TextAlign.center,
+                  style: const TextStyle(
+                    color: _textoMuted,
+                    fontSize: 14.5,
+                    height: 1.4,
+                  ),
+                ),
+                const SizedBox(height: 24),
+                _cardFormulario(),
+                const SizedBox(height: 22),
+                _divisorOu(),
+                const SizedBox(height: 22),
+                OutlinedButton(
+                  onPressed: _isLoading ? null : _entrarComGoogle,
+                  style: OutlinedButton.styleFrom(
+                    foregroundColor: _textoPrimario,
+                    backgroundColor: Colors.white,
+                    minimumSize: const Size(double.infinity, 52),
+                    padding: const EdgeInsets.symmetric(vertical: 14),
+                    side: BorderSide(color: Colors.grey.shade300),
+                    shape: RoundedRectangleBorder(
+                      borderRadius: BorderRadius.circular(14),
+                    ),
+                  ),
+                  child: Row(
+                    mainAxisAlignment: MainAxisAlignment.center,
+                    children: [
+                      _iconeGoogle(),
+                      const SizedBox(width: 12),
+                      const Text(
+                        'Continuar com o Google',
                         style: TextStyle(
-                          color: Colors.grey.shade400,
-                          fontSize: 11,
+                          fontWeight: FontWeight.w700,
+                          fontSize: 15,
                         ),
                       ),
                     ],
-                  );
-                },
-              ),
-            ],
+                  ),
+                ),
+                const SizedBox(height: 8),
+                TextButton(
+                  style: TextButton.styleFrom(
+                    minimumSize: const Size(double.infinity, 48),
+                  ),
+                  onPressed: _isLoading
+                      ? null
+                      : () {
+                          Navigator.push(
+                            context,
+                            MaterialPageRoute(
+                              builder: (context) => const RegisterScreen(),
+                            ),
+                          );
+                        },
+                  child: const Text(
+                    'Criar conta gratuita',
+                    style: TextStyle(
+                      color: _diPertinRoxo,
+                      fontWeight: FontWeight.w700,
+                      fontSize: 15,
+                    ),
+                  ),
+                ),
+                const SizedBox(height: 20),
+                const DiPertinVersaoRodape(),
+              ],
+            ),
           ),
         ),
       ),
     );
   }
+}
+
+/// Marca Google multicolorida (sem asset).
+class _GoogleLogoPainter extends CustomPainter {
+  const _GoogleLogoPainter();
+
+  @override
+  void paint(Canvas canvas, Size size) {
+    final w = size.width;
+    final h = size.height;
+    final rect = Rect.fromLTWH(0, 0, w, h);
+    final stroke = w * 0.36;
+    final arco = Paint()
+      ..style = PaintingStyle.stroke
+      ..strokeWidth = stroke
+      ..strokeCap = StrokeCap.butt;
+
+    arco.color = const Color(0xFFEA4335);
+    canvas.drawArc(rect, 3.45, 1.9, false, arco);
+    arco.color = const Color(0xFFFBBC05);
+    canvas.drawArc(rect, 5.35, 1.35, false, arco);
+    arco.color = const Color(0xFF34A853);
+    canvas.drawArc(rect, 0.85, 1.4, false, arco);
+    arco.color = const Color(0xFF4285F4);
+    canvas.drawArc(rect, -1.2, 2.1, false, arco);
+
+    final barra = Paint()
+      ..color = const Color(0xFF4285F4)
+      ..style = PaintingStyle.fill;
+    canvas.drawRect(
+      Rect.fromLTWH(w * 0.48, h * 0.42, w * 0.44, stroke * 0.82),
+      barra,
+    );
+  }
+
+  @override
+  bool shouldRepaint(covariant CustomPainter oldDelegate) => false;
 }

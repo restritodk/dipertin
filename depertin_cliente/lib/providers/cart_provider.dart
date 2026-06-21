@@ -58,6 +58,15 @@ class CartProvider with ChangeNotifier {
     await _saveCart();
   }
 
+  /// Remove da sacola itens de pronta-entrega das lojas informadas.
+  Future<void> removerItensDasLojas(Iterable<String> lojaIds) async {
+    final ids = lojaIds.map((e) => e.trim()).where((e) => e.isNotEmpty).toSet();
+    if (ids.isEmpty) return;
+    _items.removeWhere((i) => !i.ehEncomenda && ids.contains(i.lojaId.trim()));
+    notifyListeners();
+    await _saveCart();
+  }
+
   // ==========================================
   // LÓGICA DE SALVAR NO CELULAR (MAGIA AQUI)
   // ==========================================

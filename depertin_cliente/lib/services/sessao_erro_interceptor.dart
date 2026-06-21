@@ -1,50 +1,68 @@
-import 'package:cloud_firestore/cloud_firestore.dart';
 import 'package:firebase_auth/firebase_auth.dart';
 import 'package:flutter/material.dart';
 
+import '../app_navigator_key.dart';
 import '../screens/auth/login_screen.dart';
 import 'sessao_timeout_service.dart';
 
-/// Intercepta erros de Firestore que indicam que a sessão expirou.
+/// Mensagem padrão (texto profissional, sem jargão técnico do Firebase).
+const String kMensagemSessaoExpirada =
+    'Por motivo de segurança, sua sessão expirou. '
+    'Faça login novamente para continuar usando sua conta.';
+
+/// Intercepta erros de Firestore/Auth que indicam que a sessão expirou.
 ///
-/// Quando o Firebase Auth token expira (após 24h), o Firestore retorna
-/// `permission-denied`. Este serviço detecta isso e faz logout graciosamente,
-/// mostrando um modal elegante ao invés de deixar a tela branca de erro.
+/// Quando o Firebase Auth token expira/é revogado, o Firestore passa a
+/// retornar `permission-denied` (ou `unauthenticated`). Este serviço detecta
+/// isso e faz logout graciosamente, mostrando um modal profissional ao invés
+/// de deixar o erro técnico cru na tela.
+///
+/// Funciona globalmente via [navigatorKey], então pode ser acionado de
+/// qualquer ponto (guard, builders de stream, catch de chamadas), sem
+/// depender do [BuildContext] da tela atual.
 class SessaoErroInterceptor {
   SessaoErroInterceptor._();
 
   static bool _jaProcessandoErro = false;
 
-  /// Checa se o erro é `permission-denied` (típico de token expirado)
-  /// e faz o logout gracioso com modal.
-  static bool podeInterceptarErro(Object erro) {
+  /// `true` enquanto o fluxo de sessão expirada está em andamento — usado por
+  /// builders para evitar mostrar erro cru e evitar loop de re-disparo.
+  static bool get processando => _jaProcessandoErro;
+
+  /// Checa se um erro qualquer indica sessão expirada (token expirado/revogado,
+  /// usuário sem permissão por falta de autenticação válida).
+  static bool ehErroSessaoExpirada(Object? erro) {
     if (erro is FirebaseException) {
-      return erro.code.toLowerCase() == 'permission-denied';
+      final codigo = erro.code.toLowerCase();
+      return codigo == 'permission-denied' || codigo == 'unauthenticated';
+    }
+    if (erro is FirebaseAuthException) {
+      final codigo = erro.code.toLowerCase();
+      return codigo == 'user-token-expired' ||
+          codigo == 'invalid-user-token' ||
+          codigo == 'user-disabled' ||
+          codigo == 'user-not-found';
     }
     return false;
   }
 
+  /// Compatibilidade: mantém o nome antigo usado em chamadas existentes.
+  static bool podeInterceptarErro(Object erro) => ehErroSessaoExpirada(erro);
+
   /// Processa o erro de sessão expirada de forma elegante.
-  /// Chame isso ao capturar um erro de Firestore que passou em [podeInterceptarErro].
+  ///
+  /// [context] é opcional: se ausente/desmontado, usa o [navigatorKey] global.
+  /// O fluxo só roda uma vez por expiração (trava [_jaProcessandoErro]).
   static Future<void> processarErroSessaoExpirada(
-    BuildContext context, {
-    String mensagem = 'Sua sessão expirou por segurança.',
+    BuildContext? context, {
+    String mensagem = kMensagemSessaoExpirada,
   }) async {
     if (_jaProcessandoErro) return;
     _jaProcessandoErro = true;
 
     try {
-      // Valida se realmente a sessão expirou
-      final user = FirebaseAuth.instance.currentUser;
-      if (user != null) {
-        try {
-          await user.reload();
-        } catch (_) {
-          // Se reload falha, provavelmente o token é inválido
-        }
-      }
-
-      // Faz logout
+      // Encerra a sessão localmente antes de qualquer UI (evita novos
+      // listeners dispararem mais permission-denied).
       try {
         await FirebaseAuth.instance.signOut();
       } catch (_) {}
@@ -53,14 +71,19 @@ class SessaoErroInterceptor {
         await SessaoTimeoutService.limparSessao();
       } catch (_) {}
 
-      if (!context.mounted) return;
+      final ctx = (context != null && context.mounted)
+          ? context
+          : navigatorKey.currentContext;
+      if (ctx == null || !ctx.mounted) return;
 
-      // Mostra modal elegante
-      await _mostrarModalSessaoExpirada(context, mensagem);
+      // Mostra modal profissional.
+      await _mostrarModalSessaoExpirada(ctx, mensagem);
 
-      // Redireciona para login
-      if (context.mounted) {
-        Navigator.of(context, rootNavigator: true).pushAndRemoveUntil(
+      // Redireciona para login (biometria/digital aparece sozinha no
+      // LoginScreen quando há vínculo; senão login normal por e-mail/senha).
+      final navCtx = ctx.mounted ? ctx : navigatorKey.currentContext;
+      if (navCtx != null && navCtx.mounted) {
+        Navigator.of(navCtx, rootNavigator: true).pushAndRemoveUntil(
           MaterialPageRoute<void>(builder: (_) => const LoginScreen()),
           (route) => false,
         );
@@ -77,6 +100,7 @@ class SessaoErroInterceptor {
     return showDialog<void>(
       context: context,
       barrierDismissible: false,
+      useRootNavigator: true,
       builder: (_) => _ModalSessaoExpirada(mensagem: mensagem),
     );
   }
@@ -186,7 +210,7 @@ class _ModalSessaoExpiradaState extends State<_ModalSessaoExpirada>
 
                 // Título
                 const Text(
-                  'Sessão Expirada',
+                  'Sessão expirada',
                   textAlign: TextAlign.center,
                   style: TextStyle(
                     fontSize: 22,
@@ -206,19 +230,6 @@ class _ModalSessaoExpiradaState extends State<_ModalSessaoExpirada>
                     height: 1.5,
                     color: Colors.grey.shade600,
                     fontWeight: FontWeight.w500,
-                  ),
-                ),
-                const SizedBox(height: 8),
-
-                // Motivo (texto secundário)
-                Text(
-                  'Por sua segurança, reautentique com seu email e senha.',
-                  textAlign: TextAlign.center,
-                  style: TextStyle(
-                    fontSize: 12,
-                    height: 1.4,
-                    color: Colors.grey.shade500,
-                    fontStyle: FontStyle.italic,
                   ),
                 ),
                 const SizedBox(height: 32),
@@ -251,7 +262,7 @@ class _ModalSessaoExpiradaState extends State<_ModalSessaoExpirada>
                         borderRadius: BorderRadius.circular(14),
                         child: const Center(
                           child: Text(
-                            'Fazer Login Novamente',
+                            'Fazer login novamente',
                             style: TextStyle(
                               color: Colors.white,
                               fontSize: 16,

@@ -30,6 +30,16 @@ class AndroidNavIntent {
 
   // ── navegação pendente ─────────────────────────────────────────────
 
+  /// Força botões voltar/home/recentes visíveis (complementa [SystemChrome] no Dart).
+  static Future<void> exibirBarraNavegacaoSistema() async {
+    if (_skip) return;
+    try {
+      await _ch.invokeMethod<void>('exibirBarraNavegacaoSistema');
+    } catch (e) {
+      debugPrint('[AndroidNavIntent.exibirBarraNavegacaoSistema] $e');
+    }
+  }
+
   static Future<Map<String, dynamic>?> consumePendingNav() async {
     if (_skip) return null;
     try {

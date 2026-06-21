@@ -6,13 +6,16 @@ import 'package:firebase_auth/firebase_auth.dart';
 import 'package:flutter/foundation.dart' show kIsWeb;
 import 'package:flutter/material.dart';
 import 'package:google_fonts/google_fonts.dart';
+import 'package:shimmer/shimmer.dart';
 import 'package:url_launcher/url_launcher.dart';
 
 import '../constants/conta_bloqueio_lojista.dart';
 import '../constants/lojista_motivo_recusa.dart';
+import '../services/sessao_painel_service.dart';
 import '../theme/painel_admin_theme.dart';
 import '../utils/admin_perfil.dart';
 import '../utils/conta_bloqueio_lojista.dart';
+import '../utils/firestore_web_safe.dart';
 import '../widgets/lojista_editar_modal.dart';
 import '../widgets/pdf_preview_iframe.dart';
 
@@ -37,6 +40,8 @@ const _kStatus = <String, _StatusVisual>{
 
 enum _MaisAcoesLoja { documentos, editar, planoTaxa, bloquear }
 
+enum _OrdenacaoLojas { nomeAsc, nomeDesc, cidadeAsc }
+
 class LojasScreen extends StatefulWidget {
   const LojasScreen({super.key});
 
@@ -44,8 +49,7 @@ class LojasScreen extends StatefulWidget {
   State<LojasScreen> createState() => _LojasScreenState();
 }
 
-class _LojasScreenState extends State<LojasScreen>
-    with SingleTickerProviderStateMixin {
+class _LojasScreenState extends State<LojasScreen> {
   String _tipoUsuarioLogado = 'master';
   List<String> _cidadesDoGerente = [];
   /// Termo aplicado ao filtro (atualizado com debounce para não reconstruir a tela a cada tecla).
@@ -66,22 +70,71 @@ class _LojasScreenState extends State<LojasScreen>
 
   static const _statusTabs = ['pendente', 'aprovada', 'bloqueada'];
 
-  late final TabController _tabController;
+  /// Aba ativa (0=Pendentes, 1=Aprovadas, 2=Bloqueadas).
+  int _indiceAba = 0;
+  final Map<String, int?> _contagemPorStatus = {
+    'pendente': null,
+    'aprovada': null,
+    'bloqueada': null,
+  };
+  final List<StreamSubscription<QuerySnapshot>> _subsContagem = [];
+
+  _OrdenacaoLojas _ordenacao = _OrdenacaoLojas.nomeAsc;
 
   @override
   void initState() {
     super.initState();
     _campoBuscaController = TextEditingController();
-    _tabController = TabController(length: _statusTabs.length, vsync: this);
+    WidgetsBinding.instance.addPostFrameCallback((_) {
+      if (!mounted) return;
+      _reiniciarStreamsContagem();
+    });
     _buscarDadosDoGestor();
   }
 
   @override
   void dispose() {
     _debounceBusca?.cancel();
+    for (final sub in _subsContagem) {
+      sub.cancel();
+    }
+    _subsContagem.clear();
     _campoBuscaController.dispose();
-    _tabController.dispose();
     super.dispose();
+  }
+
+  void _reiniciarStreamsContagem() {
+    for (final sub in _subsContagem) {
+      sub.cancel();
+    }
+    _subsContagem.clear();
+    for (final status in _statusTabs) {
+      final sub = _queryPorStatus(status).snapshots().listen(
+        (snap) {
+          if (!mounted) return;
+          final docs = snap.docs;
+          final count = docs.length;
+          if (_contagemPorStatus[status] != count) {
+            setState(() => _contagemPorStatus[status] = count);
+          }
+        },
+        onError: (_) {},
+      );
+      _subsContagem.add(sub);
+    }
+  }
+
+  void _irParaAba(int indice) {
+    if (indice < 0 || indice >= _statusTabs.length) return;
+    if (_indiceAba == indice) return;
+    setState(() => _indiceAba = indice);
+  }
+
+  void _limparBusca() {
+    _campoBuscaController.clear();
+    _debounceBusca?.cancel();
+    _aplicarBuscaDoCampo();
+    setState(() {});
   }
 
   void _agendarAtualizacaoBusca() {
@@ -128,6 +181,7 @@ class _LojasScreenState extends State<LojasScreen>
             _cidadesDoGerente = [];
           }
         });
+        _reiniciarStreamsContagem();
       }
     } catch (e) {
       debugPrint('Erro ao carregar permissão: $e');
@@ -269,12 +323,7 @@ class _LojasScreenState extends State<LojasScreen>
         children: [
           _buildHeader(),
           Expanded(
-            child: TabBarView(
-              controller: _tabController,
-              children: [
-                for (final s in _statusTabs) _buildListaLojas(s),
-              ],
-            ),
+            child: _buildListaLojas(_statusTabs[_indiceAba]),
           ),
         ],
       ),
@@ -285,100 +334,421 @@ class _LojasScreenState extends State<LojasScreen>
 
   Widget _buildHeader() {
     return Container(
-      decoration: const BoxDecoration(
-        color: Colors.white,
-        border: Border(bottom: BorderSide(color: Color(0xFFE2E8F0))),
-      ),
-      child: Padding(
-        padding: const EdgeInsets.fromLTRB(32, 28, 32, 0),
-        child: Column(
-          crossAxisAlignment: CrossAxisAlignment.start,
-          children: [
-            Row(
-              children: [
-                Container(
-                  padding: const EdgeInsets.all(12),
-                  decoration: BoxDecoration(
-                    color: PainelAdminTheme.roxo.withValues(alpha: 0.08),
-                    borderRadius: BorderRadius.circular(14),
-                  ),
-                  child: Icon(Icons.storefront_rounded,
-                      color: PainelAdminTheme.roxo, size: 28),
-                ),
-                const SizedBox(width: 18),
-                Expanded(
-                  child: Column(
-                    crossAxisAlignment: CrossAxisAlignment.start,
+      color: PainelAdminTheme.fundoCanvas,
+      padding: const EdgeInsets.fromLTRB(28, 24, 28, 16),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.stretch,
+        children: [
+          Container(
+            padding: const EdgeInsets.fromLTRB(24, 22, 24, 20),
+            decoration: BoxDecoration(
+              borderRadius: BorderRadius.circular(20),
+              border: Border.all(color: PainelAdminTheme.dashboardBorder),
+              gradient: LinearGradient(
+                begin: Alignment.topLeft,
+                end: Alignment.bottomRight,
+                colors: [
+                  Colors.white,
+                  PainelAdminTheme.roxo.withValues(alpha: 0.04),
+                ],
+              ),
+              boxShadow: PainelAdminTheme.sombraCardSuave(),
+            ),
+            child: LayoutBuilder(
+              builder: (context, constraints) {
+                final estreito = constraints.maxWidth < 900;
+                final tituloCol = Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    Row(
+                      crossAxisAlignment: CrossAxisAlignment.start,
+                      children: [
+                        Container(
+                          width: 48,
+                          height: 48,
+                          decoration: BoxDecoration(
+                            gradient: LinearGradient(
+                              colors: [
+                                PainelAdminTheme.roxo,
+                                PainelAdminTheme.roxo
+                                    .withValues(alpha: 0.75),
+                              ],
+                            ),
+                            borderRadius: BorderRadius.circular(14),
+                          ),
+                          child: const Icon(
+                            Icons.storefront_rounded,
+                            color: Colors.white,
+                            size: 26,
+                          ),
+                        ),
+                        const SizedBox(width: 16),
+                        Expanded(
+                          child: Column(
+                            crossAxisAlignment: CrossAxisAlignment.start,
+                            children: [
+                              Text(
+                                'Gestão de Lojas',
+                                style: GoogleFonts.plusJakartaSans(
+                                  fontSize: 22,
+                                  fontWeight: FontWeight.w800,
+                                  color: PainelAdminTheme.dashboardInk,
+                                  letterSpacing: -0.5,
+                                ),
+                              ),
+                              const SizedBox(height: 4),
+                              Text(
+                                'Aprove parceiros e defina os planos de comissão.',
+                                style: GoogleFonts.plusJakartaSans(
+                                  fontSize: 14,
+                                  color: PainelAdminTheme.textoSecundario,
+                                  height: 1.45,
+                                ),
+                              ),
+                            ],
+                          ),
+                        ),
+                      ],
+                    ),
+                    const SizedBox(height: 16),
+                    Wrap(
+                      spacing: 10,
+                      runSpacing: 10,
+                      children: [
+                        for (var i = 0; i < _statusTabs.length; i++)
+                          _chipKpiLoja(
+                            status: _statusTabs[i],
+                            indice: i,
+                            selecionado: _indiceAba == i,
+                          ),
+                      ],
+                    ),
+                  ],
+                );
+
+                if (estreito) {
+                  return Column(
+                    crossAxisAlignment: CrossAxisAlignment.stretch,
                     children: [
-                      Text('Gestão de Lojas',
-                          style: GoogleFonts.plusJakartaSans(
-                              fontSize: 24,
-                              fontWeight: FontWeight.w800,
-                              color: PainelAdminTheme.dashboardInk,
-                              letterSpacing: -0.5)),
-                      const SizedBox(height: 4),
-                      Text(
-                          'Aprove parceiros e defina os planos de comissão.',
-                          style: GoogleFonts.plusJakartaSans(
-                              fontSize: 14,
-                              color: PainelAdminTheme.textoSecundario,
-                              height: 1.4)),
+                      tituloCol,
+                      const SizedBox(height: 16),
+                      _buildCampoBusca(larguraTotal: true),
                     ],
+                  );
+                }
+
+                return Row(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    Expanded(child: tituloCol),
+                    const SizedBox(width: 20),
+                    SizedBox(
+                      width: 380,
+                      child: _buildCampoBusca(larguraTotal: true),
+                    ),
+                  ],
+                );
+              },
+            ),
+          ),
+          const SizedBox(height: 14),
+          LayoutBuilder(
+            builder: (context, constraints) {
+              if (constraints.maxWidth < 720) {
+                return Column(
+                  crossAxisAlignment: CrossAxisAlignment.stretch,
+                  children: [
+                    _buildAbasSegmentadas(),
+                    const SizedBox(height: 10),
+                    Align(
+                      alignment: Alignment.centerRight,
+                      child: _buildSeletorOrdenacao(),
+                    ),
+                  ],
+                );
+              }
+              return Row(
+                children: [
+                  Expanded(child: _buildAbasSegmentadas()),
+                  const SizedBox(width: 12),
+                  _buildSeletorOrdenacao(),
+                ],
+              );
+            },
+          ),
+        ],
+      ),
+    );
+  }
+
+  Widget _chipKpiLoja({
+    required String status,
+    required int indice,
+    required bool selecionado,
+  }) {
+    final info = _kStatus[status]!;
+    final count = _contagemPorStatus[status];
+    final valor = count == null ? '…' : count.toString();
+
+    return Material(
+      color: Colors.transparent,
+        child: InkWell(
+        onTap: () => _irParaAba(indice),
+        borderRadius: BorderRadius.circular(12),
+        child: Container(
+          padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 9),
+          decoration: BoxDecoration(
+            color: selecionado
+                ? info.color.withValues(alpha: 0.14)
+                : info.color.withValues(alpha: 0.08),
+            borderRadius: BorderRadius.circular(12),
+            border: Border.all(
+              color: selecionado
+                  ? info.color.withValues(alpha: 0.45)
+                  : info.color.withValues(alpha: 0.2),
+              width: selecionado ? 1.5 : 1,
+            ),
+          ),
+          child: Row(
+            mainAxisSize: MainAxisSize.min,
+            children: [
+              Icon(info.icon, size: 16, color: info.color),
+              const SizedBox(width: 8),
+              Text(
+                '${info.label}: ',
+                style: GoogleFonts.plusJakartaSans(
+                  fontSize: 12,
+                  fontWeight: FontWeight.w600,
+                  color: PainelAdminTheme.textoSecundario,
+                ),
+              ),
+              Text(
+                valor,
+                style: GoogleFonts.plusJakartaSans(
+                  fontSize: 12.5,
+                  fontWeight: FontWeight.w800,
+                  color: info.color,
+                ),
+              ),
+            ],
+          ),
+        ),
+      ),
+    );
+  }
+
+  Widget _buildCampoBusca({required bool larguraTotal}) {
+    final temTexto = _campoBuscaController.text.isNotEmpty;
+    return SizedBox(
+      height: 44,
+      width: larguraTotal ? double.infinity : 380,
+      child: TextField(
+        controller: _campoBuscaController,
+        onChanged: (_) {
+          setState(() {});
+          _agendarAtualizacaoBusca();
+        },
+        onSubmitted: (_) {
+          _debounceBusca?.cancel();
+          _aplicarBuscaDoCampo();
+        },
+        style: GoogleFonts.plusJakartaSans(fontSize: 14),
+        decoration: InputDecoration(
+          hintText: 'Buscar por loja, responsável ou cidade…',
+          hintStyle: GoogleFonts.plusJakartaSans(
+            fontSize: 13,
+            color: PainelAdminTheme.textoSecundario,
+          ),
+          prefixIcon: Icon(
+            Icons.search_rounded,
+            size: 20,
+            color: PainelAdminTheme.textoSecundario,
+          ),
+          suffixIcon: temTexto
+              ? IconButton(
+                  tooltip: 'Limpar busca',
+                  onPressed: _limparBusca,
+                  icon: Icon(
+                    Icons.close_rounded,
+                    size: 18,
+                    color: PainelAdminTheme.textoSecundario,
+                  ),
+                )
+              : null,
+          filled: true,
+          fillColor: const Color(0xFFF8FAFC),
+          contentPadding: EdgeInsets.zero,
+          border: OutlineInputBorder(
+            borderRadius: BorderRadius.circular(12),
+            borderSide: const BorderSide(color: Color(0xFFE2E8F0)),
+          ),
+          enabledBorder: OutlineInputBorder(
+            borderRadius: BorderRadius.circular(12),
+            borderSide: const BorderSide(color: Color(0xFFE2E8F0)),
+          ),
+          focusedBorder: OutlineInputBorder(
+            borderRadius: BorderRadius.circular(12),
+            borderSide: BorderSide(
+              color: PainelAdminTheme.roxo,
+              width: 1.5,
+            ),
+          ),
+        ),
+      ),
+    );
+  }
+
+  Widget _buildAbasSegmentadas() {
+    return Container(
+      padding: const EdgeInsets.all(4),
+      decoration: BoxDecoration(
+        color: const Color(0xFFF1F5F9),
+        borderRadius: BorderRadius.circular(14),
+        border: Border.all(color: const Color(0xFFE2E8F0)),
+      ),
+      child: Row(
+        children: [
+          for (var i = 0; i < _statusTabs.length; i++)
+            Expanded(
+              child: _buildAbaSegmentada(_statusTabs[i], i),
+            ),
+        ],
+      ),
+    );
+  }
+
+  Widget _buildAbaSegmentada(String status, int indice) {
+    final info = _kStatus[status]!;
+    final ativa = _indiceAba == indice;
+    final count = _contagemPorStatus[status];
+
+    return Material(
+      color: Colors.transparent,
+      child: InkWell(
+        onTap: () => _irParaAba(indice),
+        borderRadius: BorderRadius.circular(10),
+        child: AnimatedContainer(
+          duration: const Duration(milliseconds: 200),
+          curve: Curves.easeOut,
+          padding: const EdgeInsets.symmetric(vertical: 10, horizontal: 8),
+          decoration: BoxDecoration(
+            color: ativa ? Colors.white : Colors.transparent,
+            borderRadius: BorderRadius.circular(10),
+            boxShadow: ativa
+                ? [
+                    BoxShadow(
+                      color: Colors.black.withValues(alpha: 0.06),
+                      blurRadius: 8,
+                      offset: const Offset(0, 2),
+                    ),
+                  ]
+                : null,
+            border: ativa
+                ? Border.all(
+                    color: PainelAdminTheme.laranja.withValues(alpha: 0.35),
+                  )
+                : null,
+          ),
+          child: Row(
+            mainAxisAlignment: MainAxisAlignment.center,
+            children: [
+              Icon(
+                info.icon,
+                size: 17,
+                color: ativa ? info.color : PainelAdminTheme.textoSecundario,
+              ),
+              const SizedBox(width: 6),
+              Flexible(
+                child: Text(
+                  info.label,
+                  overflow: TextOverflow.ellipsis,
+                  maxLines: 1,
+                  style: GoogleFonts.plusJakartaSans(
+                    fontSize: 12.5,
+                    fontWeight: ativa ? FontWeight.w800 : FontWeight.w600,
+                    color: ativa
+                        ? PainelAdminTheme.dashboardInk
+                        : PainelAdminTheme.textoSecundario,
                   ),
                 ),
-                SizedBox(
-                  width: 260,
-                  height: 42,
-                  child: TextField(
-                    controller: _campoBuscaController,
-                    onChanged: (_) => _agendarAtualizacaoBusca(),
-                    onSubmitted: (_) {
-                      _debounceBusca?.cancel();
-                      _aplicarBuscaDoCampo();
-                    },
-                    style: GoogleFonts.plusJakartaSans(fontSize: 14),
-                    decoration: InputDecoration(
-                      hintText: 'Buscar loja ou responsável…',
-                      hintStyle: GoogleFonts.plusJakartaSans(
-                          fontSize: 13,
-                          color: PainelAdminTheme.textoSecundario),
-                      prefixIcon: Icon(Icons.search_rounded,
-                          size: 20,
-                          color: PainelAdminTheme.textoSecundario),
-                      filled: true,
-                      fillColor: const Color(0xFFF8FAFC),
-                      contentPadding: EdgeInsets.zero,
-                      border: OutlineInputBorder(
-                          borderRadius: BorderRadius.circular(12),
-                          borderSide:
-                              const BorderSide(color: Color(0xFFE2E8F0))),
-                      enabledBorder: OutlineInputBorder(
-                          borderRadius: BorderRadius.circular(12),
-                          borderSide:
-                              const BorderSide(color: Color(0xFFE2E8F0))),
-                      focusedBorder: OutlineInputBorder(
-                          borderRadius: BorderRadius.circular(12),
-                          borderSide: BorderSide(
-                              color: PainelAdminTheme.roxo, width: 1.5)),
+              ),
+              if (count != null) ...[
+                const SizedBox(width: 6),
+                Container(
+                  padding:
+                      const EdgeInsets.symmetric(horizontal: 7, vertical: 2),
+                  decoration: BoxDecoration(
+                    color: ativa
+                        ? info.color.withValues(alpha: 0.12)
+                        : const Color(0xFFE2E8F0),
+                    borderRadius: BorderRadius.circular(999),
+                  ),
+                  child: Text(
+                    '$count',
+                    style: GoogleFonts.plusJakartaSans(
+                      fontSize: 11,
+                      fontWeight: FontWeight.w800,
+                      color: ativa ? info.color : PainelAdminTheme.textoSecundario,
                     ),
                   ),
                 ),
               ],
+            ],
+          ),
+        ),
+      ),
+    );
+  }
+
+  Widget _buildSeletorOrdenacao() {
+    return PopupMenuButton<_OrdenacaoLojas>(
+      tooltip: 'Ordenar lista',
+      initialValue: _ordenacao,
+      onSelected: (v) => setState(() => _ordenacao = v),
+      itemBuilder: (context) => [
+        const PopupMenuItem(
+          value: _OrdenacaoLojas.nomeAsc,
+          child: Text('Nome (A → Z)'),
+        ),
+        const PopupMenuItem(
+          value: _OrdenacaoLojas.nomeDesc,
+          child: Text('Nome (Z → A)'),
+        ),
+        const PopupMenuItem(
+          value: _OrdenacaoLojas.cidadeAsc,
+          child: Text('Cidade (A → Z)'),
+        ),
+      ],
+      child: Container(
+        height: 44,
+        padding: const EdgeInsets.symmetric(horizontal: 12),
+        decoration: BoxDecoration(
+          color: Colors.white,
+          borderRadius: BorderRadius.circular(12),
+          border: Border.all(color: const Color(0xFFE2E8F0)),
+        ),
+        child: Row(
+          mainAxisSize: MainAxisSize.min,
+          children: [
+            Icon(
+              Icons.sort_rounded,
+              size: 18,
+              color: PainelAdminTheme.textoSecundario,
             ),
-            const SizedBox(height: 22),
-            TabBar(
-              controller: _tabController,
-              labelPadding: const EdgeInsets.symmetric(horizontal: 4),
-              indicatorColor: PainelAdminTheme.laranja,
-              indicatorWeight: 3,
-              dividerColor: Colors.transparent,
-              labelStyle: GoogleFonts.plusJakartaSans(
-                  fontWeight: FontWeight.w700, fontSize: 13),
-              unselectedLabelStyle: GoogleFonts.plusJakartaSans(
-                  fontWeight: FontWeight.w500, fontSize: 13),
-              labelColor: PainelAdminTheme.roxo,
-              unselectedLabelColor: PainelAdminTheme.textoSecundario,
-              tabs: [for (final s in _statusTabs) _buildTab(s)],
+            const SizedBox(width: 6),
+            Text(
+              'Ordenar',
+              style: GoogleFonts.plusJakartaSans(
+                fontSize: 12.5,
+                fontWeight: FontWeight.w700,
+                color: PainelAdminTheme.dashboardInk,
+              ),
+            ),
+            const SizedBox(width: 4),
+            Icon(
+              Icons.expand_more_rounded,
+              size: 18,
+              color: PainelAdminTheme.textoSecundario,
             ),
           ],
         ),
@@ -386,31 +756,154 @@ class _LojasScreenState extends State<LojasScreen>
     );
   }
 
-  Widget _buildTab(String status) {
-    final info = _kStatus[status]!;
-    // Não usar AggregateQuery + asStream() aqui: no Flutter Web costuma quebrar
-    // (TypeError em isEmpty / asserções no engine).
-    return Tab(
-      height: 52,
-      child: Row(
-        mainAxisSize: MainAxisSize.min,
-        mainAxisAlignment: MainAxisAlignment.center,
-        children: [
-          Icon(info.icon, size: 18),
-          const SizedBox(width: 8),
-          Flexible(
-            child: Text(
-              info.label,
-              overflow: TextOverflow.ellipsis,
-              maxLines: 1,
-            ),
+  // ─── lista ───
+
+  /// Lê [QueryDocumentSnapshot.data] de forma segura no Flutter Web (dart2js).
+  Map<String, dynamic> _dadosDocSeguro(QueryDocumentSnapshot doc) {
+    try {
+      final raw = doc.data();
+      if (raw == null) return {};
+      if (raw is! Map) return {};
+      final map = Map<String, dynamic>.from(raw);
+      return kIsWeb ? sanitizeMapForWeb(map) : map;
+    } catch (_) {
+      return {};
+    }
+  }
+
+  bool _docCombinaBusca(QueryDocumentSnapshot doc) {
+    try {
+      final data = _dadosDocSeguro(doc);
+      final nome = _str(data['loja_nome']).toLowerCase();
+      final dono = _str(data['nome']).toLowerCase();
+      final cidade = _str(data['cidade']).toLowerCase();
+      return nome.contains(_busca) ||
+          dono.contains(_busca) ||
+          cidade.contains(_busca);
+    } catch (_) {
+      return false;
+    }
+  }
+
+  List<QueryDocumentSnapshot> _ordenarDocs(List<QueryDocumentSnapshot> docs) {
+    final copia = List<QueryDocumentSnapshot>.from(docs);
+    int cmpNome(QueryDocumentSnapshot a, QueryDocumentSnapshot b) {
+      final da = _dadosDocSeguro(a);
+      final db = _dadosDocSeguro(b);
+      final na = _str(da['loja_nome']).toLowerCase();
+      final nb = _str(db['loja_nome']).toLowerCase();
+      return na.compareTo(nb);
+    }
+
+    int cmpCidade(QueryDocumentSnapshot a, QueryDocumentSnapshot b) {
+      final da = _dadosDocSeguro(a);
+      final db = _dadosDocSeguro(b);
+      final ca = _str(da['cidade']).toLowerCase();
+      final cb = _str(db['cidade']).toLowerCase();
+      final c = ca.compareTo(cb);
+      return c != 0 ? c : cmpNome(a, b);
+    }
+
+    if (_ordenacao == _OrdenacaoLojas.nomeDesc) {
+      copia.sort((a, b) => cmpNome(b, a));
+    } else if (_ordenacao == _OrdenacaoLojas.cidadeAsc) {
+      copia.sort(cmpCidade);
+    } else {
+      copia.sort(cmpNome);
+    }
+    return copia;
+  }
+
+  Widget _buildSkeletonListaLojas() {
+    return Shimmer.fromColors(
+      baseColor: const Color(0xFFE2E8F0),
+      highlightColor: const Color(0xFFF1F5F9),
+      period: const Duration(milliseconds: 1200),
+      child: ListView.separated(
+        padding: const EdgeInsets.fromLTRB(28, 20, 28, 16),
+        itemCount: 5,
+        separatorBuilder: (_, __) => const SizedBox(height: 14),
+        itemBuilder: (_, __) => Container(
+          height: 108,
+          decoration: BoxDecoration(
+            color: Colors.white,
+            borderRadius: BorderRadius.circular(20),
+            border: Border.all(color: const Color(0xFFE2E8F0)),
           ),
-        ],
+        ),
       ),
     );
   }
 
-  // ─── lista ───
+  Widget _buildErroListaLojas({VoidCallback? onTentarNovamente}) {
+    return Center(
+      child: ConstrainedBox(
+        constraints: const BoxConstraints(maxWidth: 440),
+        child: Container(
+          margin: const EdgeInsets.all(28),
+          padding: const EdgeInsets.fromLTRB(28, 32, 28, 28),
+          decoration: PainelAdminTheme.dashboardCard(),
+          child: Column(
+            mainAxisSize: MainAxisSize.min,
+            children: [
+              Container(
+                width: 72,
+                height: 72,
+                decoration: BoxDecoration(
+                  color: const Color(0xFFFEF2F2),
+                  shape: BoxShape.circle,
+                ),
+                child: const Icon(
+                  Icons.cloud_off_outlined,
+                  size: 36,
+                  color: Color(0xFFDC2626),
+                ),
+              ),
+              const SizedBox(height: 20),
+              Text(
+                'Não foi possível carregar as lojas',
+                textAlign: TextAlign.center,
+                style: GoogleFonts.plusJakartaSans(
+                  fontSize: 17,
+                  fontWeight: FontWeight.w800,
+                  color: PainelAdminTheme.dashboardInk,
+                ),
+              ),
+              const SizedBox(height: 8),
+              Text(
+                'Verifique sua conexão e tente novamente.',
+                textAlign: TextAlign.center,
+                style: GoogleFonts.plusJakartaSans(
+                  fontSize: 13.5,
+                  color: PainelAdminTheme.textoSecundario,
+                  height: 1.45,
+                ),
+              ),
+              if (onTentarNovamente != null) ...[
+                const SizedBox(height: 22),
+                FilledButton.icon(
+                  onPressed: onTentarNovamente,
+                  icon: const Icon(Icons.refresh_rounded, size: 18),
+                  label: const Text('Tentar novamente'),
+                  style: FilledButton.styleFrom(
+                    backgroundColor: PainelAdminTheme.roxo,
+                    foregroundColor: Colors.white,
+                    padding: const EdgeInsets.symmetric(
+                      horizontal: 20,
+                      vertical: 12,
+                    ),
+                    shape: RoundedRectangleBorder(
+                      borderRadius: BorderRadius.circular(12),
+                    ),
+                  ),
+                ),
+              ],
+            ],
+          ),
+        ),
+      ),
+    );
+  }
 
   Widget _buildListaLojas(String status) {
     final info = _kStatus[status]!;
@@ -418,43 +911,26 @@ class _LojasScreenState extends State<LojasScreen>
       stream: _queryPorStatus(status).snapshots(),
       builder: (context, snapshot) {
         if (snapshot.hasError) {
-          return Center(
-            child: Padding(
-              padding: const EdgeInsets.all(24),
-              child: Text(
-                'Erro ao carregar lojas.\n${snapshot.error}',
-                textAlign: TextAlign.center,
-                style: GoogleFonts.plusJakartaSans(
-                  color: const Color(0xFFDC2626),
-                  fontSize: 14,
-                ),
-              ),
-            ),
+          if (SessaoPainelService.ehErroSessaoExpirada(snapshot.error)) {
+            WidgetsBinding.instance.addPostFrameCallback((_) {
+              SessaoPainelService.tratarSessaoExpirada();
+            });
+            return _buildSkeletonListaLojas();
+          }
+          return _buildErroListaLojas(
+            onTentarNovamente: () => setState(() {}),
           );
         }
-        if (snapshot.connectionState == ConnectionState.waiting) {
-          return Center(
-              child: CircularProgressIndicator(
-                  color: PainelAdminTheme.roxo, strokeWidth: 2.5));
+        if (snapshot.connectionState == ConnectionState.waiting &&
+            !snapshot.hasData) {
+          return _buildSkeletonListaLojas();
         }
         final docs = snapshot.data?.docs ?? [];
-        final filtrados = _busca.isEmpty
-            ? docs
-            : docs.where((d) {
-                try {
-                  final raw = d.data();
-                  if (raw is! Map) return false;
-                  final data = Map<String, dynamic>.from(raw);
-                  final nome = _str(data['loja_nome']).toLowerCase();
-                  final dono = _str(data['nome']).toLowerCase();
-                  final cidade = _str(data['cidade']).toLowerCase();
-                  return nome.contains(_busca) ||
-                      dono.contains(_busca) ||
-                      cidade.contains(_busca);
-                } catch (_) {
-                  return false;
-                }
-              }).toList();
+        final filtrados = _ordenarDocs(
+          _busca.isEmpty
+              ? docs
+              : docs.where(_docCombinaBusca).toList(),
+        );
 
         if (filtrados.isEmpty) return _buildEmptyState(status, info);
 
@@ -475,9 +951,9 @@ class _LojasScreenState extends State<LojasScreen>
           children: [
             Expanded(
               child: ListView.separated(
-                padding: const EdgeInsets.fromLTRB(32, 24, 32, 16),
+                padding: const EdgeInsets.fromLTRB(28, 20, 28, 16),
                 itemCount: paginaItens.length,
-                separatorBuilder: (_, __) => const SizedBox(height: 16),
+                separatorBuilder: (_, __) => const SizedBox(height: 14),
                 itemBuilder: (_, i) =>
                     _buildLojaCard(paginaItens[i], status, info),
               ),
@@ -758,42 +1234,146 @@ class _LojasScreenState extends State<LojasScreen>
     return out;
   }
 
+  String _tituloEmptyState(String status, bool hasSearch) {
+    if (hasSearch) return 'Nenhum resultado para sua busca';
+    return switch (status) {
+      'pendente' => 'Nenhuma loja pendente no momento',
+      'aprovada' => 'Nenhuma loja aprovada no momento',
+      'bloqueada' => 'Nenhuma loja bloqueada no momento',
+      _ => 'Nenhuma loja nesta categoria',
+    };
+  }
+
+  String _subtituloEmptyState(String status, bool hasSearch) {
+    if (hasSearch) {
+      return 'Tente outro termo ou limpe o filtro para ver todas as lojas.';
+    }
+    return switch (status) {
+      'pendente' =>
+        'Novas solicitações de cadastro aparecerão aqui automaticamente.',
+      'aprovada' =>
+        'Lojas aprovadas e em operação serão listadas nesta aba.',
+      'bloqueada' =>
+        'Lojas bloqueadas ou recusadas ficam registradas aqui para consulta.',
+      _ => 'Nenhum registro nesta categoria no momento.',
+    };
+  }
+
   Widget _buildEmptyState(String status, _StatusVisual info) {
     final hasSearch = _busca.isNotEmpty;
     return Center(
-      child: Column(
-        mainAxisSize: MainAxisSize.min,
-        children: [
-          Container(
-            padding: const EdgeInsets.all(24),
-            decoration:
-                BoxDecoration(color: info.bgColor, shape: BoxShape.circle),
-            child: Icon(hasSearch ? Icons.search_off_rounded : info.icon,
-                size: 48, color: info.color.withValues(alpha: 0.6)),
+      child: ConstrainedBox(
+        constraints: const BoxConstraints(maxWidth: 480),
+        child: Container(
+          margin: const EdgeInsets.all(28),
+          padding: const EdgeInsets.fromLTRB(32, 36, 32, 32),
+          decoration: PainelAdminTheme.dashboardCard(),
+          child: Column(
+            mainAxisSize: MainAxisSize.min,
+            children: [
+              Container(
+                padding: const EdgeInsets.all(22),
+                decoration: BoxDecoration(
+                  color: info.bgColor,
+                  shape: BoxShape.circle,
+                  border: Border.all(color: info.borderColor),
+                ),
+                child: Icon(
+                  hasSearch ? Icons.search_off_rounded : info.icon,
+                  size: 44,
+                  color: info.color,
+                ),
+              ),
+              const SizedBox(height: 22),
+              Text(
+                _tituloEmptyState(status, hasSearch),
+                textAlign: TextAlign.center,
+                style: GoogleFonts.plusJakartaSans(
+                  fontSize: 17,
+                  fontWeight: FontWeight.w800,
+                  color: PainelAdminTheme.dashboardInk,
+                  letterSpacing: -0.2,
+                ),
+              ),
+              const SizedBox(height: 10),
+              Text(
+                hasSearch
+                    ? _subtituloEmptyState(status, true)
+                    : _subtituloEmptyState(status, false),
+                textAlign: TextAlign.center,
+                style: GoogleFonts.plusJakartaSans(
+                  fontSize: 13.5,
+                  color: PainelAdminTheme.textoSecundario,
+                  height: 1.5,
+                ),
+              ),
+              const SizedBox(height: 24),
+              Wrap(
+                alignment: WrapAlignment.center,
+                spacing: 10,
+                runSpacing: 10,
+                children: [
+                  if (hasSearch)
+                    OutlinedButton.icon(
+                      onPressed: _limparBusca,
+                      icon: const Icon(Icons.clear_rounded, size: 18),
+                      label: const Text('Limpar busca'),
+                      style: OutlinedButton.styleFrom(
+                        foregroundColor: PainelAdminTheme.roxo,
+                        side: BorderSide(
+                          color: PainelAdminTheme.roxo.withValues(alpha: 0.35),
+                        ),
+                        padding: const EdgeInsets.symmetric(
+                          horizontal: 16,
+                          vertical: 12,
+                        ),
+                        shape: RoundedRectangleBorder(
+                          borderRadius: BorderRadius.circular(12),
+                        ),
+                      ),
+                    )
+                  else if (status == 'pendente')
+                    FilledButton.tonalIcon(
+                      onPressed: () => _irParaAba(1),
+                      icon: const Icon(Icons.check_circle_outline_rounded,
+                          size: 18),
+                      label: const Text('Ver lojas aprovadas'),
+                      style: FilledButton.styleFrom(
+                        foregroundColor: const Color(0xFF059669),
+                        backgroundColor:
+                            const Color(0xFF059669).withValues(alpha: 0.1),
+                        padding: const EdgeInsets.symmetric(
+                          horizontal: 16,
+                          vertical: 12,
+                        ),
+                        shape: RoundedRectangleBorder(
+                          borderRadius: BorderRadius.circular(12),
+                        ),
+                      ),
+                    )
+                  else if (status != 'aprovada')
+                    FilledButton.tonalIcon(
+                      onPressed: () => _irParaAba(1),
+                      icon: const Icon(Icons.storefront_rounded, size: 18),
+                      label: const Text('Ver lojas aprovadas'),
+                      style: FilledButton.styleFrom(
+                        foregroundColor: PainelAdminTheme.roxo,
+                        backgroundColor:
+                            PainelAdminTheme.roxo.withValues(alpha: 0.1),
+                        padding: const EdgeInsets.symmetric(
+                          horizontal: 16,
+                          vertical: 12,
+                        ),
+                        shape: RoundedRectangleBorder(
+                          borderRadius: BorderRadius.circular(12),
+                        ),
+                      ),
+                    ),
+                ],
+              ),
+            ],
           ),
-          const SizedBox(height: 20),
-          Text(
-            hasSearch
-                ? 'Nenhuma loja encontrada para "$_busca"'
-                : 'Nenhuma loja ${info.label.toLowerCase()} encontrada.',
-            style: GoogleFonts.plusJakartaSans(
-                fontSize: 15,
-                fontWeight: FontWeight.w600,
-                color: PainelAdminTheme.textoSecundario),
-          ),
-          const SizedBox(height: 8),
-          Text(
-            hasSearch
-                ? 'Tente outro termo de busca.'
-                : status == 'pendente'
-                    ? 'Novas lojas aparecerão aqui assim que solicitarem cadastro.'
-                    : 'Nenhum registro nesta categoria no momento.',
-            style: GoogleFonts.plusJakartaSans(
-                fontSize: 13,
-                color: PainelAdminTheme.textoSecundario
-                    .withValues(alpha: 0.7)),
-          ),
-        ],
+        ),
       ),
     );
   }
@@ -812,11 +1392,10 @@ class _LojasScreenState extends State<LojasScreen>
 
   Widget _buildLojaCard(
       QueryDocumentSnapshot doc, String status, _StatusVisual info) {
-    final raw = doc.data();
-    if (raw is! Map) {
+    final dados = _dadosDocSeguro(doc);
+    if (dados.isEmpty) {
       return const SizedBox.shrink();
     }
-    final dados = Map<String, dynamic>.from(raw);
     final nomeLoja = _str(dados['loja_nome'], 'Loja sem nome');
     final nomeDono = _str(dados['nome'], 'N/A');
     final cidade = _str(dados['cidade'], '—');
@@ -825,7 +1404,8 @@ class _LojasScreenState extends State<LojasScreen>
     final fotoUrl = _str(dados['foto_url']);
     final motivoRecusa = _str(dados['motivo_recusa']);
 
-    return Material(
+    return _LojaCardHover(
+      child: Material(
       color: Colors.transparent,
       child: Container(
         decoration: BoxDecoration(
@@ -1099,6 +1679,7 @@ class _LojasScreenState extends State<LojasScreen>
           ),
         ),
       ),
+    ),
     );
   }
 
@@ -1408,8 +1989,8 @@ class _LojasScreenState extends State<LojasScreen>
       if (!mounted) return;
       WidgetsBinding.instance.addPostFrameCallback((_) {
         if (!mounted) return;
-        if (_tabController.index != 2) {
-          _tabController.animateTo(2);
+        if (_indiceAba != 2) {
+          _irParaAba(2);
         }
       });
       mostrarSnackPainel(context,
@@ -2739,6 +3320,35 @@ class _LojasScreenState extends State<LojasScreen>
             ),
           ),
         ),
+      ),
+    );
+  }
+}
+
+/// Elevação sutil no hover (web) para reforçar interatividade dos cards.
+class _LojaCardHover extends StatefulWidget {
+  const _LojaCardHover({required this.child});
+
+  final Widget child;
+
+  @override
+  State<_LojaCardHover> createState() => _LojaCardHoverState();
+}
+
+class _LojaCardHoverState extends State<_LojaCardHover> {
+  bool _hover = false;
+
+  @override
+  Widget build(BuildContext context) {
+    return MouseRegion(
+      onEnter: (_) => setState(() => _hover = true),
+      onExit: (_) => setState(() => _hover = false),
+      cursor: SystemMouseCursors.click,
+      child: AnimatedSlide(
+        duration: const Duration(milliseconds: 180),
+        curve: Curves.easeOut,
+        offset: _hover ? const Offset(0, -0.01) : Offset.zero,
+        child: widget.child,
       ),
     );
   }

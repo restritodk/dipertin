@@ -8,6 +8,8 @@ import 'package:depertin_cliente/screens/comum/alterar_senha_screen.dart';
 import 'package:depertin_cliente/screens/comum/edit_profile_screen.dart';
 
 import '../../services/biometria_service.dart';
+import '../../widgets/dipertin_scroll_body.dart';
+import '../../utils/safe_area_insets.dart' show diPertinScrollPaddingInner;
 
 const Color _diPertinRoxo = Color(0xFF6A1B9A);
 const Color _diPertinLaranja = Color(0xFFFF8F00);
@@ -417,8 +419,11 @@ class _ContaSegurancaScreenState extends State<ContaSegurancaScreen> {
                 final String endereco = d['endereco_padrao']?.toString() ?? '';
                 final String? role = d['role']?.toString();
                 final String lojaNome = d['loja_nome']?.toString() ?? '';
-                return SingleChildScrollView(
-                  padding: const EdgeInsets.fromLTRB(16, 16, 16, 32),
+                return DiPertinScrollBody(
+                  padding: diPertinScrollPaddingInner(
+                    context,
+                    extraBottom: 24,
+                  ),
                   child: Column(
                     crossAxisAlignment: CrossAxisAlignment.stretch,
                     children: [

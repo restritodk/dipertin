@@ -11,7 +11,7 @@ import 'package:flutter/material.dart';
 ///
 /// Expandido: 280 px (logo + texto + itens com rótulo).
 /// Colapsado : 64 px  (só ícones + tooltips).
-/// Toggle    : botão "chevron" no cabeçalho, animação 220 ms easeInOut.
+/// Toggle    : botão "chevron" no cabeçalho, animação 280 ms easeInOutCubic.
 class SidebarMenu extends StatefulWidget {
   const SidebarMenu({super.key, required this.rotaAtual, this.onNavegarPainel});
 
@@ -20,6 +20,8 @@ class SidebarMenu extends StatefulWidget {
 
   static const double largura = 280;
   static const double larguraColapsada = 64;
+  static const Duration duracaoAnimacao = Duration(milliseconds: 280);
+  static const Curve curvaAnimacao = Curves.easeInOutCubic;
 
   @override
   State<SidebarMenu> createState() => _SidebarMenuState();
@@ -28,7 +30,32 @@ class SidebarMenu extends StatefulWidget {
 class _SidebarMenuState extends State<SidebarMenu> {
   bool _collapsed = false;
 
-  void _toggleColapso() => setState(() => _collapsed = !_collapsed);
+  /// Evita layout expandido enquanto a largura ainda está animando (overflow).
+  bool _conteudoExpandido = true;
+
+  bool get _layoutCompacto => _collapsed || !_conteudoExpandido;
+
+  void _toggleColapso() {
+    if (_collapsed) {
+      setState(() {
+        _collapsed = false;
+        _conteudoExpandido = false;
+      });
+      Future.delayed(SidebarMenu.duracaoAnimacao, () {
+        if (mounted && !_collapsed) {
+          setState(() => _conteudoExpandido = true);
+        }
+      });
+      return;
+    }
+
+    setState(() => _conteudoExpandido = false);
+    Future.delayed(const Duration(milliseconds: 90), () {
+      if (mounted && !_conteudoExpandido) {
+        setState(() => _collapsed = true);
+      }
+    });
+  }
 
   void _navegar(BuildContext context, String rota, {required bool jaAtivo}) {
     if (jaAtivo) return;
@@ -75,6 +102,7 @@ class _SidebarMenuState extends State<SidebarMenu> {
             nomeLoja: null,
             rotaAtual: widget.rotaAtual,
             collapsed: _collapsed,
+            conteudoCompacto: _layoutCompacto,
             onToggleColapso: _toggleColapso,
             onTapItem: (ctx, rota, ativo) =>
                 _navegar(ctx, rota, jaAtivo: ativo),
@@ -102,6 +130,7 @@ class _SidebarMenuState extends State<SidebarMenu> {
               nomeLoja: nomeLoja,
               rotaAtual: widget.rotaAtual,
               collapsed: _collapsed,
+              conteudoCompacto: _layoutCompacto,
               onToggleColapso: _toggleColapso,
               onTapItem: (ctx, rota, ativo) =>
                   _navegar(ctx, rota, jaAtivo: ativo),
@@ -114,8 +143,8 @@ class _SidebarMenuState extends State<SidebarMenu> {
 
   Widget _sidebarCarregando() {
     return AnimatedContainer(
-      duration: const Duration(milliseconds: 220),
-      curve: Curves.easeInOut,
+      duration: SidebarMenu.duracaoAnimacao,
+      curve: SidebarMenu.curvaAnimacao,
       width: _collapsed ? SidebarMenu.larguraColapsada : SidebarMenu.largura,
       child: const ColoredBox(
         color: _TemaNav.fundo,
@@ -137,15 +166,27 @@ class _SidebarMenuState extends State<SidebarMenu> {
 // ——— Design system ———
 
 class _TemaNav {
-  static const Color fundo = Color(0xFF15122A);
-  static const Color fundoElevado = Color(0xFF1E1B36);
-  static const Color borda = Color(0xFF2D2848);
-  static const Color texto = Color(0xFFF1F0F6);
-  static const Color textoMuted = Color(0xFF9B97B3);
+  // Fundo - Roxo vibrante (igual ao app mobile)
+  static const Color fundoTopo = Color(0xFF6A1B9A); // roxo principal (topo)
+  static const Color fundoBase = Color(0xFF4A148C); // roxo profundo (base do gradiente)
+  static const Color fundo = Color(0xFF6A1B9A); // compat: usos como cor sólida
+  static const Color fundoElevado = Color(0x24FFFFFF); // cartão "vidro" sobre o roxo
+  static const Color borda = Color(0x33FFFFFF); // separadores translúcidos
+
+  // Texto
+  static const Color texto = Color(0xFFFFFFFF);
+  static const Color textoMuted = Color(0xFFE6D6F7); // lilás claro legível no roxo
+
+  // Accent - Laranja (mesmo do app mobile)
   static const Color accent = Color(0xFFFF8F00);
-  static const Color accentSoft = Color(0x26FF8F00);
-  static const Color hover = Color(0x14FFFFFF);
-  static const Color ativoBg = Color(0x1FFFFFFF);
+  static const Color accentSoft = Color(0x33FFB74D); // laranja suave
+
+  // Cor ativa - destaque claro que "salta" sobre o roxo vibrante
+  static const Color ativoCor = Color(0xFFFFFFFF);
+
+  // Interações
+  static const Color hover = Color(0x1FFFFFFF);
+  static const Color ativoBg = Color(0x2BFFFFFF);
 
   static const TextStyle semSublinhado = TextStyle(
     decoration: TextDecoration.none,
@@ -162,6 +203,7 @@ class _SidebarNovo extends StatelessWidget {
     this.nomeLoja,
     required this.rotaAtual,
     required this.collapsed,
+    required this.conteudoCompacto,
     required this.onToggleColapso,
     required this.onTapItem,
   });
@@ -174,13 +216,19 @@ class _SidebarNovo extends StatelessWidget {
   /// Nome comercial da loja (doc. do dono: `loja_nome` ou `nome`). Só lojista.
   final String? nomeLoja;
   final String rotaAtual;
+
+  /// Largura animada do sidebar (estado do toggle).
   final bool collapsed;
+
+  /// Layout compacto (ícones) — pode permanecer true durante a animação de abertura.
+  final bool conteudoCompacto;
   final VoidCallback onToggleColapso;
   final void Function(BuildContext context, String rota, bool jaAtivo)
   onTapItem;
 
   @override
   Widget build(BuildContext context) {
+    final compacto = conteudoCompacto;
     final podeGestao = perfilPodeGestaoLojasEntregadoresBanners(perfil);
     final podeChefe = perfilPodeMenuChefe(perfil);
     final podeClientes = perfilPodeCentralClientes(perfil);
@@ -192,7 +240,7 @@ class _SidebarNovo extends StatelessWidget {
     final itens = <Widget>[];
 
     if (!lojista) {
-      itens.add(_SecaoLabel('Principal', collapsed: collapsed));
+      itens.add(_SecaoLabel('Principal', collapsed: compacto));
     }
     itens.add(
       _NavRow(
@@ -200,17 +248,17 @@ class _SidebarNovo extends StatelessWidget {
         label: 'Dashboard',
         icon: Icons.dashboard,
         rotaAtual: rotaAtual,
-        collapsed: collapsed,
+        collapsed: compacto,
         onTap: (c) => onTapItem(c, '/dashboard', rotaAtual == '/dashboard'),
       ),
     );
 
     if (podeGestao) {
-      itens.add(_SecaoLabel('Operação', collapsed: collapsed));
+      itens.add(_SecaoLabel('Operação', collapsed: compacto));
       itens.addAll([
         _GrupoLojasPainel(
           rotaAtual: rotaAtual,
-          collapsed: collapsed,
+          collapsed: compacto,
           onTapItem: onTapItem,
         ),
         _NavRow(
@@ -218,7 +266,7 @@ class _SidebarNovo extends StatelessWidget {
           label: 'Entregadores',
           icon: Icons.local_shipping,
           rotaAtual: rotaAtual,
-          collapsed: collapsed,
+          collapsed: compacto,
           onTap: (c) =>
               onTapItem(c, '/entregadores', rotaAtual == '/entregadores'),
         ),
@@ -228,7 +276,7 @@ class _SidebarNovo extends StatelessWidget {
             label: 'Central de clientes',
             icon: Icons.people_alt_rounded,
             rotaAtual: rotaAtual,
-            collapsed: collapsed,
+            collapsed: compacto,
             onTap: (c) => onTapItem(c, '/clientes', rotaAtual == '/clientes'),
           ),
         _NavRow(
@@ -236,28 +284,21 @@ class _SidebarNovo extends StatelessWidget {
           label: 'Monitor de pedidos',
           icon: Icons.receipt,
           rotaAtual: rotaAtual,
-          collapsed: collapsed,
+          collapsed: compacto,
           onTap: (c) =>
               onTapItem(c, '/monitor_pedidos', rotaAtual == '/monitor_pedidos'),
         ),
-        _NavRow(
-          rota: '/centro_operacoes',
-          label: 'Centro de operações',
-          icon: Icons.hub_outlined,
+        _GrupoCentroOperacoesPainel(
           rotaAtual: rotaAtual,
-          collapsed: collapsed,
-          onTap: (c) => onTapItem(
-            c,
-            '/centro_operacoes',
-            rotaAtual == '/centro_operacoes',
-          ),
+          collapsed: compacto,
+          onTapItem: onTapItem,
         ),
         _NavRow(
           rota: '/avaliacoes_painel',
           label: 'Avaliações',
           icon: Icons.star,
           rotaAtual: rotaAtual,
-          collapsed: collapsed,
+          collapsed: compacto,
           onTap: (c) => onTapItem(
             c,
             '/avaliacoes_painel',
@@ -269,7 +310,7 @@ class _SidebarNovo extends StatelessWidget {
           label: 'Banners da vitrine',
           icon: Icons.photo,
           rotaAtual: rotaAtual,
-          collapsed: collapsed,
+          collapsed: compacto,
           onTap: (c) => onTapItem(c, '/banners', rotaAtual == '/banners'),
         ),
         _NavRow(
@@ -277,21 +318,25 @@ class _SidebarNovo extends StatelessWidget {
           label: 'Categorias',
           icon: Icons.category_rounded,
           rotaAtual: rotaAtual,
-          collapsed: collapsed,
+          collapsed: compacto,
           onTap: (c) => onTapItem(c, '/categorias', rotaAtual == '/categorias'),
         ),
       ]);
     }
 
     if (lojista) {
-      itens.add(_SecaoLabel('Minha loja', collapsed: collapsed));
       itens.addAll([
+        _GrupoGestaoComercial(
+          rotaAtual: rotaAtual,
+          collapsed: compacto,
+          onTapItem: onTapItem,
+        ),
         _NavRow(
           rota: '/meus_pedidos',
           label: 'Meus pedidos',
           icon: Icons.receipt,
           rotaAtual: rotaAtual,
-          collapsed: collapsed,
+          collapsed: compacto,
           onTap: (c) =>
               onTapItem(c, '/meus_pedidos', rotaAtual == '/meus_pedidos'),
         ),
@@ -300,7 +345,7 @@ class _SidebarNovo extends StatelessWidget {
           label: 'Negociações de encomenda',
           icon: Icons.handshake_outlined,
           rotaAtual: rotaAtual,
-          collapsed: collapsed,
+          collapsed: compacto,
           onTap: (c) => onTapItem(
             c,
             '/negociacoes_encomenda',
@@ -313,14 +358,24 @@ class _SidebarNovo extends StatelessWidget {
             label: 'Meus produtos',
             icon: Icons.inventory_2_outlined,
             rotaAtual: rotaAtual,
-            collapsed: collapsed,
+            collapsed: compacto,
             onTap: (c) =>
                 onTapItem(c, '/meu_cardapio', rotaAtual == '/meu_cardapio'),
+          ),
+        if (showMeuCardapio)
+          _NavRow(
+            rota: '/meus_cupons',
+            label: 'Cupons & promoções',
+            icon: Icons.local_offer_outlined,
+            rotaAtual: rotaAtual,
+            collapsed: compacto,
+            onTap: (c) =>
+                onTapItem(c, '/meus_cupons', rotaAtual == '/meus_cupons'),
           ),
         if (showCarteiraEConfig)
           _GrupoCarteira(
             rotaAtual: rotaAtual,
-            collapsed: collapsed,
+            collapsed: compacto,
             onTapItem: onTapItem,
           ),
       ]);
@@ -328,11 +383,11 @@ class _SidebarNovo extends StatelessWidget {
 
     // Gestão (master / superadmin): inclui fila de saques — só este perfil vê "Solicitações de saque".
     if (podeChefe) {
-      itens.add(_SecaoLabel('Gestão', collapsed: collapsed));
+      itens.add(_SecaoLabel('Gestão', collapsed: compacto));
       itens.addAll([
         _GrupoAdminCity(
           rotaAtual: rotaAtual,
-          collapsed: collapsed,
+          collapsed: compacto,
           onTapItem: onTapItem,
         ),
         _NavRow(
@@ -340,7 +395,7 @@ class _SidebarNovo extends StatelessWidget {
           label: 'Anúncios e utilidades',
           icon: Icons.campaign,
           rotaAtual: rotaAtual,
-          collapsed: collapsed,
+          collapsed: compacto,
           onTap: (c) => onTapItem(c, '/utilidades', rotaAtual == '/utilidades'),
         ),
         _NavRow(
@@ -348,26 +403,26 @@ class _SidebarNovo extends StatelessWidget {
           label: 'Financeiro geral',
           icon: Icons.menu_book_outlined,
           rotaAtual: rotaAtual,
-          collapsed: collapsed,
+          collapsed: compacto,
           onTap: (c) => onTapItem(c, '/financeiro', rotaAtual == '/financeiro'),
         ),
         _NavRowSaquesComContador(
           rotaAtual: rotaAtual,
-          collapsed: collapsed,
+          collapsed: compacto,
           onTapItem: onTapItem,
         ),
       ]);
     }
 
     if (podeGestao || podeChefe) {
-      itens.add(_SecaoLabel('Marketing', collapsed: collapsed));
+      itens.add(_SecaoLabel('Marketing', collapsed: compacto));
       itens.addAll([
         _NavRow(
           rota: '/notificacoes',
           label: 'Notificações push',
           icon: Icons.notifications,
           rotaAtual: rotaAtual,
-          collapsed: collapsed,
+          collapsed: compacto,
           onTap: (c) =>
               onTapItem(c, '/notificacoes', rotaAtual == '/notificacoes'),
         ),
@@ -376,7 +431,7 @@ class _SidebarNovo extends StatelessWidget {
           label: 'Cupons e promoções',
           icon: Icons.local_offer,
           rotaAtual: rotaAtual,
-          collapsed: collapsed,
+          collapsed: compacto,
           onTap: (c) => onTapItem(c, '/cupons', rotaAtual == '/cupons'),
         ),
         _NavRow(
@@ -384,7 +439,7 @@ class _SidebarNovo extends StatelessWidget {
           label: 'Comunicados',
           icon: Icons.message,
           rotaAtual: rotaAtual,
-          collapsed: collapsed,
+          collapsed: compacto,
           onTap: (c) =>
               onTapItem(c, '/comunicados', rotaAtual == '/comunicados'),
         ),
@@ -392,12 +447,12 @@ class _SidebarNovo extends StatelessWidget {
     }
 
     if (showCarteiraEConfig || !lojista) {
-      itens.add(_SecaoLabel('Sistema', collapsed: collapsed));
+      itens.add(_SecaoLabel('Sistema', collapsed: compacto));
       if (lojista && showCarteiraEConfig) {
         itens.add(
           _GrupoConfiguracaoLojista(
             rotaAtual: rotaAtual,
-            collapsed: collapsed,
+            collapsed: compacto,
             onTapItem: onTapItem,
           ),
         );
@@ -408,7 +463,7 @@ class _SidebarNovo extends StatelessWidget {
             label: 'Configurações',
             icon: Icons.settings,
             rotaAtual: rotaAtual,
-            collapsed: collapsed,
+            collapsed: compacto,
             onTap: (c) =>
                 onTapItem(c, '/configuracoes', rotaAtual == '/configuracoes'),
           ),
@@ -423,7 +478,7 @@ class _SidebarNovo extends StatelessWidget {
           label: 'Suporte',
           icon: Icons.headset_mic,
           rotaAtual: rotaAtual,
-          collapsed: collapsed,
+          collapsed: compacto,
           onTap: (c) => onTapItem(
             c,
             '/atendimento_suporte',
@@ -435,7 +490,7 @@ class _SidebarNovo extends StatelessWidget {
           label: 'Conteúdo legal',
           icon: Icons.description,
           rotaAtual: rotaAtual,
-          collapsed: collapsed,
+          collapsed: compacto,
           onTap: (c) =>
               onTapItem(c, '/conteudo_legal', rotaAtual == '/conteudo_legal'),
         ),
@@ -449,45 +504,61 @@ class _SidebarNovo extends StatelessWidget {
             : MediaQuery.sizeOf(context).height;
 
         return AnimatedContainer(
-          duration: const Duration(milliseconds: 220),
-          curve: Curves.easeInOut,
+          duration: SidebarMenu.duracaoAnimacao,
+          curve: SidebarMenu.curvaAnimacao,
           width: collapsed ? SidebarMenu.larguraColapsada : SidebarMenu.largura,
           height: h,
           clipBehavior: Clip.hardEdge,
           decoration: const BoxDecoration(
-            color: _TemaNav.fundo,
+            gradient: LinearGradient(
+              begin: Alignment.topCenter,
+              end: Alignment.bottomCenter,
+              colors: [_TemaNav.fundoTopo, _TemaNav.fundoBase],
+            ),
             border: Border(right: BorderSide(color: _TemaNav.borda, width: 1)),
           ),
-          child: DefaultTextStyle.merge(
-            style: _TemaNav.semSublinhado,
-            child: Column(
-              crossAxisAlignment: CrossAxisAlignment.stretch,
-              children: [
-                _TopoMarca(
-                  perfil: perfil,
-                  nomeLoja: nomeLoja,
-                  collapsed: collapsed,
-                  onToggle: onToggleColapso,
-                ),
-                Expanded(
-                  child: SingleChildScrollView(
-                    physics: const AlwaysScrollableScrollPhysics(),
-                    padding: EdgeInsets.fromLTRB(
-                      collapsed ? 6 : 12,
-                      8,
-                      collapsed ? 6 : 12,
-                      16,
+          child: LayoutBuilder(
+            builder: (context, inner) {
+              final layoutCompacto = compacto ||
+                  inner.maxWidth < SidebarMenu.larguraColapsada + 48;
+
+              return DefaultTextStyle.merge(
+                style: _TemaNav.semSublinhado,
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.stretch,
+                  children: [
+                    _TopoMarca(
+                      perfil: perfil,
+                      nomeLoja: nomeLoja,
+                      collapsed: layoutCompacto,
+                      menuRecolhido: collapsed,
+                      onToggle: onToggleColapso,
                     ),
-                    child: Column(
-                      crossAxisAlignment: CrossAxisAlignment.stretch,
-                      children: itens,
+                    Expanded(
+                      child: SingleChildScrollView(
+                        physics: const AlwaysScrollableScrollPhysics(),
+                        padding: EdgeInsets.fromLTRB(
+                          layoutCompacto ? 6 : 12,
+                          8,
+                          layoutCompacto ? 6 : 12,
+                          16,
+                        ),
+                        child: Column(
+                          crossAxisAlignment: CrossAxisAlignment.stretch,
+                          children: itens,
+                        ),
+                      ),
                     ),
-                  ),
-                ),
-                const Divider(height: 1, thickness: 1, color: _TemaNav.borda),
-                _RodapeSair(
-                  collapsed: collapsed,
-                  onSair: () async {
+                    const Divider(height: 1, thickness: 1, color: _TemaNav.borda),
+                    if (lojista) _SeccaoPlano(collapsed: layoutCompacto),
+                    _RodapeUsuario(
+                      perfil: perfil,
+                      collapsed: layoutCompacto,
+                      nomeLoja: lojista ? nomeLoja : null,
+                    ),
+                    _RodapeSair(
+                      collapsed: layoutCompacto,
+                      onSair: () async {
                     final confirmar = await showDialog<bool>(
                       context: context,
                       builder: (ctx) => AlertDialog(
@@ -550,6 +621,8 @@ class _SidebarNovo extends StatelessWidget {
                 ),
               ],
             ),
+          );
+            },
           ),
         );
       },
@@ -564,6 +637,7 @@ class _TopoMarca extends StatelessWidget {
     required this.perfil,
     this.nomeLoja,
     required this.collapsed,
+    required this.menuRecolhido,
     required this.onToggle,
   });
 
@@ -571,7 +645,12 @@ class _TopoMarca extends StatelessWidget {
 
   /// Exibido abaixo do badge (ex.: LOJISTA) quando for lojista.
   final String? nomeLoja;
+
+  /// Layout compacto (logo + ícones).
   final bool collapsed;
+
+  /// Estado real do toggle (ícone chevron).
+  final bool menuRecolhido;
   final VoidCallback onToggle;
 
   String get _badge {
@@ -617,12 +696,14 @@ class _TopoMarca extends StatelessWidget {
           width: collapsed ? 38 : 44,
           height: collapsed ? 38 : 44,
           decoration: BoxDecoration(
-            color: _TemaNav.borda,
+            gradient: LinearGradient(
+              colors: [const Color(0xFF4A148C), const Color(0xFF6A1B9A)],
+            ),
             borderRadius: BorderRadius.circular(10),
           ),
           child: const Icon(
             Icons.hub_outlined,
-            color: _TemaNav.textoMuted,
+            color: _TemaNav.accent,
             size: 22,
           ),
         ),
@@ -637,7 +718,7 @@ class _TopoMarca extends StatelessWidget {
           children: [
             logo,
             const SizedBox(height: 10),
-            _BotaoColapso(collapsed: collapsed, onToggle: onToggle),
+            _BotaoColapso(collapsed: menuRecolhido, onToggle: onToggle),
             const SizedBox(height: 6),
           ],
         ),
@@ -688,22 +769,22 @@ class _TopoMarca extends StatelessWidget {
                       const SizedBox(height: 8),
                       Container(
                         padding: const EdgeInsets.symmetric(
-                          horizontal: 8,
-                          vertical: 3,
+                          horizontal: 10,
+                          vertical: 4,
                         ),
                         decoration: BoxDecoration(
-                          color: _TemaNav.accentSoft,
-                          borderRadius: BorderRadius.circular(6),
+                          color: _TemaNav.accent.withValues(alpha: 0.14),
+                          borderRadius: BorderRadius.circular(999),
                           border: Border.all(
-                            color: _TemaNav.accent.withValues(alpha: 0.35),
+                            color: _TemaNav.accent.withValues(alpha: 0.38),
                           ),
                         ),
                         child: Text(
-                          _badge.toUpperCase(),
+                          _badge,
                           style: const TextStyle(
-                            fontSize: 9,
-                            fontWeight: FontWeight.w800,
-                            letterSpacing: 1.1,
+                            fontSize: 10,
+                            fontWeight: FontWeight.w700,
+                            letterSpacing: 0.3,
                             color: _TemaNav.accent,
                             decoration: TextDecoration.none,
                           ),
@@ -735,7 +816,7 @@ class _TopoMarca extends StatelessWidget {
           const SizedBox(height: 8),
           Align(
             alignment: Alignment.centerRight,
-            child: _BotaoColapso(collapsed: collapsed, onToggle: onToggle),
+            child: _BotaoColapso(collapsed: menuRecolhido, onToggle: onToggle),
           ),
         ],
       ),
@@ -942,10 +1023,20 @@ class _NavRow extends StatelessWidget {
               child: Ink(
                 decoration: BoxDecoration(
                   borderRadius: BorderRadius.circular(10),
-                  color: ativo ? _TemaNav.ativoBg : null,
+                  gradient: ativo
+                      ? LinearGradient(
+                          begin: Alignment.centerLeft,
+                          end: Alignment.centerRight,
+                          colors: [
+                            _TemaNav.ativoCor.withValues(alpha: 0.4),
+                            _TemaNav.ativoCor.withValues(alpha: 0.15),
+                          ],
+                          stops: const [0.0, 1.0],
+                        )
+                      : null,
                   border: Border.all(
                     color: ativo
-                        ? _TemaNav.accent.withValues(alpha: 0.45)
+                        ? _TemaNav.ativoCor.withValues(alpha: 0.5)
                         : Colors.transparent,
                     width: 1,
                   ),
@@ -959,7 +1050,7 @@ class _NavRow extends StatelessWidget {
                         Icon(
                           icon,
                           size: 22,
-                          color: ativo ? _TemaNav.accent : _TemaNav.textoMuted,
+                          color: ativo ? _TemaNav.ativoCor : _TemaNav.textoMuted,
                         ),
                         if (n > 0)
                           Positioned(
@@ -992,10 +1083,20 @@ class _NavRow extends StatelessWidget {
           child: Ink(
             decoration: BoxDecoration(
               borderRadius: BorderRadius.circular(10),
-              color: ativo ? _TemaNav.ativoBg : null,
+              gradient: ativo
+                  ? LinearGradient(
+                      begin: Alignment.centerLeft,
+                      end: Alignment.centerRight,
+                      colors: [
+                        _TemaNav.accent.withValues(alpha: 0.24),
+                        _TemaNav.ativoBg,
+                      ],
+                      stops: const [0.0, 0.42],
+                    )
+                  : null,
               border: Border.all(
                 color: ativo
-                    ? _TemaNav.accent.withValues(alpha: 0.45)
+                    ? _TemaNav.accent.withValues(alpha: 0.4)
                     : Colors.transparent,
                 width: 1,
               ),
@@ -1003,20 +1104,30 @@ class _NavRow extends StatelessWidget {
             child: Row(
               children: [
                 Container(
-                  width: 3,
+                  width: 4,
                   height: 44,
                   margin: const EdgeInsets.only(right: 10),
                   decoration: BoxDecoration(
-                    color: ativo ? _TemaNav.accent : Colors.transparent,
+                    gradient: ativo
+                        ? LinearGradient(
+                            begin: Alignment.topCenter,
+                            end: Alignment.bottomCenter,
+                            colors: [
+                              _TemaNav.ativoCor,
+                              _TemaNav.ativoCor.withValues(alpha: 0.6),
+                            ],
+                          )
+                        : null,
+                    color: ativo ? null : Colors.transparent,
                     borderRadius: const BorderRadius.horizontal(
-                      right: Radius.circular(3),
+                      right: Radius.circular(4),
                     ),
                   ),
                 ),
                 Icon(
                   icon,
                   size: 22,
-                  color: ativo ? _TemaNav.accent : _TemaNav.textoMuted,
+                  color: ativo ? _TemaNav.ativoCor : _TemaNav.textoMuted,
                 ),
                 const SizedBox(width: 12),
                 Expanded(
@@ -1154,7 +1265,7 @@ class _GrupoLojasPainelState extends State<_GrupoLojasPainel> {
                     Icon(
                       Icons.store_outlined,
                       size: 22,
-                      color: ativo ? _TemaNav.accent : _TemaNav.textoMuted,
+                      color: ativo ? _TemaNav.ativoCor : _TemaNav.textoMuted,
                     ),
                     const SizedBox(width: 12),
                     Expanded(
@@ -1245,7 +1356,7 @@ class _GrupoLojasPainelState extends State<_GrupoLojasPainel> {
                   Icon(
                     icon,
                     size: 18,
-                    color: ativo ? _TemaNav.accent : _TemaNav.textoMuted,
+                    color: ativo ? _TemaNav.ativoCor : _TemaNav.textoMuted,
                   ),
                   const SizedBox(width: 10),
                   Expanded(
@@ -1295,7 +1406,304 @@ class _GrupoLojasPainelState extends State<_GrupoLojasPainel> {
                 child: Icon(
                   icon,
                   size: 22,
-                  color: ativo ? _TemaNav.accent : _TemaNav.textoMuted,
+                  color: ativo ? _TemaNav.ativoCor : _TemaNav.textoMuted,
+                ),
+              ),
+            ),
+          ),
+        ),
+      ),
+    );
+  }
+}
+
+// ——— Grupo expansível: Centro de operações (staff) ———
+
+class _GrupoCentroOperacoesPainel extends StatefulWidget {
+  const _GrupoCentroOperacoesPainel({
+    required this.rotaAtual,
+    required this.collapsed,
+    required this.onTapItem,
+  });
+
+  final String rotaAtual;
+  final bool collapsed;
+  final void Function(BuildContext, String, bool) onTapItem;
+
+  @override
+  State<_GrupoCentroOperacoesPainel> createState() =>
+      _GrupoCentroOperacoesPainelState();
+}
+
+class _GrupoCentroOperacoesPainelState extends State<_GrupoCentroOperacoesPainel> {
+  late bool _aberto;
+
+  static const _rotas = PainelRoutes.centroOperacoesRotas;
+
+  bool get _qualquerAtivo => _rotas.contains(widget.rotaAtual);
+
+  @override
+  void initState() {
+    super.initState();
+    _aberto = _qualquerAtivo;
+  }
+
+  @override
+  void didUpdateWidget(_GrupoCentroOperacoesPainel old) {
+    super.didUpdateWidget(old);
+    if (_qualquerAtivo && !_aberto) setState(() => _aberto = true);
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    final ativo = _qualquerAtivo;
+
+    if (widget.collapsed) {
+      return Column(
+        mainAxisSize: MainAxisSize.min,
+        children: [
+          _iconColapsado(
+            Icons.auto_graph_rounded,
+            '/centro_operacoes_crm',
+            'CRM & campanhas',
+          ),
+          _iconColapsado(
+            Icons.insights_rounded,
+            '/centro_operacoes_marketing',
+            'Painel de Marketing',
+          ),
+          _iconColapsado(
+            Icons.storefront_rounded,
+            '/centro_operacoes_leads_lojistas',
+            'Leads de lojistas',
+          ),
+          _iconColapsado(
+            Icons.delivery_dining_rounded,
+            '/centro_operacoes_leads_entregadores',
+            'Leads de entregadores',
+          ),
+          _iconColapsado(
+            Icons.calendar_month_rounded,
+            '/centro_operacoes_agenda',
+            'Agenda',
+          ),
+          _iconColapsado(
+            Icons.calculate_outlined,
+            '/centro_operacoes_frete',
+            'Simulador de frete',
+          ),
+        ],
+      );
+    }
+
+    return Column(
+      mainAxisSize: MainAxisSize.min,
+      crossAxisAlignment: CrossAxisAlignment.stretch,
+      children: [
+        Padding(
+          padding: const EdgeInsets.only(bottom: 2),
+          child: Material(
+            color: Colors.transparent,
+            child: InkWell(
+              borderRadius: BorderRadius.circular(10),
+              onTap: () {
+                if (!_aberto) {
+                  setState(() => _aberto = true);
+                  widget.onTapItem(
+                    context,
+                    '/centro_operacoes_crm',
+                    ativo,
+                  );
+                } else {
+                  setState(() => _aberto = !_aberto);
+                }
+              },
+              hoverColor: _TemaNav.hover,
+              child: Ink(
+                decoration: BoxDecoration(
+                  borderRadius: BorderRadius.circular(10),
+                  color: ativo ? _TemaNav.ativoBg : null,
+                  border: Border.all(
+                    color: ativo
+                        ? _TemaNav.accent.withValues(alpha: 0.45)
+                        : Colors.transparent,
+                  ),
+                ),
+                child: Row(
+                  children: [
+                    Container(
+                      width: 3,
+                      height: 44,
+                      margin: const EdgeInsets.only(right: 10),
+                      decoration: BoxDecoration(
+                        color: ativo ? _TemaNav.accent : Colors.transparent,
+                        borderRadius: const BorderRadius.horizontal(
+                          right: Radius.circular(3),
+                        ),
+                      ),
+                    ),
+                    Icon(
+                      Icons.hub_outlined,
+                      size: 22,
+                      color: ativo ? _TemaNav.ativoCor : _TemaNav.textoMuted,
+                    ),
+                    const SizedBox(width: 12),
+                    Expanded(
+                      child: Text(
+                        'Centro de operações',
+                        maxLines: 1,
+                        overflow: TextOverflow.ellipsis,
+                        style: TextStyle(
+                          fontSize: 14,
+                          fontWeight: ativo ? FontWeight.w600 : FontWeight.w500,
+                          color: ativo ? _TemaNav.texto : _TemaNav.textoMuted,
+                        ),
+                      ),
+                    ),
+                    Padding(
+                      padding: const EdgeInsets.only(right: 10),
+                      child: AnimatedRotation(
+                        turns: _aberto ? 0.5 : 0,
+                        duration: const Duration(milliseconds: 200),
+                        child: const Icon(
+                          Icons.expand_more_rounded,
+                          size: 18,
+                          color: _TemaNav.textoMuted,
+                        ),
+                      ),
+                    ),
+                  ],
+                ),
+              ),
+            ),
+          ),
+        ),
+        AnimatedCrossFade(
+          duration: const Duration(milliseconds: 200),
+          crossFadeState: _aberto
+              ? CrossFadeState.showFirst
+              : CrossFadeState.showSecond,
+          firstChild: Padding(
+            padding: const EdgeInsets.only(left: 20),
+            child: Column(
+              mainAxisSize: MainAxisSize.min,
+              children: [
+                _subItem(
+                  rota: '/centro_operacoes_crm',
+                  icon: Icons.auto_graph_rounded,
+                  label: 'CRM & campanhas',
+                ),
+                _subItem(
+                  rota: '/centro_operacoes_marketing',
+                  icon: Icons.insights_rounded,
+                  label: 'Painel de Marketing',
+                ),
+                _subItem(
+                  rota: '/centro_operacoes_leads_lojistas',
+                  icon: Icons.storefront_rounded,
+                  label: 'Leads de lojistas',
+                ),
+                _subItem(
+                  rota: '/centro_operacoes_leads_entregadores',
+                  icon: Icons.delivery_dining_rounded,
+                  label: 'Leads de entregadores',
+                ),
+                _subItem(
+                  rota: '/centro_operacoes_agenda',
+                  icon: Icons.calendar_month_rounded,
+                  label: 'Agenda',
+                ),
+                _subItem(
+                  rota: '/centro_operacoes_frete',
+                  icon: Icons.calculate_outlined,
+                  label: 'Simulador de frete',
+                ),
+              ],
+            ),
+          ),
+          secondChild: const SizedBox.shrink(),
+        ),
+      ],
+    );
+  }
+
+  Widget _subItem({
+    required String rota,
+    required IconData icon,
+    required String label,
+  }) {
+    final ativo = widget.rotaAtual == rota;
+    return Padding(
+      padding: const EdgeInsets.only(bottom: 2),
+      child: Material(
+        color: Colors.transparent,
+        child: InkWell(
+          borderRadius: BorderRadius.circular(8),
+          onTap: () => widget.onTapItem(context, rota, ativo),
+          hoverColor: _TemaNav.hover,
+          child: Ink(
+            decoration: BoxDecoration(
+              borderRadius: BorderRadius.circular(8),
+              color: ativo ? _TemaNav.accentSoft : null,
+            ),
+            child: Padding(
+              padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 10),
+              child: Row(
+                children: [
+                  Icon(
+                    icon,
+                    size: 18,
+                    color: ativo ? _TemaNav.ativoCor : _TemaNav.textoMuted,
+                  ),
+                  const SizedBox(width: 10),
+                  Expanded(
+                    child: Text(
+                      label,
+                      maxLines: 2,
+                      overflow: TextOverflow.ellipsis,
+                      style: TextStyle(
+                        fontSize: 13,
+                        fontWeight: ativo ? FontWeight.w600 : FontWeight.w500,
+                        color: ativo ? _TemaNav.texto : _TemaNav.textoMuted,
+                      ),
+                    ),
+                  ),
+                  if (ativo)
+                    const Icon(Icons.circle, size: 6, color: _TemaNav.accent),
+                ],
+              ),
+            ),
+          ),
+        ),
+      ),
+    );
+  }
+
+  Widget _iconColapsado(IconData icon, String rota, String tooltip) {
+    final ativo = widget.rotaAtual == rota;
+    return Padding(
+      padding: const EdgeInsets.only(bottom: 4),
+      child: Tooltip(
+        message: tooltip,
+        preferBelow: false,
+        child: Material(
+          color: Colors.transparent,
+          child: InkWell(
+            borderRadius: BorderRadius.circular(10),
+            onTap: () => widget.onTapItem(context, rota, ativo),
+            hoverColor: _TemaNav.hover,
+            child: Ink(
+              decoration: BoxDecoration(
+                borderRadius: BorderRadius.circular(10),
+                color: ativo ? _TemaNav.ativoBg : null,
+              ),
+              child: SizedBox(
+                height: 44,
+                width: double.infinity,
+                child: Icon(
+                  icon,
+                  size: 22,
+                  color: ativo ? _TemaNav.ativoCor : _TemaNav.textoMuted,
                 ),
               ),
             ),
@@ -1414,7 +1822,7 @@ class _GrupoConfiguracaoLojistaState extends State<_GrupoConfiguracaoLojista> {
                     Icon(
                       Icons.settings_outlined,
                       size: 22,
-                      color: ativo ? _TemaNav.accent : _TemaNav.textoMuted,
+                      color: ativo ? _TemaNav.ativoCor : _TemaNav.textoMuted,
                     ),
                     const SizedBox(width: 12),
                     Expanded(
@@ -1509,7 +1917,7 @@ class _GrupoConfiguracaoLojistaState extends State<_GrupoConfiguracaoLojista> {
                   Icon(
                     icon,
                     size: 18,
-                    color: ativo ? _TemaNav.accent : _TemaNav.textoMuted,
+                    color: ativo ? _TemaNav.ativoCor : _TemaNav.textoMuted,
                   ),
                   const SizedBox(width: 10),
                   Expanded(
@@ -1566,10 +1974,351 @@ class _GrupoConfiguracaoLojistaState extends State<_GrupoConfiguracaoLojista> {
                   child: Icon(
                     icon,
                     size: 22,
-                    color: ativo ? _TemaNav.accent : _TemaNav.textoMuted,
+                    color: ativo ? _TemaNav.ativoCor : _TemaNav.textoMuted,
                   ),
                 ),
               ),
+            ),
+          ),
+        ),
+      ),
+    );
+  }
+}
+
+// ——— Grupo expansível: Gestão Comercial ———
+
+class _GrupoGestaoComercial extends StatefulWidget {
+  const _GrupoGestaoComercial({
+    required this.rotaAtual,
+    required this.collapsed,
+    required this.onTapItem,
+  });
+
+  final String rotaAtual;
+  final bool collapsed;
+  final void Function(BuildContext, String, bool) onTapItem;
+
+  @override
+  State<_GrupoGestaoComercial> createState() => _GrupoGestaoComercialState();
+}
+
+class _GrupoGestaoComercialState extends State<_GrupoGestaoComercial> {
+  late bool _aberto;
+
+  static const _rotas = [
+    '/comercial_dashboard',
+    '/pdv',
+    '/comercial_clientes',
+    '/comercial_credito',
+    '/comercial_pendencias',
+    '/comercial_recebimentos',
+    '/comercial_historico',
+    '/comercial_relatorios',
+    '/comercial_configuracoes',
+  ];
+
+  bool get _qualquerAtivo => _rotas.contains(widget.rotaAtual);
+
+  @override
+  void initState() {
+    super.initState();
+    _aberto = _qualquerAtivo;
+  }
+
+  @override
+  void didUpdateWidget(_GrupoGestaoComercial old) {
+    super.didUpdateWidget(old);
+    if (_qualquerAtivo && !_aberto) setState(() => _aberto = true);
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    final ativo = _qualquerAtivo;
+
+    if (widget.collapsed) {
+      return Column(
+        mainAxisSize: MainAxisSize.min,
+        children: [
+          _iconColapsado(
+            Icons.business_center_outlined,
+            '/comercial_dashboard',
+            'Gestão Comercial',
+          ),
+        ],
+      );
+    }
+
+    return Column(
+      mainAxisSize: MainAxisSize.min,
+      crossAxisAlignment: CrossAxisAlignment.stretch,
+      children: [
+        // ── cabeçalho do grupo ──
+        Padding(
+          padding: const EdgeInsets.only(bottom: 2),
+          child: Material(
+            color: Colors.transparent,
+            child: InkWell(
+              borderRadius: BorderRadius.circular(10),
+              onTap: () {
+                if (!_aberto) {
+                  setState(() => _aberto = true);
+                  widget.onTapItem(context, '/comercial_dashboard', ativo);
+                } else {
+                  setState(() => _aberto = !_aberto);
+                }
+              },
+              hoverColor: _TemaNav.hover,
+              focusColor: Colors.transparent,
+              highlightColor: Colors.transparent,
+              splashColor: _TemaNav.accent.withValues(alpha: 0.12),
+              child: Ink(
+                decoration: BoxDecoration(
+                  borderRadius: BorderRadius.circular(10),
+                  color: ativo ? _TemaNav.ativoBg : null,
+                  border: Border.all(
+                    color: ativo
+                        ? _TemaNav.accent.withValues(alpha: 0.45)
+                        : Colors.transparent,
+                    width: 1,
+                  ),
+                ),
+                child: Row(
+                  children: [
+                    Container(
+                      width: 3,
+                      height: 44,
+                      margin: const EdgeInsets.only(right: 10),
+                      decoration: BoxDecoration(
+                        color: ativo ? _TemaNav.accent : Colors.transparent,
+                        borderRadius: const BorderRadius.horizontal(
+                          right: Radius.circular(3),
+                        ),
+                      ),
+                    ),
+                    Icon(
+                      Icons.business_center_outlined,
+                      size: 22,
+                      color: ativo ? _TemaNav.ativoCor : _TemaNav.textoMuted,
+                    ),
+                    const SizedBox(width: 12),
+                    Expanded(
+                      child: Text(
+                        'Gestão Comercial',
+                        maxLines: 1,
+                        overflow: TextOverflow.ellipsis,
+                        style: TextStyle(
+                          fontSize: 14,
+                          fontWeight: ativo ? FontWeight.w600 : FontWeight.w500,
+                          color: ativo ? _TemaNav.texto : _TemaNav.textoMuted,
+                          decoration: TextDecoration.none,
+                        ),
+                      ),
+                    ),
+                    Padding(
+                      padding: const EdgeInsets.only(right: 10),
+                      child: AnimatedRotation(
+                        turns: _aberto ? 0.5 : 0,
+                        duration: const Duration(milliseconds: 200),
+                        child: const Icon(
+                          Icons.expand_more_rounded,
+                          size: 18,
+                          color: _TemaNav.textoMuted,
+                        ),
+                      ),
+                    ),
+                  ],
+                ),
+              ),
+            ),
+          ),
+        ),
+        // ── sub-itens ──
+        AnimatedCrossFade(
+          duration: const Duration(milliseconds: 200),
+          crossFadeState: _aberto
+              ? CrossFadeState.showFirst
+              : CrossFadeState.showSecond,
+          firstChild: Padding(
+            padding: const EdgeInsets.only(left: 20),
+            child: Column(
+              mainAxisSize: MainAxisSize.min,
+              children: [
+                _subItem(
+                  context,
+                  rota: '/comercial_dashboard',
+                  icon: Icons.dashboard_rounded,
+                  label: 'Dashboard Comercial',
+                ),
+                _subItem(
+                  context,
+                  rota: '/pdv',
+                  icon: Icons.point_of_sale_rounded,
+                  label: 'Frente de Caixa (PDV)',
+                ),
+                _subItem(
+                  context,
+                  rota: '/comercial_clientes',
+                  icon: Icons.people_alt_rounded,
+                  label: 'Clientes',
+                ),
+                _subItem(
+                  context,
+                  rota: '/comercial_credito',
+                  icon: Icons.credit_card_rounded,
+                  label: 'Crédito de Clientes',
+                  badge: 'Novo',
+                ),
+                _subItem(
+                  context,
+                  rota: '/comercial_pendencias',
+                  icon: Icons.warning_amber_rounded,
+                  label: 'Pendências Financeiras',
+                  enabled: false,
+                ),
+                _subItem(
+                  context,
+                  rota: '/comercial_recebimentos',
+                  icon: Icons.payments_rounded,
+                  label: 'Recebimentos',
+                  enabled: false,
+                ),
+                _subItem(
+                  context,
+                  rota: '/comercial_historico',
+                  icon: Icons.history_rounded,
+                  label: 'Histórico de Vendas',
+                  enabled: false,
+                ),
+                _subItem(
+                  context,
+                  rota: '/comercial_relatorios',
+                  icon: Icons.analytics_rounded,
+                  label: 'Relatórios Comerciais',
+                  enabled: false,
+                ),
+                _subItem(
+                  context,
+                  rota: '/comercial_configuracoes',
+                  icon: Icons.settings_outlined,
+                  label: 'Configurações Comerciais',
+                  enabled: false,
+                ),
+              ],
+            ),
+          ),
+          secondChild: const SizedBox.shrink(),
+        ),
+      ],
+    );
+  }
+
+  Widget _iconColapsado(IconData icon, String rota, String tooltip) {
+    final ativo = widget.rotaAtual == rota;
+    return Tooltip(
+      message: tooltip,
+      child: Material(
+        color: Colors.transparent,
+        child: InkWell(
+          onTap: () => widget.onTapItem(context, rota, ativo),
+          child: Container(
+            width: 44,
+            height: 44,
+            alignment: Alignment.center,
+            child: Icon(
+              icon,
+              color: ativo ? _TemaNav.ativoCor : _TemaNav.textoMuted,
+              size: 22,
+            ),
+          ),
+        ),
+      ),
+    );
+  }
+
+  Widget _subItem(
+    BuildContext context, {
+    required String rota,
+    required IconData icon,
+    required String label,
+    bool enabled = true,
+    String? badge,
+  }) {
+    final ativo = widget.rotaAtual == rota;
+    return Padding(
+      padding: const EdgeInsets.only(bottom: 2),
+      child: Material(
+        color: Colors.transparent,
+        child: InkWell(
+          borderRadius: BorderRadius.circular(8),
+          onTap: enabled ? () => widget.onTapItem(context, rota, ativo) : null,
+          hoverColor: enabled ? _TemaNav.hover : Colors.transparent,
+          child: Ink(
+            height: 38,
+            decoration: BoxDecoration(
+              borderRadius: BorderRadius.circular(8),
+              color: (enabled && ativo) ? _TemaNav.ativoBg : null,
+            ),
+            child: Row(
+              children: [
+                const SizedBox(width: 12),
+                Icon(
+                  icon,
+                  size: 18,
+                  color: (enabled && ativo) ? _TemaNav.ativoCor : _TemaNav.textoMuted.withOpacity(enabled ? 1.0 : 0.6),
+                ),
+                const SizedBox(width: 10),
+                Expanded(
+                  child: Text(
+                    label,
+                    maxLines: 1,
+                    overflow: TextOverflow.ellipsis,
+                    style: TextStyle(
+                      fontSize: 13,
+                      fontWeight: (enabled && ativo) ? FontWeight.w600 : FontWeight.w500,
+                      color: (enabled && ativo) ? _TemaNav.texto : _TemaNav.textoMuted.withOpacity(enabled ? 1.0 : 0.7),
+                    ),
+                  ),
+                ),
+                if (badge != null)
+                  Padding(
+                    padding: const EdgeInsets.only(right: 8),
+                    child: Container(
+                      padding: const EdgeInsets.symmetric(horizontal: 6, vertical: 2),
+                      decoration: BoxDecoration(
+                        color: _TemaNav.accent.withValues(alpha: 0.2),
+                        borderRadius: BorderRadius.circular(4),
+                      ),
+                      child: Text(
+                        badge,
+                        style: const TextStyle(
+                          fontSize: 9,
+                          fontWeight: FontWeight.bold,
+                          color: _TemaNav.accent,
+                        ),
+                      ),
+                    ),
+                  )
+                else if (!enabled)
+                  Padding(
+                    padding: const EdgeInsets.only(right: 8),
+                    child: Container(
+                      padding: const EdgeInsets.symmetric(horizontal: 6, vertical: 2),
+                      decoration: BoxDecoration(
+                        color: Colors.grey.withOpacity(0.1),
+                        borderRadius: BorderRadius.circular(4),
+                      ),
+                      child: Text(
+                        'Breve',
+                        style: TextStyle(
+                          fontSize: 9,
+                          fontWeight: FontWeight.bold,
+                          color: _TemaNav.textoMuted.withOpacity(0.6),
+                        ),
+                      ),
+                    ),
+                  ),
+              ],
             ),
           ),
         ),
@@ -1691,7 +2440,7 @@ class _GrupoCarteiraState extends State<_GrupoCarteira> {
                     Icon(
                       Icons.account_balance_wallet_outlined,
                       size: 22,
-                      color: ativo ? _TemaNav.accent : _TemaNav.textoMuted,
+                      color: ativo ? _TemaNav.ativoCor : _TemaNav.textoMuted,
                     ),
                     const SizedBox(width: 12),
                     Expanded(
@@ -1787,7 +2536,7 @@ class _GrupoCarteiraState extends State<_GrupoCarteira> {
                   Icon(
                     icon,
                     size: 18,
-                    color: ativo ? _TemaNav.accent : _TemaNav.textoMuted,
+                    color: ativo ? _TemaNav.ativoCor : _TemaNav.textoMuted,
                   ),
                   const SizedBox(width: 10),
                   Expanded(
@@ -1844,12 +2593,130 @@ class _GrupoCarteiraState extends State<_GrupoCarteira> {
                   child: Icon(
                     icon,
                     size: 22,
-                    color: ativo ? _TemaNav.accent : _TemaNav.textoMuted,
+                    color: ativo ? _TemaNav.ativoCor : _TemaNav.textoMuted,
                   ),
                 ),
               ),
             ),
           ),
+        ),
+      ),
+    );
+  }
+}
+
+// ——— Rodapé / usuário logado ———
+
+class _RodapeUsuario extends StatelessWidget {
+  const _RodapeUsuario({
+    required this.perfil,
+    required this.collapsed,
+    this.nomeLoja,
+  });
+
+  final String perfil;
+  final bool collapsed;
+  final String? nomeLoja;
+
+  String _iniciais(String email, String? nome) {
+    if (nome != null && nome.trim().isNotEmpty) {
+      final partes = nome.trim().split(' ');
+      if (partes.length >= 2) {
+        return (partes[0].substring(0, 1) + partes[1].substring(0, 1)).toUpperCase();
+      }
+      if (nome.trim().length >= 2) {
+        return nome.trim().substring(0, 2).toUpperCase();
+      }
+    }
+    final parte = email.split('@').first.trim();
+    if (parte.length >= 2) return parte.substring(0, 2).toUpperCase();
+    if (parte.isNotEmpty) return parte[0].toUpperCase();
+    return '?';
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    final email = FirebaseAuth.instance.currentUser?.email?.trim() ?? 'loja@dipertin.com.br';
+    final exibirNomeLoja = nomeLoja ?? 'Loja Exemplo';
+
+    final avatar = Container(
+      width: 36,
+      height: 36,
+      decoration: BoxDecoration(
+        gradient: LinearGradient(
+          colors: [
+            _TemaNav.accent.withValues(alpha: 0.9),
+            _TemaNav.ativoCor.withValues(alpha: 0.6),
+          ],
+        ),
+        borderRadius: BorderRadius.circular(10),
+      ),
+      alignment: Alignment.center,
+      child: Text(
+        _iniciais(email, exibirNomeLoja),
+        style: const TextStyle(
+          color: Colors.white,
+          fontWeight: FontWeight.w800,
+          fontSize: 12,
+          decoration: TextDecoration.none,
+        ),
+      ),
+    );
+
+    if (collapsed) {
+      return Padding(
+        padding: const EdgeInsets.fromLTRB(0, 8, 0, 4),
+        child: Tooltip(
+          message: '$exibirNomeLoja\n$email',
+          preferBelow: false,
+          child: Center(child: avatar),
+        ),
+      );
+    }
+
+    return Padding(
+      padding: const EdgeInsets.fromLTRB(12, 10, 12, 4),
+      child: Container(
+        padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 10),
+        decoration: BoxDecoration(
+          color: _TemaNav.fundoElevado,
+          borderRadius: BorderRadius.circular(12),
+          border: Border.all(color: _TemaNav.borda),
+        ),
+        child: Row(
+          children: [
+            avatar,
+            const SizedBox(width: 10),
+            Expanded(
+              child: Column(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  Text(
+                    exibirNomeLoja,
+                    maxLines: 1,
+                    overflow: TextOverflow.ellipsis,
+                    style: const TextStyle(
+                      fontSize: 12,
+                      fontWeight: FontWeight.w700,
+                      color: _TemaNav.texto,
+                      decoration: TextDecoration.none,
+                    ),
+                  ),
+                  const SizedBox(height: 2),
+                  Text(
+                    email,
+                    maxLines: 1,
+                    overflow: TextOverflow.ellipsis,
+                    style: const TextStyle(
+                      fontSize: 11,
+                      color: _TemaNav.textoMuted,
+                      decoration: TextDecoration.none,
+                    ),
+                  ),
+                ],
+              ),
+            ),
+          ],
         ),
       ),
     );
@@ -2039,7 +2906,7 @@ class _GrupoAdminCityState extends State<_GrupoAdminCity> {
                     Icon(
                       Icons.supervisor_account,
                       size: 22,
-                      color: ativo ? _TemaNav.accent : _TemaNav.textoMuted,
+                      color: ativo ? _TemaNav.ativoCor : _TemaNav.textoMuted,
                     ),
                     const SizedBox(width: 12),
                     Expanded(
@@ -2134,7 +3001,7 @@ class _GrupoAdminCityState extends State<_GrupoAdminCity> {
                   Icon(
                     icon,
                     size: 18,
-                    color: ativo ? _TemaNav.accent : _TemaNav.textoMuted,
+                    color: ativo ? _TemaNav.ativoCor : _TemaNav.textoMuted,
                   ),
                   const SizedBox(width: 10),
                   Expanded(
@@ -2189,10 +3056,113 @@ class _GrupoAdminCityState extends State<_GrupoAdminCity> {
               child: Icon(
                 icon,
                 size: 22,
-                color: ativo ? _TemaNav.accent : _TemaNav.textoMuted,
+                color: ativo ? _TemaNav.ativoCor : _TemaNav.textoMuted,
               ),
             ),
           ),
+        ),
+      ),
+    );
+  }
+}
+
+// ——— Seção Plano / Upgrade ———
+
+class _SeccaoPlano extends StatelessWidget {
+  const _SeccaoPlano({required this.collapsed});
+
+  final bool collapsed;
+
+  @override
+  Widget build(BuildContext context) {
+    if (collapsed) {
+      return const Padding(
+        padding: EdgeInsets.symmetric(vertical: 8.0),
+        child: Tooltip(
+          message: 'Plano Profissional\nVence em 30/07/2025',
+          child: Icon(Icons.workspace_premium_rounded, color: Color(0xFFF59E0B), size: 20),
+        ),
+      );
+    }
+
+    return Padding(
+      padding: const EdgeInsets.fromLTRB(12, 12, 12, 8),
+      child: Container(
+        padding: const EdgeInsets.all(12),
+        decoration: BoxDecoration(
+          color: const Color(0xFF1E1B4B), // Roxo/Azul escuro premium
+          borderRadius: BorderRadius.circular(12),
+          border: Border.all(color: Colors.white10),
+          gradient: const LinearGradient(
+            colors: [Color(0xFF2E1A47), Color(0xFF1E1B4B)],
+            begin: Alignment.topLeft,
+            end: Alignment.bottomRight,
+          ),
+        ),
+        child: Column(
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            Row(
+              children: [
+                const Icon(Icons.workspace_premium_rounded, color: Color(0xFFF59E0B), size: 14),
+                const SizedBox(width: 6),
+                const Text(
+                  'Seu plano',
+                  style: TextStyle(
+                    fontSize: 10,
+                    fontWeight: FontWeight.bold,
+                    color: Colors.white60,
+                    letterSpacing: 0.5,
+                    decoration: TextDecoration.none,
+                  ),
+                ),
+              ],
+            ),
+            const SizedBox(height: 6),
+            const Text(
+              'Profissional',
+              style: TextStyle(
+                fontSize: 13,
+                fontWeight: FontWeight.bold,
+                color: Colors.white,
+                decoration: TextDecoration.none,
+              ),
+            ),
+            const SizedBox(height: 2),
+            const Text(
+              'Vence em 30/07/2025',
+              style: TextStyle(
+                fontSize: 10,
+                color: Colors.white70,
+                fontWeight: FontWeight.w500,
+                decoration: TextDecoration.none,
+              ),
+            ),
+            const SizedBox(height: 10),
+            SizedBox(
+              width: double.infinity,
+              height: 28,
+              child: ElevatedButton(
+                onPressed: () {},
+                style: ElevatedButton.styleFrom(
+                  backgroundColor: const Color(0xFF6A1B9A), // Roxo DiPertin
+                  foregroundColor: Colors.white,
+                  padding: EdgeInsets.zero,
+                  elevation: 0,
+                  shape: RoundedRectangleBorder(
+                    borderRadius: BorderRadius.circular(6),
+                  ),
+                ),
+                child: const Text(
+                  'Ver planos',
+                  style: TextStyle(
+                    fontSize: 11,
+                    fontWeight: FontWeight.bold,
+                  ),
+                ),
+              ),
+            ),
+          ],
         ),
       ),
     );

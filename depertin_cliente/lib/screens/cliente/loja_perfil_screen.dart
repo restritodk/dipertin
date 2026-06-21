@@ -29,8 +29,10 @@ class LojaPerfilScreen extends StatefulWidget {
 }
 
 class _LojaPerfilScreenState extends State<LojaPerfilScreen> {
-  static final NumberFormat _fmtMoeda =
-      NumberFormat.currency(locale: 'pt_BR', symbol: r'R$');
+  static final NumberFormat _fmtMoeda = NumberFormat.currency(
+    locale: 'pt_BR',
+    symbol: r'R$',
+  );
 
   Timer? _timerReavaliaPausa;
   StreamSubscription<DocumentSnapshot>? _subLoja;
@@ -57,14 +59,14 @@ class _LojaPerfilScreenState extends State<LojaPerfilScreen> {
         .doc(widget.lojistaId)
         .snapshots()
         .listen((snap) {
-      if (!mounted || !snap.exists) return;
-      final dados = snap.data() as Map<String, dynamic>;
-      final bool aberta = LojaPausa.lojaEstaAberta(dados);
-      setState(() {
-        _dadosLoja = dados;
-        _lojaAberta = aberta;
-      });
-    });
+          if (!mounted || !snap.exists) return;
+          final dados = snap.data() as Map<String, dynamic>;
+          final bool aberta = LojaPausa.lojaEstaAberta(dados);
+          setState(() {
+            _dadosLoja = dados;
+            _lojaAberta = aberta;
+          });
+        });
   }
 
   @override
@@ -107,7 +109,8 @@ class _LojaPerfilScreenState extends State<LojaPerfilScreen> {
   double _precoExibir(Map<String, dynamic> p) {
     final double? precoOriginal = (p['preco'] as num?)?.toDouble();
     final double? precoOferta = (p['oferta'] as num?)?.toDouble();
-    final bool temOferta = precoOferta != null &&
+    final bool temOferta =
+        precoOferta != null &&
         precoOriginal != null &&
         precoOferta < precoOriginal;
     return temOferta ? precoOferta : (precoOriginal ?? precoOferta ?? 0.0);
@@ -129,11 +132,9 @@ class _LojaPerfilScreenState extends State<LojaPerfilScreen> {
     // Capa larga: `foto_capa`; senão, a imagem de fachada (config. operacional / vitrine).
     final String urlHero = urlCapa.isNotEmpty ? urlCapa : urlLogo;
     // Evita logo duplicada: o hero já mostra a foto quando não há capa.
-    final bool mostrarAvatarCirculo =
-        urlLogo.isNotEmpty && urlCapa.isNotEmpty;
-    final String nomeLoja = m['loja_nome']?.toString() ??
-        m['nome']?.toString() ??
-        'Loja parceira';
+    final bool mostrarAvatarCirculo = urlLogo.isNotEmpty && urlCapa.isNotEmpty;
+    final String nomeLoja =
+        m['loja_nome']?.toString() ?? m['nome']?.toString() ?? 'Loja parceira';
     final String descricaoLoja =
         m['descricao']?.toString() ?? 'Sempre perto de você.';
     final String? telefone = m['telefone']?.toString();
@@ -208,9 +209,8 @@ class _LojaPerfilScreenState extends State<LojaPerfilScreen> {
                                 width: 80,
                                 height: 80,
                                 fit: BoxFit.cover,
-                                errorBuilder:
-                                    (context, error, stackTrace) =>
-                                        _logoPlaceholderAvatar(),
+                                errorBuilder: (context, error, stackTrace) =>
+                                    _logoPlaceholderAvatar(),
                               ),
                             ),
                           ),
@@ -519,7 +519,8 @@ class _LojaPerfilScreenState extends State<LojaPerfilScreen> {
                                     style: TextStyle(
                                       fontSize: 15,
                                       fontWeight: FontWeight.w600,
-                                      color: telefone != null &&
+                                      color:
+                                          telefone != null &&
                                               telefone.isNotEmpty
                                           ? diPertinRoxo
                                           : Colors.grey.shade500,
@@ -618,15 +619,15 @@ class _LojaPerfilScreenState extends State<LojaPerfilScreen> {
                     child: Padding(
                       padding: EdgeInsets.symmetric(vertical: 40),
                       child: Center(
-                        child: CircularProgressIndicator(color: diPertinLaranja),
+                        child: CircularProgressIndicator(
+                          color: diPertinLaranja,
+                        ),
                       ),
                     ),
                   );
                 }
                 if (!snapshot.hasData || snapshot.data!.docs.isEmpty) {
-                  return SliverToBoxAdapter(
-                    child: _EmptyProdutos(),
-                  );
+                  return SliverToBoxAdapter(child: _EmptyProdutos());
                 }
 
                 final produtos = snapshot.data!.docs;
@@ -637,180 +638,182 @@ class _LojaPerfilScreenState extends State<LojaPerfilScreen> {
                     crossAxisSpacing: 12,
                     childAspectRatio: 0.72,
                   ),
-                  delegate: SliverChildBuilderDelegate(
-                    (context, index) {
-                      final doc = produtos[index];
-                      var p = doc.data()! as Map<String, dynamic>;
-                      p = Map<String, dynamic>.from(p);
-                      p['id'] = doc.id;
-                      p['id_documento'] = doc.id;
-                      p['lojista_id'] = widget.lojistaId;
-                      p['loja_id'] = widget.lojistaId;
-                      p['loja_nome_vitrine'] = nomeLoja;
-                      p['loja_aberta'] = _lojaAberta;
+                  delegate: SliverChildBuilderDelegate((context, index) {
+                    final doc = produtos[index];
+                    var p = doc.data()! as Map<String, dynamic>;
+                    p = Map<String, dynamic>.from(p);
+                    p['id'] = doc.id;
+                    p['id_documento'] = doc.id;
+                    p['lojista_id'] = widget.lojistaId;
+                    p['loja_id'] = widget.lojistaId;
+                    p['loja_nome_vitrine'] = nomeLoja;
+                    p['loja_aberta'] = _lojaAberta;
 
-                      final String img = (p['imagens'] != null &&
-                              p['imagens'] is List &&
-                              (p['imagens'] as List).isNotEmpty)
-                          ? (p['imagens'] as List).first.toString()
-                          : '';
+                    final String img =
+                        (p['imagens'] != null &&
+                            p['imagens'] is List &&
+                            (p['imagens'] as List).isNotEmpty)
+                        ? (p['imagens'] as List).first.toString()
+                        : '';
 
-                      final double precoFinal = _precoExibir(p);
-                      final bool oferta = _temOferta(p);
-                      final double? precoOriginal =
-                          (p['preco'] as num?)?.toDouble();
+                    final double precoFinal = _precoExibir(p);
+                    final bool oferta = _temOferta(p);
+                    final double? precoOriginal = (p['preco'] as num?)
+                        ?.toDouble();
 
-                      return Material(
-                        color: Colors.white,
-                        borderRadius: BorderRadius.circular(16),
-                        clipBehavior: Clip.antiAlias,
-                        elevation: 0,
-                        shadowColor: Colors.transparent,
-                        child: InkWell(
-                          onTap: () {
-                            Navigator.push(
-                              context,
-                              MaterialPageRoute<void>(
-                                builder: (context) =>
-                                    ProductDetailsScreen(produto: p),
-                              ),
-                            );
-                          },
-                          child: Column(
-                            crossAxisAlignment: CrossAxisAlignment.stretch,
-                            children: [
-                              Expanded(
-                                child: Stack(
-                                  fit: StackFit.expand,
-                                  children: [
-                                    img.isNotEmpty
-                                        ? Image.network(
-                                            img,
-                                            fit: BoxFit.cover,
-                                            errorBuilder: (context, _, _) =>
-                                                _thumbErro(),
-                                          )
-                                        : _thumbErro(),
-                                    if (!_lojaAberta)
-                                      Positioned.fill(
-                                        child: DecoratedBox(
-                                          decoration: BoxDecoration(
-                                            color: Colors.white
-                                                .withValues(alpha: 0.42),
+                    return Material(
+                      color: Colors.white,
+                      borderRadius: BorderRadius.circular(16),
+                      clipBehavior: Clip.antiAlias,
+                      elevation: 0,
+                      shadowColor: Colors.transparent,
+                      child: InkWell(
+                        onTap: () {
+                          Navigator.push(
+                            context,
+                            MaterialPageRoute<void>(
+                              builder: (context) =>
+                                  ProductDetailsScreen(produto: p),
+                            ),
+                          );
+                        },
+                        child: Column(
+                          crossAxisAlignment: CrossAxisAlignment.stretch,
+                          children: [
+                            Expanded(
+                              child: Stack(
+                                fit: StackFit.expand,
+                                children: [
+                                  img.isNotEmpty
+                                      ? Image.network(
+                                          img,
+                                          fit: BoxFit.cover,
+                                          errorBuilder: (context, _, _) =>
+                                              _thumbErro(),
+                                        )
+                                      : _thumbErro(),
+                                  if (!_lojaAberta)
+                                    Positioned.fill(
+                                      child: DecoratedBox(
+                                        decoration: BoxDecoration(
+                                          color: Colors.white.withValues(
+                                            alpha: 0.42,
                                           ),
                                         ),
                                       ),
-                                    if (!_lojaAberta)
-                                      Positioned(
-                                        top: 8,
-                                        right: 8,
-                                        child: Container(
-                                          padding: const EdgeInsets.symmetric(
-                                            horizontal: 8,
-                                            vertical: 4,
+                                    ),
+                                  if (!_lojaAberta)
+                                    Positioned(
+                                      top: 8,
+                                      right: 8,
+                                      child: Container(
+                                        padding: const EdgeInsets.symmetric(
+                                          horizontal: 8,
+                                          vertical: 4,
+                                        ),
+                                        decoration: BoxDecoration(
+                                          color: Colors.black.withValues(
+                                            alpha: 0.62,
                                           ),
-                                          decoration: BoxDecoration(
-                                            color: Colors.black
-                                                .withValues(alpha: 0.62),
-                                            borderRadius:
-                                                BorderRadius.circular(10),
+                                          borderRadius: BorderRadius.circular(
+                                            10,
                                           ),
-                                          child: const Text(
-                                            'Fechada',
-                                            style: TextStyle(
-                                              color: Colors.white,
-                                              fontSize: 10,
-                                              fontWeight: FontWeight.w700,
-                                            ),
+                                        ),
+                                        child: const Text(
+                                          'Fechada',
+                                          style: TextStyle(
+                                            color: Colors.white,
+                                            fontSize: 10,
+                                            fontWeight: FontWeight.w700,
                                           ),
                                         ),
                                       ),
-                                    if (oferta && _lojaAberta)
-                                      Positioned(
-                                        top: 8,
-                                        left: 8,
-                                        child: Container(
-                                          padding: const EdgeInsets.symmetric(
-                                            horizontal: 8,
-                                            vertical: 4,
+                                    ),
+                                  if (oferta && _lojaAberta)
+                                    Positioned(
+                                      top: 8,
+                                      left: 8,
+                                      child: Container(
+                                        padding: const EdgeInsets.symmetric(
+                                          horizontal: 8,
+                                          vertical: 4,
+                                        ),
+                                        decoration: BoxDecoration(
+                                          color: diPertinLaranja,
+                                          borderRadius: BorderRadius.circular(
+                                            8,
                                           ),
-                                          decoration: BoxDecoration(
-                                            color: diPertinLaranja,
-                                            borderRadius:
-                                                BorderRadius.circular(8),
-                                            boxShadow: [
-                                              BoxShadow(
-                                                color: Colors.black
-                                                    .withValues(alpha: 0.2),
-                                                blurRadius: 6,
+                                          boxShadow: [
+                                            BoxShadow(
+                                              color: Colors.black.withValues(
+                                                alpha: 0.2,
                                               ),
-                                            ],
-                                          ),
-                                          child: const Text(
-                                            'Oferta',
-                                            style: TextStyle(
-                                              color: Colors.white,
-                                              fontSize: 11,
-                                              fontWeight: FontWeight.w800,
+                                              blurRadius: 6,
                                             ),
+                                          ],
+                                        ),
+                                        child: const Text(
+                                          'Oferta',
+                                          style: TextStyle(
+                                            color: Colors.white,
+                                            fontSize: 11,
+                                            fontWeight: FontWeight.w800,
                                           ),
                                         ),
                                       ),
-                                  ],
-                                ),
+                                    ),
+                                ],
                               ),
-                              Padding(
-                                padding: const EdgeInsets.fromLTRB(
-                                  10,
-                                  10,
-                                  10,
-                                  12,
-                                ),
-                                child: Column(
-                                  crossAxisAlignment: CrossAxisAlignment.start,
-                                  children: [
+                            ),
+                            Padding(
+                              padding: const EdgeInsets.fromLTRB(
+                                10,
+                                10,
+                                10,
+                                12,
+                              ),
+                              child: Column(
+                                crossAxisAlignment: CrossAxisAlignment.start,
+                                children: [
+                                  Text(
+                                    p['nome']?.toString() ?? 'Produto',
+                                    maxLines: 2,
+                                    overflow: TextOverflow.ellipsis,
+                                    style: const TextStyle(
+                                      fontWeight: FontWeight.w700,
+                                      fontSize: 13.5,
+                                      height: 1.25,
+                                      color: Color(0xFF1A1A2E),
+                                    ),
+                                  ),
+                                  const SizedBox(height: 6),
+                                  if (oferta &&
+                                      precoOriginal != null &&
+                                      precoOriginal > precoFinal)
                                     Text(
-                                      p['nome']?.toString() ?? 'Produto',
-                                      maxLines: 2,
-                                      overflow: TextOverflow.ellipsis,
-                                      style: const TextStyle(
-                                        fontWeight: FontWeight.w700,
-                                        fontSize: 13.5,
-                                        height: 1.25,
-                                        color: Color(0xFF1A1A2E),
+                                      _fmtMoeda.format(precoOriginal),
+                                      style: TextStyle(
+                                        fontSize: 11,
+                                        decoration: TextDecoration.lineThrough,
+                                        color: Colors.grey.shade500,
                                       ),
                                     ),
-                                    const SizedBox(height: 6),
-                                    if (oferta &&
-                                        precoOriginal != null &&
-                                        precoOriginal > precoFinal)
-                                      Text(
-                                        _fmtMoeda.format(precoOriginal),
-                                        style: TextStyle(
-                                          fontSize: 11,
-                                          decoration:
-                                              TextDecoration.lineThrough,
-                                          color: Colors.grey.shade500,
-                                        ),
-                                      ),
-                                    Text(
-                                      _fmtMoeda.format(precoFinal),
-                                      style: const TextStyle(
-                                        color: diPertinLaranja,
-                                        fontWeight: FontWeight.w800,
-                                        fontSize: 15,
-                                      ),
+                                  Text(
+                                    _fmtMoeda.format(precoFinal),
+                                    style: const TextStyle(
+                                      color: diPertinLaranja,
+                                      fontWeight: FontWeight.w800,
+                                      fontSize: 15,
                                     ),
-                                  ],
-                                ),
+                                  ),
+                                ],
                               ),
-                            ],
-                          ),
+                            ),
+                          ],
                         ),
-                      );
-                    },
-                    childCount: produtos.length,
-                  ),
+                      ),
+                    );
+                  }, childCount: produtos.length),
                 );
               },
             ),
@@ -841,21 +844,19 @@ class _LojaPerfilScreenState extends State<LojaPerfilScreen> {
         return Container(
           padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 6),
           decoration: BoxDecoration(
-            color: aberta
-                ? const Color(0xFFE8F5E9)
-                : const Color(0xFFFFEBEE),
+            color: aberta ? const Color(0xFFE8F5E9) : const Color(0xFFFFEBEE),
             borderRadius: BorderRadius.circular(20),
             border: Border.all(
-              color: aberta
-                  ? const Color(0xFFC8E6C9)
-                  : const Color(0xFFFFCDD2),
+              color: aberta ? const Color(0xFFC8E6C9) : const Color(0xFFFFCDD2),
             ),
           ),
           child: Row(
             mainAxisSize: MainAxisSize.min,
             children: [
               Icon(
-                aberta ? Icons.check_circle_rounded : Icons.store_mall_directory,
+                aberta
+                    ? Icons.check_circle_rounded
+                    : Icons.store_mall_directory,
                 size: 18,
                 color: aberta
                     ? const Color(0xFF2E7D32)
@@ -903,10 +904,7 @@ class _LojaPerfilScreenState extends State<LojaPerfilScreen> {
         gradient: LinearGradient(
           begin: Alignment.topLeft,
           end: Alignment.bottomRight,
-          colors: [
-            Color(0xFF7B1FA2),
-            diPertinRoxo,
-          ],
+          colors: [Color(0xFF7B1FA2), diPertinRoxo],
         ),
       ),
       child: Center(

@@ -5,8 +5,10 @@ import 'package:cloud_firestore/cloud_firestore.dart';
 import 'package:firebase_auth/firebase_auth.dart';
 import 'package:firebase_core/firebase_core.dart';
 import 'package:intl/intl.dart';
+import 'package:intl/date_symbol_data_local.dart';
 import 'firebase_options.dart';
 import 'services/painel_google_redirect_pending.dart';
+import 'services/sessao_painel_service.dart';
 import 'navigation/painel_routes.dart';
 import 'theme/painel_admin_theme.dart';
 import 'screens/login_admin_screen.dart';
@@ -16,6 +18,9 @@ void main() async {
   WidgetsFlutterBinding.ensureInitialized();
   // Português do Brasil (Material, intl/DateFormat, números).
   Intl.defaultLocale = 'pt_BR';
+  // Carrega os símbolos de data do locale (nomes de mês/dia). Sem isto,
+  // DateFormat('MMM'/'EEEE', 'pt_BR') lança LocaleDataException em runtime.
+  await initializeDateFormatting('pt_BR', null);
   await Firebase.initializeApp(options: DefaultFirebaseOptions.currentPlatform);
   // App Check **não** é dependência deste projeto: com o plugin presente, o
   // Firebase Auth (web) tentava obter token reCAPTCHA e gerava
@@ -63,6 +68,7 @@ class DiPertinAdminApp extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     return MaterialApp(
+      navigatorKey: SessaoPainelService.navigatorKey,
       title: 'DiPertin',
       debugShowCheckedModeBanner: false,
       locale: const Locale('pt', 'BR'),

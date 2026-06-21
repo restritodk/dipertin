@@ -368,6 +368,75 @@ exports.entregadorAutoDesbloquearConta = onCall(CALL_OPTS, async (request) => {
     return { ok: true };
 });
 
+/**
+ * Abre / reabre o cadastro de entregador de forma autoritativa (Admin SDK).
+ * É a ÚNICA via permitida para transicionar role→entregador: valida a trava de
+ * reingresso de 30 dias (pós-exclusão de perfil) no servidor — não burlável pelo
+ * cliente. Mantém intacto o perfil de cliente.
+ */
+exports.entregadorAbrirCadastro = onCall(CALL_OPTS, async (request) => {
+    const uid = assertAuth(request);
+    const db = admin.firestore();
+    const ref = db.collection("users").doc(uid);
+    const snap = await ref.get();
+    if (!snap.exists) {
+        throw new HttpsError("not-found", "Perfil não encontrado. Faça login novamente.");
+    }
+    const d = snap.data() || {};
+
+    // Já é entregador ativo/pendente e não está bloqueado → nada a (re)abrir.
+    const statusAtual = String(d.entregador_status || "");
+    if (
+        (statusAtual === "pendente" || statusAtual === "aprovado") &&
+        !entregadorBloqueadoOperacionalJs(d)
+    ) {
+        return { ok: true, ja_ativo: true, entregador_status: statusAtual };
+    }
+
+    // Trava de reingresso pós-exclusão (30 dias) — validada no servidor.
+    const reingressoAte = toDateMaybe(d.entregador_reingresso_bloqueado_ate);
+    if (reingressoAte && Date.now() < reingressoAte.getTime()) {
+        throw new HttpsError(
+            "failed-precondition",
+            "Novo cadastro de entregador disponível somente após o prazo de 30 dias da solicitação de exclusão.",
+            {
+                reingresso_bloqueado_ate: reingressoAte.getTime(),
+            },
+        );
+    }
+
+    await ref.update({
+        role: "entregador",
+        entregador_status: "pendente",
+        entregador_perfil_operacional: PERFIL.ATIVO,
+        status_conta: "ACTIVE",
+        is_online: false,
+        data_solicitacao_entregador: admin.firestore.FieldValue.serverTimestamp(),
+        // Limpa resíduos de bloqueio/exclusão de um ciclo anterior.
+        recusa_cadastro: admin.firestore.FieldValue.delete(),
+        motivo_recusa: admin.firestore.FieldValue.delete(),
+        block_active: false,
+        block_type: admin.firestore.FieldValue.delete(),
+        block_reason: admin.firestore.FieldValue.delete(),
+        block_origin: admin.firestore.FieldValue.delete(),
+        block_start_at: admin.firestore.FieldValue.delete(),
+        block_end_at: admin.firestore.FieldValue.delete(),
+        motivo_bloqueio: admin.firestore.FieldValue.delete(),
+        entregador_exclusao_perfil_solicitada_em: admin.firestore.FieldValue.delete(),
+        entregador_exclusao_perfil_em: admin.firestore.FieldValue.delete(),
+        entregador_reingresso_bloqueado_ate: admin.firestore.FieldValue.delete(),
+        entregador_perfil_removido_em: admin.firestore.FieldValue.delete(),
+    });
+
+    await registrarAuditoriaSelf(ref, {
+        action: "self_open_signup",
+        entregador_nome: d.nome || d.nome_completo || "",
+        reabertura: statusAtual === "" ? false : true,
+    });
+
+    return { ok: true };
+});
+
 /** Remove apenas o perfil de entregador após 30 dias; mantém conta (role=cliente) e histórico. */
 async function removerPerfilEntregadorDoc(ref, d) {
     const nome = d.nome || d.nome_completo || "";

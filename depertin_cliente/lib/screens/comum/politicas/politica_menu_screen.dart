@@ -1,5 +1,6 @@
 import 'package:flutter/material.dart';
 
+import '../../../widgets/dipertin_scroll_body.dart';
 import 'politica_compra_screen.dart';
 import 'politica_privacidade_screen.dart';
 import 'politica_uso_screen.dart';
@@ -30,8 +31,7 @@ class PoliticaMenuScreen extends StatelessWidget {
         surfaceTintColor: Colors.transparent,
         iconTheme: const IconThemeData(color: Colors.white),
       ),
-      body: SingleChildScrollView(
-        padding: const EdgeInsets.fromLTRB(16, 16, 16, 32),
+      body: DiPertinScrollBody(
         child: Column(
           crossAxisAlignment: CrossAxisAlignment.stretch,
           children: [

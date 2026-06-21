@@ -140,11 +140,18 @@ class _CentralClientesScreenState extends State<CentralClientesScreen> {
                 return _ErroCarga(mensagem: clientesSnap.error.toString());
               }
               return StreamBuilder<QuerySnapshot<Map<String, dynamic>>>(
-                // Stream 2 — Pedidos (para contagem/total em tempo real por cliente)
+                // Pedidos recentes (limite evita travar o navegador em produção).
                 stream: FirebaseFirestore.instance
                     .collection('pedidos')
+                    .orderBy('data_pedido', descending: true)
+                    .limit(2500)
                     .snapshots(),
                 builder: (context, pedidosSnap) {
+                  if (pedidosSnap.hasError) {
+                    return _ErroCarga(
+                      mensagem: pedidosSnap.error.toString(),
+                    );
+                  }
                   // Agregação dos pedidos por cliente_id (em tempo real).
                   final agregado = _calcularAgregadoPorCliente(
                     pedidosSnap.data?.docs ?? const [],
@@ -155,11 +162,7 @@ class _CentralClientesScreenState extends State<CentralClientesScreen> {
                   for (final d in clientesSnap.data?.docs ?? const []) {
                     final raw = safeWebDocData(d);
                     if (raw.isEmpty) continue;
-                    final base = _ClienteResumo.fromMap(
-                      d.id,
-                      raw,
-                      criadoDocFallback: d.createTime,
-                    );
+                    final base = _ClienteResumo.fromMap(d.id, raw);
                     final ag = agregado[d.id];
                     clientes.add(
                       base.comAgregado(
@@ -181,7 +184,10 @@ class _CentralClientesScreenState extends State<CentralClientesScreen> {
 
                   final carregando =
                       clientesSnap.connectionState ==
-                          ConnectionState.waiting;
+                              ConnectionState.waiting ||
+                          (pedidosSnap.connectionState ==
+                                  ConnectionState.waiting &&
+                              !pedidosSnap.hasData);
 
                   return SingleChildScrollView(
                     padding:
@@ -340,11 +346,11 @@ class _ColoredScaffold extends StatelessWidget {
   final Widget child;
   @override
   Widget build(BuildContext context) {
-    // Material + DefaultTextStyle.merge garantem que nenhum Text herde o
-    // sublinhado amarelo do tema raiz do Flutter Web (link/scaffold padrão).
-    return Material(
-      color: _CCTheme.canvas,
-      child: DefaultTextStyle.merge(
+    // Scaffold + expand: no IndexedStack do painel web, Material solto pode
+    // ficar com altura 0 e a aba parece "tela em branco" (só o fundo cinza).
+    return Scaffold(
+      backgroundColor: _CCTheme.canvas,
+      body: DefaultTextStyle.merge(
         style: const TextStyle(
           decoration: TextDecoration.none,
           decorationThickness: 0,

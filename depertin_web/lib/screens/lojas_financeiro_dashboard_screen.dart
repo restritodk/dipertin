@@ -2,6 +2,7 @@ import 'dart:math' as math;
 
 import 'package:depertin_web/services/admin_lojas_financeiro_service.dart';
 import 'package:depertin_web/theme/painel_admin_theme.dart';
+import 'package:depertin_web/utils/codigo_pedido.dart';
 import 'package:depertin_web/widgets/lojas_financeiro_busca_loja_field.dart';
 import 'package:fl_chart/fl_chart.dart';
 import 'package:flutter/material.dart';
@@ -232,7 +233,7 @@ class _LojasFinanceiroDashboardScreenState
       builder: (ctx) => AlertDialog(
         shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(16)),
         title: Text(
-          'Pedido #${linha.pedidoId.length > 8 ? linha.pedidoId.substring(0, 8).toUpperCase() : linha.pedidoId.toUpperCase()}',
+          'Pedido ${CodigoPedido.gerar(linha.pedidoId)}',
           style: GoogleFonts.plusJakartaSans(fontWeight: FontWeight.w800),
         ),
         content: SizedBox(

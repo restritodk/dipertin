@@ -43,14 +43,16 @@ class _AppGuardState extends State<AppGuard> with WidgetsBindingObserver {
       _encerrandoSessao = false;
       _validarSessaoAuthRemota();
       _validarSessaoExpiradaLocal();
-      // Valida a cada 15s (antes era 30s): faz `user.reload()` (conta removida/bloqueada
-      // pelo servidor), verifica expiração local (sessão > 24h), e testa Firestore proativamente.
+      // Valida a cada 15s: faz `user.reload()` (conta removida/bloqueada
+      // pelo servidor) e verifica expiração local (sessão > 24h).
+      // A detecção de `permission-denied` (token expirado/revogado) é REATIVA,
+      // feita pelo stream global de `users/{uid}` em [_LojistaBloqueioTopLayer]
+      // — presente em toda rota e sem custo de leitura extra.
       _sessaoTimer = Timer.periodic(
         const Duration(seconds: 15),
         (_) {
           _validarSessaoAuthRemota();
           _validarSessaoExpiradaLocal();
-          _testarAcessoFirestoreProativamente();
         },
       );
     });
@@ -106,34 +108,6 @@ class _AppGuardState extends State<AppGuard> with WidgetsBindingObserver {
     final expirada = await SessaoTimeoutService.sessaoExpirada();
     if (!expirada || !mounted) return;
     await _encerrarSessaoPorExpiracaoLocal();
-  }
-
-  /// Testa proativamente o acesso ao Firestore para detectar sessão expirada
-  /// (permission-denied) ANTES que o usuário tente fazer uma operação
-  /// e veja a tela branca de erro.
-  Future<void> _testarAcessoFirestoreProativamente() async {
-    if (!mounted || _encerrandoSessao) return;
-    final user = FirebaseAuth.instance.currentUser;
-    if (user == null) return;
-
-    try {
-      // Tenta ler o documento do usuário — operação rápida e segura
-      await FirebaseFirestore.instance
-          .collection('users')
-          .doc(user.uid)
-          .get(const GetOptions(source: Source.cache))
-          .timeout(
-            const Duration(seconds: 5),
-            onTimeout: () => throw TimeoutException('Firestore test timeout'),
-          );
-    } on FirebaseException catch (e) {
-      if (e.code.toLowerCase() == 'permission-denied' && mounted) {
-        // Sessão expirou! Processa com o modal elegante
-        await SessaoErroInterceptor.processarErroSessaoExpirada(context);
-      }
-    } catch (_) {
-      // Ignora outros erros (timeout, sem internet, etc)
-    }
   }
 
   Future<void> _encerrarSessaoPorExpiracaoLocal() async {
@@ -234,6 +208,17 @@ class _LojistaBloqueioTopLayer extends StatelessWidget {
               .doc(u.uid)
               .snapshots(),
           builder: (context, docSnap) {
+            // Detecção REATIVA e GLOBAL de sessão expirada: se o token
+            // expirou/foi revogado, este stream (ativo em toda rota) erra com
+            // `permission-denied`. Aciona o fluxo de sessão expirada uma única
+            // vez (trava interna evita loop) em vez de propagar o erro técnico.
+            if (docSnap.hasError &&
+                SessaoErroInterceptor.ehErroSessaoExpirada(docSnap.error)) {
+              WidgetsBinding.instance.addPostFrameCallback((_) {
+                SessaoErroInterceptor.processarErroSessaoExpirada(context);
+              });
+              return const SizedBox.shrink();
+            }
             if (!docSnap.hasData || !docSnap.data!.exists) {
               return const SizedBox.shrink();
             }

@@ -46,6 +46,14 @@ class EntregadorPerfilOperacionalService {
     return _chamar('entregadorSolicitarExclusaoPerfil');
   }
 
+  /// Abre/reabre o cadastro de entregador validando a trava de reingresso no
+  /// servidor (única via permitida para virar entregador). Lança
+  /// [FirebaseFunctionsException] com `details.reingresso_bloqueado_ate` (ms)
+  /// quando ainda dentro do prazo de 30 dias.
+  static Future<Map<String, dynamic>> abrirCadastro() async {
+    return _chamar('entregadorAbrirCadastro');
+  }
+
   static Future<void> desbloquearConta() async {
     await _chamar('entregadorAutoDesbloquearConta');
   }

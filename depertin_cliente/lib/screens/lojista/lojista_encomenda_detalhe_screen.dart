@@ -2,9 +2,12 @@ import 'package:cloud_firestore/cloud_firestore.dart';
 import 'package:cloud_functions/cloud_functions.dart';
 import 'package:flutter/material.dart';
 import 'package:intl/intl.dart';
+import 'package:url_launcher/url_launcher.dart';
 
 import '../../constants/encomenda_negociacao_status.dart';
+import '../../utils/codigo_pedido.dart';
 import '../../services/firebase_functions_config.dart';
+import '../../utils/safe_area_insets.dart';
 import '../cliente/chat_pedido_screen.dart';
 
 /// Painel da loja para uma encomenda: aceitar, enviar proposta, responder contraproposta.
@@ -909,6 +912,183 @@ class _LojistaEncomendaDetalheScreenState
     );
   }
 
+  static String? _telefoneDoMapa(Map<String, dynamic> m) {
+    for (final campo in const [
+      'cliente_telefone_snapshot',
+      'cliente_telefone',
+      'telefone_cliente',
+      'telefone',
+    ]) {
+      final valor = (m[campo] ?? '').toString().trim();
+      if (valor.isNotEmpty && valor != 'null') return valor;
+    }
+    return null;
+  }
+
+  static String? _telefoneDoPerfil(Map<String, dynamic> dados) {
+    for (final campo in const [
+      'telefone',
+      'whatsapp',
+      'celular',
+      'phone',
+      'telefone_contato',
+    ]) {
+      final valor = (dados[campo] ?? '').toString().trim();
+      if (valor.isNotEmpty) return valor;
+    }
+    return null;
+  }
+
+  Future<void> _abrirWhatsAppCliente(String telefone) async {
+    var numero = telefone.replaceAll(RegExp(r'[^0-9]'), '');
+    if (numero.isEmpty) return;
+    if (!numero.startsWith('55') && numero.length >= 10) {
+      numero = '55$numero';
+    }
+    final urls = <Uri>[
+      Uri.parse('https://wa.me/$numero'),
+      Uri.parse('https://api.whatsapp.com/send?phone=$numero'),
+    ];
+    for (final uri in urls) {
+      try {
+        if (await launchUrl(uri, mode: LaunchMode.externalApplication)) {
+          return;
+        }
+      } catch (_) {}
+    }
+    if (!mounted) return;
+    ScaffoldMessenger.of(context).showSnackBar(
+      const SnackBar(
+        content: Text('Não foi possível abrir o WhatsApp.'),
+        behavior: SnackBarBehavior.floating,
+      ),
+    );
+  }
+
+  Widget _infoTileTelefoneWhatsapp({
+    required String telefone,
+  }) {
+    final corTel = Colors.green.shade700;
+    final podeAbrir = telefone.replaceAll(RegExp(r'[^0-9]'), '').length >= 10;
+    return Material(
+      color: Colors.transparent,
+      child: InkWell(
+        onTap: podeAbrir ? () => _abrirWhatsAppCliente(telefone) : null,
+        borderRadius: BorderRadius.circular(16),
+        child: Container(
+          padding: const EdgeInsets.all(13),
+          decoration: BoxDecoration(
+            color: corTel.withOpacity(0.07),
+            borderRadius: BorderRadius.circular(16),
+            border: Border.all(color: corTel.withOpacity(0.12)),
+          ),
+          child: Row(
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              Container(
+                width: 36,
+                height: 36,
+                decoration: BoxDecoration(
+                  color: Colors.white,
+                  borderRadius: BorderRadius.circular(12),
+                ),
+                child: Icon(Icons.phone, size: 19, color: corTel),
+              ),
+              const SizedBox(width: 10),
+              Expanded(
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    Text(
+                      'Telefone',
+                      style: TextStyle(
+                        color: Colors.grey.shade600,
+                        fontSize: 11,
+                        fontWeight: FontWeight.w700,
+                      ),
+                    ),
+                    const SizedBox(height: 3),
+                    Text(
+                      telefone,
+                      style: const TextStyle(
+                        color: Color(0xFF24172D),
+                        fontWeight: FontWeight.w800,
+                        height: 1.25,
+                      ),
+                    ),
+                    if (podeAbrir) ...[
+                      const SizedBox(height: 4),
+                      Text(
+                        'Toque para conversar no WhatsApp',
+                        style: TextStyle(
+                          color: corTel,
+                          fontSize: 11,
+                          fontWeight: FontWeight.w700,
+                        ),
+                      ),
+                    ],
+                  ],
+                ),
+              ),
+              if (podeAbrir)
+                Container(
+                  padding: const EdgeInsets.all(8),
+                  decoration: BoxDecoration(
+                    color: const Color(0xFF25D366).withOpacity(0.12),
+                    borderRadius: BorderRadius.circular(12),
+                  ),
+                  child: const Icon(
+                    Icons.chat,
+                    color: Color(0xFF25D366),
+                    size: 22,
+                  ),
+                ),
+            ],
+          ),
+        ),
+      ),
+    );
+  }
+
+  Widget _buildTelefoneClienteTile(Map<String, dynamic> m) {
+    final telefoneDoc = _telefoneDoMapa(m);
+    if (telefoneDoc != null) {
+      return _infoTileTelefoneWhatsapp(telefone: telefoneDoc);
+    }
+
+    final clienteId = (m['cliente_id'] ?? '').toString().trim();
+    if (clienteId.isEmpty) {
+      return _infoTile(
+        icon: Icons.phone,
+        label: 'Telefone',
+        value: 'Não informado',
+        color: Colors.green.shade700,
+      );
+    }
+
+    return FutureBuilder<DocumentSnapshot<Map<String, dynamic>>>(
+      future: FirebaseFirestore.instance
+          .collection('users')
+          .doc(clienteId)
+          .get(),
+      builder: (context, snap) {
+        String? telefone;
+        if (snap.hasData && snap.data!.exists) {
+          telefone = _telefoneDoPerfil(snap.data!.data() ?? {});
+        }
+        if (telefone == null || telefone.isEmpty) {
+          return _infoTile(
+            icon: Icons.phone,
+            label: 'Telefone',
+            value: 'Não informado',
+            color: Colors.green.shade700,
+          );
+        }
+        return _infoTileTelefoneWhatsapp(telefone: telefone);
+      },
+    );
+  }
+
   Widget _infoTile({
     required IconData icon,
     required String label,
@@ -1012,12 +1192,6 @@ class _LojistaEncomendaDetalheScreenState
       'cliente_nome',
       'nome_cliente',
     ], fallback: 'Cliente');
-    final telefone = _texto(m, [
-      'cliente_telefone_snapshot',
-      'cliente_telefone',
-      'telefone_cliente',
-      'telefone',
-    ], fallback: 'Não informado');
     final endereco = _texto(m, ['endereco_entrega'], fallback: '-');
     final tipoEntrega = _texto(m, ['tipo_entrega'], fallback: 'entrega');
     final taxa = _numero(m, 'taxa_entrega_snapshot') ?? 0;
@@ -1050,12 +1224,7 @@ class _LojistaEncomendaDetalheScreenState
                   ),
                   SizedBox(
                     width: w,
-                    child: _infoTile(
-                      icon: Icons.phone,
-                      label: 'Telefone',
-                      value: telefone,
-                      color: Colors.green.shade700,
-                    ),
+                    child: _buildTelefoneClienteTile(m),
                   ),
                   SizedBox(
                     width: w,
@@ -1698,7 +1867,7 @@ class _LojistaEncomendaDetalheScreenState
             _referenciaTile(
               icon: Icons.payments_outlined,
               label: 'Pagamento da entrada',
-              value: 'Cobrança #${_idCurto(pedidoEntrada)}',
+              value: 'Cobrança ${CodigoPedido.gerar(pedidoEntrada)}',
               detail:
                   'Pedido criado para o cliente pagar o valor inicial combinado.',
               technicalValue: pedidoEntrada,
@@ -1708,7 +1877,7 @@ class _LojistaEncomendaDetalheScreenState
             _referenciaTile(
               icon: Icons.request_quote_outlined,
               label: 'Pagamento do saldo',
-              value: 'Cobrança #${_idCurto(pedidoSaldo)}',
+              value: 'Cobrança ${CodigoPedido.gerar(pedidoSaldo)}',
               detail:
                   'Pedido criado para o cliente pagar o restante da encomenda.',
               technicalValue: pedidoSaldo,
@@ -2166,8 +2335,17 @@ class _LojistaEncomendaDetalheScreenState
             builder: (context, constraints) {
               final compacto = constraints.maxWidth < 700;
               final maxWidth = compacto ? double.infinity : 920.0;
-              return SingleChildScrollView(
-                padding: const EdgeInsets.fromLTRB(16, 16, 16, 28),
+              return SafeArea(
+                top: false,
+                minimum: EdgeInsets.zero,
+                child: SingleChildScrollView(
+                padding: diPertinScrollPaddingInner(
+                  context,
+                  left: 16,
+                  top: 16,
+                  right: 16,
+                  extraBottom: 28,
+                ),
                 child: Center(
                   child: ConstrainedBox(
                     constraints: BoxConstraints(maxWidth: maxWidth),
@@ -2198,6 +2376,7 @@ class _LojistaEncomendaDetalheScreenState
                     ),
                   ),
                 ),
+              ),
               );
             },
           );

@@ -176,6 +176,20 @@ class ContaBloqueioEntregadorHelper {
         d['block_reason']?.toString(),
       );
 
+  /// Pausa (temporária ou definitiva) iniciada pelo próprio entregador.
+  static bool ehPausaIniciadaPeloEntregador(Map<String, dynamic> d) {
+    final origin = d['block_origin']?.toString();
+    final reason = d['block_reason']?.toString();
+    return origin == EntregadorPerfilOperacional.blockOriginSelf &&
+        (reason == EntregadorPerfilOperacional.motivoPausaTemporaria ||
+            reason == EntregadorPerfilOperacional.motivoPausaDefinitiva);
+  }
+
+  /// Perfil de entregador já removido (após o prazo) — conta segue como cliente.
+  static bool perfilEntregadorRemovido(Map<String, dynamic> d) =>
+      (d['entregador_perfil_operacional'] ?? '').toString() ==
+      EntregadorPerfilOperacional.perfilRemovido;
+
   static bool adminPodeDesbloquear(Map<String, dynamic> d) {
     if (!estaBloqueadoParaOperacoes(d)) return false;
     return !ehExclusaoPerfilSolicitada(d);

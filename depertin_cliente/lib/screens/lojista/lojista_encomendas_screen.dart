@@ -50,13 +50,6 @@ class _LojistaEncomendasScreenState extends State<LojistaEncomendasScreen> {
       icon: Icons.check_circle,
       color: Color(0xFF2E7D32),
     ),
-    _AbaEncomendaConfig(
-      tipo: _AbaEncomenda.cancelados,
-      titulo: 'Cancelados',
-      subtitulo: 'Encerrados',
-      icon: Icons.cancel,
-      color: Color(0xFFC62828),
-    ),
   ];
 
   String _normalizarBusca(String texto) {
@@ -134,9 +127,6 @@ class _LojistaEncomendasScreenState extends State<LojistaEncomendasScreen> {
     Map<String, String> statusPedidos,
   ) {
     final st = (doc.data()['status_negociacao'] ?? '').toString();
-    if (EncomendaNegociacaoStatus.encerradaDefinitivamente(st)) {
-      return _AbaEncomenda.cancelados;
-    }
     if (_pedidoVinculadoEntregue(doc, statusPedidos)) {
       return _AbaEncomenda.finalizados;
     }
@@ -957,9 +947,6 @@ class _LojistaEncomendasScreenState extends State<LojistaEncomendasScreen> {
       case _AbaEncomenda.finalizados:
         texto = 'Pedidos entregues e confirmados pelo código aparecerão aqui.';
         break;
-      case _AbaEncomenda.cancelados:
-        texto = 'Encomendas canceladas ou encerradas aparecerão aqui.';
-        break;
     }
     return Center(
       child: Padding(
@@ -1048,7 +1035,10 @@ class _LojistaEncomendasScreenState extends State<LojistaEncomendasScreen> {
                 ),
               );
             }
-            final docs = snap.data!.docs;
+            final docs = snap.data!.docs.where((doc) {
+              final st = (doc.data()['status_negociacao'] ?? '').toString();
+              return !EncomendaNegociacaoStatus.encerradaDefinitivamente(st);
+            }).toList();
 
             if (docs.isEmpty) {
               return Center(
@@ -1244,7 +1234,7 @@ class _FiltroDicaChip extends StatelessWidget {
   }
 }
 
-enum _AbaEncomenda { aguardando, andamento, finalizados, cancelados }
+enum _AbaEncomenda { aguardando, andamento, finalizados }
 
 class _AbaEncomendaConfig {
   const _AbaEncomendaConfig({

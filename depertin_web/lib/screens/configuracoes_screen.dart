@@ -71,6 +71,64 @@ String _campoVeiculoLegadoFretePainel({
   return _rotuloPresetListaFretePainel(presetOuSlugManual);
 }
 
+/// Chave canônica em `tabela_fretes/{cidade}_{slug}` — sem acento, minúscula
+/// (alinha ao carrinho mobile: `_chaveCidadeTabelaFrete`).
+String _normalizarChaveCidadeFretePainel(String valor) {
+  var s = valor.trim().toLowerCase();
+  if (s.isEmpty) return s;
+  if (s == 'todas as cidades') return 'todas';
+  const mapa = <String, String>{
+    'á': 'a',
+    'à': 'a',
+    'ã': 'a',
+    'â': 'a',
+    'ä': 'a',
+    'é': 'e',
+    'è': 'e',
+    'ê': 'e',
+    'ë': 'e',
+    'í': 'i',
+    'ì': 'i',
+    'î': 'i',
+    'ï': 'i',
+    'ó': 'o',
+    'ò': 'o',
+    'õ': 'o',
+    'ô': 'o',
+    'ö': 'o',
+    'ú': 'u',
+    'ù': 'u',
+    'û': 'u',
+    'ü': 'u',
+    'ç': 'c',
+  };
+  final sb = StringBuffer();
+  for (final r in s.runes) {
+    final ch = String.fromCharCode(r);
+    sb.write(mapa[ch] ?? ch);
+  }
+  s = sb.toString();
+  final partes = s.split(RegExp(r'\s*[—–\-]\s*'));
+  return partes.isNotEmpty ? partes.first.trim() : s;
+}
+
+String _rotuloCidadeFretePainel(String chave) {
+  final c = chave.trim().toLowerCase();
+  if (c.isEmpty) return chave;
+  if (c == 'todas') return 'Todas';
+  return c[0].toUpperCase() + c.substring(1);
+}
+
+String _prefixoCidadeDocFretePainel(String docId) {
+  final suffix = _suffixDocFretePainel(docId);
+  final id = docId.toLowerCase().trim();
+  if (suffix.isNotEmpty && id.endsWith('_$suffix')) {
+    return id.substring(0, id.length - suffix.length - 1);
+  }
+  final i = id.lastIndexOf('_');
+  return i > 0 ? id.substring(0, i) : id;
+}
+
 /// Metadados só para UI — ordem deve coincidir com [TabController] (4 abas).
 class _CfgFinanceSecao {
   const _CfgFinanceSecao({
@@ -130,7 +188,9 @@ class _ConfiguracoesScreenState extends State<ConfiguracoesScreen>
 
   late TabController _tabController;
 
-  List<String> _cidadesSugeridas = ['Todas'];
+  List<_OpcaoCidadeConfig> _opcoesCidadesConfig = const [
+    _OpcaoCidadeConfig(rotulo: 'Todas', valorSalvar: 'todas'),
+  ];
 
   static const double _kMaxContentWidth = 920;
 
@@ -152,27 +212,79 @@ class _ConfiguracoesScreenState extends State<ConfiguracoesScreen>
 
   Future<void> _carregarCidadesDoBanco() async {
     try {
-      var snapshot = await FirebaseFirestore.instance.collection('users').get();
-      Set<String> cidadesUnicas = {'Todas'};
-      for (var doc in snapshot.docs) {
-        var dados = doc.data();
-        if (dados['cidade'] != null &&
-            dados['cidade'].toString().trim().isNotEmpty) {
-          String cidade = dados['cidade'].toString().trim();
-          String cidadeFormatada =
-              cidade[0].toUpperCase() + cidade.substring(1).toLowerCase();
-          cidadesUnicas.add(cidadeFormatada);
+      final snapshot = await FirebaseFirestore.instance
+          .collection('cidades_atendidas')
+          .get();
+      final opcoes = <_OpcaoCidadeConfig>[
+        const _OpcaoCidadeConfig(rotulo: 'Todas', valorSalvar: 'todas'),
+      ];
+      final vistos = <String>{'todas'};
+      for (final doc in snapshot.docs) {
+        final dados = doc.data();
+        if ((dados['ativa'] as bool?) == false) continue;
+        var norm = (dados['nome_normalizada'] ?? '').toString().trim();
+        if (norm.isEmpty) {
+          norm = _normalizarChaveCidadeFretePainel(
+            (dados['nome'] ?? '').toString(),
+          );
         }
+        if (norm.isEmpty || vistos.contains(norm)) continue;
+        vistos.add(norm);
+        final rotulo = (dados['label'] ?? dados['nome'] ?? norm)
+            .toString()
+            .trim();
+        opcoes.add(_OpcaoCidadeConfig(rotulo: rotulo, valorSalvar: norm));
       }
-      setState(() {
-        _cidadesSugeridas = cidadesUnicas.toList();
-        _cidadesSugeridas.sort();
-        _cidadesSugeridas.remove('Todas');
-        _cidadesSugeridas.insert(0, 'Todas');
+      opcoes.sort((a, b) {
+        if (a.valorSalvar == 'todas') return -1;
+        if (b.valorSalvar == 'todas') return 1;
+        return a.rotulo.compareTo(b.rotulo);
       });
+      if (mounted) {
+        setState(() => _opcoesCidadesConfig = opcoes);
+      }
     } catch (e) {
-      debugPrint("Erro: $e");
+      debugPrint('Erro ao carregar cidades_atendidas: $e');
     }
+  }
+
+  String _rotuloParaValorSalvar(String valorSalvar) {
+    final v = valorSalvar.trim().toLowerCase();
+    if (v.isEmpty || v == 'todas' || v == 'todas as cidades') {
+      return 'Todas';
+    }
+    for (final o in _opcoesCidadesConfig) {
+      if (o.valorSalvar == v) return o.rotulo;
+    }
+    return _rotuloCidadeFretePainel(v);
+  }
+
+  String _resolverValorSalvarCidade(String textoDigitado) {
+    final t = textoDigitado.trim();
+    if (t.isEmpty) return '';
+    final low = t.toLowerCase();
+    if (low == 'todas' || low == 'todas as cidades') return 'todas';
+    for (final o in _opcoesCidadesConfig) {
+      if (o.rotulo.toLowerCase() == low) return o.valorSalvar;
+      if (o.valorSalvar == low) return o.valorSalvar;
+    }
+    return _normalizarChaveCidadeFretePainel(t);
+  }
+
+  List<_OpcaoCidadeConfig> _filtrarOpcoesCidade(String query) {
+    final q = _normalizarChaveCidadeFretePainel(query);
+    if (q.isEmpty) {
+      return _opcoesCidadesConfig.take(14).toList();
+    }
+    return _opcoesCidadesConfig
+        .where((o) {
+          final rot = _normalizarChaveCidadeFretePainel(o.rotulo);
+          return rot.contains(q) ||
+              o.valorSalvar.contains(q) ||
+              o.rotulo.toLowerCase().contains(query.trim().toLowerCase());
+        })
+        .take(14)
+        .toList();
   }
 
   InputDecoration _dialogFieldDecoration(
@@ -303,10 +415,13 @@ class _ConfiguracoesScreenState extends State<ConfiguracoesScreen>
     final valorC = TextEditingController(
       text: dadosEditar != null ? (dadosEditar['valor']?.toString() ?? '') : '',
     );
-    final cidadeInicial = dadosEditar != null
-        ? _capitalizar(dadosEditar['cidade']?.toString() ?? 'Todas')
-        : 'Todas';
-    String cidadeSelecionada = cidadeInicial;
+    final cidadePlanoC = TextEditingController(
+      text: _rotuloParaValorSalvar(
+        dadosEditar != null
+            ? (dadosEditar['cidade'] ?? 'todas').toString()
+            : 'todas',
+      ),
+    );
     var isLoading = false;
 
     showDialog<void>(
@@ -319,7 +434,7 @@ class _ConfiguracoesScreenState extends State<ConfiguracoesScreen>
             Future<void> salvarPlano() async {
               if (nomePlanoC.text.trim().isEmpty ||
                   valorC.text.trim().isEmpty ||
-                  cidadeSelecionada.isEmpty) {
+                  cidadePlanoC.text.trim().isEmpty) {
                 ScaffoldMessenger.of(context).showSnackBar(
                   SnackBar(
                     content: const Text(
@@ -341,7 +456,7 @@ class _ConfiguracoesScreenState extends State<ConfiguracoesScreen>
                   'tipo_cobranca': tipoCobranca,
                   'frequencia': frequencia,
                   'valor': valor,
-                  'cidade': cidadeSelecionada.trim().toLowerCase(),
+                  'cidade': _resolverValorSalvarCidade(cidadePlanoC.text),
                   'ativo': true,
                   if (isEdicao)
                     'data_atualizacao': FieldValue.serverTimestamp()
@@ -446,43 +561,35 @@ class _ConfiguracoesScreenState extends State<ConfiguracoesScreen>
                               ),
                             ),
                             const SizedBox(height: 16),
-                            Autocomplete<String>(
-                              initialValue:
-                                  TextEditingValue(text: cidadeInicial),
-                              optionsBuilder: (TextEditingValue text) {
-                                if (text.text.isEmpty) {
-                                  return _cidadesSugeridas;
-                                }
-                                return _cidadesSugeridas.where(
-                                  (String option) => option
-                                      .toLowerCase()
-                                      .contains(text.text.toLowerCase()),
+                            _CampoCidadeConfigPainel(
+                              controller: cidadePlanoC,
+                              opcoes: _opcoesCidadesConfig,
+                              filtrar: _filtrarOpcoesCidade,
+                              onAbrirLista: () async {
+                                final sel = await _abrirSeletorCidadeConfig(
+                                  cidadePlanoC.text.trim(),
                                 );
+                                if (sel != null) cidadePlanoC.text = sel;
                               },
-                              onSelected: (String selection) =>
-                                  cidadeSelecionada = selection,
-                              fieldViewBuilder: (
-                                context,
-                                controller,
-                                focusNode,
-                                onFieldSubmitted,
-                              ) {
-                                controller.addListener(
-                                  () => cidadeSelecionada = controller.text,
-                                );
-                                return TextField(
-                                  controller: controller,
-                                  focusNode: focusNode,
-                                  decoration: _dialogFieldDecoration(
-                                    "Cidade",
-                                    suffixIcon: Icon(
-                                      Icons.search_rounded,
-                                      color: Colors.grey.shade600,
-                                      size: 22,
-                                    ),
+                              decoration: _dialogFieldDecoration(
+                                'Cidade',
+                                helperText:
+                                    'Digite para filtrar cidades cadastradas em '
+                                    'AdminCity ou use «Todas» como fallback.',
+                                suffixIcon: IconButton(
+                                  tooltip: 'Lista completa',
+                                  icon: Icon(
+                                    Icons.arrow_drop_down_rounded,
+                                    color: Colors.grey.shade700,
                                   ),
-                                );
-                              },
+                                  onPressed: () async {
+                                    final sel = await _abrirSeletorCidadeConfig(
+                                      cidadePlanoC.text.trim(),
+                                    );
+                                    if (sel != null) cidadePlanoC.text = sel;
+                                  },
+                                ),
+                              ),
                             ),
                             const SizedBox(height: 16),
                             if (publicoAlvo == 'entregador') ...[
@@ -647,6 +754,86 @@ class _ConfiguracoesScreenState extends State<ConfiguracoesScreen>
     );
   }
 
+  /// Lista completa de cidades cadastradas (`cidades_atendidas`).
+  Future<String?> _abrirSeletorCidadeConfig(String valorAtual) async {
+    final ctrlBusca = TextEditingController();
+    String filtro = '';
+    return showDialog<String>(
+      context: context,
+      builder: (ctx) {
+        return StatefulBuilder(
+          builder: (ctx, setDlg) {
+            final opcoes = _opcoesCidadesConfig.where((c) {
+              if (filtro.isEmpty) return true;
+              final rot = _normalizarChaveCidadeFretePainel(c.rotulo);
+              return rot.contains(filtro) ||
+                  c.valorSalvar.contains(filtro) ||
+                  c.rotulo.toLowerCase().contains(filtro);
+            }).toList();
+            return AlertDialog(
+              title: const Text('Selecionar cidade'),
+              content: SizedBox(
+                width: min(420.0, MediaQuery.sizeOf(ctx).width - 48),
+                child: Column(
+                  mainAxisSize: MainAxisSize.min,
+                  children: [
+                    TextField(
+                      controller: ctrlBusca,
+                      autofocus: true,
+                      onChanged: (v) =>
+                          setDlg(() => filtro = v.trim().toLowerCase()),
+                      decoration: InputDecoration(
+                        hintText: 'Buscar cidade…',
+                        prefixIcon: const Icon(Icons.search_rounded),
+                        border: OutlineInputBorder(
+                          borderRadius: BorderRadius.circular(10),
+                        ),
+                      ),
+                    ),
+                    const SizedBox(height: 12),
+                    ConstrainedBox(
+                      constraints: const BoxConstraints(maxHeight: 280),
+                      child: ListView.builder(
+                        shrinkWrap: true,
+                        itemCount: opcoes.length,
+                        itemBuilder: (_, i) {
+                          final c = opcoes[i];
+                          final sel = c.rotulo == valorAtual;
+                          return ListTile(
+                            dense: true,
+                            selected: sel,
+                            title: Text(c.rotulo),
+                            subtitle: c.valorSalvar == 'todas'
+                                ? null
+                                : Text(
+                                    c.valorSalvar,
+                                    style: TextStyle(
+                                      fontSize: 11,
+                                      color: Colors.grey.shade600,
+                                    ),
+                                  ),
+                            onTap: () => Navigator.pop(ctx, c.rotulo),
+                          );
+                        },
+                      ),
+                    ),
+                  ],
+                ),
+              ),
+              actions: [
+                TextButton(
+                  onPressed: () => Navigator.pop(ctx),
+                  child: const Text('Cancelar'),
+                ),
+              ],
+            );
+          },
+        );
+      },
+    );
+  }
+
+
   // === FORMULÁRIO DE FRETES ===
   void _mostrarFormularioNovoFrete({
     String? docIdEditar,
@@ -668,10 +855,17 @@ class _ConfiguracoesScreenState extends State<ConfiguracoesScreen>
           ? (dadosEditar['valor_km_adicional']?.toString() ?? '')
           : '',
     );
-    final cidadeInicial = dadosEditar != null
-        ? _capitalizar(dadosEditar['cidade']?.toString() ?? 'Todas')
-        : 'Todas';
-    String cidadeSelecionada = cidadeInicial;
+    final cidadeChaveInicial = dadosEditar != null
+        ? _normalizarChaveCidadeFretePainel(
+            (dadosEditar['cidade'] ?? _prefixoCidadeDocFretePainel(
+              docIdEditar ?? '',
+            ))
+                .toString(),
+          )
+        : 'todas';
+    final cidadeFreteC = TextEditingController(
+      text: _rotuloParaValorSalvar(cidadeChaveInicial),
+    );
     final slugDoDocIni =
         docIdEditar != null ? _suffixDocFretePainel(docIdEditar) : '';
     final tipoTblSalvo =
@@ -711,7 +905,7 @@ class _ConfiguracoesScreenState extends State<ConfiguracoesScreen>
               if (valorBaseC.text.trim().isEmpty ||
                   distBaseC.text.trim().isEmpty ||
                   valorKmExtraC.text.trim().isEmpty ||
-                  cidadeSelecionada.isEmpty) {
+                  cidadeFreteC.text.trim().isEmpty) {
                 ScaffoldMessenger.of(context).showSnackBar(
                   SnackBar(
                     content: const Text(
@@ -770,7 +964,20 @@ class _ConfiguracoesScreenState extends State<ConfiguracoesScreen>
                     0.0;
 
                 final cidadeChave =
-                    cidadeSelecionada.trim().toLowerCase();
+                    _resolverValorSalvarCidade(cidadeFreteC.text);
+
+                if (cidadeChave.isEmpty) {
+                  if (context.mounted) {
+                    ScaffoldMessenger.of(context).showSnackBar(
+                      SnackBar(
+                        content: const Text('Informe a cidade da regra.'),
+                        backgroundColor: diPertinRoxo,
+                        behavior: SnackBarBehavior.floating,
+                      ),
+                    );
+                  }
+                  return;
+                }
 
                 final String suffixDoc =
                     usarSlugPersonalizado ? slugManualLimpo : presetSlug;
@@ -787,37 +994,66 @@ class _ConfiguracoesScreenState extends State<ConfiguracoesScreen>
 
                 final novoDocId = '${cidadeChave}_$suffixDoc';
 
-                final dados = <String, dynamic>{
-                  'cidade': cidadeChave,
-                  'veiculo': veiculoLegado,
-                  'tipo_tabela': tipoTabelaCanon,
-                  'valor_base': valorBase,
-                  'distancia_base_km': distBase,
-                  'valor_km_adicional': valorKmExtra,
-                  'data_atualizacao': FieldValue.serverTimestamp(),
-                };
-
                 if (isEdicao) {
-                  if (novoDocId != docIdEditar) {
-                    if (context.mounted) {
-                      ScaffoldMessenger.of(context).showSnackBar(
-                        const SnackBar(
-                          content: Text(
-                            'Não é possível alterar a cidade nem o identificador (slug) de uma regra existente — '
-                            'exclua e cadastre de novo.',
+                  final refCol =
+                      FirebaseFirestore.instance.collection('tabela_fretes');
+                  final dadosAtualizados = <String, dynamic>{
+                    'cidade': cidadeChave,
+                    'veiculo': veiculoLegado,
+                    'tipo_tabela': tipoTabelaCanon,
+                    'valor_base': valorBase,
+                    'distancia_base_km': distBase,
+                    'valor_km_adicional': valorKmExtra,
+                    'data_atualizacao': FieldValue.serverTimestamp(),
+                  };
+
+                  if (novoDocId == docIdEditar) {
+                    await refCol.doc(docIdEditar).update(dadosAtualizados);
+                  } else {
+                    final existeNovo = await refCol.doc(novoDocId).get();
+                    if (existeNovo.exists) {
+                      if (context.mounted) {
+                        ScaffoldMessenger.of(context).showSnackBar(
+                          SnackBar(
+                            content: Text(
+                              'Já existe outra regra com o identificador $novoDocId. '
+                              'Ajuste cidade ou categoria.',
+                            ),
+                            backgroundColor: const Color(0xFFB91C1C),
+                            behavior: SnackBarBehavior.floating,
                           ),
-                          backgroundColor: Color(0xFFB91C1C),
-                          behavior: SnackBarBehavior.floating,
-                        ),
-                      );
+                        );
+                      }
+                      return;
                     }
-                    return;
+                    final batch = FirebaseFirestore.instance.batch();
+                    batch.set(refCol.doc(novoDocId), dadosAtualizados);
+                    batch.delete(refCol.doc(docIdEditar));
+                    await batch.commit();
                   }
-                  await FirebaseFirestore.instance
-                      .collection('tabela_fretes')
-                      .doc(docIdEditar)
-                      .update(dados);
+                  if (context.mounted) {
+                    ScaffoldMessenger.of(context).showSnackBar(
+                      SnackBar(
+                        content: Text(
+                          novoDocId == docIdEditar
+                              ? 'Regra de frete atualizada.'
+                              : 'Regra atualizada (identificador: $novoDocId).',
+                        ),
+                        backgroundColor: Colors.green.shade700,
+                        behavior: SnackBarBehavior.floating,
+                      ),
+                    );
+                  }
                 } else {
+                  final dados = <String, dynamic>{
+                    'cidade': cidadeChave,
+                    'veiculo': veiculoLegado,
+                    'tipo_tabela': tipoTabelaCanon,
+                    'valor_base': valorBase,
+                    'distancia_base_km': distBase,
+                    'valor_km_adicional': valorKmExtra,
+                    'data_atualizacao': FieldValue.serverTimestamp(),
+                  };
                   final refDoc = FirebaseFirestore.instance
                       .collection('tabela_fretes')
                       .doc(novoDocId);
@@ -894,49 +1130,43 @@ class _ConfiguracoesScreenState extends State<ConfiguracoesScreen>
                         child: Column(
                           crossAxisAlignment: CrossAxisAlignment.stretch,
                           children: [
-                            Autocomplete<String>(
-                              initialValue:
-                                  TextEditingValue(text: cidadeInicial),
-                              optionsBuilder: (TextEditingValue text) {
-                                if (text.text.isEmpty) {
-                                  return _cidadesSugeridas;
-                                }
-                                return _cidadesSugeridas.where(
-                                  (String option) => option
-                                      .toLowerCase()
-                                      .contains(text.text.toLowerCase()),
+                            _CampoCidadeConfigPainel(
+                              controller: cidadeFreteC,
+                              opcoes: _opcoesCidadesConfig,
+                              filtrar: _filtrarOpcoesCidade,
+                              onAbrirLista: () async {
+                                final sel = await _abrirSeletorCidadeConfig(
+                                  cidadeFreteC.text.trim(),
                                 );
+                                if (sel != null) cidadeFreteC.text = sel;
                               },
-                              onSelected: (String selection) =>
-                                  cidadeSelecionada = selection,
-                              fieldViewBuilder: (
-                                context,
-                                controller,
-                                focusNode,
-                                onFieldSubmitted,
-                              ) {
-                                controller.addListener(
-                                  () => cidadeSelecionada = controller.text,
-                                );
-                                return TextField(
-                                  controller: controller,
-                                  focusNode: focusNode,
-                                  readOnly: isEdicao,
-                                  decoration: _dialogFieldDecoration(
-                                    "Cidade",
-                                    suffixIcon: Icon(
-                                      Icons.search_rounded,
-                                      color: Colors.grey.shade600,
-                                      size: 22,
-                                    ),
+                              decoration: _dialogFieldDecoration(
+                                'Cidade',
+                                helperText:
+                                    'Digite para filtrar cidades cadastradas. '
+                                    'Use «Todas» como fallback nacional.',
+                                suffixIcon: IconButton(
+                                  tooltip: 'Lista completa',
+                                  icon: Icon(
+                                    Icons.arrow_drop_down_rounded,
+                                    color: Colors.grey.shade700,
                                   ),
-                                );
-                              },
+                                  onPressed: () async {
+                                    final sel = await _abrirSeletorCidadeConfig(
+                                      cidadeFreteC.text.trim(),
+                                    );
+                                    if (sel == null || !context.mounted) {
+                                      return;
+                                    }
+                                    cidadeFreteC.text = sel;
+                                  },
+                                ),
+                              ),
                             ),
                             const SizedBox(height: 16),
                             if (isEdicao) ...[
                               Text(
-                                'Identificador: $docIdEditar',
+                                'Identificador atual: $docIdEditar',
                                 style: TextStyle(
                                   fontSize: 13,
                                   color: Colors.grey.shade700,
@@ -946,8 +1176,8 @@ class _ConfiguracoesScreenState extends State<ConfiguracoesScreen>
                               Padding(
                                 padding: const EdgeInsets.only(top: 6, bottom: 4),
                                 child: Text(
-                                  'Cidade e slug do documento não podem mudar ao editar '
-                                  '(exclua esta regra para recadastrar com outra chave).',
+                                  'Ao mudar cidade ou categoria, o identificador é recriado '
+                                  'automaticamente (a regra antiga é substituída).',
                                   style: TextStyle(
                                     fontSize: 12,
                                     height: 1.35,
@@ -1000,18 +1230,16 @@ class _ConfiguracoesScreenState extends State<ConfiguracoesScreen>
                                       ),
                                     ),
                                 ],
-                                onChanged: isEdicao
-                                    ? null
-                                    : (v) {
-                                        if (v != null) {
-                                          setState(() => presetSlug = v);
-                                        }
-                                      },
+                                onChanged: (v) {
+                                  if (v != null) {
+                                    setState(() => presetSlug = v);
+                                  }
+                                },
                               ),
                             ] else ...[
                               TextField(
                                 controller: slugManualCtrl,
-                                readOnly: isEdicao,
+                                readOnly: false,
                                 autocorrect: false,
                                 decoration: _dialogFieldDecoration(
                                   'Slug (identificador do documento)',
@@ -1209,11 +1437,6 @@ class _ConfiguracoesScreenState extends State<ConfiguracoesScreen>
         ],
       ),
     );
-  }
-
-  String _capitalizar(String s) {
-    if (s.isEmpty) return s;
-    return s[0].toUpperCase() + s.substring(1);
   }
 
   String _labelFrequencia(Object? raw) {
@@ -1503,7 +1726,9 @@ class _ConfiguracoesScreenState extends State<ConfiguracoesScreen>
               final rotuloNoApp = tipoTc.isNotEmpty
                   ? _rotuloPresetListaFretePainel(tipoTc)
                   : _rotuloPresetListaFretePainel(slugDoId);
-              final cidadeFmt = cidade.toUpperCase();
+              final cidadeFmt = _rotuloCidadeFretePainel(
+                _normalizarChaveCidadeFretePainel(cidade),
+              ).toUpperCase();
               final titulo = '$cidadeFmt · $rotuloNoApp';
               return Material(
                 color: Colors.white,
@@ -2179,6 +2404,137 @@ class _ConfiguracoesScreenState extends State<ConfiguracoesScreen>
 }
 
 /// Cartão de gateway com controllers estáveis (evita perder texto a cada rebuild).
+class _OpcaoCidadeConfig {
+  final String rotulo;
+  final String valorSalvar;
+
+  const _OpcaoCidadeConfig({
+    required this.rotulo,
+    required this.valorSalvar,
+  });
+}
+
+/// Campo de cidade com sugestões **inline** (sem overlay do Autocomplete no web).
+class _CampoCidadeConfigPainel extends StatefulWidget {
+  final TextEditingController controller;
+  final List<_OpcaoCidadeConfig> opcoes;
+  final List<_OpcaoCidadeConfig> Function(String query) filtrar;
+  final Future<void> Function()? onAbrirLista;
+  final InputDecoration decoration;
+
+  const _CampoCidadeConfigPainel({
+    required this.controller,
+    required this.opcoes,
+    required this.filtrar,
+    required this.decoration,
+    this.onAbrirLista,
+  });
+
+  @override
+  State<_CampoCidadeConfigPainel> createState() =>
+      _CampoCidadeConfigPainelState();
+}
+
+class _CampoCidadeConfigPainelState extends State<_CampoCidadeConfigPainel> {
+  final FocusNode _focus = FocusNode();
+  bool _mostrarSugestoes = false;
+
+  @override
+  void initState() {
+    super.initState();
+    _focus.addListener(_aoMudarFoco);
+    widget.controller.addListener(_aoMudarTexto);
+  }
+
+  @override
+  void dispose() {
+    _focus.removeListener(_aoMudarFoco);
+    widget.controller.removeListener(_aoMudarTexto);
+    _focus.dispose();
+    super.dispose();
+  }
+
+  void _aoMudarFoco() {
+    if (!mounted) return;
+    setState(() => _mostrarSugestoes = _focus.hasFocus);
+  }
+
+  void _aoMudarTexto() {
+    if (!mounted) return;
+    setState(() {});
+  }
+
+  void _aplicarSugestao(_OpcaoCidadeConfig opcao) {
+    widget.controller.text = opcao.rotulo;
+    widget.controller.selection = TextSelection.collapsed(
+      offset: opcao.rotulo.length,
+    );
+    setState(() => _mostrarSugestoes = false);
+    _focus.unfocus();
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    final sugestoes = widget.filtrar(widget.controller.text);
+    final exibirLista =
+        _mostrarSugestoes && sugestoes.isNotEmpty && widget.opcoes.length > 1;
+
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.stretch,
+      children: [
+        TextField(
+          controller: widget.controller,
+          focusNode: _focus,
+          textCapitalization: TextCapitalization.words,
+          decoration: widget.decoration,
+          onTap: () => setState(() => _mostrarSugestoes = true),
+        ),
+        if (exibirLista) ...[
+          const SizedBox(height: 6),
+          Material(
+            elevation: 2,
+            color: Colors.white,
+            borderRadius: BorderRadius.circular(10),
+            child: ConstrainedBox(
+              constraints: const BoxConstraints(maxHeight: 176),
+              child: ListView.separated(
+                shrinkWrap: true,
+                padding: EdgeInsets.zero,
+                itemCount: sugestoes.length,
+                separatorBuilder: (_, _) => Divider(
+                  height: 1,
+                  color: Colors.grey.shade200,
+                ),
+                itemBuilder: (context, index) {
+                  final o = sugestoes[index];
+                  return ListTile(
+                    dense: true,
+                    visualDensity: VisualDensity.compact,
+                    title: Text(
+                      o.rotulo,
+                      style: const TextStyle(fontSize: 14),
+                    ),
+                    subtitle: o.valorSalvar == 'todas'
+                        ? null
+                        : Text(
+                            o.valorSalvar,
+                            style: TextStyle(
+                              fontSize: 11,
+                              color: Colors.grey.shade600,
+                            ),
+                          ),
+                    onTap: () => _aplicarSugestao(o),
+                  );
+                },
+              ),
+            ),
+          ),
+        ],
+      ],
+    );
+  }
+}
+
 class _GatewayConfigCard extends StatefulWidget {
   const _GatewayConfigCard({
     required this.gateway,

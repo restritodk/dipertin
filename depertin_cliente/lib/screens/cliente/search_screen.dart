@@ -1,5 +1,7 @@
 // Arquivo: lib/screens/cliente/search_screen.dart
 
+import 'dart:async';
+
 import 'package:depertin_cliente/screens/utilidades/achados_screen.dart';
 import 'package:depertin_cliente/screens/utilidades/eventos_screen.dart';
 import 'package:depertin_cliente/screens/utilidades/vagas_screen.dart';
@@ -14,9 +16,13 @@ import 'chat_suporte_screen.dart';
 import '../auth/login_screen.dart';
 import '../../services/location_service.dart';
 import '../../utils/loja_fachada_foto.dart';
+import '../../utils/safe_area_insets.dart';
 
 const Color diPertinRoxo = Color(0xFF6A1B9A);
 const Color diPertinLaranja = Color(0xFFFF8F00);
+const Color _fundoTela = Color(0xFFF5F4F8);
+const Color _textoPrimario = Color(0xFF1A1A2E);
+const Color _textoMuted = Color(0xFF64748B);
 
 class SearchScreen extends StatefulWidget {
   const SearchScreen({super.key});
@@ -29,9 +35,57 @@ class _SearchScreenState extends State<SearchScreen> {
   String _buscaNome = "";
   String? _categoriaSelecionada;
   final TextEditingController _searchController = TextEditingController();
+  Timer? _debounceTimer;
+  bool _aguardandoDebounce = false;
 
   bool get _isPesquisando =>
       _buscaNome.isNotEmpty || _categoriaSelecionada != null;
+
+  bool get _temFiltroVisivel =>
+      _searchController.text.isNotEmpty || _categoriaSelecionada != null;
+
+  /// Altura da faixa horizontal de categorias conforme escala de fonte do SO.
+  double _alturaFaixaCategorias(BuildContext context) {
+    final scaler = MediaQuery.textScalerOf(context);
+    const icon = 48.0;
+    const gap = 6.0;
+    const chipPadVertical = 8.0;
+    const listPadVertical = 16.0;
+    const margemSeguranca = 6.0;
+    final textoDuasLinhas = scaler.scale(11) * 1.15 * 2;
+    return icon +
+        gap +
+        textoDuasLinhas +
+        chipPadVertical +
+        listPadVertical +
+        margemSeguranca;
+  }
+
+  @override
+  void dispose() {
+    _debounceTimer?.cancel();
+    _searchController.dispose();
+    super.dispose();
+  }
+
+  void _onBuscaChanged(String val) {
+    _debounceTimer?.cancel();
+    if (val.trim().isEmpty) {
+      setState(() {
+        _aguardandoDebounce = false;
+        _buscaNome = "";
+      });
+      return;
+    }
+    setState(() => _aguardandoDebounce = true);
+    _debounceTimer = Timer(const Duration(milliseconds: 300), () {
+      if (!mounted) return;
+      setState(() {
+        _buscaNome = val.toLowerCase();
+        _aguardandoDebounce = false;
+      });
+    });
+  }
 
   static const Map<String, IconData> _categoriaIcones = {
     'banho': Icons.bathtub_rounded,
@@ -341,9 +395,11 @@ class _SearchScreenState extends State<SearchScreen> {
   }
 
   void _limparFiltros() {
+    _debounceTimer?.cancel();
     setState(() {
       _buscaNome = "";
       _categoriaSelecionada = null;
+      _aguardandoDebounce = false;
       _searchController.clear();
       FocusScope.of(context).unfocus();
     });
@@ -354,17 +410,49 @@ class _SearchScreenState extends State<SearchScreen> {
     context.watch<LocationService>();
 
     return Scaffold(
-      backgroundColor: const Color(0xFFF6F5FA),
+      backgroundColor: _fundoTela,
       body: Column(
         children: [
           _buildHeader(),
           _buildCategorias(),
           Expanded(
-            child: _isPesquisando
+            child: _aguardandoDebounce
+                ? _buildBuscandoDebounce()
+                : _isPesquisando
                 ? _buildResultadosPesquisa()
                 : _buildGuiaDaCidade(),
           ),
         ],
+      ),
+    );
+  }
+
+  Widget _buildBuscandoDebounce() {
+    return Center(
+      child: Padding(
+        padding: diPertinScrollPaddingTabShell(context, top: 40, extraBottom: 40),
+        child: Column(
+          mainAxisSize: MainAxisSize.min,
+          children: [
+            const SizedBox(
+              width: 28,
+              height: 28,
+              child: CircularProgressIndicator(
+                strokeWidth: 2.5,
+                color: diPertinRoxo,
+              ),
+            ),
+            const SizedBox(height: 14),
+            Text(
+              'Buscando…',
+              style: TextStyle(
+                color: _textoMuted,
+                fontSize: 14,
+                fontWeight: FontWeight.w500,
+              ),
+            ),
+          ],
+        ),
       ),
     );
   }
@@ -389,15 +477,17 @@ class _SearchScreenState extends State<SearchScreen> {
             children: [
               Row(
                 children: [
-                  const Expanded(
+                  Expanded(
                     child: Text(
-                      'Buscar',
-                      style: TextStyle(
+                      'Buscar / Serviços',
+                      style: const TextStyle(
                         color: Colors.white,
                         fontWeight: FontWeight.w800,
-                        fontSize: 24,
+                        fontSize: 22,
                         letterSpacing: -0.5,
                       ),
+                      maxLines: 2,
+                      overflow: TextOverflow.ellipsis,
                     ),
                   ),
                   IconButton(
@@ -467,11 +557,11 @@ class _SearchScreenState extends State<SearchScreen> {
                 child: TextField(
                   controller: _searchController,
                   autofocus: false,
-                  onChanged: (val) =>
-                      setState(() => _buscaNome = val.toLowerCase()),
+                  onChanged: _onBuscaChanged,
                   style: const TextStyle(
                     fontSize: 15,
                     fontWeight: FontWeight.w500,
+                    color: _textoPrimario,
                   ),
                   decoration: InputDecoration(
                     hintText: 'Lojas, produtos ou categorias…',
@@ -485,13 +575,26 @@ class _SearchScreenState extends State<SearchScreen> {
                       color: Colors.grey[500],
                       size: 22,
                     ),
-                    suffixIcon: _isPesquisando
+                    suffixIcon: _aguardandoDebounce
+                        ? const Padding(
+                            padding: EdgeInsets.all(12),
+                            child: SizedBox(
+                              width: 18,
+                              height: 18,
+                              child: CircularProgressIndicator(
+                                strokeWidth: 2,
+                                color: diPertinLaranja,
+                              ),
+                            ),
+                          )
+                        : _temFiltroVisivel
                         ? IconButton(
                             icon: Icon(
                               Icons.close_rounded,
                               color: Colors.grey[500],
                               size: 20,
                             ),
+                            tooltip: 'Limpar busca',
                             onPressed: _limparFiltros,
                           )
                         : null,
@@ -524,12 +627,14 @@ class _SearchScreenState extends State<SearchScreen> {
   }
 
   Widget _buildCategorias() {
+    final alturaFaixa = _alturaFaixaCategorias(context);
+
     return Container(
       color: Colors.white,
       child: Column(
         children: [
           SizedBox(
-            height: 82,
+            height: alturaFaixa,
             child: StreamBuilder<QuerySnapshot>(
               stream: FirebaseFirestore.instance
                   .collection('categorias')
@@ -537,8 +642,14 @@ class _SearchScreenState extends State<SearchScreen> {
                   .snapshots(),
               builder: (context, snapshot) {
                 if (!snapshot.hasData) {
-                  return const Center(
-                    child: LinearProgressIndicator(color: diPertinLaranja),
+                  return ListView.builder(
+                    scrollDirection: Axis.horizontal,
+                    padding: const EdgeInsets.symmetric(
+                      horizontal: 12,
+                      vertical: 8,
+                    ),
+                    itemCount: 8,
+                    itemBuilder: (_, _) => _buildSkeletonCategoriaChip(),
                   );
                 }
                 final todasCategorias = snapshot.data!.docs.toList()
@@ -575,75 +686,95 @@ class _SearchScreenState extends State<SearchScreen> {
                     String nome = cat['nome'] ?? '';
                     String imagem = cat['imagem'] ?? '';
                     bool sel = _categoriaSelecionada == nome;
-                    return GestureDetector(
-                      onTap: () {
-                        setState(
-                          () => _categoriaSelecionada = sel ? null : nome,
-                        );
-                        FocusScope.of(context).unfocus();
-                      },
-                      child: AnimatedContainer(
-                        duration: const Duration(milliseconds: 200),
-                        width: 62,
-                        margin: const EdgeInsets.symmetric(horizontal: 3),
-                        child: Column(
-                          children: [
-                            Container(
-                              width: 44,
-                              height: 44,
-                              decoration: BoxDecoration(
-                                shape: BoxShape.circle,
-                                border: Border.all(
-                                  color: sel
-                                      ? diPertinLaranja
-                                      : Colors.grey.shade200,
-                                  width: sel ? 2.5 : 1.5,
+                    return Semantics(
+                      label: nome,
+                      selected: sel,
+                      button: true,
+                      child: Material(
+                        color: Colors.transparent,
+                        child: InkWell(
+                          onTap: () {
+                            setState(
+                              () => _categoriaSelecionada = sel ? null : nome,
+                            );
+                            FocusScope.of(context).unfocus();
+                          },
+                          borderRadius: BorderRadius.circular(12),
+                          child: AnimatedContainer(
+                            duration: const Duration(milliseconds: 200),
+                            width: 76,
+                            margin: const EdgeInsets.symmetric(horizontal: 4),
+                            padding: const EdgeInsets.symmetric(vertical: 4),
+                            child: Column(
+                              mainAxisSize: MainAxisSize.min,
+                              mainAxisAlignment: MainAxisAlignment.center,
+                              children: [
+                                Container(
+                                  width: 48,
+                                  height: 48,
+                                  decoration: BoxDecoration(
+                                    shape: BoxShape.circle,
+                                    border: Border.all(
+                                      color: sel
+                                          ? diPertinLaranja
+                                          : Colors.grey.shade200,
+                                      width: sel ? 2.5 : 1.5,
+                                    ),
+                                    boxShadow: sel
+                                        ? [
+                                            BoxShadow(
+                                              color: diPertinLaranja.withValues(
+                                                alpha: 0.25,
+                                              ),
+                                              blurRadius: 8,
+                                            ),
+                                          ]
+                                        : [],
+                                  ),
+                                  child: CircleAvatar(
+                                    radius: 22,
+                                    backgroundImage: imagem.isNotEmpty
+                                        ? NetworkImage(imagem)
+                                        : null,
+                                    backgroundColor: sel
+                                        ? diPertinLaranja.withValues(
+                                            alpha: 0.08,
+                                          )
+                                        : Colors.grey[100],
+                                    child: imagem.isEmpty
+                                        ? Icon(
+                                            _iconeDaCategoria(nome),
+                                            color: sel
+                                                ? diPertinLaranja
+                                                : Colors.grey[500],
+                                            size: 21,
+                                          )
+                                        : null,
+                                  ),
                                 ),
-                                boxShadow: sel
-                                    ? [
-                                        BoxShadow(
-                                          color: diPertinLaranja.withValues(
-                                            alpha: 0.25,
-                                          ),
-                                          blurRadius: 8,
-                                        ),
-                                      ]
-                                    : [],
-                              ),
-                              child: CircleAvatar(
-                                radius: 20,
-                                backgroundImage: imagem.isNotEmpty
-                                    ? NetworkImage(imagem)
-                                    : null,
-                                backgroundColor: sel
-                                    ? diPertinLaranja.withValues(alpha: 0.08)
-                                    : Colors.grey[100],
-                                child: imagem.isEmpty
-                                    ? Icon(
-                                        _iconeDaCategoria(nome),
-                                        color: sel
-                                            ? diPertinLaranja
-                                            : Colors.grey[500],
-                                        size: 19,
-                                      )
-                                    : null,
-                              ),
+                                const SizedBox(height: 6),
+                                SizedBox(
+                                  width: 76,
+                                  child: Text(
+                                    nome,
+                                    style: TextStyle(
+                                      fontSize: 11,
+                                      height: 1.15,
+                                      fontWeight: sel
+                                          ? FontWeight.w700
+                                          : FontWeight.w500,
+                                      color: sel
+                                          ? diPertinLaranja
+                                          : _textoMuted,
+                                    ),
+                                    textAlign: TextAlign.center,
+                                    maxLines: 2,
+                                    overflow: TextOverflow.ellipsis,
+                                  ),
+                                ),
+                              ],
                             ),
-                            const SizedBox(height: 5),
-                            Text(
-                              nome,
-                              style: TextStyle(
-                                fontSize: 9.5,
-                                fontWeight: sel
-                                    ? FontWeight.w700
-                                    : FontWeight.w500,
-                                color: sel ? diPertinLaranja : Colors.grey[700],
-                              ),
-                              textAlign: TextAlign.center,
-                              maxLines: 1,
-                              overflow: TextOverflow.ellipsis,
-                            ),
-                          ],
+                          ),
                         ),
                       ),
                     );
@@ -653,6 +784,109 @@ class _SearchScreenState extends State<SearchScreen> {
             ),
           ),
           Container(height: 1, color: Colors.grey.shade100),
+        ],
+      ),
+    );
+  }
+
+  Widget _buildSkeletonCategoriaChip() {
+    return Container(
+      width: 76,
+      margin: const EdgeInsets.symmetric(horizontal: 4),
+      child: Column(
+        mainAxisSize: MainAxisSize.min,
+        mainAxisAlignment: MainAxisAlignment.center,
+        children: [
+          Container(
+            width: 48,
+            height: 48,
+            decoration: BoxDecoration(
+              shape: BoxShape.circle,
+              color: Colors.grey.shade200,
+            ),
+          ),
+          const SizedBox(height: 6),
+          Container(
+            width: 52,
+            height: 10,
+            decoration: BoxDecoration(
+              color: Colors.grey.shade200,
+              borderRadius: BorderRadius.circular(4),
+            ),
+          ),
+        ],
+      ),
+    );
+  }
+
+  Widget _buildSkeletonCarrossel({double height = 124, int count = 3}) {
+    return SizedBox(
+      height: height,
+      child: ListView.separated(
+        scrollDirection: Axis.horizontal,
+        padding: const EdgeInsets.symmetric(horizontal: 4),
+        itemCount: count,
+        separatorBuilder: (_, _) => const SizedBox(width: 10),
+        itemBuilder: (_, _) => Container(
+          width: 185,
+          decoration: BoxDecoration(
+            color: Colors.grey.shade200,
+            borderRadius: BorderRadius.circular(16),
+          ),
+        ),
+      ),
+    );
+  }
+
+  Widget _buildFiltroAtivoResumo() {
+    return Padding(
+      padding: const EdgeInsets.fromLTRB(16, 12, 16, 4),
+      child: Wrap(
+        spacing: 8,
+        runSpacing: 8,
+        crossAxisAlignment: WrapCrossAlignment.center,
+        children: [
+          Text(
+            'Filtros:',
+            style: TextStyle(
+              fontSize: 12,
+              fontWeight: FontWeight.w600,
+              color: _textoMuted,
+            ),
+          ),
+          if (_buscaNome.isNotEmpty)
+            InputChip(
+              label: Text(
+                _searchController.text.trim(),
+                style: const TextStyle(fontSize: 12),
+              ),
+              avatar: const Icon(Icons.search_rounded, size: 16),
+              deleteIcon: const Icon(Icons.close, size: 16),
+              onDeleted: () {
+                _debounceTimer?.cancel();
+                setState(() {
+                  _buscaNome = '';
+                  _aguardandoDebounce = false;
+                  _searchController.clear();
+                });
+              },
+              backgroundColor: Colors.white,
+              side: BorderSide(color: Colors.grey.shade200),
+            ),
+          if (_categoriaSelecionada != null)
+            InputChip(
+              label: Text(
+                _categoriaSelecionada!,
+                style: const TextStyle(fontSize: 12),
+              ),
+              avatar: const Icon(Icons.category_rounded, size: 16),
+              deleteIcon: const Icon(Icons.close, size: 16),
+              onDeleted: () => setState(() => _categoriaSelecionada = null),
+              backgroundColor: diPertinLaranja.withValues(alpha: 0.08),
+              side: BorderSide(
+                color: diPertinLaranja.withValues(alpha: 0.35),
+              ),
+            ),
         ],
       ),
     );
@@ -685,7 +919,7 @@ class _SearchScreenState extends State<SearchScreen> {
                   style: const TextStyle(
                     fontSize: 16,
                     fontWeight: FontWeight.w700,
-                    color: Color(0xFF1E1B4B),
+                    color: _textoPrimario,
                     letterSpacing: -0.3,
                   ),
                 ),
@@ -694,7 +928,7 @@ class _SearchScreenState extends State<SearchScreen> {
                     subtitle,
                     style: TextStyle(
                       fontSize: 12,
-                      color: Colors.grey[500],
+                      color: _textoMuted,
                       height: 1.4,
                     ),
                   ),
@@ -712,7 +946,7 @@ class _SearchScreenState extends State<SearchScreen> {
     final ufNorm = loc.ufNormalizado;
 
     return SingleChildScrollView(
-      padding: const EdgeInsets.fromLTRB(16, 18, 16, 30),
+      padding: diPertinScrollPaddingTabShell(context, top: 18, extraBottom: 24),
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
@@ -728,12 +962,7 @@ class _SearchScreenState extends State<SearchScreen> {
                 .snapshots(),
             builder: (context, snapshot) {
               if (!snapshot.hasData) {
-                return SizedBox(
-                  height: 124,
-                  child: Center(
-                    child: CircularProgressIndicator(color: diPertinRoxo),
-                  ),
-                );
+                return _buildSkeletonCarrossel();
               }
 
               final agora = DateTime.now();
@@ -922,7 +1151,7 @@ class _SearchScreenState extends State<SearchScreen> {
                                     mainAxisSize: MainAxisSize.min,
                                     children: [
                                       Icon(
-                                        Icons.wechat,
+                                        Icons.chat_rounded,
                                         color: Color(0xFF25D366),
                                         size: 14,
                                       ),
@@ -1014,7 +1243,25 @@ class _SearchScreenState extends State<SearchScreen> {
                 .snapshots(),
             builder: (context, snapshot) {
               if (!snapshot.hasData) {
-                return const Center(child: CircularProgressIndicator());
+                return GridView.builder(
+                  shrinkWrap: true,
+                  padding: EdgeInsets.zero,
+                  physics: const NeverScrollableScrollPhysics(),
+                  gridDelegate:
+                      const SliverGridDelegateWithFixedCrossAxisCount(
+                    crossAxisCount: 2,
+                    childAspectRatio: 2.2,
+                    crossAxisSpacing: 10,
+                    mainAxisSpacing: 10,
+                  ),
+                  itemCount: 4,
+                  itemBuilder: (_, _) => Container(
+                    decoration: BoxDecoration(
+                      color: Colors.grey.shade200,
+                      borderRadius: BorderRadius.circular(14),
+                    ),
+                  ),
+                );
               }
 
               DateTime agora = DateTime.now();
@@ -1654,6 +1901,102 @@ class _SearchScreenState extends State<SearchScreen> {
     );
   }
 
+  Widget _buildLojasEncontradasCarrossel(
+    List<QueryDocumentSnapshot> lojasEncontradas,
+  ) {
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.start,
+      children: [
+        Padding(
+          padding: const EdgeInsets.fromLTRB(0, 8, 0, 8),
+          child: _sectionTitle('Lojas encontradas', Icons.store_rounded),
+        ),
+        SizedBox(
+          height: 120,
+          child: ListView.builder(
+            scrollDirection: Axis.horizontal,
+            padding: const EdgeInsets.symmetric(horizontal: 4),
+            itemCount: lojasEncontradas.length,
+            itemBuilder: (context, index) {
+              final loja =
+                  lojasEncontradas[index].data() as Map<String, dynamic>;
+              final lojaId = lojasEncontradas[index].id;
+              final nome = loja['loja_nome'] ?? loja['nome'] ?? 'Loja';
+              final foto = urlFachadaLojaCliente(loja);
+
+              return Container(
+                width: 130,
+                margin: const EdgeInsets.symmetric(horizontal: 5, vertical: 4),
+                child: Material(
+                  color: Colors.white,
+                  shape: RoundedRectangleBorder(
+                    borderRadius: BorderRadius.circular(16),
+                    side: BorderSide(color: Colors.grey.shade200),
+                  ),
+                  clipBehavior: Clip.antiAlias,
+                  child: InkWell(
+                    onTap: () => Navigator.push(
+                      context,
+                      MaterialPageRoute(
+                        builder: (context) => LojaPerfilScreen(
+                          lojistaData: loja,
+                          lojistaId: lojaId,
+                        ),
+                      ),
+                    ),
+                    child: Column(
+                      mainAxisAlignment: MainAxisAlignment.center,
+                      children: [
+                        Container(
+                          decoration: BoxDecoration(
+                            shape: BoxShape.circle,
+                            border: Border.all(
+                              color: diPertinLaranja.withValues(alpha: 0.3),
+                              width: 2,
+                            ),
+                          ),
+                          child: CircleAvatar(
+                            radius: 24,
+                            backgroundColor: Colors.grey[100],
+                            backgroundImage:
+                                foto.isNotEmpty ? NetworkImage(foto) : null,
+                            child: foto.isEmpty
+                                ? Icon(
+                                    Icons.store_rounded,
+                                    color: Colors.grey[400],
+                                    size: 22,
+                                  )
+                                : null,
+                          ),
+                        ),
+                        const SizedBox(height: 8),
+                        Padding(
+                          padding: const EdgeInsets.symmetric(horizontal: 8),
+                          child: Text(
+                            nome,
+                            style: const TextStyle(
+                              fontWeight: FontWeight.w700,
+                              fontSize: 12,
+                              color: _textoPrimario,
+                            ),
+                            maxLines: 2,
+                            textAlign: TextAlign.center,
+                            overflow: TextOverflow.ellipsis,
+                          ),
+                        ),
+                      ],
+                    ),
+                  ),
+                ),
+              );
+            },
+          ),
+        ),
+        const Divider(height: 30),
+      ],
+    );
+  }
+
   // ==========================================
   // WIDGET: RESULTADOS DA BUSCA (LOJAS + PRODUTOS)
   // ==========================================
@@ -1662,10 +2005,11 @@ class _SearchScreenState extends State<SearchScreen> {
     final cidadeNorm = loc.cidadeNormalizada;
     final ufNorm = loc.ufNormalizado;
     return SingleChildScrollView(
+      padding: diPertinScrollPaddingTabShell(context, top: 0, extraBottom: 24),
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
-          // Envolvemos tudo no StreamBuilder de Lojas primeiro para pegar os IDs
+          _buildFiltroAtivoResumo(),
           StreamBuilder<QuerySnapshot>(
             // Fase 3G.2 — busca lê `lojas_public` (ver vitrine_screen.dart).
             stream: FirebaseFirestore.instance
@@ -1674,7 +2018,7 @@ class _SearchScreenState extends State<SearchScreen> {
             builder: (context, snapshotLojas) {
               List<String> lojasIdsEncontradas = [];
               Set<String> lojasIdsDaCidade = {};
-              Widget lojasWidget = const SizedBox.shrink();
+              List<QueryDocumentSnapshot> lojasEncontradas = [];
 
               if (snapshotLojas.hasData) {
                 for (final doc in snapshotLojas.data!.docs) {
@@ -1691,155 +2035,88 @@ class _SearchScreenState extends State<SearchScreen> {
                 }
               }
 
-              if (snapshotLojas.hasData && _buscaNome.isNotEmpty) {
-                var lojasEncontradas = snapshotLojas.data!.docs.where((doc) {
+              if (snapshotLojas.hasData &&
+                  (_buscaNome.isNotEmpty || _categoriaSelecionada != null)) {
+                lojasEncontradas = snapshotLojas.data!.docs.where((doc) {
                   if (!lojasIdsDaCidade.contains(doc.id)) return false;
                   var l = doc.data() as Map<String, dynamic>;
                   String nomeLoja = (l['loja_nome'] ?? l['nome'] ?? '')
                       .toString()
                       .toLowerCase();
+                  final catLoja = (l['categoria'] ?? '').toString();
+
+                  if (_categoriaSelecionada != null) {
+                    final passaCategoriaLoja =
+                        catLoja == _categoriaSelecionada;
+                    if (_buscaNome.isEmpty) return passaCategoriaLoja;
+                    return passaCategoriaLoja &&
+                        nomeLoja.contains(_buscaNome);
+                  }
                   return nomeLoja.contains(_buscaNome);
                 }).toList();
 
                 lojasIdsEncontradas = lojasEncontradas
                     .map((e) => e.id)
                     .toList();
-
-                // Desenha o Carrossel de Lojas no Topo
-                if (lojasEncontradas.isNotEmpty) {
-                  lojasWidget = Column(
-                    crossAxisAlignment: CrossAxisAlignment.start,
-                    children: [
-                      Padding(
-                        padding: const EdgeInsets.fromLTRB(16, 16, 16, 8),
-                        child: _sectionTitle(
-                          'Lojas encontradas',
-                          Icons.store_rounded,
-                        ),
-                      ),
-                      SizedBox(
-                        height: 120,
-                        child: ListView.builder(
-                          scrollDirection: Axis.horizontal,
-                          padding: const EdgeInsets.symmetric(horizontal: 10),
-                          itemCount: lojasEncontradas.length,
-                          itemBuilder: (context, index) {
-                            var loja =
-                                lojasEncontradas[index].data()
-                                    as Map<String, dynamic>;
-                            String lojaId = lojasEncontradas[index].id;
-                            String nome =
-                                loja['loja_nome'] ?? loja['nome'] ?? 'Loja';
-                            String foto = urlFachadaLojaCliente(loja);
-
-                            return GestureDetector(
-                              onTap: () => Navigator.push(
-                                context,
-                                MaterialPageRoute(
-                                  builder: (context) => LojaPerfilScreen(
-                                    lojistaData: loja,
-                                    lojistaId: lojaId,
-                                  ),
-                                ),
-                              ),
-                              child: Container(
-                                width: 130,
-                                margin: const EdgeInsets.symmetric(
-                                  horizontal: 5,
-                                  vertical: 4,
-                                ),
-                                decoration: BoxDecoration(
-                                  color: Colors.white,
-                                  borderRadius: BorderRadius.circular(16),
-                                  border: Border.all(
-                                    color: Colors.grey.shade200,
-                                  ),
-                                ),
-                                child: Column(
-                                  mainAxisAlignment: MainAxisAlignment.center,
-                                  children: [
-                                    Container(
-                                      decoration: BoxDecoration(
-                                        shape: BoxShape.circle,
-                                        border: Border.all(
-                                          color: diPertinLaranja.withValues(
-                                            alpha: 0.3,
-                                          ),
-                                          width: 2,
-                                        ),
-                                      ),
-                                      child: CircleAvatar(
-                                        radius: 24,
-                                        backgroundColor: Colors.grey[100],
-                                        backgroundImage: foto.isNotEmpty
-                                            ? NetworkImage(foto)
-                                            : null,
-                                        child: foto.isEmpty
-                                            ? Icon(
-                                                Icons.store_rounded,
-                                                color: Colors.grey[400],
-                                                size: 22,
-                                              )
-                                            : null,
-                                      ),
-                                    ),
-                                    const SizedBox(height: 8),
-                                    Padding(
-                                      padding: const EdgeInsets.symmetric(
-                                        horizontal: 8,
-                                      ),
-                                      child: Text(
-                                        nome,
-                                        style: const TextStyle(
-                                          fontWeight: FontWeight.w700,
-                                          fontSize: 12,
-                                          color: Color(0xFF1E1B4B),
-                                        ),
-                                        maxLines: 2,
-                                        textAlign: TextAlign.center,
-                                        overflow: TextOverflow.ellipsis,
-                                      ),
-                                    ),
-                                  ],
-                                ),
-                              ),
-                            );
-                          },
-                        ),
-                      ),
-                      const Divider(height: 30),
-                    ],
-                  );
-                }
               }
 
-              return Column(
-                crossAxisAlignment: CrossAxisAlignment.start,
-                children: [
-                  lojasWidget,
-                  Padding(
-                    padding: const EdgeInsets.fromLTRB(16, 10, 16, 4),
-                    child: _sectionTitle('Produtos', Icons.inventory_2_rounded),
-                  ),
-                  StreamBuilder<QuerySnapshot>(
+              return StreamBuilder<QuerySnapshot>(
                     stream: FirebaseFirestore.instance
                         .collection('produtos')
                         .where('ativo', isEqualTo: true)
                         .snapshots(),
                     builder: (context, snapshotProdutos) {
+                      final lojasParaExibir =
+                          List<QueryDocumentSnapshot>.from(lojasEncontradas);
+
                       if (snapshotProdutos.connectionState ==
                           ConnectionState.waiting) {
-                        return const Center(
-                          child: Padding(
-                            padding: EdgeInsets.all(20),
-                            child: CircularProgressIndicator(),
-                          ),
+                        return Column(
+                          crossAxisAlignment: CrossAxisAlignment.start,
+                          children: [
+                            if (lojasParaExibir.isNotEmpty)
+                              _buildLojasEncontradasCarrossel(lojasParaExibir),
+                            Padding(
+                              padding: const EdgeInsets.fromLTRB(0, 10, 0, 4),
+                              child: _sectionTitle(
+                                'Produtos',
+                                Icons.inventory_2_rounded,
+                              ),
+                            ),
+                            GridView.builder(
+                              shrinkWrap: true,
+                              physics: const NeverScrollableScrollPhysics(),
+                              padding: const EdgeInsets.symmetric(vertical: 8),
+                              gridDelegate:
+                                  const SliverGridDelegateWithFixedCrossAxisCount(
+                                crossAxisCount: 2,
+                                childAspectRatio: 0.75,
+                                crossAxisSpacing: 15,
+                                mainAxisSpacing: 15,
+                              ),
+                              itemCount: 4,
+                              itemBuilder: (_, _) => Container(
+                                decoration: BoxDecoration(
+                                  color: Colors.grey.shade200,
+                                  borderRadius: BorderRadius.circular(16),
+                                ),
+                              ),
+                            ),
+                          ],
                         );
                       }
+
                       if (!snapshotProdutos.hasData ||
                           snapshotProdutos.data!.docs.isEmpty) {
-                        return const Center(
-                          child: Text('Nenhum produto cadastrado.'),
+                        return Column(
+                          crossAxisAlignment: CrossAxisAlignment.start,
+                          children: [
+                            if (lojasParaExibir.isNotEmpty)
+                              _buildLojasEncontradasCarrossel(lojasParaExibir),
+                            const Center(
+                              child: Text('Nenhum produto cadastrado.'),
+                            ),
+                          ],
                         );
                       }
 
@@ -1868,8 +2145,30 @@ class _SearchScreenState extends State<SearchScreen> {
                         return passaCategoria && passaNomeOuLoja;
                       }).toList();
 
+                      if (_categoriaSelecionada != null &&
+                          lojasParaExibir.isEmpty &&
+                          snapshotLojas.hasData) {
+                        final idsComProduto = docs
+                            .map(
+                              (d) => (d.data()
+                                      as Map<String, dynamic>)['lojista_id']
+                                  ?.toString(),
+                            )
+                            .where((id) => id != null && id.isNotEmpty)
+                            .cast<String>()
+                            .toSet();
+                        lojasParaExibir.addAll(
+                          snapshotLojas.data!.docs.where(
+                            (doc) =>
+                                lojasIdsDaCidade.contains(doc.id) &&
+                                idsComProduto.contains(doc.id),
+                          ),
+                        );
+                      }
+
+                      Widget conteudoProdutos;
                       if (docs.isEmpty) {
-                        return Padding(
+                        conteudoProdutos = Padding(
                           padding: const EdgeInsets.symmetric(
                             vertical: 40,
                             horizontal: 30,
@@ -1903,119 +2202,135 @@ class _SearchScreenState extends State<SearchScreen> {
                                 'Tente buscar com outros termos',
                                 style: TextStyle(
                                   fontSize: 13,
-                                  color: Colors.grey[500],
+                                  color: _textoMuted,
                                 ),
                               ),
                             ],
                           ),
                         );
-                      }
+                      } else {
+                        conteudoProdutos = GridView.builder(
+                          shrinkWrap: true,
+                          physics: const NeverScrollableScrollPhysics(),
+                          padding: const EdgeInsets.symmetric(vertical: 8),
+                          gridDelegate:
+                              const SliverGridDelegateWithFixedCrossAxisCount(
+                            crossAxisCount: 2,
+                            childAspectRatio: 0.75,
+                            crossAxisSpacing: 15,
+                            mainAxisSpacing: 15,
+                          ),
+                          itemCount: docs.length,
+                          itemBuilder: (context, index) {
+                            var p = docs[index].data() as Map<String, dynamic>;
+                            p['id'] = docs[index].id;
+                            String img =
+                                (p['imagens'] != null &&
+                                    p['imagens'].isNotEmpty)
+                                ? p['imagens'][0]
+                                : '';
 
-                      return GridView.builder(
-                        shrinkWrap: true,
-                        physics: const NeverScrollableScrollPhysics(),
-                        padding: const EdgeInsets.all(15),
-                        gridDelegate:
-                            const SliverGridDelegateWithFixedCrossAxisCount(
-                              crossAxisCount: 2,
-                              childAspectRatio: 0.75,
-                              crossAxisSpacing: 15,
-                              mainAxisSpacing: 15,
-                            ),
-                        itemCount: docs.length,
-                        itemBuilder: (context, index) {
-                          var p = docs[index].data() as Map<String, dynamic>;
-                          p['id'] = docs[index].id;
-                          String img =
-                              (p['imagens'] != null && p['imagens'].isNotEmpty)
-                              ? p['imagens'][0]
-                              : '';
-
-                          return Material(
-                            color: Colors.white,
-                            shape: RoundedRectangleBorder(
-                              borderRadius: BorderRadius.circular(16),
-                              side: BorderSide(color: Colors.grey.shade200),
-                            ),
-                            clipBehavior: Clip.antiAlias,
-                            child: InkWell(
-                              onTap: () => Navigator.push(
-                                context,
-                                MaterialPageRoute(
-                                  builder: (context) =>
-                                      ProductDetailsScreen(produto: p),
+                            return Material(
+                              color: Colors.white,
+                              shape: RoundedRectangleBorder(
+                                borderRadius: BorderRadius.circular(16),
+                                side: BorderSide(color: Colors.grey.shade200),
+                              ),
+                              clipBehavior: Clip.antiAlias,
+                              child: InkWell(
+                                onTap: () => Navigator.push(
+                                  context,
+                                  MaterialPageRoute(
+                                    builder: (context) =>
+                                        ProductDetailsScreen(produto: p),
+                                  ),
+                                ),
+                                borderRadius: BorderRadius.circular(16),
+                                child: Column(
+                                  crossAxisAlignment: CrossAxisAlignment.start,
+                                  children: [
+                                    Expanded(
+                                      child: ClipRRect(
+                                        borderRadius:
+                                            const BorderRadius.vertical(
+                                          top: Radius.circular(16),
+                                        ),
+                                        child: Image.network(
+                                          img,
+                                          width: double.infinity,
+                                          fit: BoxFit.cover,
+                                          errorBuilder: (c, e, s) => Container(
+                                            color: Colors.grey[100],
+                                            child: Icon(
+                                              Icons
+                                                  .image_not_supported_outlined,
+                                              color: Colors.grey[300],
+                                              size: 32,
+                                            ),
+                                          ),
+                                        ),
+                                      ),
+                                    ),
+                                    Padding(
+                                      padding: const EdgeInsets.fromLTRB(
+                                        10,
+                                        10,
+                                        10,
+                                        12,
+                                      ),
+                                      child: Column(
+                                        crossAxisAlignment:
+                                            CrossAxisAlignment.start,
+                                        children: [
+                                          Text(
+                                            p['nome'] ?? '',
+                                            style: const TextStyle(
+                                              fontWeight: FontWeight.w700,
+                                              fontSize: 13,
+                                              color: _textoPrimario,
+                                            ),
+                                            maxLines: 2,
+                                            overflow: TextOverflow.ellipsis,
+                                          ),
+                                          const SizedBox(height: 4),
+                                          Text(
+                                            "R\$ ${(p['preco'] ?? 0.0).toStringAsFixed(2)}",
+                                            style: const TextStyle(
+                                              color: diPertinLaranja,
+                                              fontWeight: FontWeight.w800,
+                                              fontSize: 14.5,
+                                            ),
+                                          ),
+                                        ],
+                                      ),
+                                    ),
+                                  ],
                                 ),
                               ),
-                              borderRadius: BorderRadius.circular(16),
-                              child: Column(
-                                crossAxisAlignment: CrossAxisAlignment.start,
-                                children: [
-                                  Expanded(
-                                    child: ClipRRect(
-                                      borderRadius: const BorderRadius.vertical(
-                                        top: Radius.circular(16),
-                                      ),
-                                      child: Image.network(
-                                        img,
-                                        width: double.infinity,
-                                        fit: BoxFit.cover,
-                                        errorBuilder: (c, e, s) => Container(
-                                          color: Colors.grey[100],
-                                          child: Icon(
-                                            Icons.image_not_supported_outlined,
-                                            color: Colors.grey[300],
-                                            size: 32,
-                                          ),
-                                        ),
-                                      ),
-                                    ),
-                                  ),
-                                  Padding(
-                                    padding: const EdgeInsets.fromLTRB(
-                                      10,
-                                      10,
-                                      10,
-                                      12,
-                                    ),
-                                    child: Column(
-                                      crossAxisAlignment:
-                                          CrossAxisAlignment.start,
-                                      children: [
-                                        Text(
-                                          p['nome'] ?? '',
-                                          style: const TextStyle(
-                                            fontWeight: FontWeight.w700,
-                                            fontSize: 13,
-                                            color: Color(0xFF1E1B4B),
-                                          ),
-                                          maxLines: 2,
-                                          overflow: TextOverflow.ellipsis,
-                                        ),
-                                        const SizedBox(height: 4),
-                                        Text(
-                                          "R\$ ${(p['preco'] ?? 0.0).toStringAsFixed(2)}",
-                                          style: const TextStyle(
-                                            color: diPertinLaranja,
-                                            fontWeight: FontWeight.w800,
-                                            fontSize: 14.5,
-                                          ),
-                                        ),
-                                      ],
-                                    ),
-                                  ),
-                                ],
-                              ),
+                            );
+                          },
+                        );
+                      }
+
+                      return Column(
+                        crossAxisAlignment: CrossAxisAlignment.start,
+                        children: [
+                          if (lojasParaExibir.isNotEmpty)
+                            _buildLojasEncontradasCarrossel(lojasParaExibir),
+                          Padding(
+                            padding: const EdgeInsets.fromLTRB(0, 10, 0, 4),
+                            child: _sectionTitle(
+                              'Produtos',
+                              Icons.inventory_2_rounded,
                             ),
-                          );
-                        },
+                          ),
+                          conteudoProdutos,
+                        ],
                       );
                     },
-                  ),
-                ],
-              );
+                  );
             },
           ),
-          const SizedBox(height: 40),
         ],
       ),
     );

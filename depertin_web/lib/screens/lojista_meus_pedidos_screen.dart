@@ -3,6 +3,7 @@ import 'package:depertin_web/constants/tipos_entrega.dart';
 import 'package:depertin_web/services/firebase_functions_config.dart';
 import 'package:depertin_web/theme/painel_admin_theme.dart';
 import 'package:depertin_web/utils/lojista_painel_context.dart';
+import 'package:depertin_web/widgets/chamar_entregador_modal.dart';
 import 'package:depertin_web/widgets/escolher_tipo_entrega_dialog.dart';
 import 'package:firebase_auth/firebase_auth.dart';
 import 'package:flutter/material.dart';
@@ -893,8 +894,23 @@ class _LojistaPedidoDetalheDialogState extends State<_LojistaPedidoDetalheDialog
         },
       );
       final rotulo = tipo == null ? '' : ' (${TiposEntrega.rotulo(tipo)})';
-      _snack(
-        'Buscando entregador próximo$rotulo. Você será avisado quando alguém aceitar.',
+
+      if (!mounted) return;
+
+      // Abre o modal de acompanhamento da entrega (solicitação já feita)
+      await ChamarEntregadorModal.mostrar(
+        context: context,
+        pedidoId: widget.pedidoId,
+        uidLoja: widget.uidLoja,
+        nomeCliente: _nomeCliente ?? widget.nomeClienteFallback,
+        tipoEntrega: rotulo.isNotEmpty ? rotulo.substring(2, rotulo.length - 1) : 'Entrega',
+        onCancelar: () {
+          _snack('Solicitação cancelada.');
+        },
+        onConcluir: () {
+          _snack('Pedido entregue com sucesso!');
+        },
+        jaSolicitou: true,
       );
     });
   }

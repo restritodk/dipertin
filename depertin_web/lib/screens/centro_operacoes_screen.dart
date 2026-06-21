@@ -1,292 +1,41 @@
-// Centro de operações — hub de gestão (CRM, agenda, simulador de frete).
+// Centro de operações — painéis CRM e simulador de frete (navegação na sidebar principal).
 
-import 'dart:math' show max, min;
+import 'dart:math' show max;
 
 import 'package:cloud_firestore/cloud_firestore.dart';
 import 'package:depertin_web/navigation/painel_navigation_scope.dart';
-import 'package:depertin_web/screens/centro_operacoes_agenda_panel.dart';
 import 'package:depertin_web/theme/painel_admin_theme.dart';
 import 'package:flutter/material.dart';
 import 'package:intl/intl.dart';
 
-/// Paleta própria do hub (diferente do restante do painel, discreta e legível).
+/// Paleta compartilhada dos painéis do Centro de operações.
 abstract final class _CofTheme {
-  static const Color sidebar = Color(0xFF0F172A);
-  static const Color sidebarBorder = Color(0xFF1E293B);
-  static const Color sidebarMuted = Color(0xFF94A3B8);
-  static const Color accent = Color(0xFFF59E0B);
   static const Color canvas = Color(0xFFF8FAFC);
   static const Color cardBorder = Color(0xFFE2E8F0);
 }
 
-class CentroOperacoesScreen extends StatefulWidget {
-  const CentroOperacoesScreen({super.key});
+Widget _wrapCofCanvas(Widget child) =>
+    Container(color: _CofTheme.canvas, child: child);
 
-  @override
-  State<CentroOperacoesScreen> createState() => _CentroOperacoesScreenState();
-}
-
-class _CentroOperacoesScreenState extends State<CentroOperacoesScreen> {
-  int _ix = 0;
+/// CRM & campanhas — rota `/centro_operacoes_crm`.
+class CentroOperacoesCrmScreen extends StatelessWidget {
+  const CentroOperacoesCrmScreen({super.key});
 
   static final _fmtData = DateFormat('dd/MM/yyyy HH:mm');
 
   @override
   Widget build(BuildContext context) {
-    final w = MediaQuery.sizeOf(context).width;
-    final useDrawer = w < 920;
-
-    final modulos = _listaModulos(context);
-    final ix =
-        modulos.isEmpty ? 0 : _ix.clamp(0, modulos.length - 1);
-    if (ix != _ix) {
-      WidgetsBinding.instance.addPostFrameCallback((_) {
-        if (mounted) setState(() => _ix = ix);
-      });
-    }
-
-    Widget corpo = Container(
-      color: _CofTheme.canvas,
-      child: modulos[ix].builder(context),
-    );
-
-    if (useDrawer) {
-      return Scaffold(
-        backgroundColor: _CofTheme.canvas,
-        appBar: AppBar(
-          elevation: 0,
-          backgroundColor: _CofTheme.sidebar,
-          foregroundColor: Colors.white,
-          title: Text(modulos[ix].titulo),
-          actions: [
-            Builder(
-              builder: (ctx) => IconButton(
-                tooltip: 'Módulos',
-                icon: const Icon(Icons.menu_rounded),
-                onPressed: () => Scaffold.of(ctx).openEndDrawer(),
-              ),
-            ),
-          ],
-        ),
-        endDrawer: Drawer(
-          width: min(320.0, w * 0.88),
-          child: _SidebarCof(
-            modulos: modulos,
-            selecionado: ix,
-            onSelect: (i) {
-              setState(() => _ix = i);
-              Navigator.pop(context);
-            },
-          ),
-        ),
-        body: corpo,
-      );
-    }
-
-    return Row(
-      crossAxisAlignment: CrossAxisAlignment.stretch,
-      children: [
-        SizedBox(
-          width: 268,
-          child: _SidebarCof(
-            modulos: modulos,
-            selecionado: ix,
-            onSelect: (i) => setState(() => _ix = i),
-          ),
-        ),
-        Expanded(child: corpo),
-      ],
-    );
-  }
-
-  List<_CofModulo> _listaModulos(BuildContext context) {
-    return [
-      _CofModulo(
-        titulo: 'CRM & campanhas',
-        subtitulo: 'Funil, KPIs e canais',
-        icon: Icons.auto_graph_rounded,
-        builder: (ctx) => _PainelCrmHub(fmtData: _fmtData),
-      ),
-      _CofModulo(
-        titulo: 'Agenda',
-        subtitulo: 'Reuniões e compromissos',
-        icon: Icons.calendar_month_rounded,
-        builder: (ctx) => const PainelCentroOpsAgenda(),
-      ),
-      _CofModulo(
-        titulo: 'Simulador de frete',
-        subtitulo: 'Tabela publicada',
-        icon: Icons.calculate_outlined,
-        builder: (ctx) => _PainelSimuladorFrete(),
-      ),
-    ];
+    return _wrapCofCanvas(_PainelCrmHub(fmtData: _fmtData));
   }
 }
 
-class _CofModulo {
-  _CofModulo({
-    required this.titulo,
-    required this.subtitulo,
-    required this.icon,
-    required this.builder,
-  });
-  final String titulo;
-  final String subtitulo;
-  final IconData icon;
-  final Widget Function(BuildContext) builder;
-}
-
-class _SidebarCof extends StatelessWidget {
-  const _SidebarCof({
-    required this.modulos,
-    required this.selecionado,
-    required this.onSelect,
-  });
-
-  final List<_CofModulo> modulos;
-  final int selecionado;
-  final void Function(int) onSelect;
+/// Simulador de frete — rota `/centro_operacoes_frete`.
+class CentroOperacoesFreteScreen extends StatelessWidget {
+  const CentroOperacoesFreteScreen({super.key});
 
   @override
   Widget build(BuildContext context) {
-    return Material(
-      color: _CofTheme.sidebar,
-      child: Column(
-        crossAxisAlignment: CrossAxisAlignment.stretch,
-        children: [
-          Padding(
-            padding: const EdgeInsets.fromLTRB(20, 28, 20, 20),
-            child: Column(
-              crossAxisAlignment: CrossAxisAlignment.start,
-              children: [
-                Row(
-                  children: [
-                    Container(
-                      padding: const EdgeInsets.all(10),
-                      decoration: BoxDecoration(
-                        color: _CofTheme.accent.withValues(alpha: 0.15),
-                        borderRadius: BorderRadius.circular(12),
-                        border: Border.all(
-                          color: _CofTheme.accent.withValues(alpha: 0.35),
-                        ),
-                      ),
-                      child: const Icon(
-                        Icons.hub_rounded,
-                        color: _CofTheme.accent,
-                        size: 22,
-                      ),
-                    ),
-                    const SizedBox(width: 12),
-                    const Expanded(
-                      child: Text(
-                        'Centro de operações',
-                        style: TextStyle(
-                          color: Colors.white,
-                          fontWeight: FontWeight.w800,
-                          fontSize: 17,
-                          letterSpacing: -0.3,
-                          height: 1.2,
-                        ),
-                      ),
-                    ),
-                  ],
-                ),
-                const SizedBox(height: 8),
-                Text(
-                  'Gestão avançadas.',
-                  style: TextStyle(
-                    color: _CofTheme.sidebarMuted.withValues(alpha: 0.95),
-                    fontSize: 12.5,
-                    height: 1.35,
-                  ),
-                ),
-              ],
-            ),
-          ),
-          const Divider(height: 1, thickness: 1, color: _CofTheme.sidebarBorder),
-          Expanded(
-            child: ListView.builder(
-              padding: const EdgeInsets.fromLTRB(8, 12, 8, 24),
-              itemCount: modulos.length,
-              itemBuilder: (context, i) {
-                final m = modulos[i];
-                final sel = i == selecionado;
-                return Padding(
-                  padding: const EdgeInsets.only(bottom: 4),
-                  child: Material(
-                    color: sel
-                        ? Colors.white.withValues(alpha: 0.08)
-                        : Colors.transparent,
-                    borderRadius: BorderRadius.circular(12),
-                    child: InkWell(
-                      borderRadius: BorderRadius.circular(12),
-                      onTap: () => onSelect(i),
-                      hoverColor: Colors.white.withValues(alpha: 0.05),
-                      child: Padding(
-                        padding: const EdgeInsets.symmetric(
-                          horizontal: 12,
-                          vertical: 11,
-                        ),
-                        child: Row(
-                          children: [
-                            Icon(
-                              m.icon,
-                              size: 20,
-                              color: sel
-                                  ? _CofTheme.accent
-                                  : _CofTheme.sidebarMuted,
-                            ),
-                            const SizedBox(width: 10),
-                            Expanded(
-                              child: Column(
-                                crossAxisAlignment: CrossAxisAlignment.start,
-                                children: [
-                                  Text(
-                                    m.titulo,
-                                    maxLines: 2,
-                                    overflow: TextOverflow.ellipsis,
-                                    style: TextStyle(
-                                      fontWeight:
-                                          sel ? FontWeight.w700 : FontWeight.w600,
-                                      fontSize: 13,
-                                      color: sel
-                                          ? Colors.white
-                                          : Colors.white.withValues(alpha: 0.82),
-                                    ),
-                                  ),
-                                  Text(
-                                    m.subtitulo,
-                                    maxLines: 1,
-                                    overflow: TextOverflow.ellipsis,
-                                    style: TextStyle(
-                                      fontSize: 11,
-                                      color: _CofTheme.sidebarMuted,
-                                    ),
-                                  ),
-                                ],
-                              ),
-                            ),
-                            if (sel)
-                              Container(
-                                width: 4,
-                                height: 28,
-                                decoration: BoxDecoration(
-                                  color: _CofTheme.accent,
-                                  borderRadius: BorderRadius.circular(4),
-                                ),
-                              ),
-                          ],
-                        ),
-                      ),
-                    ),
-                  ),
-                );
-              },
-            ),
-          ),
-        ],
-      ),
-    );
+    return _wrapCofCanvas(_PainelSimuladorFrete());
   }
 }
 

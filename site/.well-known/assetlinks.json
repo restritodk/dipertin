@@ -1,0 +1,13 @@
+[
+  {
+    "relation": ["delegate_permission/common.handle_all_urls"],
+    "target": {
+      "namespace": "android_app",
+      "package_name": "com.dipertin.app",
+      "sha256_cert_fingerprints": [
+        "8C:7E:8B:F5:71:A6:CC:CA:00:08:3A:38:34:9E:75:FD:82:A6:21:FC:F3:23:A6:92:3B:01:EA:1B:2A:F1:BC:96",
+        "BB:C9:A3:8C:B6:5F:65:FC:39:AE:24:D5:96:58:E1:DF:9B:2E:61:18:64:22:CD:9A:43:11:E9:24:9B:93:2E:23"
+      ]
+    }
+  }
+]

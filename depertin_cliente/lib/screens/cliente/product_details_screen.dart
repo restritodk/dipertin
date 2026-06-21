@@ -7,15 +7,21 @@ import 'package:intl/intl.dart';
 import 'package:provider/provider.dart';
 import 'package:share_plus/share_plus.dart';
 import 'package:depertin_cliente/widgets/loja_rating_row.dart';
+import 'package:depertin_cliente/widgets/compartilhar_produto_sheet.dart';
 import '../../providers/cart_provider.dart';
 import '../../models/cart_item_model.dart';
 import '../../utils/loja_pausa.dart';
-import 'cart_screen.dart';
+import '../../widgets/botao_carrinho_app_bar.dart';
+import '../../widgets/dipertin_safe_bottom_panel.dart';
 import 'loja_perfil_screen.dart';
 import 'product_galeria_ampliada.dart';
 
 const Color diPertinRoxo = Color(0xFF6A1B9A);
 const Color diPertinLaranja = Color(0xFFFF8F00);
+const Color _fundoTela = Color(0xFFF5F4F8);
+const Color _textoPrimario = Color(0xFF1A1A2E);
+const Color _textoMuted = Color(0xFF64748B);
+const Color _bordaCampo = Color(0xFFE0DEE8);
 
 class ProductDetailsScreen extends StatefulWidget {
   final Map<String, dynamic> produto;
@@ -36,6 +42,7 @@ class _ProductDetailsScreenState extends State<ProductDetailsScreen> {
   int _quantidade = 1;
   String? _corSelecionada;
   String? _tamanhoSelecionado;
+  bool _entradaAnimada = false;
 
   final NumberFormat _fmtMoeda = NumberFormat.currency(
     locale: 'pt_BR',
@@ -47,6 +54,48 @@ class _ProductDetailsScreenState extends State<ProductDetailsScreen> {
   void initState() {
     super.initState();
     _carregarDadosLojista();
+    WidgetsBinding.instance.addPostFrameCallback((_) {
+      if (mounted) setState(() => _entradaAnimada = true);
+    });
+  }
+
+  BoxDecoration _decorCartaoPro({bool destacado = false}) {
+    return BoxDecoration(
+      color: Colors.white,
+      borderRadius: BorderRadius.circular(16),
+      boxShadow: [
+        BoxShadow(
+          color: diPertinRoxo.withValues(alpha: 0.06),
+          blurRadius: 20,
+          offset: const Offset(0, 6),
+        ),
+      ],
+      border: Border.all(
+        color: destacado
+            ? diPertinRoxo.withValues(alpha: 0.15)
+            : _bordaCampo,
+      ),
+    );
+  }
+
+  Widget _tituloSecaoProduto(String titulo, {IconData? icone}) {
+    return Row(
+      children: [
+        if (icone != null) ...[
+          Icon(icone, size: 20, color: diPertinRoxo),
+          const SizedBox(width: 8),
+        ],
+        Text(
+          titulo,
+          style: const TextStyle(
+            fontSize: 16,
+            fontWeight: FontWeight.w800,
+            color: _textoPrimario,
+            letterSpacing: -0.3,
+          ),
+        ),
+      ],
+    );
   }
 
   @override
@@ -164,9 +213,29 @@ class _ProductDetailsScreenState extends State<ProductDetailsScreen> {
   }
 
   void _compartilharProduto() {
-    final nome = widget.produto['nome'] ?? 'Produto';
-    final preco = _fmtMoeda.format(_precoVenda());
-    SharePlus.instance.share(ShareParams(text: '$nome — $preco no DiPertin'));
+    final produtoId = (widget.produto['id_documento'] ?? '').toString().trim();
+    if (produtoId.isEmpty) {
+      final nome = widget.produto['nome'] ?? 'Produto';
+      final preco = _fmtMoeda.format(_precoVenda());
+      SharePlus.instance.share(ShareParams(text: '$nome — $preco no DiPertin'));
+      return;
+    }
+
+    final imagem =
+        (widget.produto['imagens'] != null &&
+            widget.produto['imagens'] is List &&
+            (widget.produto['imagens'] as List).isNotEmpty)
+        ? (widget.produto['imagens'] as List).first.toString()
+        : widget.produto['imagem']?.toString() ?? '';
+
+    mostrarCompartilharProdutoSheet(
+      context,
+      produtoId: produtoId,
+      nome: (widget.produto['nome'] ?? 'Produto').toString(),
+      precoFormatado: _fmtMoeda.format(_precoVenda()),
+      imagemUrl: imagem,
+      lojaNome: widget.produto['loja_nome_vitrine']?.toString(),
+    );
   }
 
   void _adicionarAoCarrinho(CartProvider cart) {
@@ -302,8 +371,12 @@ class _ProductDetailsScreenState extends State<ProductDetailsScreen> {
     final bool podeComprar = lojaAberta && _podeVenderPorEstoque();
     final int maxQ = _maxQuantidadePermitida();
 
+    final requerVeiculoGrande =
+        widget.produto['requer_veiculo_grande'] == true ||
+        widget.produto['carga_maior'] == true;
+
     return Scaffold(
-      backgroundColor: const Color(0xFFF8F7FA),
+      backgroundColor: _fundoTela,
       body: CustomScrollView(
         slivers: [
           SliverAppBar(
@@ -321,48 +394,12 @@ class _ProductDetailsScreenState extends State<ProductDetailsScreen> {
                 icon: const Icon(Icons.share_outlined),
                 onPressed: _compartilharProduto,
               ),
-              Stack(
-                alignment: Alignment.center,
-                children: [
-                  IconButton(
-                    tooltip: 'Abrir sacola',
-                    style: IconButton.styleFrom(
-                      foregroundColor: Colors.white,
-                      backgroundColor: Colors.black.withValues(alpha: 0.35),
-                    ),
-                    icon: const Icon(Icons.shopping_cart),
-                    onPressed: () => Navigator.push(
-                      context,
-                      MaterialPageRoute(
-                        builder: (context) => const CartScreen(),
-                      ),
-                    ),
-                  ),
-                  Positioned(
-                    right: 8,
-                    top: 8,
-                    child: Container(
-                      padding: const EdgeInsets.all(2),
-                      decoration: BoxDecoration(
-                        color: diPertinLaranja,
-                        borderRadius: BorderRadius.circular(10),
-                      ),
-                      constraints: const BoxConstraints(
-                        minWidth: 16,
-                        minHeight: 16,
-                      ),
-                      child: Text(
-                        context.watch<CartProvider>().itemCount.toString(),
-                        style: const TextStyle(
-                          color: Colors.white,
-                          fontSize: 10,
-                          fontWeight: FontWeight.bold,
-                        ),
-                        textAlign: TextAlign.center,
-                      ),
-                    ),
-                  ),
-                ],
+              BotaoCarrinhoAppBar(
+                tooltip: 'Abrir sacola',
+                buttonStyle: IconButton.styleFrom(
+                  foregroundColor: Colors.white,
+                  backgroundColor: Colors.black.withValues(alpha: 0.35),
+                ),
               ),
               const SizedBox(width: 10),
             ],
@@ -451,7 +488,11 @@ class _ProductDetailsScreenState extends State<ProductDetailsScreen> {
 
           SliverList(
             delegate: SliverChildListDelegate([
-              Padding(
+              AnimatedOpacity(
+                opacity: _entradaAnimada ? 1 : 0,
+                duration: const Duration(milliseconds: 220),
+                curve: Curves.easeOut,
+                child: Padding(
                 padding: EdgeInsets.fromLTRB(16, 20, 16, 24 + navBottom + 88),
                 child: Column(
                   crossAxisAlignment: CrossAxisAlignment.start,
@@ -463,60 +504,103 @@ class _ProductDetailsScreenState extends State<ProductDetailsScreen> {
                         fontWeight: FontWeight.w800,
                         letterSpacing: -0.4,
                         height: 1.2,
-                        color: Color(0xFF1A1A2E),
+                        color: _textoPrimario,
                       ),
                     ),
-                    if (categoriaNome != null && categoriaNome.isNotEmpty) ...[
+                    if (categoriaNome != null && categoriaNome.isNotEmpty ||
+                        requerVeiculoGrande) ...[
                       const SizedBox(height: 10),
-                      Chip(
-                        label: Text(
-                          categoriaNome,
-                          style: const TextStyle(
-                            fontSize: 12,
-                            fontWeight: FontWeight.w600,
-                            color: diPertinRoxo,
-                          ),
-                        ),
-                        backgroundColor: diPertinRoxo.withValues(alpha: 0.08),
-                        side: BorderSide(
-                          color: diPertinRoxo.withValues(alpha: 0.25),
-                        ),
-                        padding: const EdgeInsets.symmetric(horizontal: 4),
-                        materialTapTargetSize: MaterialTapTargetSize.shrinkWrap,
-                        visualDensity: VisualDensity.compact,
-                      ),
-                    ],
-                    const SizedBox(height: 12),
-                    Row(
-                      crossAxisAlignment: CrossAxisAlignment.end,
-                      children: [
-                        Text(
-                          _fmtMoeda.format(precoExibir),
-                          style: const TextStyle(
-                            fontSize: 26,
-                            fontWeight: FontWeight.w800,
-                            letterSpacing: -0.5,
-                            color: diPertinLaranja,
-                          ),
-                        ),
-                        if (precoRiscado != null) ...[
-                          const SizedBox(width: 10),
-                          Padding(
-                            padding: const EdgeInsets.only(bottom: 4),
-                            child: Text(
-                              _fmtMoeda.format(precoRiscado),
-                              style: TextStyle(
-                                fontSize: 15,
-                                color: Colors.grey.shade500,
-                                decoration: TextDecoration.lineThrough,
-                                decorationColor: Colors.grey.shade500,
+                      Wrap(
+                        spacing: 8,
+                        runSpacing: 8,
+                        children: [
+                          if (categoriaNome != null && categoriaNome.isNotEmpty)
+                            Container(
+                              padding: const EdgeInsets.symmetric(
+                                horizontal: 10,
+                                vertical: 5,
+                              ),
+                              decoration: BoxDecoration(
+                                color: diPertinRoxo.withValues(alpha: 0.08),
+                                borderRadius: BorderRadius.circular(999),
+                                border: Border.all(
+                                  color: diPertinRoxo.withValues(alpha: 0.22),
+                                ),
+                              ),
+                              child: Text(
+                                categoriaNome,
+                                style: const TextStyle(
+                                  fontSize: 12,
+                                  fontWeight: FontWeight.w700,
+                                  color: diPertinRoxo,
+                                ),
                               ),
                             ),
-                          ),
+                          if (requerVeiculoGrande)
+                            Container(
+                              padding: const EdgeInsets.symmetric(
+                                horizontal: 10,
+                                vertical: 5,
+                              ),
+                              decoration: BoxDecoration(
+                                color: const Color(0xFFFFF3E0),
+                                borderRadius: BorderRadius.circular(999),
+                                border: Border.all(
+                                  color: diPertinLaranja.withValues(alpha: 0.3),
+                                ),
+                              ),
+                              child: const Text(
+                                'Entrega em veículo maior',
+                                style: TextStyle(
+                                  fontSize: 11.5,
+                                  fontWeight: FontWeight.w800,
+                                  color: diPertinLaranja,
+                                ),
+                              ),
+                            ),
                         ],
-                      ],
+                      ),
+                    ],
+                    const SizedBox(height: 14),
+                    Container(
+                      width: double.infinity,
+                      padding: const EdgeInsets.all(16),
+                      decoration: _decorCartaoPro(destacado: true),
+                      child: Row(
+                        crossAxisAlignment: CrossAxisAlignment.end,
+                        children: [
+                          Text(
+                            _tipoVenda() == 'encomenda' && precoExibir <= 0
+                                ? 'A combinar'
+                                : _fmtMoeda.format(precoExibir),
+                            style: TextStyle(
+                              fontSize: 26,
+                              fontWeight: FontWeight.w800,
+                              letterSpacing: -0.5,
+                              color: precoExibir > 0
+                                  ? diPertinLaranja
+                                  : _textoMuted,
+                            ),
+                          ),
+                          if (precoRiscado != null) ...[
+                            const SizedBox(width: 10),
+                            Padding(
+                              padding: const EdgeInsets.only(bottom: 4),
+                              child: Text(
+                                _fmtMoeda.format(precoRiscado),
+                                style: TextStyle(
+                                  fontSize: 15,
+                                  color: Colors.grey.shade500,
+                                  decoration: TextDecoration.lineThrough,
+                                  decorationColor: Colors.grey.shade500,
+                                ),
+                              ),
+                            ),
+                          ],
+                        ],
+                      ),
                     ),
-                    const SizedBox(height: 18),
+                    const SizedBox(height: 14),
                     _buildInfoEncomendaEstoque(widget.produto),
                     const SizedBox(height: 16),
                     if (_produtoTemVariacoes) ...[
@@ -538,18 +622,15 @@ class _ProductDetailsScreenState extends State<ProductDetailsScreen> {
                       ),
                     ),
                     const SizedBox(height: 16),
+                    _buildSecaoAvaliacoesProduto(),
+                    const SizedBox(height: 16),
                     _cardSecao(
                       child: Column(
                         crossAxisAlignment: CrossAxisAlignment.start,
                         children: [
-                          const Text(
+                          _tituloSecaoProduto(
                             'Descrição',
-                            style: TextStyle(
-                              fontSize: 15,
-                              fontWeight: FontWeight.w700,
-                              color: diPertinRoxo,
-                              letterSpacing: -0.2,
-                            ),
+                            icone: Icons.description_outlined,
                           ),
                           const SizedBox(height: 10),
                           Text(
@@ -559,8 +640,8 @@ class _ProductDetailsScreenState extends State<ProductDetailsScreen> {
                             style: TextStyle(
                               fontSize: 15,
                               color: descricaoTexto.isNotEmpty
-                                  ? Colors.grey.shade700
-                                  : Colors.grey.shade500,
+                                  ? _textoMuted
+                                  : _textoMuted.withValues(alpha: 0.75),
                               height: 1.55,
                               fontStyle: descricaoTexto.isEmpty
                                   ? FontStyle.italic
@@ -572,6 +653,7 @@ class _ProductDetailsScreenState extends State<ProductDetailsScreen> {
                     ),
                   ],
                 ),
+              ),
               ),
             ]),
           ),
@@ -588,18 +670,7 @@ class _ProductDetailsScreenState extends State<ProductDetailsScreen> {
   Widget _buildSeletorQuantidade(int maxQ) {
     return Container(
       padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 10),
-      decoration: BoxDecoration(
-        color: Colors.white,
-        borderRadius: BorderRadius.circular(14),
-        border: Border.all(color: const Color(0xFFE8E6ED)),
-        boxShadow: [
-          BoxShadow(
-            color: Colors.black.withValues(alpha: 0.04),
-            blurRadius: 8,
-            offset: const Offset(0, 2),
-          ),
-        ],
-      ),
+      decoration: _decorCartaoPro(),
       child: Row(
         children: [
           const Text(
@@ -656,24 +727,14 @@ class _ProductDetailsScreenState extends State<ProductDetailsScreen> {
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
-          const Row(
-            children: [
-              Icon(Icons.tune, color: diPertinRoxo, size: 20),
-              SizedBox(width: 8),
-              Text(
-                'Escolha as opções',
-                style: TextStyle(
-                  fontSize: 16,
-                  fontWeight: FontWeight.w800,
-                  color: diPertinRoxo,
-                ),
-              ),
-            ],
+          _tituloSecaoProduto(
+            'Escolha as opções',
+            icone: Icons.tune_rounded,
           ),
           const SizedBox(height: 6),
-          Text(
+          const Text(
             'Selecione as variações para adicionar este produto à sacola.',
-            style: TextStyle(color: Colors.grey.shade600, height: 1.35),
+            style: TextStyle(color: _textoMuted, height: 1.35),
           ),
           if (cores.isNotEmpty) ...[
             const SizedBox(height: 14),
@@ -732,7 +793,9 @@ class _ProductDetailsScreenState extends State<ProductDetailsScreen> {
                 fontWeight: FontWeight.w800,
               ),
               side: BorderSide(
-                color: ativo ? diPertinRoxo : diPertinRoxo.withOpacity(0.22),
+                color: ativo
+                    ? diPertinRoxo
+                    : diPertinRoxo.withValues(alpha: 0.22),
               ),
             );
           }).toList(),
@@ -741,22 +804,11 @@ class _ProductDetailsScreenState extends State<ProductDetailsScreen> {
     );
   }
 
-  Widget _cardSecao({required Widget child}) {
+  Widget _cardSecao({required Widget child, bool destacado = false}) {
     return Container(
       width: double.infinity,
       padding: const EdgeInsets.all(16),
-      decoration: BoxDecoration(
-        color: Colors.white,
-        borderRadius: BorderRadius.circular(16),
-        border: Border.all(color: const Color(0xFFE8E6ED)),
-        boxShadow: [
-          BoxShadow(
-            color: Colors.black.withValues(alpha: 0.04),
-            blurRadius: 12,
-            offset: const Offset(0, 4),
-          ),
-        ],
-      ),
+      decoration: _decorCartaoPro(destacado: destacado),
       child: child,
     );
   }
@@ -1048,13 +1100,148 @@ class _ProductDetailsScreenState extends State<ProductDetailsScreen> {
     );
   }
 
+  /// Seção de avaliações do PRODUTO (média + comentários dos clientes).
+  Widget _buildSecaoAvaliacoesProduto() {
+    final produtoId = (widget.produto['id_documento'] ?? '').toString().trim();
+    if (produtoId.isEmpty) return const SizedBox.shrink();
+
+    return _cardSecao(
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          _tituloSecaoProduto(
+            'Avaliações do produto',
+            icone: Icons.star_rate_rounded,
+          ),
+          const SizedBox(height: 10),
+          StreamBuilder<QuerySnapshot<Map<String, dynamic>>>(
+            stream: FirebaseFirestore.instance
+                .collection('avaliacoes_produto')
+                .where('produto_id', isEqualTo: produtoId)
+                .orderBy('data', descending: true)
+                .limit(20)
+                .snapshots(),
+            builder: (context, snap) {
+              if (snap.connectionState == ConnectionState.waiting) {
+                return const SizedBox(
+                  height: 22,
+                  child: Align(
+                    alignment: Alignment.centerLeft,
+                    child: SizedBox(
+                      width: 20,
+                      height: 20,
+                      child: CircularProgressIndicator(
+                        strokeWidth: 2,
+                        color: diPertinLaranja,
+                      ),
+                    ),
+                  ),
+                );
+              }
+
+              final docs = snap.data?.docs ?? [];
+              if (docs.isEmpty) {
+                return Text(
+                  'Este produto ainda não tem avaliações.',
+                  style: TextStyle(color: _textoMuted, fontSize: 13),
+                );
+              }
+
+              double soma = 0;
+              for (final d in docs) {
+                soma += ((d.data()['nota'] ?? 0) as num).toDouble();
+              }
+              final media = soma / docs.length;
+
+              final comentarios = docs
+                  .where(
+                    (d) =>
+                        (d.data()['comentario'] ?? '')
+                            .toString()
+                            .trim()
+                            .isNotEmpty,
+                  )
+                  .take(5)
+                  .toList();
+
+              return Column(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  LojaRatingRow(
+                    media: media,
+                    total: docs.length,
+                    fontSize: 14,
+                    iconSize: 16,
+                  ),
+                  if (comentarios.isNotEmpty) ...[
+                    const SizedBox(height: 12),
+                    ...comentarios.map((d) {
+                      final data = d.data();
+                      final nome =
+                          (data['cliente_nome_exibicao'] ?? 'Cliente')
+                              .toString();
+                      final nota = ((data['nota'] ?? 0) as num).toInt();
+                      final comentario =
+                          (data['comentario'] ?? '').toString().trim();
+                      return Padding(
+                        padding: const EdgeInsets.only(bottom: 10),
+                        child: Column(
+                          crossAxisAlignment: CrossAxisAlignment.start,
+                          children: [
+                            Row(
+                              children: [
+                                Text(
+                                  nome,
+                                  style: const TextStyle(
+                                    fontWeight: FontWeight.w700,
+                                    fontSize: 13,
+                                  ),
+                                ),
+                                const SizedBox(width: 8),
+                                Row(
+                                  children: List.generate(
+                                    5,
+                                    (i) => Icon(
+                                      i < nota
+                                          ? Icons.star_rounded
+                                          : Icons.star_outline_rounded,
+                                      size: 13,
+                                      color: i < nota
+                                          ? Colors.amber.shade700
+                                          : Colors.grey.shade400,
+                                    ),
+                                  ),
+                                ),
+                              ],
+                            ),
+                            const SizedBox(height: 2),
+                            Text(
+                              comentario,
+                              style: TextStyle(
+                                fontSize: 13,
+                                color: _textoPrimario.withValues(alpha: 0.85),
+                              ),
+                            ),
+                          ],
+                        ),
+                      );
+                    }),
+                  ],
+                ],
+              );
+            },
+          ),
+        ],
+      ),
+    );
+  }
+
   Widget _buildBotaoFixoCarrinho(
     BuildContext context,
     bool aberta,
     bool podeComprar,
   ) {
     final cart = context.read<CartProvider>();
-    final bottomInset = MediaQuery.viewPaddingOf(context).bottom;
 
     String label;
     VoidCallback? onPressed;
@@ -1078,34 +1265,34 @@ class _ProductDetailsScreenState extends State<ProductDetailsScreen> {
       disabledBg = null;
     }
 
-    return Material(
-      elevation: 12,
-      shadowColor: Colors.black.withValues(alpha: 0.12),
-      color: Colors.white,
-      child: Padding(
-        padding: EdgeInsets.fromLTRB(16, 12, 16, 12 + bottomInset),
-        child: SizedBox(
-          width: double.infinity,
-          height: 52,
-          child: FilledButton(
-            onPressed: onPressed,
-            style: FilledButton.styleFrom(
-              backgroundColor: bg,
-              disabledBackgroundColor: disabledBg ?? Colors.red.shade300,
-              foregroundColor: Colors.white,
-              elevation: onPressed != null ? 2 : 0,
-              shadowColor: diPertinLaranja.withValues(alpha: 0.4),
-              shape: RoundedRectangleBorder(
-                borderRadius: BorderRadius.circular(14),
-              ),
+    return DiPertinSafeBottomPanel(
+      child: SizedBox(
+        width: double.infinity,
+        height: 52,
+        child: FilledButton.icon(
+          onPressed: onPressed,
+          icon: Icon(
+            !aberta
+                ? Icons.storefront_outlined
+                : (!podeComprar
+                      ? Icons.remove_shopping_cart_outlined
+                      : Icons.add_shopping_cart_rounded),
+            size: 22,
+          ),
+          style: FilledButton.styleFrom(
+            backgroundColor: bg,
+            disabledBackgroundColor: disabledBg ?? Colors.red.shade300,
+            foregroundColor: Colors.white,
+            shape: RoundedRectangleBorder(
+              borderRadius: BorderRadius.circular(14),
             ),
-            child: Text(
-              label,
-              style: const TextStyle(
-                fontSize: 15,
-                fontWeight: FontWeight.w800,
-                letterSpacing: 0.2,
-              ),
+          ),
+          label: Text(
+            label,
+            style: const TextStyle(
+              fontSize: 15,
+              fontWeight: FontWeight.w800,
+              letterSpacing: 0.2,
             ),
           ),
         ),

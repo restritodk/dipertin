@@ -13,6 +13,7 @@ import 'package:http/http.dart' as http;
 import 'package:firebase_auth/firebase_auth.dart';
 import 'package:cloud_firestore/cloud_firestore.dart';
 import '../../services/location_service.dart';
+import '../../widgets/dipertin_scroll_body.dart';
 import '../../services/permissoes_app_service.dart';
 
 const Color diPertinRoxo = Color(0xFF6A1B9A);
@@ -569,8 +570,8 @@ class _AddressScreenState extends State<AddressScreen> {
         elevation: 0,
         iconTheme: const IconThemeData(color: Colors.white),
       ),
-      body: SingleChildScrollView(
-        padding: const EdgeInsets.all(20.0),
+      body: DiPertinScrollBody(
+        padding: const EdgeInsets.all(20),
         child: Column(
           crossAxisAlignment: CrossAxisAlignment.stretch,
           children: [

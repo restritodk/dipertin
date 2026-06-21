@@ -26,19 +26,29 @@ import '../screens/notificacoes_screen.dart';
 import '../screens/cupons_screen.dart';
 import '../screens/monitor_pedidos_screen.dart';
 import '../screens/centro_operacoes_screen.dart';
+import '../screens/centro_operacoes_agenda_panel.dart';
+import '../screens/centro_operacoes_leads_entregadores_panel.dart';
+import '../screens/centro_operacoes_leads_lojistas_panel.dart';
+import '../screens/centro_operacoes_marketing_dashboard_panel.dart';
 import '../screens/avaliacoes_painel_screen.dart';
 import '../screens/comunicados_screen.dart';
 import '../screens/conteudo_legal_screen.dart';
-import '../screens/lojista_meus_pedidos_screen.dart';
+import '../screens/lojista_pedidos_tabela_screen.dart';
 import '../screens/lojista_negociacoes_encomenda_screen.dart';
 import '../screens/lojista_meu_cardapio_screen.dart';
+import '../screens/lojista_cupons_screen.dart';
+import '../screens/lojista_pdv_screen.dart';
 import '../screens/lojista_minha_carteira_screen.dart';
 import '../screens/lojista_carteira_financeiro_screen.dart';
 import '../screens/lojista_carteira_relatorio_screen.dart';
 import '../screens/lojista_carteira_configuracao_screen.dart';
+import '../screens/lojista_comercial_dashboard_screen.dart';
+import '../screens/lojista_comercial_clientes_screen.dart';
+import '../screens/lojista_comercial_credito_screen.dart';
 import '../utils/admin_perfil.dart';
 import '../utils/conta_bloqueio_lojista.dart';
 import '../utils/lojista_painel_context.dart';
+import '../services/sessao_painel_service.dart';
 import 'lojista_conta_bloqueada_overlay.dart';
 
 /// Layout persistente: menu fixo + [IndexedStack] lazy.
@@ -81,9 +91,10 @@ class _PainelShellScreenState extends State<PainelShellScreen> {
     super.dispose();
   }
 
-  void _materializarAba(int i) {
-    if (i < 0 || i >= _tabMaterializada.length) return;
-    if (_tabMaterializada[i]) return;
+  bool _materializarAba(int i) {
+    if (i < 0 || i >= _tabMaterializada.length) return false;
+    final eraPlaceholder = _tabs[i] is _PlaceholderAbaPainel;
+    if (_tabMaterializada[i] && !eraPlaceholder) return false;
     _tabMaterializada[i] = true;
     switch (i) {
       case 0:
@@ -141,37 +152,67 @@ class _PainelShellScreenState extends State<PainelShellScreen> {
         _tabs[i] = const MonitorPedidosScreen();
         break;
       case 18:
-        _tabs[i] = const CentroOperacoesScreen();
+        _tabs[i] = const CentroOperacoesCrmScreen();
         break;
       case 19:
-        _tabs[i] = const AvaliacoesPainelScreen();
+        _tabs[i] = const PainelMarketingDashboard();
         break;
       case 20:
-        _tabs[i] = const ComunicadosScreen();
+        _tabs[i] = const PainelLeadsLojistas();
         break;
       case 21:
-        _tabs[i] = const ConteudoLegalScreen();
+        _tabs[i] = const PainelLeadsEntregadores();
         break;
       case 22:
-        _tabs[i] = const LojistaMeusPedidosScreen();
+        _tabs[i] = const PainelCentroOpsAgenda();
         break;
       case 23:
-        _tabs[i] = const LojistaNegociacoesEncomendaScreen();
+        _tabs[i] = const CentroOperacoesFreteScreen();
         break;
       case 24:
-        _tabs[i] = const LojistaMeuCardapioScreen();
+        _tabs[i] = const AvaliacoesPainelScreen();
         break;
       case 25:
-        _tabs[i] = const LojistaMinhaCarteiraScreen();
+        _tabs[i] = const ComunicadosScreen();
         break;
       case 26:
-        _tabs[i] = const LojistaCarteiraFinanceiroScreen();
+        _tabs[i] = const ConteudoLegalScreen();
         break;
       case 27:
-        _tabs[i] = const LojistaCarteiraRelatorioScreen();
+        _tabs[i] = const LojistaPdvScreen();
         break;
       case 28:
+        _tabs[i] = const LojistaPedidosTabelaScreen();
+        break;
+      case 29:
+        _tabs[i] = const LojistaNegociacoesEncomendaScreen();
+        break;
+      case 30:
+        _tabs[i] = const LojistaMeuCardapioScreen();
+        break;
+      case 31:
+        _tabs[i] = const LojistaCuponsScreen();
+        break;
+      case 32:
+        _tabs[i] = const LojistaMinhaCarteiraScreen();
+        break;
+      case 33:
+        _tabs[i] = const LojistaCarteiraFinanceiroScreen();
+        break;
+      case 34:
+        _tabs[i] = const LojistaCarteiraRelatorioScreen();
+        break;
+      case 35:
         _tabs[i] = const LojistaCarteiraConfiguracaoScreen();
+        break;
+      case 36:
+        _tabs[i] = const LojistaComercialDashboardScreen();
+        break;
+      case 37:
+        _tabs[i] = const LojistaComercialClientesScreen();
+        break;
+      case 38:
+        _tabs[i] = const LojistaComercialCreditoScreen();
         break;
       default:
         _tabs[i] = Scaffold(
@@ -185,6 +226,7 @@ class _PainelShellScreenState extends State<PainelShellScreen> {
         );
         break;
     }
+    return eraPlaceholder;
   }
 
   Widget _conteudoPainel(
@@ -196,7 +238,11 @@ class _PainelShellScreenState extends State<PainelShellScreen> {
       listenable: _nav,
       builder: (context, _) {
         final idx = PainelRoutes.indexOf(_nav.currentRoute);
-        _materializarAba(idx);
+        if (_materializarAba(idx)) {
+          WidgetsBinding.instance.addPostFrameCallback((_) {
+            if (mounted) setState(() {});
+          });
+        }
 
         final bloqueado =
             dadosBloqueio != null &&
@@ -226,7 +272,9 @@ class _PainelShellScreenState extends State<PainelShellScreen> {
                         child: IndexedStack(
                           index: idx,
                           sizing: StackFit.expand,
-                          children: List<Widget>.from(_tabs),
+                          children: _tabs
+                              .map((tab) => SizedBox.expand(child: tab))
+                              .toList(),
                         ),
                       ),
                     ),
@@ -265,6 +313,17 @@ class _PainelShellScreenState extends State<PainelShellScreen> {
           .doc(uid)
           .snapshots(),
       builder: (context, userSnap) {
+        // Detecção REATIVA e GLOBAL de sessão expirada: se o token expirou/foi
+        // revogado, este stream (ativo em toda rota do painel) erra com
+        // `permission-denied`. Aciona o fluxo profissional uma única vez em vez
+        // de propagar o erro técnico para as telas.
+        if (userSnap.hasError &&
+            SessaoPainelService.ehErroSessaoExpirada(userSnap.error)) {
+          WidgetsBinding.instance.addPostFrameCallback((_) {
+            SessaoPainelService.tratarSessaoExpirada();
+          });
+          return const SizedBox.shrink();
+        }
         Map<String, dynamic>? dados;
         if (userSnap.hasData && userSnap.data!.exists) {
           final raw = safeWebDocData(userSnap.data!);

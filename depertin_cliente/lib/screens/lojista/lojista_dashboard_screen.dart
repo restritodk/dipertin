@@ -16,9 +16,12 @@ import 'package:depertin_cliente/utils/lojista_acesso_app.dart';
 import 'package:depertin_cliente/utils/lojista_contagem_novos.dart';
 import 'package:geolocator/geolocator.dart';
 import 'package:intl/intl.dart';
+import 'package:depertin_cliente/screens/cliente/chat_suporte_screen.dart';
+import 'package:depertin_cliente/screens/comum/configuracao_notificacoes_screen.dart';
 import 'package:depertin_cliente/screens/lojista/lojista_avaliacoes_screen.dart';
 import 'lojista_pedidos_screen.dart';
 import 'lojista_produtos_screen.dart';
+import 'lojista_cupons_screen.dart';
 import 'lojista_config_screen.dart';
 import 'lojista_encomendas_screen.dart';
 
@@ -29,6 +32,8 @@ const Color _fundoTela = Color(0xFFF7F5FA);
 const Color _tintaForte = Color(0xFF17162A);
 const Color _tintaMedia = Color(0xFF5A5870);
 const Color _bordaSuave = Color(0xFFECE8F2);
+
+enum _PassoPendenteEstado { concluido, ativo, aguardando }
 
 class LojistaDashboardScreen extends StatefulWidget {
   const LojistaDashboardScreen({super.key});
@@ -48,6 +53,7 @@ class _LojistaDashboardScreenState extends State<LojistaDashboardScreen> {
   Map<String, dynamic>? _dadosUsuario;
   bool _carregandoUsuario = true;
   bool _docExiste = true;
+  bool _entradaAnimada = false;
 
   Future<void> _migrarDadosLojista(Map<String, dynamic> dados) async {
     if (_migracaoRealizada) return;
@@ -178,6 +184,9 @@ class _LojistaDashboardScreenState extends State<LojistaDashboardScreen> {
         .doc(_authUid)
         .snapshots()
         .listen(_onUserDocument);
+    WidgetsBinding.instance.addPostFrameCallback((_) {
+      if (mounted) setState(() => _entradaAnimada = true);
+    });
   }
 
   @override
@@ -354,28 +363,7 @@ class _LojistaDashboardScreenState extends State<LojistaDashboardScreen> {
     }
 
     if (status == 'pendente') {
-      return Center(
-        child: Padding(
-          padding: const EdgeInsets.all(30),
-          child: Column(
-            mainAxisAlignment: MainAxisAlignment.center,
-            children: [
-              Icon(Icons.hourglass_empty, size: 80, color: diPertinLaranja),
-              const SizedBox(height: 20),
-              const Text(
-                'Aprovação pendente',
-                style: TextStyle(fontSize: 24, fontWeight: FontWeight.bold),
-              ),
-              const SizedBox(height: 10),
-              const Text(
-                'Sua loja está em análise. Aguarde o administrador aprovar o seu cadastro para começar a vender.',
-                textAlign: TextAlign.center,
-                style: TextStyle(color: Colors.grey, fontSize: 16),
-              ),
-            ],
-          ),
-        ),
-      );
+      return _construirAprovacaoPendente(dados);
     }
 
     final String nomeParaExibir =
@@ -1083,7 +1071,7 @@ class _LojistaDashboardScreenState extends State<LojistaDashboardScreen> {
       ),
     );
 
-    // Nível 2+: Produtos
+    // Nível 2+: Produtos + cupons
     if (_nivel >= 2) {
       itens.add(const SizedBox(height: 12));
       itens.add(
@@ -1094,6 +1082,17 @@ class _LojistaDashboardScreenState extends State<LojistaDashboardScreen> {
           icone: Icons.inventory_2_rounded,
           cor: const Color(0xFF0F9D8A),
           telaDestino: LojistaProdutosScreen(uidLoja: _uidLoja),
+        ),
+      );
+      itens.add(const SizedBox(height: 12));
+      itens.add(
+        _buildMenuCard(
+          context,
+          titulo: 'Cupons & promoções',
+          subtitulo: 'Descontos e frete grátis para seus clientes',
+          icone: Icons.local_offer_rounded,
+          cor: const Color(0xFFC2185B),
+          telaDestino: LojistaCuponsScreen(uidLoja: _uidLoja),
         ),
       );
     }
@@ -1125,6 +1124,566 @@ class _LojistaDashboardScreenState extends State<LojistaDashboardScreen> {
     }
 
     return itens;
+  }
+
+  String? _formatarDataSolicitacaoLoja(Map<String, dynamic> dados) {
+    final raw = dados['data_solicitacao_loja'];
+    if (raw is! Timestamp) return null;
+    final dt = raw.toDate();
+    try {
+      return DateFormat("dd/MM/yyyy 'às' HH:mm", 'pt_BR').format(dt);
+    } catch (_) {
+      return DateFormat("dd/MM/yyyy 'às' HH:mm").format(dt);
+    }
+  }
+
+  String _mascararDocumentoLoja(dynamic bruto) {
+    final digitos = bruto.toString().replaceAll(RegExp(r'\D'), '');
+    if (digitos.isEmpty) return '—';
+    if (digitos.length == 11) {
+      return '***.${digitos.substring(3, 6)}.${digitos.substring(6, 9)}-**';
+    }
+    if (digitos.length == 14) {
+      return '**.${digitos.substring(2, 5)}.${digitos.substring(5, 8)}/****-**';
+    }
+    return 'Documento enviado';
+  }
+
+  Widget _cardPendenteSuperficie({required Widget child}) {
+    return Container(
+      decoration: BoxDecoration(
+        color: Colors.white,
+        borderRadius: BorderRadius.circular(16),
+        border: Border.all(color: _bordaSuave),
+        boxShadow: [
+          BoxShadow(
+            color: const Color(0xFF1A1530).withValues(alpha: 0.04),
+            blurRadius: 16,
+            offset: const Offset(0, 4),
+          ),
+        ],
+      ),
+      padding: const EdgeInsets.all(18),
+      child: child,
+    );
+  }
+
+  Widget _chipEmAnalise() {
+    return Container(
+      padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 7),
+      decoration: BoxDecoration(
+        color: Colors.white.withValues(alpha: 0.18),
+        borderRadius: BorderRadius.circular(999),
+        border: Border.all(color: Colors.white.withValues(alpha: 0.3)),
+      ),
+      child: Row(
+        mainAxisSize: MainAxisSize.min,
+        children: [
+          _DotPulsante(cor: diPertinLaranja),
+          const SizedBox(width: 8),
+          const Text(
+            'Em análise',
+            style: TextStyle(
+              color: Colors.white,
+              fontWeight: FontWeight.w700,
+              fontSize: 12.5,
+              letterSpacing: 0.2,
+            ),
+          ),
+        ],
+      ),
+    );
+  }
+
+  Widget _heroAprovacaoPendente(String nomeLoja, bool ehColaborador) {
+    return Container(
+      decoration: const BoxDecoration(
+        gradient: LinearGradient(
+          begin: Alignment.topLeft,
+          end: Alignment.bottomRight,
+          colors: [_diPertinRoxoEscuro, diPertinRoxo, Color(0xFF8E24AA)],
+        ),
+      ),
+      child: Stack(
+        children: [
+          Positioned(
+            top: -30,
+            right: -40,
+            child: _decorRadial(160, Colors.white.withValues(alpha: 0.08)),
+          ),
+          Positioned(
+            bottom: -50,
+            left: -60,
+            child: _decorRadial(180, diPertinLaranja.withValues(alpha: 0.18)),
+          ),
+          Padding(
+            padding: EdgeInsets.fromLTRB(
+              20,
+              MediaQuery.of(context).padding.top + kToolbarHeight + 8,
+              20,
+              26,
+            ),
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                Text(
+                  _dataExtensa().toUpperCase(),
+                  style: TextStyle(
+                    color: Colors.white.withValues(alpha: 0.72),
+                    fontSize: 10.5,
+                    fontWeight: FontWeight.w700,
+                    letterSpacing: 1.4,
+                  ),
+                ),
+                const SizedBox(height: 10),
+                Text(
+                  '${_saudacaoPorHorario()},',
+                  style: TextStyle(
+                    color: Colors.white.withValues(alpha: 0.88),
+                    fontSize: 15,
+                    fontWeight: FontWeight.w500,
+                  ),
+                ),
+                const SizedBox(height: 2),
+                Text(
+                  nomeLoja,
+                  maxLines: 2,
+                  overflow: TextOverflow.ellipsis,
+                  style: const TextStyle(
+                    color: Colors.white,
+                    fontSize: 26,
+                    fontWeight: FontWeight.w800,
+                    letterSpacing: -0.6,
+                    height: 1.18,
+                  ),
+                ),
+                const SizedBox(height: 14),
+                _chipEmAnalise(),
+                if (ehColaborador) ...[
+                  const SizedBox(height: 12),
+                  Text(
+                    'Você é colaborador desta loja. O painel completo libera '
+                    'quando o responsável for aprovado.',
+                    style: TextStyle(
+                      color: Colors.white.withValues(alpha: 0.82),
+                      fontSize: 12.5,
+                      height: 1.4,
+                    ),
+                  ),
+                ],
+              ],
+            ),
+          ),
+        ],
+      ),
+    );
+  }
+
+  Widget _passoPendente({
+    required String rotulo,
+    required IconData icone,
+    required _PassoPendenteEstado estado,
+  }) {
+    final Color cor = switch (estado) {
+      _PassoPendenteEstado.concluido => const Color(0xFF2E7D32),
+      _PassoPendenteEstado.ativo => diPertinLaranja,
+      _PassoPendenteEstado.aguardando => Colors.grey.shade400,
+    };
+    final Color fundo = switch (estado) {
+      _PassoPendenteEstado.concluido => const Color(0xFFE8F5E9),
+      _PassoPendenteEstado.ativo => diPertinLaranja.withValues(alpha: 0.12),
+      _PassoPendenteEstado.aguardando => Colors.grey.shade100,
+    };
+
+    return Expanded(
+      child: Column(
+        children: [
+          Container(
+            width: 40,
+            height: 40,
+            decoration: BoxDecoration(
+              color: fundo,
+              shape: BoxShape.circle,
+              border: Border.all(
+                color: cor.withValues(alpha: estado == _PassoPendenteEstado.aguardando ? 0.5 : 1),
+                width: estado == _PassoPendenteEstado.ativo ? 2 : 1,
+              ),
+            ),
+            child: Icon(
+              estado == _PassoPendenteEstado.concluido
+                  ? Icons.check_rounded
+                  : icone,
+              color: cor,
+              size: 20,
+            ),
+          ),
+          const SizedBox(height: 8),
+          Text(
+            rotulo,
+            textAlign: TextAlign.center,
+            maxLines: 2,
+            overflow: TextOverflow.ellipsis,
+            style: TextStyle(
+              fontSize: 10.5,
+              fontWeight: FontWeight.w700,
+              color: estado == _PassoPendenteEstado.aguardando
+                  ? _tintaMedia
+                  : _tintaForte,
+              height: 1.2,
+            ),
+          ),
+        ],
+      ),
+    );
+  }
+
+  Widget _linhaPassosPendente() {
+    return Row(
+      children: [
+        _passoPendente(
+          rotulo: 'Envio',
+          icone: Icons.upload_file_rounded,
+          estado: _PassoPendenteEstado.concluido,
+        ),
+        Expanded(
+          child: Container(
+            height: 2,
+            margin: const EdgeInsets.only(bottom: 28),
+            color: diPertinLaranja.withValues(alpha: 0.35),
+          ),
+        ),
+        _passoPendente(
+          rotulo: 'Análise',
+          icone: Icons.fact_check_outlined,
+          estado: _PassoPendenteEstado.ativo,
+        ),
+        Expanded(
+          child: Container(
+            height: 2,
+            margin: const EdgeInsets.only(bottom: 28),
+            color: Colors.grey.shade300,
+          ),
+        ),
+        _passoPendente(
+          rotulo: 'Loja ativa',
+          icone: Icons.storefront_rounded,
+          estado: _PassoPendenteEstado.aguardando,
+        ),
+      ],
+    );
+  }
+
+  Widget _itemDicaPendente({required IconData icone, required String texto}) {
+    return Padding(
+      padding: const EdgeInsets.only(bottom: 10),
+      child: Row(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          Icon(icone, size: 20, color: diPertinRoxo),
+          const SizedBox(width: 10),
+          Expanded(
+            child: Text(
+              texto,
+              style: TextStyle(
+                fontSize: 13.5,
+                color: Colors.grey.shade800,
+                height: 1.45,
+              ),
+            ),
+          ),
+        ],
+      ),
+    );
+  }
+
+  Widget _linhaResumoPendente(String rotulo, String valor) {
+    return Padding(
+      padding: const EdgeInsets.only(bottom: 8),
+      child: Row(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          SizedBox(
+            width: 108,
+            child: Text(
+              rotulo,
+              style: TextStyle(
+                fontSize: 12.5,
+                fontWeight: FontWeight.w600,
+                color: Colors.grey.shade600,
+              ),
+            ),
+          ),
+          Expanded(
+            child: Text(
+              valor,
+              style: const TextStyle(
+                fontSize: 13.5,
+                fontWeight: FontWeight.w700,
+                color: _tintaForte,
+                height: 1.35,
+              ),
+            ),
+          ),
+        ],
+      ),
+    );
+  }
+
+  /// Painel exibido enquanto `status_loja == pendente` (cadastro em análise).
+  Widget _construirAprovacaoPendente(Map<String, dynamic> dados) {
+    final nomeLoja =
+        (dados['loja_nome'] ?? dados['nome'] ?? 'Sua loja').toString().trim();
+    final ownerUid = dados['lojista_owner_uid']?.toString().trim() ?? '';
+    final ehColaborador = ownerUid.isNotEmpty && ownerUid != _authUid;
+    final dataEnvio = _formatarDataSolicitacaoLoja(dados);
+    final tipoDoc = (dados['loja_tipo_documento'] ?? 'CPF').toString();
+    final docMascarado = _mascararDocumentoLoja(dados['loja_documento']);
+
+    return CustomScrollView(
+      physics: const BouncingScrollPhysics(),
+      slivers: [
+        SliverToBoxAdapter(
+          child: _heroAprovacaoPendente(nomeLoja, ehColaborador),
+        ),
+        SliverPadding(
+          padding: const EdgeInsets.fromLTRB(20, 20, 20, 28),
+          sliver: SliverToBoxAdapter(
+            child: AnimatedOpacity(
+              opacity: _entradaAnimada ? 1 : 0,
+              duration: const Duration(milliseconds: 220),
+              curve: Curves.easeOut,
+              child: Column(
+                crossAxisAlignment: CrossAxisAlignment.stretch,
+                children: [
+                  _cardPendenteSuperficie(
+                    child: Column(
+                      crossAxisAlignment: CrossAxisAlignment.start,
+                      children: [
+                        Row(
+                          crossAxisAlignment: CrossAxisAlignment.start,
+                          children: [
+                            Container(
+                              width: 52,
+                              height: 52,
+                              decoration: BoxDecoration(
+                                gradient: LinearGradient(
+                                  begin: Alignment.topLeft,
+                                  end: Alignment.bottomRight,
+                                  colors: [
+                                    diPertinLaranja.withValues(alpha: 0.18),
+                                    diPertinRoxo.withValues(alpha: 0.12),
+                                  ],
+                                ),
+                                shape: BoxShape.circle,
+                              ),
+                              child: const Icon(
+                                Icons.hourglass_top_rounded,
+                                color: diPertinLaranja,
+                                size: 28,
+                              ),
+                            ),
+                            const SizedBox(width: 14),
+                            Expanded(
+                              child: Column(
+                                crossAxisAlignment: CrossAxisAlignment.start,
+                                children: [
+                                  const Text(
+                                    'Cadastro em análise',
+                                    style: TextStyle(
+                                      fontSize: 17,
+                                      fontWeight: FontWeight.w800,
+                                      color: _tintaForte,
+                                      letterSpacing: -0.3,
+                                    ),
+                                  ),
+                                  const SizedBox(height: 6),
+                                  Text(
+                                    dataEnvio != null
+                                        ? 'Recebemos sua solicitação em $dataEnvio.'
+                                        : 'Recebemos sua solicitação. Nossa equipe '
+                                            'está analisando nome, documentos e endereço.',
+                                    style: TextStyle(
+                                      fontSize: 13.5,
+                                      color: Colors.grey.shade700,
+                                      height: 1.45,
+                                    ),
+                                  ),
+                                ],
+                              ),
+                            ),
+                          ],
+                        ),
+                        const SizedBox(height: 14),
+                        Container(
+                          width: double.infinity,
+                          padding: const EdgeInsets.all(12),
+                          decoration: BoxDecoration(
+                            color: diPertinRoxo.withValues(alpha: 0.06),
+                            borderRadius: BorderRadius.circular(12),
+                            border: Border.all(
+                              color: diPertinRoxo.withValues(alpha: 0.14),
+                            ),
+                          ),
+                          child: Text(
+                            'Em geral respondemos em até 05 dias úteis. '
+                            'Você receberá uma notificação no celular assim que '
+                            'houver resultado — não é preciso reenviar o cadastro.',
+                            style: TextStyle(
+                              fontSize: 13,
+                              color: Colors.grey.shade800,
+                              height: 1.45,
+                            ),
+                          ),
+                        ),
+                      ],
+                    ),
+                  ),
+                  const SizedBox(height: 14),
+                  _cardPendenteSuperficie(
+                    child: Column(
+                      crossAxisAlignment: CrossAxisAlignment.start,
+                      children: [
+                        const Text(
+                          'O que acontece agora',
+                          style: TextStyle(
+                            fontSize: 15,
+                            fontWeight: FontWeight.w800,
+                            color: _tintaForte,
+                          ),
+                        ),
+                        const SizedBox(height: 16),
+                        _linhaPassosPendente(),
+                      ],
+                    ),
+                  ),
+                  const SizedBox(height: 14),
+                  _cardPendenteSuperficie(
+                    child: Column(
+                      crossAxisAlignment: CrossAxisAlignment.start,
+                      children: [
+                        const Text(
+                          'Resumo do envio',
+                          style: TextStyle(
+                            fontSize: 15,
+                            fontWeight: FontWeight.w800,
+                            color: _tintaForte,
+                          ),
+                        ),
+                        const SizedBox(height: 12),
+                        _linhaResumoPendente('Loja', nomeLoja),
+                        _linhaResumoPendente(
+                          'Tipo',
+                          tipoDoc == 'CNPJ' ? 'Empresa (CNPJ)' : 'Autônomo (CPF)',
+                        ),
+                        _linhaResumoPendente(
+                          tipoDoc == 'CNPJ' ? 'CNPJ' : 'CPF',
+                          docMascarado,
+                        ),
+                        const SizedBox(height: 4),
+                        Text(
+                          'Os documentos anexados não podem ser alterados '
+                          'enquanto a análise estiver em andamento.',
+                          style: TextStyle(
+                            fontSize: 12,
+                            color: Colors.grey.shade600,
+                            height: 1.4,
+                            fontStyle: FontStyle.italic,
+                          ),
+                        ),
+                      ],
+                    ),
+                  ),
+                  const SizedBox(height: 14),
+                  _cardPendenteSuperficie(
+                    child: Column(
+                      crossAxisAlignment: CrossAxisAlignment.start,
+                      children: [
+                        const Text(
+                          'Enquanto isso',
+                          style: TextStyle(
+                            fontSize: 15,
+                            fontWeight: FontWeight.w800,
+                            color: _tintaForte,
+                          ),
+                        ),
+                        const SizedBox(height: 12),
+                        _itemDicaPendente(
+                          icone: Icons.notifications_active_outlined,
+                          texto:
+                              'Mantenha as notificações ativas para saber na hora '
+                              'quando sua loja for aprovada ou se precisar de ajustes.',
+                        ),
+                        _itemDicaPendente(
+                          icone: Icons.sync_rounded,
+                          texto:
+                              'Esta tela atualiza sozinha quando o status mudar. '
+                              'Você também pode sair e voltar depois.',
+                        ),
+                        const SizedBox(height: 4),
+                        SizedBox(
+                          height: 46,
+                          width: double.infinity,
+                          child: OutlinedButton.icon(
+                            onPressed: () => Navigator.push(
+                              context,
+                              MaterialPageRoute<void>(
+                                builder: (_) =>
+                                    const ConfiguracaoNotificacoesScreen(),
+                              ),
+                            ),
+                            icon: const Icon(Icons.tune_rounded, size: 20),
+                            label: const Text(
+                              'Configurar notificações',
+                              style: TextStyle(fontWeight: FontWeight.w700),
+                            ),
+                            style: OutlinedButton.styleFrom(
+                              foregroundColor: diPertinRoxo,
+                              side: BorderSide(
+                                color: diPertinRoxo.withValues(alpha: 0.35),
+                              ),
+                              shape: RoundedRectangleBorder(
+                                borderRadius: BorderRadius.circular(12),
+                              ),
+                            ),
+                          ),
+                        ),
+                      ],
+                    ),
+                  ),
+                  const SizedBox(height: 14),
+                  SizedBox(
+                    height: 52,
+                    child: FilledButton.icon(
+                      onPressed: () => Navigator.push(
+                        context,
+                        MaterialPageRoute<void>(
+                          builder: (_) => const ChatSuporteScreen(),
+                        ),
+                      ),
+                      icon: const Icon(Icons.support_agent_rounded, size: 22),
+                      label: const Text(
+                        'Falar com o suporte',
+                        style: TextStyle(
+                          fontWeight: FontWeight.w800,
+                          fontSize: 15,
+                        ),
+                      ),
+                      style: FilledButton.styleFrom(
+                        backgroundColor: diPertinRoxo,
+                        foregroundColor: Colors.white,
+                        shape: RoundedRectangleBorder(
+                          borderRadius: BorderRadius.circular(12),
+                        ),
+                      ),
+                    ),
+                  ),
+                ],
+              ),
+            ),
+          ),
+        ),
+      ],
+    );
   }
 
   /// Tela exibida quando o lojista foi recusado por motivo de bloqueio

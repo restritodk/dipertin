@@ -7,6 +7,7 @@ import 'package:firebase_storage/firebase_storage.dart';
 import 'package:flutter/foundation.dart' show kIsWeb;
 import 'package:flutter/material.dart';
 import 'package:google_fonts/google_fonts.dart';
+import 'package:shimmer/shimmer.dart';
 import 'package:url_launcher/url_launcher.dart';
 
 import '../constants/conta_bloqueio_lojista.dart';
@@ -15,6 +16,7 @@ import '../theme/painel_admin_theme.dart';
 import '../utils/admin_perfil.dart';
 import '../utils/conta_bloqueio_entregador.dart';
 import '../services/firebase_functions_config.dart';
+import '../services/sessao_painel_service.dart';
 import '../widgets/entregador_editar_modal.dart';
 import '../widgets/pdf_preview_iframe.dart';
 
@@ -61,6 +63,13 @@ const _kStatus = <String, _StatusVisual>{
     Color(0xFF2563EB),
     Color(0xFFEFF6FF),
     Color(0xFFBFDBFE),
+  ),
+  'excluidos': _StatusVisual(
+    'Excluídos',
+    Icons.person_off_rounded,
+    Color(0xFF64748B),
+    Color(0xFFF1F5F9),
+    Color(0xFFE2E8F0),
   ),
 };
 
@@ -125,6 +134,7 @@ class _EntregadoresScreenState extends State<EntregadoresScreen>
     'aprovado': 0,
     'bloqueado': 0,
     'atualizacoes': 0,
+    'excluidos': 0,
   };
 
   static const _statusTabs = [
@@ -132,9 +142,24 @@ class _EntregadoresScreenState extends State<EntregadoresScreen>
     'aprovado',
     'bloqueado',
     'atualizacoes',
+    'excluidos',
   ];
 
+  /// Sub-filtro da aba "Bloqueados": todos | admin | pausados | exclusao.
+  String _filtroBloqueado = 'todos';
+
   late final TabController _tabController;
+
+  /// Contagens ao vivo por status (badge nas abas + faixa de KPIs).
+  /// `null` = ainda carregando.
+  final Map<String, int?> _contagemStatus = {
+    'pendente': null,
+    'aprovado': null,
+    'bloqueado': null,
+    'excluidos': null,
+  };
+  int? _contagemOnline;
+  final List<StreamSubscription<dynamic>> _subsContagem = [];
 
   @override
   void initState() {
@@ -143,6 +168,42 @@ class _EntregadoresScreenState extends State<EntregadoresScreen>
     _tabController = TabController(length: _statusTabs.length, vsync: this);
     _tabController.addListener(_onTabEntregadoresChanged);
     _buscarDadosDoGestor();
+    _assinarContagens();
+  }
+
+  /// Mantém as contagens por status e a de "online agora" sincronizadas.
+  /// Fonte única usada tanto pelos badges das abas quanto pela faixa de KPIs,
+  /// evitando abrir streams redundantes em cada widget.
+  void _assinarContagens() {
+    for (final s in _subsContagem) {
+      s.cancel();
+    }
+    _subsContagem.clear();
+    for (final status in const ['pendente', 'aprovado', 'bloqueado', 'excluidos']) {
+      final sub = _queryPorStatus(status).snapshots().listen(
+        (snap) {
+          if (!mounted) return;
+          setState(() => _contagemStatus[status] = snap.size);
+        },
+        onError: (_) {},
+      );
+      _subsContagem.add(sub);
+    }
+    Query<Map<String, dynamic>> qOnline = FirebaseFirestore.instance
+        .collection('users')
+        .where('role', isEqualTo: 'entregador')
+        .where('is_online', isEqualTo: true);
+    if (_tipoUsuarioLogado == 'master_city' && _cidadesDoGerente.isNotEmpty) {
+      qOnline = qOnline.where('cidade', whereIn: _cidadesDoGerente);
+    }
+    final subOnline = qOnline.snapshots().listen(
+      (snap) {
+        if (!mounted) return;
+        setState(() => _contagemOnline = snap.size);
+      },
+      onError: (_) {},
+    );
+    _subsContagem.add(subOnline);
   }
 
   int get _abaAtualizacoesIndex => _statusTabs.indexOf('atualizacoes');
@@ -235,6 +296,10 @@ class _EntregadoresScreenState extends State<EntregadoresScreen>
   void dispose() {
     _tabController.removeListener(_onTabEntregadoresChanged);
     _pararPollAtualizacoesPainel();
+    for (final s in _subsContagem) {
+      s.cancel();
+    }
+    _subsContagem.clear();
     _debounceBusca?.cancel();
     _campoBuscaController.dispose();
     _tabController.dispose();
@@ -261,6 +326,12 @@ class _EntregadoresScreenState extends State<EntregadoresScreen>
     });
   }
 
+  void _limparBusca() {
+    _debounceBusca?.cancel();
+    _campoBuscaController.clear();
+    _aplicarBuscaDoCampo();
+  }
+
   Future<void> _buscarDadosDoGestor() async {
     final user = FirebaseAuth.instance.currentUser;
     if (user == null) return;
@@ -283,6 +354,8 @@ class _EntregadoresScreenState extends State<EntregadoresScreen>
             _cidadesDoGerente = [];
           }
         });
+        // Reassina com o escopo de cidades do gestor já resolvido.
+        _assinarContagens();
       }
     } catch (e) {
       debugPrint('Erro ao carregar permissão: $e');
@@ -290,6 +363,16 @@ class _EntregadoresScreenState extends State<EntregadoresScreen>
   }
 
   Query<Map<String, dynamic>> _queryPorStatus(String status) {
+    // Excluídos já viraram role=cliente; filtramos pelo marcador de perfil.
+    if (status == 'excluidos') {
+      Query<Map<String, dynamic>> qx = FirebaseFirestore.instance
+          .collection('users')
+          .where('entregador_perfil_operacional', isEqualTo: 'perfil_removido');
+      if (_tipoUsuarioLogado == 'master_city' && _cidadesDoGerente.isNotEmpty) {
+        qx = qx.where('cidade', whereIn: _cidadesDoGerente);
+      }
+      return qx;
+    }
     Query<Map<String, dynamic>> q = FirebaseFirestore.instance
         .collection('users')
         .where('role', isEqualTo: 'entregador');
@@ -1379,46 +1462,66 @@ class _EntregadoresScreenState extends State<EntregadoresScreen>
                 SizedBox(
                   width: 260,
                   height: 42,
-                  child: TextField(
-                    controller: _campoBuscaController,
-                    onChanged: (_) => _agendarAtualizacaoBusca(),
-                    onSubmitted: (_) {
-                      _debounceBusca?.cancel();
-                      _aplicarBuscaDoCampo();
+                  child: ValueListenableBuilder<TextEditingValue>(
+                    valueListenable: _campoBuscaController,
+                    builder: (context, value, _) {
+                      final temTexto = value.text.isNotEmpty;
+                      return TextField(
+                        controller: _campoBuscaController,
+                        onChanged: (_) => _agendarAtualizacaoBusca(),
+                        onSubmitted: (_) {
+                          _debounceBusca?.cancel();
+                          _aplicarBuscaDoCampo();
+                        },
+                        style: GoogleFonts.plusJakartaSans(fontSize: 14),
+                        decoration: InputDecoration(
+                          hintText: 'Buscar nome, cidade ou veículo…',
+                          hintStyle: GoogleFonts.plusJakartaSans(
+                              fontSize: 13,
+                              color: PainelAdminTheme.textoSecundario),
+                          prefixIcon: Icon(Icons.search_rounded,
+                              size: 20,
+                              color: PainelAdminTheme.textoSecundario),
+                          suffixIcon: temTexto
+                              ? IconButton(
+                                  tooltip: 'Limpar busca',
+                                  icon: Icon(Icons.close_rounded,
+                                      size: 18,
+                                      color: PainelAdminTheme.textoSecundario),
+                                  splashRadius: 18,
+                                  onPressed: _limparBusca,
+                                )
+                              : null,
+                          filled: true,
+                          fillColor: const Color(0xFFF8FAFC),
+                          contentPadding: EdgeInsets.zero,
+                          border: OutlineInputBorder(
+                              borderRadius: BorderRadius.circular(12),
+                              borderSide:
+                                  const BorderSide(color: Color(0xFFE2E8F0))),
+                          enabledBorder: OutlineInputBorder(
+                              borderRadius: BorderRadius.circular(12),
+                              borderSide:
+                                  const BorderSide(color: Color(0xFFE2E8F0))),
+                          focusedBorder: OutlineInputBorder(
+                              borderRadius: BorderRadius.circular(12),
+                              borderSide: BorderSide(
+                                  color: PainelAdminTheme.roxo, width: 1.5)),
+                        ),
+                      );
                     },
-                    style: GoogleFonts.plusJakartaSans(fontSize: 14),
-                    decoration: InputDecoration(
-                      hintText: 'Buscar nome, cidade ou veículo…',
-                      hintStyle: GoogleFonts.plusJakartaSans(
-                          fontSize: 13,
-                          color: PainelAdminTheme.textoSecundario),
-                      prefixIcon: Icon(Icons.search_rounded,
-                          size: 20,
-                          color: PainelAdminTheme.textoSecundario),
-                      filled: true,
-                      fillColor: const Color(0xFFF8FAFC),
-                      contentPadding: EdgeInsets.zero,
-                      border: OutlineInputBorder(
-                          borderRadius: BorderRadius.circular(12),
-                          borderSide:
-                              const BorderSide(color: Color(0xFFE2E8F0))),
-                      enabledBorder: OutlineInputBorder(
-                          borderRadius: BorderRadius.circular(12),
-                          borderSide:
-                              const BorderSide(color: Color(0xFFE2E8F0))),
-                      focusedBorder: OutlineInputBorder(
-                          borderRadius: BorderRadius.circular(12),
-                          borderSide: BorderSide(
-                              color: PainelAdminTheme.roxo, width: 1.5)),
-                    ),
                   ),
                 ),
               ],
             ),
-            const SizedBox(height: 22),
+            const SizedBox(height: 20),
+            _buildKpisStrip(),
+            const SizedBox(height: 18),
             TabBar(
               controller: _tabController,
-              labelPadding: const EdgeInsets.symmetric(horizontal: 4),
+              isScrollable: true,
+              tabAlignment: TabAlignment.start,
+              labelPadding: const EdgeInsets.symmetric(horizontal: 16),
               indicatorColor: PainelAdminTheme.laranja,
               indicatorWeight: 3,
               dividerColor: Colors.transparent,
@@ -1436,8 +1539,125 @@ class _EntregadoresScreenState extends State<EntregadoresScreen>
     );
   }
 
+  /// Faixa de KPIs operacionais no topo (padrão "Data-Dense Dashboard").
+  Widget _buildKpisStrip() {
+    return Row(
+      children: [
+        _kpiCard(
+          'Pendentes',
+          _contagemStatus['pendente'],
+          Icons.hourglass_empty_rounded,
+          const Color(0xFFD97706),
+          const Color(0xFFFFF7ED),
+        ),
+        const SizedBox(width: 12),
+        _kpiCard(
+          'Aprovados',
+          _contagemStatus['aprovado'],
+          Icons.check_circle_outline_rounded,
+          const Color(0xFF059669),
+          const Color(0xFFECFDF5),
+        ),
+        const SizedBox(width: 12),
+        _kpiCard(
+          'Online agora',
+          _contagemOnline,
+          Icons.bolt_rounded,
+          PainelAdminTheme.roxo,
+          const Color(0xFFF3E8FD),
+          destaque: true,
+        ),
+        const SizedBox(width: 12),
+        _kpiCard(
+          'Bloqueados',
+          _contagemStatus['bloqueado'],
+          Icons.block_rounded,
+          const Color(0xFFDC2626),
+          const Color(0xFFFEF2F2),
+        ),
+        const SizedBox(width: 12),
+        _kpiCard(
+          'Excluídos',
+          _contagemStatus['excluidos'],
+          Icons.person_off_rounded,
+          const Color(0xFF64748B),
+          const Color(0xFFF1F5F9),
+        ),
+      ],
+    );
+  }
+
+  Widget _kpiCard(
+    String label,
+    int? valor,
+    IconData icon,
+    Color cor,
+    Color bg, {
+    bool destaque = false,
+  }) {
+    return Expanded(
+      child: Container(
+        padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 14),
+        decoration: BoxDecoration(
+          color: destaque ? bg : Colors.white,
+          borderRadius: BorderRadius.circular(14),
+          border: Border.all(
+            color: destaque
+                ? cor.withValues(alpha: 0.25)
+                : PainelAdminTheme.dashboardBorder,
+          ),
+        ),
+        child: Row(
+          children: [
+            Container(
+              width: 40,
+              height: 40,
+              decoration: BoxDecoration(
+                color: bg,
+                borderRadius: BorderRadius.circular(11),
+              ),
+              child: Icon(icon, size: 21, color: cor),
+            ),
+            const SizedBox(width: 12),
+            Expanded(
+              child: Column(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                mainAxisSize: MainAxisSize.min,
+                children: [
+                  Text(
+                    valor == null ? '—' : '$valor',
+                    style: GoogleFonts.plusJakartaSans(
+                      fontSize: 22,
+                      fontWeight: FontWeight.w800,
+                      color: PainelAdminTheme.dashboardInk,
+                      height: 1.05,
+                    ),
+                  ),
+                  const SizedBox(height: 2),
+                  Text(
+                    label,
+                    overflow: TextOverflow.ellipsis,
+                    maxLines: 1,
+                    style: GoogleFonts.plusJakartaSans(
+                      fontSize: 12,
+                      fontWeight: FontWeight.w600,
+                      color: PainelAdminTheme.textoSecundario,
+                    ),
+                  ),
+                ],
+              ),
+            ),
+          ],
+        ),
+      ),
+    );
+  }
+
   Widget _buildTab(String status) {
     final info = _kStatus[status]!;
+    final int? contagem = status == 'atualizacoes'
+        ? _atualizacoesDocsCache?.length
+        : _contagemStatus[status];
     return Tab(
       height: 52,
       child: Row(
@@ -1453,6 +1673,26 @@ class _EntregadoresScreenState extends State<EntregadoresScreen>
               maxLines: 1,
             ),
           ),
+          if (contagem != null && contagem > 0) ...[
+            const SizedBox(width: 8),
+            Container(
+              padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 2),
+              decoration: BoxDecoration(
+                color: info.bgColor,
+                borderRadius: BorderRadius.circular(999),
+                border: Border.all(color: info.borderColor),
+              ),
+              child: Text(
+                contagem > 99 ? '99+' : '$contagem',
+                style: GoogleFonts.plusJakartaSans(
+                  fontSize: 11,
+                  fontWeight: FontWeight.w800,
+                  color: info.color,
+                  height: 1.1,
+                ),
+              ),
+            ),
+          ],
         ],
       ),
     );
@@ -1467,11 +1707,23 @@ class _EntregadoresScreenState extends State<EntregadoresScreen>
       stream: _queryPorStatus(status).snapshots(),
       builder: (context, snapshot) {
         if (snapshot.hasError) {
+          // Sessão expirada: aciona o fluxo profissional global e não mostra
+          // o erro técnico cru ([cloud_firestore/permission-denied]).
+          if (SessaoPainelService.ehErroSessaoExpirada(snapshot.error)) {
+            WidgetsBinding.instance.addPostFrameCallback((_) {
+              SessaoPainelService.tratarSessaoExpirada();
+            });
+            return Center(
+              child: CircularProgressIndicator(
+                  color: PainelAdminTheme.roxo, strokeWidth: 2.5),
+            );
+          }
           return Center(
             child: Padding(
               padding: const EdgeInsets.all(24),
               child: Text(
-                'Erro ao carregar entregadores.\n${snapshot.error}',
+                'Não foi possível carregar os entregadores.\n'
+                'Verifique sua conexão e tente novamente.',
                 textAlign: TextAlign.center,
                 style: GoogleFonts.plusJakartaSans(
                   color: const Color(0xFFDC2626),
@@ -1482,9 +1734,7 @@ class _EntregadoresScreenState extends State<EntregadoresScreen>
           );
         }
         if (snapshot.connectionState == ConnectionState.waiting) {
-          return Center(
-              child: CircularProgressIndicator(
-                  color: PainelAdminTheme.roxo, strokeWidth: 2.5));
+          return _buildListaSkeleton();
         }
         final docs = snapshot.data?.docs ?? [];
         final filtrados = _busca.isEmpty
@@ -1505,9 +1755,25 @@ class _EntregadoresScreenState extends State<EntregadoresScreen>
                 }
               }).toList();
 
-        if (filtrados.isEmpty) return _buildEmptyState(status, info);
+        // Sub-filtro da aba Bloqueados (Pausados / Exclusão / Admin).
+        final subFiltrados = status == 'bloqueado'
+            ? filtrados.where((d) => _passaFiltroBloqueado(d.data())).toList()
+            : filtrados;
 
-        final totalItens = filtrados.length;
+        final Widget? barraFiltros =
+            status == 'bloqueado' ? _buildFiltrosBloqueado(docs) : null;
+
+        if (subFiltrados.isEmpty) {
+          return Column(
+            crossAxisAlignment: CrossAxisAlignment.stretch,
+            children: [
+              if (barraFiltros != null) barraFiltros,
+              Expanded(child: _buildEmptyState(status, info)),
+            ],
+          );
+        }
+
+        final totalItens = subFiltrados.length;
         final totalPaginas = math.max(
           1,
           ((totalItens - 1) ~/ _itensPorPagina) + 1,
@@ -1516,18 +1782,20 @@ class _EntregadoresScreenState extends State<EntregadoresScreen>
         final paginaAtual = paginaArmazenada.clamp(0, totalPaginas - 1);
         final inicio = paginaAtual * _itensPorPagina;
         final fim = math.min(inicio + _itensPorPagina, totalItens);
-        final paginaItens = filtrados.sublist(inicio, fim);
+        final paginaItens = subFiltrados.sublist(inicio, fim);
 
         return Column(
           crossAxisAlignment: CrossAxisAlignment.stretch,
           children: [
+            if (barraFiltros != null) barraFiltros,
             Expanded(
               child: ListView.separated(
                 padding: const EdgeInsets.fromLTRB(32, 24, 32, 16),
                 itemCount: paginaItens.length,
                 separatorBuilder: (_, _) => const SizedBox(height: 12),
-                itemBuilder: (_, i) =>
-                    _buildEntregadorCard(paginaItens[i], status, info),
+                itemBuilder: (_, i) => status == 'excluidos'
+                    ? _buildEntregadorExcluidoCard(paginaItens[i], info)
+                    : _buildEntregadorCard(paginaItens[i], status, info),
               ),
             ),
             _buildBarraPaginacaoEntregadores(
@@ -1539,6 +1807,175 @@ class _EntregadoresScreenState extends State<EntregadoresScreen>
           ],
         );
       },
+    );
+  }
+
+  bool _passaFiltroBloqueado(Map<String, dynamic> d) {
+    switch (_filtroBloqueado) {
+      case 'pausados':
+        return ContaBloqueioEntregadorHelper.ehPausaIniciadaPeloEntregador(d);
+      case 'exclusao':
+        return ContaBloqueioEntregadorHelper.ehExclusaoPerfilSolicitada(d);
+      case 'admin':
+        return !ContaBloqueioEntregadorHelper.ehPausaIniciadaPeloEntregador(d) &&
+            !ContaBloqueioEntregadorHelper.ehExclusaoPerfilSolicitada(d);
+      default:
+        return true;
+    }
+  }
+
+  Widget _buildFiltrosBloqueado(
+      List<QueryDocumentSnapshot<Map<String, dynamic>>> docs) {
+    int nPausados = 0;
+    int nExclusao = 0;
+    int nAdmin = 0;
+    for (final d in docs) {
+      final m = d.data();
+      if (ContaBloqueioEntregadorHelper.ehExclusaoPerfilSolicitada(m)) {
+        nExclusao++;
+      } else if (ContaBloqueioEntregadorHelper
+          .ehPausaIniciadaPeloEntregador(m)) {
+        nPausados++;
+      } else {
+        nAdmin++;
+      }
+    }
+    final opcoes = <List<dynamic>>[
+      ['todos', 'Todos', docs.length],
+      ['admin', 'Bloqueio admin', nAdmin],
+      ['pausados', 'Pausados', nPausados],
+      ['exclusao', 'Exclusão solicitada', nExclusao],
+    ];
+    return Padding(
+      padding: const EdgeInsets.fromLTRB(32, 16, 32, 0),
+      child: Wrap(
+        spacing: 8,
+        runSpacing: 8,
+        children: [
+          for (final o in opcoes)
+            _chipFiltroBloqueado(
+              valor: o[0] as String,
+              rotulo: o[1] as String,
+              contagem: o[2] as int,
+            ),
+        ],
+      ),
+    );
+  }
+
+  Widget _chipFiltroBloqueado({
+    required String valor,
+    required String rotulo,
+    required int contagem,
+  }) {
+    final selecionado = _filtroBloqueado == valor;
+    return ChoiceChip(
+      selected: selecionado,
+      onSelected: (_) {
+        setState(() {
+          _filtroBloqueado = valor;
+          _paginaPorStatus['bloqueado'] = 0;
+        });
+      },
+      showCheckmark: false,
+      label: Text('$rotulo ($contagem)'),
+      labelStyle: GoogleFonts.plusJakartaSans(
+        fontSize: 12.5,
+        fontWeight: FontWeight.w600,
+        color: selecionado
+            ? PainelAdminTheme.roxo
+            : PainelAdminTheme.textoSecundario,
+      ),
+      selectedColor: PainelAdminTheme.roxo.withValues(alpha: 0.12),
+      backgroundColor: const Color(0xFFF1F5F9),
+      side: BorderSide(
+        color: selecionado
+            ? PainelAdminTheme.roxo.withValues(alpha: 0.45)
+            : const Color(0xFFE2E8F0),
+      ),
+      shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(10)),
+    );
+  }
+
+  /// Card read-only para entregadores cujo perfil já foi removido (viram cliente).
+  Widget _buildEntregadorExcluidoCard(
+    QueryDocumentSnapshot<Map<String, dynamic>> doc,
+    _StatusVisual info,
+  ) {
+    final dados = doc.data();
+    final nome = _str(dados['nome'], 'Entregador sem nome');
+    final cidade = _str(dados['cidade'], '—');
+    final removidoRaw = dados['entregador_perfil_removido_em'];
+    final DateTime? removido =
+        removidoRaw is Timestamp ? removidoRaw.toDate() : null;
+    final removidoTxt = removido == null
+        ? 'Data não registrada'
+        : 'Perfil removido em ${removido.day.toString().padLeft(2, '0')}/${removido.month.toString().padLeft(2, '0')}/${removido.year}';
+
+    return Container(
+      decoration: BoxDecoration(
+        color: Colors.white,
+        borderRadius: BorderRadius.circular(14),
+        border: Border.all(color: const Color(0xFFE6EAF0)),
+      ),
+      child: Padding(
+        padding: const EdgeInsets.fromLTRB(14, 12, 14, 12),
+        child: Row(
+          children: [
+            Container(
+              width: 40,
+              height: 40,
+              decoration: BoxDecoration(
+                color: info.bgColor,
+                borderRadius: BorderRadius.circular(11),
+                border: Border.all(color: info.borderColor),
+              ),
+              child: Icon(info.icon, color: info.color, size: 20),
+            ),
+            const SizedBox(width: 12),
+            Expanded(
+              child: Column(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  Text(
+                    nome,
+                    style: GoogleFonts.plusJakartaSans(
+                      fontSize: 14.5,
+                      fontWeight: FontWeight.w700,
+                      color: PainelAdminTheme.dashboardInk,
+                    ),
+                  ),
+                  const SizedBox(height: 2),
+                  Text(
+                    '$cidade · Conta segue ativa como cliente',
+                    style: GoogleFonts.plusJakartaSans(
+                      fontSize: 12.5,
+                      color: PainelAdminTheme.textoSecundario,
+                    ),
+                  ),
+                ],
+              ),
+            ),
+            Container(
+              padding:
+                  const EdgeInsets.symmetric(horizontal: 10, vertical: 6),
+              decoration: BoxDecoration(
+                color: info.bgColor,
+                borderRadius: BorderRadius.circular(8),
+                border: Border.all(color: info.borderColor),
+              ),
+              child: Text(
+                removidoTxt,
+                style: GoogleFonts.plusJakartaSans(
+                  fontSize: 11.5,
+                  fontWeight: FontWeight.w600,
+                  color: info.color,
+                ),
+              ),
+            ),
+          ],
+        ),
+      ),
     );
   }
 
@@ -1807,20 +2244,99 @@ class _EntregadoresScreenState extends State<EntregadoresScreen>
     return out;
   }
 
+  /// Skeleton (shimmer) de cards enquanto a lista carrega — substitui o
+  /// spinner solto por uma prévia que mantém a estrutura visual da tela.
+  Widget _buildListaSkeleton() {
+    return Shimmer.fromColors(
+      baseColor: const Color(0xFFE2E8F0),
+      highlightColor: const Color(0xFFF1F5F9),
+      period: const Duration(milliseconds: 1200),
+      child: ListView.separated(
+        padding: const EdgeInsets.fromLTRB(28, 24, 28, 28),
+        physics: const NeverScrollableScrollPhysics(),
+        itemCount: 5,
+        separatorBuilder: (_, __) => const SizedBox(height: 14),
+        itemBuilder: (_, __) => Container(
+          height: 96,
+          decoration: BoxDecoration(
+            color: Colors.white,
+            borderRadius: BorderRadius.circular(16),
+          ),
+          child: Padding(
+            padding: const EdgeInsets.all(18),
+            child: Row(
+              children: [
+                Container(
+                  width: 52,
+                  height: 52,
+                  decoration: const BoxDecoration(
+                    color: Colors.white,
+                    shape: BoxShape.circle,
+                  ),
+                ),
+                const SizedBox(width: 16),
+                Expanded(
+                  child: Column(
+                    crossAxisAlignment: CrossAxisAlignment.start,
+                    mainAxisAlignment: MainAxisAlignment.center,
+                    children: [
+                      Container(
+                        height: 16,
+                        width: 200,
+                        decoration: BoxDecoration(
+                          color: Colors.white,
+                          borderRadius: BorderRadius.circular(6),
+                        ),
+                      ),
+                      const SizedBox(height: 10),
+                      Container(
+                        height: 12,
+                        width: 140,
+                        decoration: BoxDecoration(
+                          color: Colors.white,
+                          borderRadius: BorderRadius.circular(6),
+                        ),
+                      ),
+                    ],
+                  ),
+                ),
+                const SizedBox(width: 16),
+                Container(
+                  height: 32,
+                  width: 96,
+                  decoration: BoxDecoration(
+                    color: Colors.white,
+                    borderRadius: BorderRadius.circular(10),
+                  ),
+                ),
+              ],
+            ),
+          ),
+        ),
+      ),
+    );
+  }
+
   Widget _buildEmptyState(String status, _StatusVisual info) {
     final hasSearch = _busca.isNotEmpty;
     final titulo = hasSearch
         ? 'Nenhum resultado para "$_busca"'
         : status == 'atualizacoes'
             ? 'Nada na fila de atualizações.'
-            : 'Nenhum entregador ${info.label.toLowerCase()} encontrado.';
+            : status == 'excluidos'
+                ? 'Nenhum perfil de entregador excluído.'
+                : status == 'bloqueado'
+                    ? 'Nenhum entregador nesta categoria.'
+                    : 'Nenhum entregador ${info.label.toLowerCase()} encontrado.';
     final subtitulo = hasSearch
         ? 'Tente outro termo de busca.'
         : status == 'pendente'
             ? 'Novos entregadores aparecerão aqui ao solicitar cadastro.'
             : status == 'atualizacoes'
                 ? 'CNH ou CRLV enviados por entregadores já aprovados aparecem aqui quando estiverem em análise.'
-                : 'Nenhum registro nesta categoria no momento.';
+                : status == 'excluidos'
+                    ? 'Quando um perfil de entregador é removido após o prazo de 30 dias, ele aparece aqui (a conta segue ativa como cliente).'
+                    : 'Nenhum registro nesta categoria no momento.';
     return Center(
       child: Column(
         mainAxisSize: MainAxisSize.min,
@@ -1835,19 +2351,45 @@ class _EntregadoresScreenState extends State<EntregadoresScreen>
           const SizedBox(height: 20),
           Text(
             titulo,
+            textAlign: TextAlign.center,
             style: GoogleFonts.plusJakartaSans(
-                fontSize: 15,
-                fontWeight: FontWeight.w600,
-                color: PainelAdminTheme.textoSecundario),
+                fontSize: 16,
+                fontWeight: FontWeight.w700,
+                color: PainelAdminTheme.dashboardInk),
           ),
           const SizedBox(height: 8),
-          Text(
-            subtitulo,
-            style: GoogleFonts.plusJakartaSans(
-                fontSize: 13,
-                color: PainelAdminTheme.textoSecundario
-                    .withValues(alpha: 0.7)),
+          ConstrainedBox(
+            constraints: const BoxConstraints(maxWidth: 420),
+            child: Text(
+              subtitulo,
+              textAlign: TextAlign.center,
+              style: GoogleFonts.plusJakartaSans(
+                  fontSize: 13,
+                  height: 1.45,
+                  color: PainelAdminTheme.textoSecundario),
+            ),
           ),
+          if (hasSearch) ...[
+            const SizedBox(height: 18),
+            OutlinedButton.icon(
+              onPressed: _limparBusca,
+              icon: const Icon(Icons.close_rounded, size: 18),
+              label: Text(
+                'Limpar busca',
+                style: GoogleFonts.plusJakartaSans(
+                    fontSize: 13, fontWeight: FontWeight.w700),
+              ),
+              style: OutlinedButton.styleFrom(
+                foregroundColor: PainelAdminTheme.roxo,
+                side: BorderSide(
+                    color: PainelAdminTheme.roxo.withValues(alpha: 0.4)),
+                padding:
+                    const EdgeInsets.symmetric(horizontal: 18, vertical: 12),
+                shape: RoundedRectangleBorder(
+                    borderRadius: BorderRadius.circular(12)),
+              ),
+            ),
+          ],
         ],
       ),
     );
@@ -2900,7 +3442,6 @@ class _EntregadoresScreenState extends State<EntregadoresScreen>
     final fotoUrl = _str(dados['foto_url']);
     final motivoRecusa = _str(dados['motivo_recusa']);
     final motivoBloqueio = _str(dados['motivo_bloqueio']);
-    final slPainel = _str(dados['entregador_status']);
     final bloqOp =
         ContaBloqueioEntregadorHelper.estaBloqueadoParaOperacoes(dados);
     final fimTemp = ContaBloqueioEntregadorHelper.dataFimBloqueio(dados);

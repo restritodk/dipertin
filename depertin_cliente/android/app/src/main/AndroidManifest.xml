@@ -66,9 +66,32 @@
               android:name="io.flutter.embedding.android.NormalTheme"
               android:resource="@style/NormalTheme"
               />
+            <!-- Evita edge-to-edge do Flutter esconder os botões voltar/home/recentes. -->
+            <meta-data
+              android:name="io.flutter.embedding.android.EnableEdgeToEdge"
+              android:value="false" />
             <intent-filter>
                 <action android:name="android.intent.action.MAIN"/>
                 <category android:name="android.intent.category.LAUNCHER"/>
+            </intent-filter>
+
+            <!-- App Links (link inteligente do produto). autoVerify exige o
+                 arquivo /.well-known/assetlinks.json publicado no domínio com a
+                 SHA-256 da chave de assinatura do app. -->
+            <intent-filter android:autoVerify="true">
+                <action android:name="android.intent.action.VIEW" />
+                <category android:name="android.intent.category.DEFAULT" />
+                <category android:name="android.intent.category.BROWSABLE" />
+                <data android:scheme="https" android:host="www.dipertin.com.br" android:pathPrefix="/p" />
+                <data android:scheme="https" android:host="dipertin.com.br" android:pathPrefix="/p" />
+            </intent-filter>
+
+            <!-- Esquema interno (fallback usado pela página web via intent://). -->
+            <intent-filter>
+                <action android:name="android.intent.action.VIEW" />
+                <category android:name="android.intent.category.DEFAULT" />
+                <category android:name="android.intent.category.BROWSABLE" />
+                <data android:scheme="dipertin" android:host="produto" />
             </intent-filter>
         </activity>
         <activity

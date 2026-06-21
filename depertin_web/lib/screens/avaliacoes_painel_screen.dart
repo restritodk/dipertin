@@ -3,6 +3,7 @@ import 'package:flutter/material.dart';
 import 'package:intl/intl.dart';
 
 import '../theme/painel_admin_theme.dart';
+import '../utils/codigo_pedido.dart';
 class AvaliacoesPainelScreen extends StatefulWidget {
   const AvaliacoesPainelScreen({super.key});
 
@@ -579,7 +580,7 @@ class _AvaliacoesPainelScreenState extends State<AvaliacoesPainelScreen> {
                           if (pedidoId.isNotEmpty)
                             _tag(
                                 Icons.receipt_long_outlined,
-                                '#${pedidoId.length > 6 ? pedidoId.substring(0, 6).toUpperCase() : pedidoId.toUpperCase()}'),
+                                CodigoPedido.gerar(pedidoId)),
                         ],
                       ),
                     ],

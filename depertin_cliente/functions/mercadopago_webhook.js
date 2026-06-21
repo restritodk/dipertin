@@ -2360,3 +2360,283 @@ exports.processarEstornoPainel = onCall(
         };
     }
 );
+
+/**
+ * Lojista: cancelar pedido com estorno automático ao cliente.
+ */
+async function lojistaCancelarPedidoComEstorno(request) {
+    if (!request.auth) {
+        throw new HttpsError("unauthenticated", "Login necessário.");
+    }
+
+    const uid = request.auth.uid;
+    const { pedidoId, motivo, observacao } = request.data || {};
+
+    if (!pedidoId || !motivo) {
+        throw new HttpsError("invalid-argument", "pedidoId e motivo são obrigatórios.");
+    }
+
+    const db = admin.firestore();
+
+    // 1. Verificar se lojista tem acesso ao pedido
+    const pedSnap = await db.collection("pedidos").doc(pedidoId).get();
+    if (!pedSnap.exists) {
+        throw new HttpsError("not-found", "Pedido não encontrado.");
+    }
+
+    const pedido = pedSnap.data();
+    const lojaId = String(pedido.loja_id || pedido.lojista_id || "").trim();
+
+    // Verificar permissão
+    if (lojaId !== uid) {
+        const userSnap = await db.collection("users").doc(uid).get();
+        const userData = userSnap.data() || {};
+        const ownerUid = String(userData.lojista_owner_uid || "").trim();
+        if (ownerUid !== lojaId) {
+            throw new HttpsError("permission-denied", "Você não tem permissão para cancelar este pedido.");
+        }
+    }
+
+    // 2. Verificar se entregador já foi chamado / entrega em andamento
+    const status = String(pedido.status || "");
+    const statusPosDespacho = [
+        "aguardando_entregador",
+        "entregador_indo_loja",
+        "a_caminho",
+        "em_rota",
+        "saiu_entrega",
+    ];
+    if (statusPosDespacho.includes(status)) {
+        throw new HttpsError("failed-precondition", "Não é possível cancelar: o entregador já foi chamado para este pedido.");
+    }
+    if (status === "pronto" &&
+        String(pedido.tipo_entrega || "").toLowerCase() !== "retirada") {
+        throw new HttpsError("failed-precondition", "Não é possível cancelar: o pedido já está em etapa de entrega.");
+    }
+    const entregadorId = pedido.entregador_id;
+    if (entregadorId && String(entregadorId).trim() !== "") {
+        throw new HttpsError("failed-precondition", "Não é possível cancelar: o entregador já foi chamado para este pedido.");
+    }
+
+    // 3. Verificar se pedido pode ser cancelado pelo lojista neste status
+    const statusCancelaveis = ["pendente", "aceito", "em_preparo", "preparando"];
+    if (String(pedido.tipo_entrega || "").toLowerCase() === "retirada") {
+        statusCancelaveis.push("pronto");
+    }
+    if (!statusCancelaveis.includes(status)) {
+        throw new HttpsError("failed-precondition", "O pedido não pode ser cancelado neste status.");
+    }
+
+    // 4. Verificar se já existe estorno anterior
+    const estornoSnap = await db.collection("estornos").where("pedido_id", "==", pedidoId).where("status", "==", "processado").limit(1).get();
+    if (!estornoSnap.empty) {
+        throw new HttpsError("already-exists", "Este pedido já possui um estorno processado.");
+    }
+
+    // 5. Obter dados do pagamento
+    let mpPaymentId = String(pedido.mp_payment_id || "").trim() || null;
+    if (!mpPaymentId) {
+        const liderRef = String(pedido.checkout_cobranca_pedido_mp_id || "").trim();
+        if (liderRef) {
+            const liderSnap = await db.collection("pedidos").doc(liderRef).get();
+            if (liderSnap.exists) {
+                mpPaymentId = String(liderSnap.data().mp_payment_id || "").trim() || null;
+            }
+        }
+    }
+
+    const clienteId = String(pedido.cliente_id || "").trim();
+    const valorTotal = Number(pedido.total || pedido.total_produtos || pedido.subtotal || 0);
+    const taxaEntrega = Number(pedido.taxa_entrega || 0);
+
+    // 6. Processar estorno via Mercado Pago
+    let estornoResult = { ok: false, parcial: false, mp_refund_id: null, mp_refund_status: null, valor_estornado: 0, erro: null };
+
+    if (mpPaymentId) {
+        try {
+            const accessToken = await getMercadoPagoAccessToken();
+            if (accessToken) {
+                const url = `${MP_API}/v1/payments/${encodeURIComponent(mpPaymentId)}`;
+                const fetchResponse = await fetch(url, {
+                    headers: {
+                        Authorization: `Bearer ${accessToken}`,
+                        "User-Agent": "dipertin-webhook/1.0",
+                    },
+                });
+
+                if (fetchResponse.ok) {
+                    const payment = await fetchResponse.json();
+                    const paymentStatus = String(payment.status || "").toLowerCase();
+
+                    if (paymentStatus === "refunded") {
+                        throw new HttpsError("already-exists", "Este pagamento já foi estornado no Mercado Pago.");
+                    }
+
+                    if (paymentStatus !== "approved") {
+                        throw new HttpsError("failed-precondition", `Pagamento com status "${paymentStatus}" não pode ser estornado.`);
+                    }
+
+                    // Criar estorno
+                    const refundUrl = `${MP_API}/v1/payments/${encodeURIComponent(mpPaymentId)}/refunds`;
+                    const idempotencyKey = `refund-${mpPaymentId}-${Date.now()}`;
+
+                    const refundResponse = await fetch(refundUrl, {
+                        method: "POST",
+                        headers: {
+                            Authorization: `Bearer ${accessToken}`,
+                            "Content-Type": "application/json",
+                            "X-Idempotency-Key": idempotencyKey,
+                        },
+                        body: JSON.stringify({}),
+                    });
+
+                    if (refundResponse.ok) {
+                        const refund = await refundResponse.json();
+                        estornoResult = {
+                            ok: true,
+                            parcial: false,
+                            mp_refund_id: refund.id || null,
+                            mp_refund_status: refund.status || null,
+                            valor_estornado: valorTotal,
+                        };
+                    } else {
+                        const errBody = await refundResponse.text().catch(() => "");
+                        estornoResult.erro = errBody || `Gateway HTTP ${refundResponse.status}`;
+                    }
+                }
+            }
+        } catch (estornoErr) {
+            if (estornoErr instanceof HttpsError) {
+                throw estornoErr;
+            }
+            console.error("[lojista-estorno] Erro ao estornar:", estornoErr.message || estornoErr);
+            estornoResult.erro = estornoErr.message || "Erro no gateway";
+        }
+    }
+
+    // Pedido pago no gateway: não cancela se o estorno falhou (evita duplicidade).
+    if (mpPaymentId && !estornoResult.ok) {
+        await db.collection("estornos").add({
+            pedido_id: pedidoId,
+            cliente_id: clienteId || null,
+            loja_id: lojaId,
+            valor: valorTotal,
+            valor_original: valorTotal,
+            taxa_entrega_incluida: taxaEntrega > 0,
+            motivo: motivo,
+            observacao: observacao || null,
+            status: "erro",
+            tipo: "lojista_cancelou",
+            feito_por: uid,
+            feito_por_tipo: "lojista",
+            mp_payment_id: mpPaymentId,
+            mp_refund_id: estornoResult.mp_refund_id || null,
+            mp_refund_status: estornoResult.mp_refund_status || null,
+            mp_refund_erro: estornoResult.erro || null,
+            data_estorno: admin.firestore.FieldValue.serverTimestamp(),
+        });
+        throw new HttpsError(
+            "failed-precondition",
+            "Não foi possível solicitar o estorno neste momento. Tente novamente ou entre em contato com o suporte.",
+        );
+    }
+
+    // 7. Cancelar o pedido no Firestore
+    const cancelamentoMotivo = `lojista_cancelou: ${motivo}`;
+    await db.collection("pedidos").doc(pedidoId).update({
+        status: "cancelado",
+        cancelado_motivo: cancelamentoMotivo,
+        cancelado_em: admin.firestore.FieldValue.serverTimestamp(),
+        cancelado_por: uid,
+        cancelado_por_tipo: "lojista",
+        estorno_solicitado: !!mpPaymentId,
+        estorno_resultado: estornoResult,
+        estorno_observacao: observacao || null,
+    });
+
+    // 8. Salvar histórico do estorno
+    if (mpPaymentId) {
+        await db.collection("estornos").add({
+            pedido_id: pedidoId,
+            cliente_id: clienteId || null,
+            loja_id: lojaId,
+            valor: estornoResult.valor_estornado || valorTotal,
+            valor_original: valorTotal,
+            taxa_entrega_incluida: taxaEntrega > 0,
+            motivo: motivo,
+            observacao: observacao || null,
+            status: estornoResult.ok ? "processado" : "erro",
+            tipo: "lojista_cancelou",
+            feito_por: uid,
+            feito_por_tipo: "lojista",
+            mp_payment_id: mpPaymentId,
+            mp_refund_id: estornoResult.mp_refund_id || null,
+            mp_refund_status: estornoResult.mp_refund_status || null,
+            mp_refund_erro: estornoResult.erro || null,
+            data_estorno: admin.firestore.FieldValue.serverTimestamp(),
+            data_cancelamento: admin.firestore.FieldValue.serverTimestamp(),
+        });
+    }
+
+    // 9. Debitar saldo da loja
+    if (estornoResult.ok && valorTotal > 0) {
+        try {
+            await db.collection("users").doc(lojaId).update({
+                saldo: admin.firestore.FieldValue.increment(-(estornoResult.valor_estornado || valorTotal)),
+            });
+        } catch (saldoErr) {
+            console.error("[lojista-estorno] Erro ao debitar saldo:", saldoErr.message);
+        }
+    }
+
+    // 10. Notificar cliente
+    if (clienteId) {
+        try {
+            const clienteSnap = await db.collection("users").doc(clienteId).get();
+            const clienteData = clienteSnap.data() || {};
+            const fcmToken = clienteData.fcm_token;
+
+            if (fcmToken) {
+                const pedidoCurto = `#${pedidoId.substring(0, 5).toUpperCase()}`;
+                let mensagemBody;
+
+                if (estornoResult.ok) {
+                    mensagemBody = `O pedido ${pedidoCurto} foi cancelado pela loja. O valor de R$ ${Number(estornoResult.valor_estornado || valorTotal).toFixed(2)} será devolvido à sua conta.`;
+                } else {
+                    mensagemBody = `O pedido ${pedidoCurto} foi cancelado pela loja. O estorno está sendo processado.`;
+                }
+
+                await admin.messaging().send({
+                    notification: { title: "Pedido cancelado", body: mensagemBody },
+                    android: {
+                        priority: "high",
+                        notification: { channelId: "high_importance_channel", sound: "default", defaultVibrateTimings: true, visibility: "public" },
+                    },
+                    apns: { headers: { "apns-priority": "10", "apns-push-type": "alert" }, payload: { aps: { sound: "default", badge: 1 } } },
+                    data: { tipoNotificacao: "pedido_cancelado_lojista", pedido_id: String(pedidoId), cliente_id: String(clienteId), estorno_processado: estornoResult.ok ? "true" : "false" },
+                    token: fcmToken,
+                });
+            }
+        } catch (fcmErr) {
+            console.warn("[lojista-estorno] Erro ao notificar cliente:", fcmErr.message);
+        }
+    }
+
+    // 11. Retornar resultado
+    return {
+        ok: true,
+        pedidoId,
+        pedidoCancelado: true,
+        estornoProcessado: estornoResult.ok || false,
+        valorEstornado: estornoResult.valor_estornado || 0,
+        clienteNotificado: !!clienteId,
+        erroEstorno: estornoResult.erro || null,
+        mensagem: estornoResult.ok
+            ? `Pedido cancelado. Valor de R$ ${Number(estornoResult.valor_estornado || valorTotal).toFixed(2)} será estornado ao cliente.`
+            : "Pedido cancelado. O estorno está sendo processado.",
+    };
+}
+
+exports.lojistaCancelarPedidoComEstorno = onCall({ region: "us-central1", enforceAppCheck: false }, async (request) => {
+    return lojistaCancelarPedidoComEstorno(request);
+});

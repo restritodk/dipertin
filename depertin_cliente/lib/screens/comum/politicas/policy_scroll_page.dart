@@ -1,5 +1,8 @@
 import 'package:flutter/material.dart';
 
+import '../../../utils/safe_area_insets.dart' show diPertinScrollPaddingInner;
+import '../../../widgets/dipertin_scroll_body.dart';
+
 const Color _diPertinRoxo = Color(0xFF6A1B9A);
 const Color _fundo = Color(0xFFF5F4F8);
 
@@ -53,8 +56,14 @@ class PolicyScrollPage extends StatelessWidget {
         iconTheme: const IconThemeData(color: Colors.white),
         actions: actions,
       ),
-      body: SingleChildScrollView(
-        padding: const EdgeInsets.fromLTRB(20, 20, 20, 36),
+      body: DiPertinScrollBody(
+        padding: diPertinScrollPaddingInner(
+          context,
+          left: 20,
+          right: 20,
+          top: 20,
+          extraBottom: 24,
+        ),
         child: Container(
           width: double.infinity,
           padding: const EdgeInsets.all(20),

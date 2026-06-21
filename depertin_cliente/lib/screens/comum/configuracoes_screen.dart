@@ -2,6 +2,7 @@
 
 import 'package:flutter/material.dart';
 
+import 'package:depertin_cliente/widgets/dipertin_scroll_body.dart';
 import 'package:depertin_cliente/screens/cliente/meus_enderecos_screen.dart';
 import 'package:depertin_cliente/screens/comum/configuracao_chat_screen.dart';
 import 'package:depertin_cliente/screens/comum/configuracao_notificacoes_screen.dart';
@@ -36,8 +37,7 @@ class ConfiguracoesScreen extends StatelessWidget {
         surfaceTintColor: Colors.transparent,
         iconTheme: const IconThemeData(color: Colors.white),
       ),
-      body: SingleChildScrollView(
-        padding: const EdgeInsets.fromLTRB(16, 16, 16, 32),
+      body: DiPertinScrollBody(
         child: Column(
           crossAxisAlignment: CrossAxisAlignment.stretch,
           children: [

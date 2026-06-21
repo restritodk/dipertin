@@ -1,5 +1,6 @@
 // Arquivo: lib/screens/entregador/entregador_carteira_screen.dart
 
+import 'package:depertin_cliente/utils/codigo_pedido.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:cloud_firestore/cloud_firestore.dart';
@@ -104,9 +105,7 @@ class _EntregadorCarteiraScreenState extends State<EntregadorCarteiraScreen> {
                     ).format(ts.toDate());
                   }
                   final loja = (m['loja_nome'] ?? 'Loja').toString();
-                  final idCurto = d.id.length > 8
-                      ? d.id.substring(d.id.length - 8).toUpperCase()
-                      : d.id.toUpperCase();
+                  final idCurto = CodigoPedido.exibir(d.id, m);
                   return Card(
                     elevation: 0,
                     margin: const EdgeInsets.only(bottom: 10),
