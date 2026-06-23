@@ -156,11 +156,37 @@ class _BannersScreenState extends State<BannersScreen> {
                       .collection('banners')
                       .doc(bannerId)
                       .update(dadosSalvar);
+                  // Sincroniza receita no Livro Caixa / Relatório Financeiro
+                  if (valorTotalBanner > 0) {
+                    await _sincronizarReceitaBanner(
+                      bannerId: bannerId,
+                      valorConvertido: valorConvertido,
+                      valorTotal: valorTotalBanner,
+                      tipoCobranca: tipoCobranca,
+                      dataInicio: dataInicio,
+                      dataFim: dataFim,
+                      dias: diasBanner,
+                      cidade: cidadeC.text.trim().toLowerCase(),
+                    );
+                  }
                 } else {
                   dadosSalvar['data_criacao'] = FieldValue.serverTimestamp();
-                  await FirebaseFirestore.instance
+                  final docRef = await FirebaseFirestore.instance
                       .collection('banners')
                       .add(dadosSalvar);
+                  // Sincroniza receita no Livro Caixa / Relatório Financeiro
+                  if (valorTotalBanner > 0) {
+                    await _sincronizarReceitaBanner(
+                      bannerId: docRef.id,
+                      valorConvertido: valorConvertido,
+                      valorTotal: valorTotalBanner,
+                      tipoCobranca: tipoCobranca,
+                      dataInicio: dataInicio,
+                      dataFim: dataFim,
+                      dias: diasBanner,
+                      cidade: cidadeC.text.trim().toLowerCase(),
+                    );
+                  }
                 }
 
                 if (context.mounted) {
@@ -589,6 +615,36 @@ class _BannersScreenState extends State<BannersScreen> {
         );
       },
     );
+  }
+
+  /// Espelha o banner no Livro Caixa / Relatório Financeiro (receitas_app),
+  /// mesmo padrão de _sincronizarReceitaUtilidade em utilidades_screen.dart.
+  Future<void> _sincronizarReceitaBanner({
+    required String bannerId,
+    required double valorConvertido,
+    required double valorTotal,
+    required String tipoCobranca,
+    required DateTime dataInicio,
+    required DateTime dataFim,
+    required int dias,
+    required String cidade,
+  }) async {
+    final rid = 'util_banners_${bannerId.replaceAll('/', '_')}';
+    await FirebaseFirestore.instance.collection('receitas_app').doc(rid).set({
+      'tipo_receita': 'Banners',
+      'titulo_referencia': 'Banner ${cidade.isEmpty ? 'Todas' : cidade.toUpperCase()}',
+      'nome_pagador': cidade.isEmpty ? 'Anunciante' : cidade,
+      'valor_total': valorTotal,
+      'valor_unitario': valorConvertido,
+      'modalidade_valor': tipoCobranca,
+      'data_inicio': Timestamp.fromDate(dataInicio),
+      'data_fim': Timestamp.fromDate(dataFim),
+      'qtd_dias': dias,
+      'utilidade_colecao': 'banners',
+      'utilidade_anuncio_id': bannerId,
+      'livro_caixa_manual': false,
+      'data_registro': FieldValue.serverTimestamp(),
+    }, SetOptions(merge: true));
   }
 
   Widget _uploadPlaceholder() {

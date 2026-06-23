@@ -978,6 +978,14 @@ class _FinanceiroScreenState extends State<FinanceiroScreen> {
         .where('ativo', isEqualTo: true)
         .get();
 
+    // Conjunto de IDs de banners que já possuem entrada em receitas_app
+    // (evita duplicar no historico para banners pós-correção)
+    final bannerIdsNoReceitas = receitasSnap.docs
+        .where((d) => d.data()['utilidade_colecao'] == 'banners')
+        .map((d) => d.data()['utilidade_anuncio_id']?.toString() ?? '')
+        .where((id) => id.isNotEmpty)
+        .toSet();
+
     for (final doc in bannersSnap.docs) {
       final d = doc.data();
       final v = _extrairValorDoc(d);
@@ -985,6 +993,19 @@ class _FinanceiroScreenState extends State<FinanceiroScreen> {
       final tsI = (d['data_inicio'] ?? d['data_criacao']) as Timestamp?;
       if (tsI != null && !_dentroFiltro(tsI.toDate())) continue;
       totalDestaques += v;
+
+      // Adiciona ao historico banners que ainda não estão em receitas_app
+      // (garante que banners existentes pré-correção também apareçam)
+      if (!bannerIdsNoReceitas.contains(doc.id)) {
+        historico.add({
+          'movimento': 'lucro',
+          'tipo': 'Banners',
+          'titulo': 'Banner ${(d['cidade'] ?? 'Todas').toString().toUpperCase()}',
+          'dono': d['nome_anunciante'] ?? d['cidade'] ?? 'Anunciante',
+          'valor': v,
+          'data': tsI?.toDate() ?? DateTime.now(),
+        });
+      }
     }
 
     // ── 4. Premium — telefones_premium (ativos com valor) ──

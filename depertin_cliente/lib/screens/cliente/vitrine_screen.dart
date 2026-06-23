@@ -15,8 +15,8 @@ import '../../services/location_service.dart';
 import '../../utils/loja_pausa.dart';
 import '../../utils/safe_area_insets.dart';
 import '../../widgets/botao_carrinho_app_bar.dart';
+import 'loja_perfil_screen.dart';
 import 'product_details_screen.dart';
-import '../lojista/loja_catalogo_screen.dart';
 
 const Color diPertinRoxo = Color(0xFF6A1B9A);
 const Color diPertinLaranja = Color(0xFFFF8F00);
@@ -1007,11 +1007,9 @@ class _VitrineScreenState extends State<VitrineScreen> {
                               Navigator.push(
                                 context,
                                 MaterialPageRoute(
-                                  builder: (context) => LojaCatalogoScreen(
-                                    lojaId: '$id',
-                                    nomeLoja:
-                                        produto['loja_nome_vitrine'] ??
-                                        'Loja parceira',
+                                  builder: (context) => LojaPerfilScreen(
+                                    lojistaId: '$id',
+                                    lojistaData: produto,
                                   ),
                                 ),
                               );

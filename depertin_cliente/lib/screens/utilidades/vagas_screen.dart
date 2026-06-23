@@ -2,6 +2,8 @@ import 'dart:typed_data';
 
 import 'package:cloud_firestore/cloud_firestore.dart';
 import 'package:cloud_functions/cloud_functions.dart';
+import 'package:depertin_cliente/screens/auth/login_screen.dart';
+import 'package:depertin_cliente/screens/cliente/chat_suporte_screen.dart';
 import 'package:depertin_cliente/services/firebase_functions_config.dart';
 import 'package:depertin_cliente/services/location_service.dart';
 import 'package:file_picker/file_picker.dart';
@@ -29,6 +31,27 @@ class _VagasScreenState extends State<VagasScreen> {
   void dispose() {
     _buscaCtrl.dispose();
     super.dispose();
+  }
+
+  void _falarComAdmin() {
+    User? user = FirebaseAuth.instance.currentUser;
+    if (user == null) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(
+          content: Text('Faça login ou cadastre-se para anunciar sua vaga!'),
+          backgroundColor: Colors.red,
+        ),
+      );
+      Navigator.push(
+        context,
+        MaterialPageRoute(builder: (context) => const LoginScreen()),
+      );
+    } else {
+      Navigator.push(
+        context,
+        MaterialPageRoute(builder: (context) => const ChatSuporteScreen()),
+      );
+    }
   }
 
   List<QueryDocumentSnapshot> _filtrar(List<QueryDocumentSnapshot> docs) {
@@ -82,6 +105,15 @@ class _VagasScreenState extends State<VagasScreen> {
     context.watch<LocationService>();
     return Scaffold(
       backgroundColor: const Color(0xFFF5F5F7),
+      floatingActionButton: FloatingActionButton.extended(
+        onPressed: _falarComAdmin,
+        backgroundColor: _laranja,
+        icon: const Icon(Icons.add_circle_outline, color: Colors.white),
+        label: const Text(
+          "Anunciar Vaga",
+          style: TextStyle(color: Colors.white, fontWeight: FontWeight.bold),
+        ),
+      ),
       body: NestedScrollView(
         headerSliverBuilder: (_, __) => [
           SliverAppBar(
@@ -384,6 +416,7 @@ class _VagaCard extends StatelessWidget {
                                 fontSize: 13.5,
                                 fontWeight: FontWeight.w600,
                                 color: Colors.grey.shade700,
+                                decoration: TextDecoration.none,
                               ),
                               maxLines: 1,
                               overflow: TextOverflow.ellipsis,
@@ -507,29 +540,36 @@ class _VagaDetalhesSheet extends StatelessWidget {
                 padding: const EdgeInsets.fromLTRB(24, 20, 24, 24),
                 children: [
                   if (imagemUrl.isNotEmpty)
-                    ClipRRect(
-                      borderRadius: BorderRadius.circular(16),
-                      child: Image.network(
-                        imagemUrl,
-                        width: double.infinity,
-                        height: 200,
-                        fit: BoxFit.cover,
-                        loadingBuilder: (c, child, progress) {
-                          if (progress == null) return child;
-                          return Container(
+                    GestureDetector(
+                      onTap: () => _mostrarImagemAmpliada(context, imagemUrl, empresa),
+                      child: ClipRRect(
+                        borderRadius: BorderRadius.circular(16),
+                        child: Hero(
+                          tag: 'vaga_imagem_$vagaId',
+                          child: Image.network(
+                            imagemUrl,
+                            width: double.infinity,
                             height: 200,
-                            color: Colors.grey.shade100,
-                            alignment: Alignment.center,
-                            child: CircularProgressIndicator(
-                              color: _verdeVaga,
-                              value: progress.expectedTotalBytes != null
-                                  ? progress.cumulativeBytesLoaded /
-                                      progress.expectedTotalBytes!
-                                  : null,
-                            ),
-                          );
-                        },
-                        errorBuilder: (_, __, ___) => _cabecalhoIconePadrao(),
+                            fit: BoxFit.cover,
+                            loadingBuilder: (c, child, progress) {
+                              if (progress == null) return child;
+                              return Container(
+                                height: 200,
+                                color: Colors.grey.shade100,
+                                alignment: Alignment.center,
+                                child: CircularProgressIndicator(
+                                  color: _verdeVaga,
+                                  value: progress.expectedTotalBytes != null
+                                      ? progress.cumulativeBytesLoaded /
+                                          progress.expectedTotalBytes!
+                                      : null,
+                                ),
+                              );
+                            },
+                            errorBuilder: (_, __, ___) =>
+                                _cabecalhoIconePadrao(),
+                          ),
+                        ),
                       ),
                     )
                   else
@@ -557,6 +597,7 @@ class _VagaDetalhesSheet extends StatelessWidget {
                             fontSize: 15,
                             fontWeight: FontWeight.w600,
                             color: Colors.grey.shade700,
+                            decoration: TextDecoration.none,
                           ),
                         ),
                       ),
@@ -674,6 +715,128 @@ class _VagaDetalhesSheet extends StatelessWidget {
         color: _verdeVaga.withValues(alpha: 0.7),
         size: 30,
       ),
+    );
+  }
+
+  void _mostrarImagemAmpliada(BuildContext ctx, String url, String nomeEmpresa) {
+    showGeneralDialog(
+      context: ctx,
+      barrierDismissible: true,
+      barrierLabel: 'Fechar imagem',
+      barrierColor: Colors.black.withValues(alpha: 0.5),
+      transitionDuration: const Duration(milliseconds: 350),
+      pageBuilder: (_, __, ___) => const SizedBox.shrink(),
+      transitionBuilder: (dCtx, anim, _, __) {
+        final curved =
+            CurvedAnimation(parent: anim, curve: Curves.easeOutCubic);
+        return FadeTransition(
+          opacity: curved,
+          child: ScaleTransition(
+            scale: curved,
+            child: Center(
+              child: GestureDetector(
+                onTap: () => Navigator.of(dCtx).pop(),
+                child: Container(
+                  margin: const EdgeInsets.symmetric(horizontal: 32),
+                  clipBehavior: Clip.antiAlias,
+                  decoration: BoxDecoration(
+                    color: Colors.white,
+                    borderRadius: BorderRadius.circular(20),
+                    boxShadow: [
+                      BoxShadow(
+                        color: Colors.black.withValues(alpha: 0.18),
+                        blurRadius: 40,
+                        offset: const Offset(0, 12),
+                      ),
+                    ],
+                  ),
+                  child: Column(
+                    mainAxisSize: MainAxisSize.min,
+                    children: [
+                      Container(
+                        padding: const EdgeInsets.fromLTRB(16, 12, 12, 4),
+                        child: Row(
+                          children: [
+                            Icon(Icons.image_outlined,
+                                size: 18, color: Colors.grey.shade500),
+                            const SizedBox(width: 8),
+                            Expanded(
+                              child: Text(
+                                nomeEmpresa.isNotEmpty
+                                    ? nomeEmpresa
+                                    : 'Empresa não informada',
+                                style: TextStyle(
+                                  fontSize: 14,
+                                  fontWeight: FontWeight.w600,
+                                  color: Colors.grey.shade700,
+                                  decoration: TextDecoration.none,
+                                ),
+                              ),
+                            ),
+                            IconButton(
+                              icon: Icon(Icons.close_rounded,
+                                  size: 22, color: Colors.grey.shade500),
+                              onPressed: () => Navigator.of(dCtx).pop(),
+                              splashRadius: 22,
+                              padding: EdgeInsets.zero,
+                              constraints: const BoxConstraints(
+                                  minWidth: 36, minHeight: 36),
+                            ),
+                          ],
+                        ),
+                      ),
+                      Padding(
+                        padding: const EdgeInsets.fromLTRB(12, 0, 12, 16),
+                        child: ClipRRect(
+                          borderRadius: BorderRadius.circular(14),
+                          child: Image.network(
+                            url,
+                            width: double.infinity,
+                            fit: BoxFit.contain,
+                            height: 280,
+                            loadingBuilder: (c, child, progress) {
+                              if (progress == null) return child;
+                              return Container(
+                                height: 200,
+                                color: Colors.grey.shade100,
+                                alignment: Alignment.center,
+                                child: CircularProgressIndicator(
+                                  color: _verdeVaga,
+                                  value: progress.expectedTotalBytes != null
+                                      ? progress.cumulativeBytesLoaded /
+                                          progress.expectedTotalBytes!
+                                      : null,
+                                ),
+                              );
+                            },
+                            errorBuilder: (_, __, ___) => Container(
+                              height: 200,
+                              color: Colors.grey.shade50,
+                              alignment: Alignment.center,
+                              child: Column(
+                                mainAxisSize: MainAxisSize.min,
+                                children: [
+                                  Icon(Icons.broken_image_outlined,
+                                      size: 36, color: Colors.grey.shade400),
+                                  const SizedBox(height: 8),
+                                  Text('Não foi possível carregar a imagem',
+                                      style: TextStyle(
+                                          color: Colors.grey.shade500,
+                                          fontSize: 13)),
+                                ],
+                              ),
+                            ),
+                          ),
+                        ),
+                      ),
+                    ],
+                  ),
+                ),
+              ),
+            ),
+          ),
+        );
+      },
     );
   }
 }

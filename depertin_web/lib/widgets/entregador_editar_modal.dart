@@ -41,7 +41,12 @@ class _EntregadorEditarDialogState extends State<EntregadorEditarDialog> {
   final _modelo = TextEditingController();
 
   String _veiculoTipo = 'Moto';
-  static const _tiposVeiculo = ['Moto', 'Carro', 'Bicicleta'];
+  static const _tiposVeiculo = <String>[
+    'Bicicleta',
+    'Moto',
+    'Carro de Passeio',
+    'Utilitário / Frete',
+  ];
 
   bool _carregando = true;
   bool _salvando = false;
@@ -118,7 +123,9 @@ class _EntregadorEditarDialogState extends State<EntregadorEditarDialog> {
           final tel0 = _str(d['telefone']);
           _telefone.text =
               tel0.isNotEmpty ? tel0 : _str(d['telefone_celular']);
-          final vt = _str(d['veiculoTipo']);
+          var vt = _str(d['veiculoTipo']);
+          // Compatibilidade legada: 'Carro' → 'Carro de Passeio'
+          if (vt == 'Carro') vt = 'Carro de Passeio';
           _veiculoTipo = vt.isNotEmpty ? vt : 'Moto';
           if (!_tiposVeiculo.contains(_veiculoTipo)) {
             _veiculoTipo = 'Moto';
@@ -148,8 +155,10 @@ class _EntregadorEditarDialogState extends State<EntregadorEditarDialog> {
           final v = vSnap.data() ?? {};
           setState(() {
             final tipoCodigo = _str(v['tipo']).toLowerCase();
-            if (tipoCodigo == 'carro') {
-              _veiculoTipo = 'Carro';
+            if (tipoCodigo == 'carro_frete') {
+              _veiculoTipo = 'Utilitário / Frete';
+            } else if (tipoCodigo == 'carro') {
+              _veiculoTipo = 'Carro de Passeio';
             } else if (tipoCodigo == 'bike') {
               _veiculoTipo = 'Bicicleta';
             } else {
@@ -174,10 +183,14 @@ class _EntregadorEditarDialogState extends State<EntregadorEditarDialog> {
 
   String _tipoCodigoSubcolecao(String painel) {
     switch (painel) {
-      case 'Carro':
-        return 'carro';
       case 'Bicicleta':
         return 'bike';
+      case 'Moto':
+        return 'moto';
+      case 'Carro de Passeio':
+        return 'carro';
+      case 'Utilitário / Frete':
+        return 'carro_frete';
       default:
         return 'moto';
     }
@@ -460,7 +473,7 @@ class _EntregadorEditarDialogState extends State<EntregadorEditarDialog> {
     return DropdownButtonFormField<String>(
       value: _veiculoTipo,
       decoration: _decoracaoCampo(
-        label: 'Tipo de veículo',
+        label: 'Categoria do veículo',
         iconePrefix: Icons.two_wheeler_rounded,
       ),
       style: GoogleFonts.plusJakartaSans(

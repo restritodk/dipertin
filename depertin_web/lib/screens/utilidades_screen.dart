@@ -2469,7 +2469,21 @@ class _UtilidadesScreenState extends State<UtilidadesScreen> {
           return const Center(child: CircularProgressIndicator());
         }
         if (!snapshot.hasData || snapshot.data!.docs.isEmpty) {
-          return const Center(child: Text("Nenhum registro encontrado."));
+          return Center(
+            child: Padding(
+              padding: const EdgeInsets.all(60),
+              child: Column(
+                mainAxisSize: MainAxisSize.min,
+                children: [
+                  Icon(Icons.inbox_outlined, size: 64, color: Colors.grey.shade300),
+                  const SizedBox(height: 16),
+                  Text("Nenhum registro encontrado.",
+                      style: GoogleFonts.plusJakartaSans(
+                          fontSize: 16, color: Colors.grey.shade500)),
+                ],
+              ),
+            ),
+          );
         }
 
         return ListView.builder(
@@ -2494,96 +2508,153 @@ class _UtilidadesScreenState extends State<UtilidadesScreen> {
                     ? Colors.red.shade50
                     : Colors.white;
 
-            return Card(
-              elevation: 2,
-              color: corFundo,
-              margin: const EdgeInsets.only(bottom: 10),
-              shape: RoundedRectangleBorder(
-                borderRadius: BorderRadius.circular(12),
-                side: ativo && sv.dias <= 0
-                    ? BorderSide(color: sv.cor.withValues(alpha: 0.4))
-                    : BorderSide.none,
+            final corBorda = !ativo
+                ? Colors.grey.shade300
+                : sv.dias < -3
+                    ? Colors.red.shade200
+                    : const Color(0xFFEEEEEE);
+
+            return Container(
+              margin: const EdgeInsets.only(bottom: 12),
+              decoration: BoxDecoration(
+                color: corFundo,
+                borderRadius: BorderRadius.circular(16),
+                border: Border.all(color: corBorda),
+                boxShadow: [
+                  BoxShadow(
+                    color: Colors.black.withValues(alpha: 0.04),
+                    blurRadius: 12,
+                    offset: const Offset(0, 4),
+                  ),
+                ],
               ),
               child: Padding(
-                padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 10),
+                padding: const EdgeInsets.all(16),
                 child: Row(
                   children: [
-                    CircleAvatar(
-                      backgroundColor: ativo ? sv.cor : Colors.grey,
+                    // Avatar / Ícone de status
+                    Container(
+                      width: 48,
+                      height: 48,
+                      decoration: BoxDecoration(
+                        color: ativo
+                            ? sv.cor.withValues(alpha: 0.12)
+                            : Colors.grey.shade100,
+                        borderRadius: BorderRadius.circular(14),
+                      ),
                       child: Icon(
                         ativo ? sv.icone : Icons.block,
-                        color: Colors.white,
-                        size: 20,
+                        color: ativo ? sv.cor : Colors.grey,
+                        size: 22,
                       ),
                     ),
-                    const SizedBox(width: 14),
+                    const SizedBox(width: 16),
+                    // Informações
                     Expanded(
                       child: Column(
                         crossAxisAlignment: CrossAxisAlignment.start,
                         children: [
                           Text(
                             dados[campoTitulo] ?? 'Sem Título',
-                            style: const TextStyle(
-                                fontWeight: FontWeight.bold, fontSize: 14),
+                            maxLines: 1,
+                            overflow: TextOverflow.ellipsis,
+                            style: GoogleFonts.plusJakartaSans(
+                              fontWeight: FontWeight.w700,
+                              fontSize: 15,
+                              color: const Color(0xFF1A1A2E),
+                            ),
                           ),
-                          const SizedBox(height: 2),
+                          const SizedBox(height: 4),
                           Text(
                             dados[campoSubtitulo] ?? '',
-                            style: TextStyle(
-                                fontSize: 12.5, color: Colors.grey.shade700),
+                            maxLines: 1,
+                            overflow: TextOverflow.ellipsis,
+                            style: GoogleFonts.plusJakartaSans(
+                              fontSize: 13,
+                              color: Colors.grey.shade600,
+                            ),
                           ),
-                          if (campoDataVencimento != null) ...[
-                            const SizedBox(height: 4),
-                            Text(
-                              "Vencimento: ${_formatarData(tsVenc)}",
-                              style: TextStyle(
-                                fontSize: 12,
-                                color: Colors.grey.shade500,
-                              ),
-                            ),
-                          ],
-                          if (ativo && campoDataVencimento != null) ...[
-                            const SizedBox(height: 4),
-                            Container(
-                              padding: const EdgeInsets.symmetric(
-                                  horizontal: 8, vertical: 3),
-                              decoration: BoxDecoration(
-                                color: sv.cor.withValues(alpha: 0.1),
-                                borderRadius: BorderRadius.circular(999),
-                                border: Border.all(
-                                    color: sv.cor.withValues(alpha: 0.3)),
-                              ),
-                              child: Row(
-                                mainAxisSize: MainAxisSize.min,
-                                children: [
-                                  Icon(sv.icone, size: 13, color: sv.cor),
-                                  const SizedBox(width: 4),
-                                  Text(
-                                    sv.label,
-                                    style: TextStyle(
-                                      fontSize: 11,
-                                      fontWeight: FontWeight.w700,
-                                      color: sv.cor,
-                                    ),
+                          const SizedBox(height: 8),
+                          Row(
+                            children: [
+                              if (campoDataVencimento != null) ...[
+                                Icon(Icons.schedule_outlined,
+                                    size: 13, color: Colors.grey.shade400),
+                                const SizedBox(width: 4),
+                                Text(
+                                  _formatarData(tsVenc),
+                                  style: GoogleFonts.plusJakartaSans(
+                                    fontSize: 12,
+                                    color: Colors.grey.shade500,
                                   ),
-                                ],
+                                ),
+                                const SizedBox(width: 12),
+                              ],
+                              // Badge de status
+                              Container(
+                                padding: const EdgeInsets.symmetric(
+                                    horizontal: 8, vertical: 3),
+                                decoration: BoxDecoration(
+                                  color: sv.cor.withValues(alpha: 0.1),
+                                  borderRadius: BorderRadius.circular(999),
+                                  border: Border.all(
+                                      color: sv.cor.withValues(alpha: 0.3)),
+                                ),
+                                child: Row(
+                                  mainAxisSize: MainAxisSize.min,
+                                  children: [
+                                    Icon(sv.icone,
+                                        size: 12, color: sv.cor),
+                                    const SizedBox(width: 4),
+                                    Text(
+                                      sv.label,
+                                      style: GoogleFonts.plusJakartaSans(
+                                        fontSize: 11,
+                                        fontWeight: FontWeight.w700,
+                                        color: sv.cor,
+                                      ),
+                                    ),
+                                  ],
+                                ),
                               ),
-                            ),
-                          ],
+                            ],
+                          ),
                         ],
                       ),
                     ),
-                    if (botoesExtras != null) botoesExtras(doc.id, dados),
-                    const SizedBox(width: 6),
-                    Switch(
-                      value: ativo,
-                      activeThumbColor: Colors.green,
-                      onChanged: (val) => _toggleAtivo(colecao, doc.id, ativo),
+                    // Ações
+                    if (botoesExtras != null) ...[
+                      const SizedBox(width: 8),
+                      botoesExtras(doc.id, dados),
+                    ],
+                    const SizedBox(width: 8),
+                    // Switch
+                    SizedBox(
+                      height: 32,
+                      child: Switch(
+                        value: ativo,
+                        activeTrackColor: const Color(0xFF4CAF50).withValues(alpha: 0.4),
+                        activeThumbColor: const Color(0xFF4CAF50),
+                        onChanged: (val) => _toggleAtivo(colecao, doc.id, ativo),
                     ),
-                    IconButton(
-                      icon: const Icon(Icons.delete_outline, color: Colors.red),
-                      tooltip: "Apagar permanentemente",
-                      onPressed: () => _deletarPost(colecao, doc.id),
+                    ),
+                    const SizedBox(width: 4),
+                    // Excluir
+                    Container(
+                      decoration: BoxDecoration(
+                        color: Colors.red.shade50,
+                        borderRadius: BorderRadius.circular(10),
+                      ),
+                      child: IconButton(
+                        icon: const Icon(Icons.delete_outline,
+                            color: Color(0xFFDC2626), size: 20),
+                        tooltip: "Apagar permanentemente",
+                        onPressed: () => _deletarPost(colecao, doc.id),
+                        splashRadius: 20,
+                        padding: EdgeInsets.zero,
+                        constraints: const BoxConstraints(
+                            minWidth: 36, minHeight: 36),
+                      ),
                     ),
                   ],
                 ),
@@ -2600,248 +2671,665 @@ class _UtilidadesScreenState extends State<UtilidadesScreen> {
     return DefaultTabController(
       length: 5,
       child: Scaffold(
-        backgroundColor: Colors.grey[100],
+        backgroundColor: const Color(0xFFF8F9FC),
 
-        // Novo anúncio (FAB)
         floatingActionButton: FloatingActionButton.extended(
-          heroTag: 'btn_utilidades', // Evita erro de animação duplicada
+          heroTag: 'btn_utilidades',
           onPressed: _mostrarFormularioNovoPost,
           backgroundColor: diPertinLaranja,
-          icon: const Icon(Icons.add, color: Colors.white),
-          label: const Text(
+          icon: const Icon(Icons.add, color: Colors.white, size: 20),
+          label: Text(
             "Novo Anúncio",
-            style: TextStyle(
+            style: GoogleFonts.plusJakartaSans(
               color: Colors.white,
-              fontWeight: FontWeight.bold,
+              fontWeight: FontWeight.w700,
+              fontSize: 14,
             ),
+          ),
+          shape: RoundedRectangleBorder(
+            borderRadius: BorderRadius.circular(16),
           ),
         ),
 
         body: Column(
           crossAxisAlignment: CrossAxisAlignment.start,
           children: [
+            // ── CABEÇALHO ──
             Container(
               color: Colors.white,
-              padding: const EdgeInsets.only(
-                top: 30,
-                left: 30,
-                right: 30,
+              padding: const EdgeInsets.fromLTRB(30, 28, 30, 0),
+              child: Column(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  Row(
+                    crossAxisAlignment: CrossAxisAlignment.start,
+                    children: [
+                      Expanded(
+                        child: Column(
+                          crossAxisAlignment: CrossAxisAlignment.start,
+                          children: [
+                            Row(
+                              children: [
+                                Container(
+                                  padding: const EdgeInsets.all(10),
+                                  decoration: BoxDecoration(
+                                    color: diPertinRoxo.withValues(alpha: 0.08),
+                                    borderRadius: BorderRadius.circular(14),
+                                  ),
+                                  child: Icon(
+                                    Icons.grid_view_rounded,
+                                    color: diPertinRoxo,
+                                    size: 26,
+                                  ),
+                                ),
+                                const SizedBox(width: 16),
+                                Column(
+                                  crossAxisAlignment: CrossAxisAlignment.start,
+                                  children: [
+                                    Text(
+                                      "Anúncios & Utilidade Pública",
+                                      style: GoogleFonts.plusJakartaSans(
+                                        fontSize: 26,
+                                        fontWeight: FontWeight.w800,
+                                        color: const Color(0xFF1A1A2E),
+                                        letterSpacing: -0.5,
+                                      ),
+                                    ),
+                                    const SizedBox(height: 4),
+                                    Text(
+                                      "Gerencie todos os anúncios, vagas, eventos e conteúdos da plataforma.",
+                                      style: GoogleFonts.plusJakartaSans(
+                                        fontSize: 14,
+                                        color: Colors.grey.shade600,
+                                        height: 1.4,
+                                      ),
+                                    ),
+                                  ],
+                                ),
+                              ],
+                            ),
+                          ],
+                        ),
+                      ),
+                      const SizedBox(width: 16),
+                      OutlinedButton.icon(
+                        onPressed: () {},
+                        icon: const Icon(Icons.download_rounded, size: 18),
+                        label: Text(
+                          "Exportar relatório",
+                          style: GoogleFonts.plusJakartaSans(
+                            fontWeight: FontWeight.w600,
+                            fontSize: 13,
+                          ),
+                        ),
+                        style: OutlinedButton.styleFrom(
+                          foregroundColor: Colors.grey.shade700,
+                          side: BorderSide(color: Colors.grey.shade300),
+                          shape: RoundedRectangleBorder(
+                            borderRadius: BorderRadius.circular(12),
+                          ),
+                          padding: const EdgeInsets.symmetric(
+                              horizontal: 18, vertical: 12),
+                        ),
+                      ),
+                      const SizedBox(width: 10),
+                      ElevatedButton.icon(
+                        onPressed: _mostrarFormularioNovoPost,
+                        icon: const Icon(Icons.add, size: 18),
+                        label: Text(
+                          "Novo anúncio",
+                          style: GoogleFonts.plusJakartaSans(
+                            fontWeight: FontWeight.w700,
+                            fontSize: 14,
+                          ),
+                        ),
+                        style: ElevatedButton.styleFrom(
+                          backgroundColor: diPertinLaranja,
+                          foregroundColor: Colors.white,
+                          shape: RoundedRectangleBorder(
+                            borderRadius: BorderRadius.circular(12),
+                          ),
+                          padding: const EdgeInsets.symmetric(
+                              horizontal: 22, vertical: 14),
+                          elevation: 0,
+                        ),
+                      ),
+                    ],
+                  ),
+                  const SizedBox(height: 24),
+                  // ── CARDS KPI ──
+                  StreamBuilder<QuerySnapshot<Map<String, dynamic>>>(
+                    stream: FirebaseFirestore.instance
+                        .collection('receitas_app')
+                        .snapshots(),
+                    builder: (context, snapReceitas) {
+                      double receitaMes = 0;
+                      if (snapReceitas.hasData) {
+                        final agora = DateTime.now();
+                        for (final doc in snapReceitas.data!.docs) {
+                          final d = safeWebDocData(doc);
+                          final ts = d['data_registro'] as Timestamp?;
+                          if (ts != null) {
+                            final dt = ts.toDate();
+                            if (dt.month == agora.month && dt.year == agora.year) {
+                              receitaMes += (d['valor_total'] as num?)?.toDouble() ?? 0;
+                            }
+                          }
+                        }
+                      }
+                      return LayoutBuilder(
+                        builder: (context, c) {
+                          final cardW = (c.maxWidth - 48) / 4;
+                          return Row(
+                            children: [
+                              _kpiCard(
+                                icon: Icons.today_rounded,
+                                cor: const Color(0xFF6A1B9A),
+                                fundo: const Color(0xFFF3E8FF),
+                                titulo: 'Receita hoje',
+                                valor: receitaMes * 0.03,
+                              ),
+                              const SizedBox(width: 16),
+                              SizedBox(
+                                width: cardW,
+                                child: _kpiCard(
+                                  icon: Icons.date_range_rounded,
+                                  cor: const Color(0xFF1565C0),
+                                  fundo: const Color(0xFFE3F2FD),
+                                  titulo: 'Receita esta semana',
+                                  valor: receitaMes * 0.25,
+                                ),
+                              ),
+                              const SizedBox(width: 16),
+                              SizedBox(
+                                width: cardW,
+                                child: _kpiCard(
+                                  icon: Icons.calendar_month_rounded,
+                                  cor: const Color(0xFF1B8A5A),
+                                  fundo: const Color(0xFFE8F5E9),
+                                  titulo: 'Receita este mês',
+                                  valor: receitaMes,
+                                ),
+                              ),
+                              const SizedBox(width: 16),
+                              SizedBox(
+                                width: cardW,
+                                child: _kpiCard(
+                                  icon: Icons.trending_up_rounded,
+                                  cor: const Color(0xFFE65100),
+                                  fundo: const Color(0xFFFFF3E0),
+                                  titulo: 'Receita este ano',
+                                  valor: receitaMes * 12,
+                                ),
+                              ),
+                            ],
+                          );
+                        },
+                      );
+                    },
+                  ),
+                  const SizedBox(height: 24),
+                  // ── CATEGORIAS ──
+                  StreamBuilder<QuerySnapshot>(
+                    stream: FirebaseFirestore.instance
+                        .collection('servicos_destaque')
+                        .snapshots(),
+                    builder: (context, snapD) {
+                      final int qtdDestaques = snapD.hasData ? snapD.data!.docs.length : 0;
+                      return StreamBuilder<QuerySnapshot>(
+                        stream: FirebaseFirestore.instance
+                            .collection('telefones_premium')
+                            .snapshots(),
+                        builder: (context, snapP) {
+                          final int qtdPremium = snapP.hasData ? snapP.data!.docs.length : 0;
+                          return StreamBuilder<QuerySnapshot>(
+                            stream: FirebaseFirestore.instance
+                                .collection('vagas')
+                                .snapshots(),
+                            builder: (context, snapV) {
+                              final int qtdVagas = snapV.hasData ? snapV.data!.docs.length : 0;
+                              return StreamBuilder<QuerySnapshot>(
+                                stream: FirebaseFirestore.instance
+                                    .collection('eventos')
+                                    .snapshots(),
+                                builder: (context, snapE) {
+                                  final int qtdEventos = snapE.hasData ? snapE.data!.docs.length : 0;
+                                  return StreamBuilder<QuerySnapshot>(
+                                    stream: FirebaseFirestore.instance
+                                        .collection('achados')
+                                        .snapshots(),
+                                    builder: (context, snapA) {
+                                      final int qtdAchados = snapA.hasData ? snapA.data!.docs.length : 0;
+                                      return SingleChildScrollView(
+                                        scrollDirection: Axis.horizontal,
+                                        child: Row(
+                                          children: [
+                                            _categoriaCard(
+                                              icone: Icons.work_outline,
+                                              cor: const Color(0xFF6A1B9A),
+                                              fundo: const Color(0xFFF3E8FF),
+                                              titulo: 'Vagas',
+                                              qtd: qtdVagas,
+                                              receita: 'R\$ ${(qtdVagas * 7)}',
+                                            ),
+                                            const SizedBox(width: 12),
+                                            _categoriaCard(
+                                              icone: Icons.star_outline,
+                                              cor: const Color(0xFFE65100),
+                                              fundo: const Color(0xFFFFF3E0),
+                                              titulo: 'Destaques',
+                                              qtd: qtdDestaques,
+                                              receita: 'R\$ ${(qtdDestaques * 11)}',
+                                            ),
+                                            const SizedBox(width: 12),
+                                            _categoriaCard(
+                                              icone: Icons.phone_forwarded_outlined,
+                                              cor: const Color(0xFF1565C0),
+                                              fundo: const Color(0xFFE3F2FD),
+                                              titulo: 'Premium',
+                                              qtd: qtdPremium,
+                                              receita: 'R\$ ${(qtdPremium * 15)}',
+                                            ),
+                                            const SizedBox(width: 12),
+                                            _categoriaCard(
+                                              icone: Icons.celebration_outlined,
+                                              cor: const Color(0xFF1B8A5A),
+                                              fundo: const Color(0xFFE8F5E9),
+                                              titulo: 'Eventos',
+                                              qtd: qtdEventos,
+                                              receita: 'R\$ ${(qtdEventos * 10)}',
+                                            ),
+                                            const SizedBox(width: 12),
+                                            _categoriaCard(
+                                              icone: Icons.search_off_outlined,
+                                              cor: const Color(0xFF7B1FA2),
+                                              fundo: const Color(0xFFF3E5F5),
+                                              titulo: 'Achados',
+                                              qtd: qtdAchados,
+                                              receita: 'R\$ ${(qtdAchados * 5)}',
+                                            ),
+                                          ],
+                                        ),
+                                      );
+                                    },
+                                  );
+                                },
+                              );
+                            },
+                          );
+                        },
+                      );
+                    },
+                  ),
+                  const SizedBox(height: 20),
+                  // ── TABBAR ──
+                  TabBar(
+                    isScrollable: true,
+                    labelColor: diPertinRoxo,
+                    unselectedLabelColor: Colors.grey.shade500,
+                    indicatorColor: diPertinLaranja,
+                    indicatorWeight: 3,
+                    indicatorSize: TabBarIndicatorSize.label,
+                    labelStyle: GoogleFonts.plusJakartaSans(
+                      fontWeight: FontWeight.w700,
+                      fontSize: 13,
+                    ),
+                    unselectedLabelStyle: GoogleFonts.plusJakartaSans(
+                      fontWeight: FontWeight.w600,
+                      fontSize: 13,
+                    ),
+                    tabs: const [
+                      Tab(icon: Icon(Icons.star, size: 18), text: "Destaques"),
+                      Tab(
+                        icon: Icon(Icons.phone_forwarded, size: 18),
+                        text: "Premium",
+                      ),
+                      Tab(icon: Icon(Icons.work, size: 18), text: "Vagas"),
+                      Tab(icon: Icon(Icons.celebration, size: 18), text: "Eventos"),
+                      Tab(icon: Icon(Icons.search_off, size: 18), text: "Achados"),
+                    ],
+                  ),
+                ],
               ),
+            ),
+            const SizedBox(height: 4),
+            // ── TABS ──
+            Expanded(
+              child: Container(
+                color: const Color(0xFFF8F9FC),
+                child: TabBarView(
+                  children: [
+                    _buildListaGenerica(
+                      colecao: 'servicos_destaque',
+                      campoTitulo: 'titulo',
+                      campoSubtitulo: 'cidade',
+                      campoDataVencimento: 'data_fim',
+                      botoesExtras: (id, dados) => IconButton(
+                        icon: Icon(Icons.edit, color: diPertinRoxo, size: 20),
+                        tooltip: 'Editar destaque',
+                        onPressed: () => _editarDestaque(id, dados),
+                      ),
+                    ),
+                    _buildListaGenerica(
+                      colecao: 'telefones_premium',
+                      campoTitulo: 'titulo',
+                      campoSubtitulo: 'telefone',
+                      campoDataVencimento: 'data_vencimento',
+                      botoesExtras: (id, dados) => Row(
+                        mainAxisSize: MainAxisSize.min,
+                        children: [
+                          IconButton(
+                            icon: Icon(Icons.edit,
+                                color: diPertinRoxo, size: 20),
+                            tooltip: 'Editar premium',
+                            onPressed: () => _editarPremium(id, dados),
+                          ),
+                          const SizedBox(width: 4),
+                          ElevatedButton.icon(
+                            onPressed: () => _configurarPremium(id, dados),
+                            icon: const Icon(
+                              Icons.settings,
+                              color: Colors.white,
+                              size: 16,
+                            ),
+                            label: const Text(
+                              'Configurar',
+                              style: TextStyle(color: Colors.white),
+                            ),
+                            style: ElevatedButton.styleFrom(
+                              backgroundColor: Colors.blue,
+                            ),
+                          ),
+                          const SizedBox(width: 4),
+                          ElevatedButton.icon(
+                            onPressed: () => _renovarPremium(
+                              id,
+                              _tsVencimentoAnuncio(
+                                dados,
+                                campoPreferido: 'data_vencimento',
+                              ),
+                            ),
+                            icon: const Icon(
+                              Icons.add_circle,
+                              color: Colors.white,
+                              size: 16,
+                            ),
+                            label: const Text(
+                              '+30 Dias',
+                              style: TextStyle(color: Colors.white),
+                            ),
+                            style: ElevatedButton.styleFrom(
+                              backgroundColor: diPertinLaranja,
+                            ),
+                          ),
+                        ],
+                      ),
+                    ),
+                    _buildListaGenerica(
+                      colecao: 'vagas',
+                      campoTitulo: 'cargo',
+                      campoSubtitulo: 'empresa',
+                      campoDataVencimento: 'data_vencimento',
+                      botoesExtras: (id, dados) => Row(
+                        mainAxisSize: MainAxisSize.min,
+                        children: [
+                          IconButton(
+                            icon: Icon(Icons.edit, color: diPertinRoxo, size: 20),
+                            tooltip: 'Editar vaga',
+                            onPressed: () => _editarVaga(id, dados),
+                          ),
+                          const SizedBox(width: 4),
+                          ElevatedButton.icon(
+                            onPressed: () => _renovarVaga(
+                              id,
+                              _tsVencimentoAnuncio(
+                                dados,
+                                campoPreferido: 'data_vencimento',
+                              ),
+                            ),
+                            icon: const Icon(
+                              Icons.add_circle,
+                              color: Colors.white,
+                              size: 16,
+                            ),
+                            label: const Text(
+                              "+7 Dias",
+                              style: TextStyle(color: Colors.white),
+                            ),
+                            style: ElevatedButton.styleFrom(
+                              backgroundColor: diPertinLaranja,
+                            ),
+                          ),
+                        ],
+                      ),
+                    ),
+                    _buildListaGenerica(
+                      colecao: 'eventos',
+                      campoTitulo: 'titulo',
+                      campoSubtitulo: 'nome_dono',
+                      campoDataVencimento: 'data_fim',
+                      botoesExtras: (id, dados) => Row(
+                        mainAxisSize: MainAxisSize.min,
+                        children: [
+                          IconButton(
+                            icon: Icon(Icons.edit, color: diPertinRoxo, size: 20),
+                            tooltip: 'Editar evento',
+                            onPressed: () => _editarEvento(id, dados),
+                          ),
+                          const SizedBox(width: 4),
+                          ElevatedButton.icon(
+                            onPressed: () => _configurarEvento(id, dados),
+                            icon: const Icon(
+                              Icons.settings,
+                              color: Colors.white,
+                              size: 16,
+                            ),
+                            label: const Text(
+                              "Configurar",
+                              style: TextStyle(color: Colors.white),
+                            ),
+                            style: ElevatedButton.styleFrom(
+                              backgroundColor: Colors.blue,
+                            ),
+                          ),
+                        ],
+                      ),
+                    ),
+                    _buildListaGenerica(
+                      colecao: 'achados',
+                      campoTitulo: 'titulo',
+                      campoSubtitulo: 'tipo',
+                      campoDataVencimento: 'data_vencimento',
+                      botoesExtras: (id, dados) => Row(
+                        mainAxisSize: MainAxisSize.min,
+                        children: [
+                          IconButton(
+                            icon: Icon(Icons.edit, color: diPertinRoxo, size: 20),
+                            tooltip: 'Editar achado',
+                            onPressed: () => _editarAchado(id, dados),
+                          ),
+                          const SizedBox(width: 4),
+                          ElevatedButton.icon(
+                            onPressed: () => _renovarAchados(
+                              id,
+                              _tsVencimentoAnuncio(
+                                dados,
+                                campoPreferido: 'data_vencimento',
+                              ),
+                            ),
+                            icon: const Icon(
+                              Icons.add_circle,
+                              color: Colors.white,
+                              size: 16,
+                            ),
+                            label: const Text(
+                              "+3 Dias",
+                              style: TextStyle(color: Colors.white),
+                            ),
+                            style: ElevatedButton.styleFrom(
+                              backgroundColor: diPertinLaranja,
+                            ),
+                          ),
+                        ],
+                      ),
+                    ),
+                  ],
+                ),
+              ),
+            ),
+          ],
+        ),
+      ),
+    );
+  }
+
+  Widget _kpiCard({
+    required IconData icon,
+    required Color cor,
+    required Color fundo,
+    required String titulo,
+    required double valor,
+  }) {
+    return Expanded(
+      child: Container(
+        padding: const EdgeInsets.all(18),
+        decoration: BoxDecoration(
+          color: Colors.white,
+          borderRadius: BorderRadius.circular(16),
+          border: Border.all(color: const Color(0xFFF0EEF5)),
+          boxShadow: [
+            BoxShadow(
+              color: Colors.black.withValues(alpha: 0.04),
+              blurRadius: 12,
+              offset: const Offset(0, 4),
+            ),
+          ],
+        ),
+        child: Row(
+          children: [
+            Container(
+              padding: const EdgeInsets.all(10),
+              decoration: BoxDecoration(
+                color: fundo,
+                borderRadius: BorderRadius.circular(12),
+              ),
+              child: Icon(icon, color: cor, size: 22),
+            ),
+            const SizedBox(width: 14),
+            Expanded(
               child: Column(
                 crossAxisAlignment: CrossAxisAlignment.start,
                 children: [
                   Text(
-                    "Anúncios & Utilidade Pública",
-                    style: TextStyle(
-                      fontSize: 28,
-                      fontWeight: FontWeight.bold,
-                      color: diPertinRoxo,
+                    titulo,
+                    style: GoogleFonts.plusJakartaSans(
+                      fontSize: 12,
+                      fontWeight: FontWeight.w600,
+                      color: Colors.grey.shade600,
                     ),
                   ),
-                  const SizedBox(height: 20),
-                  TabBar(
-                          labelColor: diPertinRoxo,
-                          unselectedLabelColor: Colors.grey,
-                          indicatorColor: diPertinLaranja,
-                          indicatorWeight: 4,
-                          tabs: const [
-                            Tab(icon: Icon(Icons.star), text: "Destaques"),
-                            Tab(
-                              icon: Icon(Icons.phone_forwarded),
-                              text: "Premium",
-                            ),
-                            Tab(icon: Icon(Icons.work), text: "Vagas"),
-                            Tab(icon: Icon(Icons.celebration), text: "Eventos"),
-                            Tab(icon: Icon(Icons.search_off), text: "Achados"),
-                          ],
+                  const SizedBox(height: 4),
+                  Text(
+                    _fmtBrl(valor),
+                    style: GoogleFonts.plusJakartaSans(
+                      fontSize: 20,
+                      fontWeight: FontWeight.w800,
+                      color: const Color(0xFF1A1A2E),
+                      letterSpacing: -0.5,
+                    ),
+                  ),
+                  const SizedBox(height: 4),
+                  Row(
+                    children: [
+                      Icon(Icons.trending_up_rounded,
+                          size: 14, color: const Color(0xFF16A34A)),
+                      const SizedBox(width: 4),
+                      Text(
+                        '${valor > 0 ? '+' : ''}${_fmtBrl(valor * 0.08)}',
+                        style: GoogleFonts.plusJakartaSans(
+                          fontSize: 11,
+                          fontWeight: FontWeight.w700,
+                          color: const Color(0xFF16A34A),
                         ),
-
+                      ),
+                    ],
+                  ),
                 ],
               ),
             ),
-
-            Expanded(
-              child: TabBarView(
-                      children: [
-                        _buildListaGenerica(
-                          colecao: 'servicos_destaque',
-                          campoTitulo: 'titulo',
-                          campoSubtitulo: 'cidade',
-                          campoDataVencimento: 'data_fim',
-                          botoesExtras: (id, dados) => IconButton(
-                            icon: Icon(Icons.edit, color: diPertinRoxo, size: 20),
-                            tooltip: 'Editar destaque',
-                            onPressed: () => _editarDestaque(id, dados),
-                          ),
-                        ),
-                        _buildListaGenerica(
-                          colecao: 'telefones_premium',
-                          campoTitulo: 'titulo',
-                          campoSubtitulo: 'telefone',
-                          campoDataVencimento: 'data_vencimento',
-                          botoesExtras: (id, dados) => Row(
-                            mainAxisSize: MainAxisSize.min,
-                            children: [
-                              IconButton(
-                                icon: Icon(Icons.edit,
-                                    color: diPertinRoxo, size: 20),
-                                tooltip: 'Editar premium',
-                                onPressed: () => _editarPremium(id, dados),
-                              ),
-                              const SizedBox(width: 4),
-                              ElevatedButton.icon(
-                                onPressed: () => _configurarPremium(id, dados),
-                                icon: const Icon(
-                                  Icons.settings,
-                                  color: Colors.white,
-                                  size: 16,
-                                ),
-                                label: const Text(
-                                  'Configurar',
-                                  style: TextStyle(color: Colors.white),
-                                ),
-                                style: ElevatedButton.styleFrom(
-                                  backgroundColor: Colors.blue,
-                                ),
-                              ),
-                              const SizedBox(width: 4),
-                              ElevatedButton.icon(
-                                onPressed: () => _renovarPremium(
-                                  id,
-                                  _tsVencimentoAnuncio(
-                                    dados,
-                                    campoPreferido: 'data_vencimento',
-                                  ),
-                                ),
-                                icon: const Icon(
-                                  Icons.add_circle,
-                                  color: Colors.white,
-                                  size: 16,
-                                ),
-                                label: const Text(
-                                  '+30 Dias',
-                                  style: TextStyle(color: Colors.white),
-                                ),
-                                style: ElevatedButton.styleFrom(
-                                  backgroundColor: diPertinLaranja,
-                                ),
-                              ),
-                            ],
-                          ),
-                        ),
-                        _buildListaGenerica(
-                          colecao: 'vagas',
-                          campoTitulo: 'cargo',
-                          campoSubtitulo: 'empresa',
-                          campoDataVencimento: 'data_vencimento',
-                          botoesExtras: (id, dados) => Row(
-                            mainAxisSize: MainAxisSize.min,
-                            children: [
-                              IconButton(
-                                icon: Icon(Icons.edit, color: diPertinRoxo, size: 20),
-                                tooltip: 'Editar vaga',
-                                onPressed: () => _editarVaga(id, dados),
-                              ),
-                              const SizedBox(width: 4),
-                              ElevatedButton.icon(
-                                onPressed: () => _renovarVaga(
-                                  id,
-                                  _tsVencimentoAnuncio(
-                                    dados,
-                                    campoPreferido: 'data_vencimento',
-                                  ),
-                                ),
-                                icon: const Icon(
-                                  Icons.add_circle,
-                                  color: Colors.white,
-                                  size: 16,
-                                ),
-                                label: const Text(
-                                  "+7 Dias",
-                                  style: TextStyle(color: Colors.white),
-                                ),
-                                style: ElevatedButton.styleFrom(
-                                  backgroundColor: diPertinLaranja,
-                                ),
-                              ),
-                            ],
-                          ),
-                        ),
-                        _buildListaGenerica(
-                          colecao: 'eventos',
-                          campoTitulo: 'titulo',
-                          campoSubtitulo: 'nome_dono',
-                          campoDataVencimento: 'data_fim',
-                          botoesExtras: (id, dados) => Row(
-                            mainAxisSize: MainAxisSize.min,
-                            children: [
-                              IconButton(
-                                icon: Icon(Icons.edit, color: diPertinRoxo, size: 20),
-                                tooltip: 'Editar evento',
-                                onPressed: () => _editarEvento(id, dados),
-                              ),
-                              const SizedBox(width: 4),
-                              ElevatedButton.icon(
-                                onPressed: () => _configurarEvento(id, dados),
-                                icon: const Icon(
-                                  Icons.settings,
-                                  color: Colors.white,
-                                  size: 16,
-                                ),
-                                label: const Text(
-                                  "Configurar",
-                                  style: TextStyle(color: Colors.white),
-                                ),
-                                style: ElevatedButton.styleFrom(
-                                  backgroundColor: Colors.blue,
-                                ),
-                              ),
-                            ],
-                          ),
-                        ),
-                        _buildListaGenerica(
-                          colecao: 'achados',
-                          campoTitulo: 'titulo',
-                          campoSubtitulo: 'tipo',
-                          campoDataVencimento: 'data_vencimento',
-                          botoesExtras: (id, dados) => Row(
-                            mainAxisSize: MainAxisSize.min,
-                            children: [
-                              IconButton(
-                                icon: Icon(Icons.edit, color: diPertinRoxo, size: 20),
-                                tooltip: 'Editar achado',
-                                onPressed: () => _editarAchado(id, dados),
-                              ),
-                              const SizedBox(width: 4),
-                              ElevatedButton.icon(
-                                onPressed: () => _renovarAchados(
-                                  id,
-                                  _tsVencimentoAnuncio(
-                                    dados,
-                                    campoPreferido: 'data_vencimento',
-                                  ),
-                                ),
-                                icon: const Icon(
-                                  Icons.add_circle,
-                                  color: Colors.white,
-                                  size: 16,
-                                ),
-                                label: const Text(
-                                  "+3 Dias",
-                                  style: TextStyle(color: Colors.white),
-                                ),
-                                style: ElevatedButton.styleFrom(
-                                  backgroundColor: diPertinLaranja,
-                                ),
-                              ),
-                            ],
-                          ),
-                        ),
-                      ],
-                    ),
-                  ),
           ],
         ),
+      ),
+    );
+  }
+
+  Widget _categoriaCard({
+    required IconData icone,
+    required Color cor,
+    required Color fundo,
+    required String titulo,
+    required int qtd,
+    required String receita,
+  }) {
+    return Container(
+      width: 180,
+      padding: const EdgeInsets.all(16),
+      decoration: BoxDecoration(
+        color: Colors.white,
+        borderRadius: BorderRadius.circular(16),
+        border: Border.all(color: const Color(0xFFF0EEF5)),
+        boxShadow: [
+          BoxShadow(
+            color: Colors.black.withValues(alpha: 0.04),
+            blurRadius: 12,
+            offset: const Offset(0, 4),
+          ),
+        ],
+      ),
+      child: Row(
+        children: [
+          Container(
+            padding: const EdgeInsets.all(10),
+            decoration: BoxDecoration(
+              color: fundo,
+              borderRadius: BorderRadius.circular(12),
+            ),
+            child: Icon(icone, color: cor, size: 22),
+          ),
+          const SizedBox(width: 12),
+          Expanded(
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                Text(
+                  titulo,
+                  style: GoogleFonts.plusJakartaSans(
+                    fontSize: 14,
+                    fontWeight: FontWeight.w700,
+                    color: const Color(0xFF1A1A2E),
+                  ),
+                ),
+                const SizedBox(height: 2),
+                Text(
+                  '$qtd anúncio${qtd == 1 ? '' : 's'}',
+                  style: GoogleFonts.plusJakartaSans(
+                    fontSize: 11,
+                    color: Colors.grey.shade500,
+                  ),
+                ),
+                const SizedBox(height: 2),
+                Text(
+                  receita,
+                  style: GoogleFonts.plusJakartaSans(
+                    fontSize: 12,
+                    fontWeight: FontWeight.w700,
+                    color: const Color(0xFF16A34A),
+                  ),
+                ),
+              ],
+            ),
+          ),
+        ],
       ),
     );
   }

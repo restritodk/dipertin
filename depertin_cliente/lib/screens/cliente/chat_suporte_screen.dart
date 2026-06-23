@@ -147,7 +147,7 @@ class _ChatSuporteScreenState extends State<ChatSuporteScreen> {
       isScrollControlled: true,
       backgroundColor: Colors.white,
       shape: const RoundedRectangleBorder(
-        borderRadius: BorderRadius.vertical(top: Radius.circular(18)),
+        borderRadius: BorderRadius.vertical(top: Radius.circular(22)),
       ),
       builder: (ctx) {
         return DraggableScrollableSheet(
@@ -160,31 +160,39 @@ class _ChatSuporteScreenState extends State<ChatSuporteScreen> {
               children: [
                 const SizedBox(height: 10),
                 Container(
-                  width: 44,
+                  width: 40,
                   height: 4,
                   decoration: BoxDecoration(
                     color: Colors.grey[300],
                     borderRadius: BorderRadius.circular(4),
                   ),
                 ),
-                const Padding(
-                  padding: EdgeInsets.fromLTRB(16, 14, 16, 8),
+                Padding(
+                  padding: const EdgeInsets.fromLTRB(20, 16, 20, 10),
                   child: Row(
                     children: [
-                      Icon(Icons.history, color: diPertinRoxo, size: 20),
-                      SizedBox(width: 8),
-                      Text(
+                      Container(
+                        padding: const EdgeInsets.all(8),
+                        decoration: BoxDecoration(
+                          color: diPertinRoxo.withValues(alpha: 0.08),
+                          borderRadius: BorderRadius.circular(10),
+                        ),
+                        child: const Icon(Icons.history_rounded,
+                            color: diPertinRoxo, size: 20),
+                      ),
+                      const SizedBox(width: 12),
+                      const Text(
                         'Histórico de atendimentos',
                         style: TextStyle(
                           fontWeight: FontWeight.w700,
-                          fontSize: 15,
-                          color: diPertinRoxo,
+                          fontSize: 17,
+                          color: Color(0xFF1A1A2E),
                         ),
                       ),
                     ],
                   ),
                 ),
-                const Divider(height: 1),
+                const Divider(height: 1, thickness: 0.5),
                 Expanded(
                   child: StreamBuilder<QuerySnapshot<Map<String, dynamic>>>(
                     stream: _svc.streamHistoricoUsuario(),
@@ -211,8 +219,9 @@ class _ChatSuporteScreenState extends State<ChatSuporteScreen> {
                       }
                       return ListView.separated(
                         controller: scrollController,
+                        padding: const EdgeInsets.symmetric(horizontal: 8),
                         itemCount: docs.length,
-                        separatorBuilder: (_, __) => const Divider(height: 1),
+                        separatorBuilder: (_, __) => const SizedBox(height: 2),
                         itemBuilder: (context, i) {
                           final d = docs[i];
                           final x = d.data();
@@ -220,34 +229,63 @@ class _ChatSuporteScreenState extends State<ChatSuporteScreen> {
                               .toString()
                               .padLeft(8, '0');
                           final s = x['status']?.toString() ?? '';
-                          return ListTile(
-                            leading: Icon(
-                              _iconeStatus(s),
-                              color: _corStatus(s),
-                              size: 22,
+                          return Container(
+                            margin: const EdgeInsets.symmetric(vertical: 2),
+                            decoration: BoxDecoration(
+                              borderRadius: BorderRadius.circular(12),
                             ),
-                            title: Text(
-                              'Protocolo $p',
-                              style: const TextStyle(
-                                fontWeight: FontWeight.w600,
-                                fontSize: 14,
+                            child: ListTile(
+                              contentPadding: const EdgeInsets.symmetric(
+                                horizontal: 12,
+                                vertical: 4,
                               ),
-                            ),
-                            subtitle: Text(
-                              _labelStatus(s),
-                              style: TextStyle(
-                                fontSize: 12,
-                                color: Colors.grey[700],
+                              leading: Container(
+                                padding: const EdgeInsets.all(8),
+                                decoration: BoxDecoration(
+                                  color: _corStatus(s).withValues(alpha: 0.1),
+                                  borderRadius: BorderRadius.circular(10),
+                                ),
+                                child: Icon(
+                                  _iconeStatus(s),
+                                  color: _corStatus(s),
+                                  size: 20,
+                                ),
                               ),
+                              title: Text(
+                                'Protocolo $p',
+                                style: const TextStyle(
+                                  fontWeight: FontWeight.w600,
+                                  fontSize: 14,
+                                  color: Color(0xFF1A1A2E),
+                                ),
+                              ),
+                              subtitle: Text(
+                                _labelStatus(s),
+                                style: TextStyle(
+                                  fontSize: 12,
+                                  color: Colors.grey[600],
+                                ),
+                              ),
+                              trailing: Container(
+                                padding: const EdgeInsets.all(4),
+                                decoration: BoxDecoration(
+                                  color: Colors.grey[100],
+                                  borderRadius: BorderRadius.circular(8),
+                                ),
+                                child: const Icon(
+                                  Icons.chevron_right_rounded,
+                                  size: 18,
+                                  color: Colors.black38,
+                                ),
+                              ),
+                              shape: RoundedRectangleBorder(
+                                borderRadius: BorderRadius.circular(12),
+                              ),
+                              onTap: () {
+                                Navigator.pop(ctx);
+                                _abrirConversaHistorico(context, d.id);
+                              },
                             ),
-                            trailing: const Icon(
-                              Icons.chevron_right,
-                              size: 20,
-                            ),
-                            onTap: () {
-                              Navigator.pop(ctx);
-                              _abrirConversaHistorico(context, d.id);
-                            },
                           );
                         },
                       );
@@ -345,48 +383,81 @@ class _ChatSuporteScreenState extends State<ChatSuporteScreen> {
     final escolha = await showModalBottomSheet<String>(
       context: context,
       shape: const RoundedRectangleBorder(
-        borderRadius: BorderRadius.vertical(top: Radius.circular(18)),
+        borderRadius: BorderRadius.vertical(top: Radius.circular(22)),
       ),
+      backgroundColor: Colors.white,
       builder: (ctx) => SafeArea(
-        child: Column(
-          mainAxisSize: MainAxisSize.min,
-          children: [
-            const SizedBox(height: 8),
-            Container(
-              width: 44,
-              height: 4,
-              decoration: BoxDecoration(
-                color: Colors.grey[300],
-                borderRadius: BorderRadius.circular(4),
+        child: Padding(
+          padding: const EdgeInsets.only(bottom: 12),
+          child: Column(
+            mainAxisSize: MainAxisSize.min,
+            children: [
+              const SizedBox(height: 10),
+              Container(
+                width: 40,
+                height: 4,
+                decoration: BoxDecoration(
+                  color: Colors.grey[300],
+                  borderRadius: BorderRadius.circular(4),
+                ),
               ),
-            ),
-            const SizedBox(height: 8),
-            const Padding(
-              padding: EdgeInsets.symmetric(vertical: 12),
-              child: Text(
-                'Enviar anexo',
-                style: TextStyle(fontSize: 16, fontWeight: FontWeight.w700),
+              const SizedBox(height: 8),
+              Padding(
+                padding: const EdgeInsets.symmetric(
+                  horizontal: 20,
+                  vertical: 14,
+                ),
+                child: Row(
+                  children: [
+                    Container(
+                      padding: const EdgeInsets.all(8),
+                      decoration: BoxDecoration(
+                        color: diPertinRoxo.withValues(alpha: 0.08),
+                        borderRadius: BorderRadius.circular(10),
+                      ),
+                      child: const Icon(
+                        Icons.attach_file_rounded,
+                        color: diPertinRoxo,
+                        size: 20,
+                      ),
+                    ),
+                    const SizedBox(width: 12),
+                    const Text(
+                      'Enviar anexo',
+                      style: TextStyle(
+                        fontSize: 17,
+                        fontWeight: FontWeight.w700,
+                        color: Color(0xFF1A1A2E),
+                      ),
+                    ),
+                  ],
+                ),
               ),
-            ),
-            ListTile(
-              leading: const Icon(Icons.photo_camera_outlined,
-                  color: diPertinRoxo),
-              title: const Text('Tirar foto'),
-              onTap: () => Navigator.pop(ctx, 'camera'),
-            ),
-            ListTile(
-              leading: const Icon(Icons.photo_library_outlined,
-                  color: diPertinRoxo),
-              title: const Text('Galeria de fotos'),
-              onTap: () => Navigator.pop(ctx, 'galeria'),
-            ),
-            ListTile(
-              leading: const Icon(Icons.attach_file, color: diPertinRoxo),
-              title: const Text('Arquivo (PDF, doc, etc.)'),
-              onTap: () => Navigator.pop(ctx, 'arquivo'),
-            ),
-            const SizedBox(height: 8),
-          ],
+              const Divider(height: 1, thickness: 0.5),
+              const SizedBox(height: 4),
+              _anexoOpcao(
+                ctx: ctx,
+                icone: Icons.photo_camera_outlined,
+                titulo: 'Tirar foto',
+                subtitulo: 'Use a câmera do celular',
+                valor: 'camera',
+              ),
+              _anexoOpcao(
+                ctx: ctx,
+                icone: Icons.photo_library_outlined,
+                titulo: 'Galeria de fotos',
+                subtitulo: 'Escolha uma imagem salva',
+                valor: 'galeria',
+              ),
+              _anexoOpcao(
+                ctx: ctx,
+                icone: Icons.insert_drive_file_outlined,
+                titulo: 'Arquivo',
+                subtitulo: 'PDF, DOC, planilhas e mais',
+                valor: 'arquivo',
+              ),
+            ],
+          ),
         ),
       ),
     );
@@ -489,14 +560,16 @@ class _ChatSuporteScreenState extends State<ChatSuporteScreen> {
   Widget _construirConteudoMensagem(
     Map<String, dynamic> msg,
     String texto,
+    bool ehCliente,
   ) {
+    final corTexto = ehCliente ? Colors.white : const Color(0xFF1A1A2E);
     final url = (msg['anexo_url'] ?? '').toString();
     if (url.isEmpty) {
       return Padding(
         padding: const EdgeInsets.symmetric(horizontal: 5, vertical: 2),
         child: Text(
           texto,
-          style: const TextStyle(color: Colors.white, fontSize: 15),
+          style: TextStyle(color: corTexto, fontSize: 15),
         ),
       );
     }
@@ -505,6 +578,12 @@ class _ChatSuporteScreenState extends State<ChatSuporteScreen> {
     final tamanho = (msg['anexo_tamanho'] is num)
         ? (msg['anexo_tamanho'] as num).toInt()
         : 0;
+
+    final anexoCorFundo = ehCliente
+        ? Colors.white.withValues(alpha: 0.18)
+        : diPertinRoxo.withValues(alpha: 0.06);
+    final anexoIconCor = ehCliente ? Colors.white : diPertinRoxo;
+    final anexoTextSecundario = ehCliente ? Colors.white70 : Colors.grey.shade600;
 
     Widget anexoWidget;
     if (tipo == 'image') {
@@ -554,14 +633,14 @@ class _ChatSuporteScreenState extends State<ChatSuporteScreen> {
         child: Container(
           padding: const EdgeInsets.all(10),
           decoration: BoxDecoration(
-            color: Colors.white.withValues(alpha: 0.18),
+            color: anexoCorFundo,
             borderRadius: BorderRadius.circular(10),
           ),
           child: Row(
             mainAxisSize: MainAxisSize.min,
             children: [
-              const Icon(Icons.insert_drive_file_outlined,
-                  color: Colors.white, size: 30),
+              Icon(Icons.insert_drive_file_outlined,
+                  color: anexoIconCor, size: 30),
               const SizedBox(width: 10),
               Flexible(
                 child: Column(
@@ -572,8 +651,8 @@ class _ChatSuporteScreenState extends State<ChatSuporteScreen> {
                       nome,
                       maxLines: 2,
                       overflow: TextOverflow.ellipsis,
-                      style: const TextStyle(
-                        color: Colors.white,
+                      style: TextStyle(
+                        color: corTexto,
                         fontWeight: FontWeight.w600,
                       ),
                     ),
@@ -582,8 +661,8 @@ class _ChatSuporteScreenState extends State<ChatSuporteScreen> {
                       tamanho > 0
                           ? '${_formatarTamanho(tamanho)} • toque para abrir'
                           : 'Toque para abrir',
-                      style: const TextStyle(
-                        color: Colors.white70,
+                      style: TextStyle(
+                        color: anexoTextSecundario,
                         fontSize: 11,
                       ),
                     ),
@@ -607,7 +686,7 @@ class _ChatSuporteScreenState extends State<ChatSuporteScreen> {
             padding: const EdgeInsets.symmetric(horizontal: 4),
             child: Text(
               texto,
-              style: const TextStyle(color: Colors.white, fontSize: 15),
+              style: TextStyle(color: corTexto, fontSize: 15),
             ),
           ),
         ],
@@ -704,31 +783,64 @@ class _ChatSuporteScreenState extends State<ChatSuporteScreen> {
     final user = FirebaseAuth.instance.currentUser;
 
     return Scaffold(
-      backgroundColor: Colors.grey[200],
+      backgroundColor: const Color(0xFFF5F5F7),
       appBar: AppBar(
         title: const Row(
           children: [
             Icon(Icons.support_agent, color: Colors.white, size: 24),
             SizedBox(width: 10),
             Expanded(
-              child: Text(
-                'Central de Ajuda',
-                style: TextStyle(
-                  color: Colors.white,
-                  fontWeight: FontWeight.bold,
-                  fontSize: 18,
-                ),
+              child: Column(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  Text(
+                    'Central de Ajuda',
+                    style: TextStyle(
+                      color: Colors.white,
+                      fontWeight: FontWeight.bold,
+                      fontSize: 18,
+                    ),
+                  ),
+                  Text(
+                    'Atendimento ao cliente',
+                    style: TextStyle(
+                      color: Colors.white70,
+                      fontSize: 11,
+                      fontWeight: FontWeight.w400,
+                    ),
+                  ),
+                ],
               ),
             ),
           ],
         ),
-        backgroundColor: diPertinRoxo,
+        flexibleSpace: Container(
+          decoration: const BoxDecoration(
+            gradient: LinearGradient(
+              begin: Alignment.topLeft,
+              end: Alignment.bottomRight,
+              colors: [
+                Color(0xFF7B1FA2),
+                Color(0xFF6A1B9A),
+                Color(0xFF4A148C),
+              ],
+            ),
+          ),
+        ),
         iconTheme: const IconThemeData(color: Colors.white),
+        elevation: 0,
         actions: [
           if (user != null)
             IconButton(
               tooltip: 'Histórico de atendimentos',
-              icon: const Icon(Icons.history, color: Colors.white),
+              icon: Container(
+                padding: const EdgeInsets.all(6),
+                decoration: BoxDecoration(
+                  color: Colors.white.withValues(alpha: 0.15),
+                  borderRadius: BorderRadius.circular(10),
+                ),
+                child: const Icon(Icons.history, color: Colors.white, size: 20),
+              ),
               onPressed: _abrirHistoricoChamados,
             ),
         ],
@@ -865,88 +977,177 @@ class _ChatSuporteScreenState extends State<ChatSuporteScreen> {
     final texto = msg['mensagem']?.toString() ?? '';
     final suporteAuto = msg['suporte_auto'] == true;
 
+    final createdAt = msg['created_at'];
+    String horario = '';
+    if (createdAt is Timestamp) {
+      final dt = createdAt.toDate();
+      horario = '${dt.hour.toString().padLeft(2, '0')}:${dt.minute.toString().padLeft(2, '0')}';
+    }
+
     if (tipo == 'system') {
-      return Center(
-        child: Container(
-          margin: const EdgeInsets.symmetric(vertical: 12),
-          padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 8),
-          decoration: BoxDecoration(
-            color: Colors.grey[300],
-            borderRadius: BorderRadius.circular(10),
-          ),
-          child: Text(
-            texto,
-            textAlign: TextAlign.center,
-            style: const TextStyle(
-              fontSize: 12,
-              fontWeight: FontWeight.w600,
-              color: Colors.black54,
+      return Padding(
+        padding: const EdgeInsets.symmetric(vertical: 10, horizontal: 24),
+        child: Row(
+          children: [
+            Expanded(
+              child: Container(
+                height: 1,
+                color: Colors.grey.shade200,
+              ),
             ),
-          ),
+            const SizedBox(width: 12),
+            Container(
+              padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 7),
+              decoration: BoxDecoration(
+                color: Colors.white,
+                borderRadius: BorderRadius.circular(20),
+                border: Border.all(color: Colors.grey.shade200),
+                boxShadow: [
+                  BoxShadow(
+                    color: Colors.black.withValues(alpha: 0.03),
+                    blurRadius: 4,
+                    offset: const Offset(0, 1),
+                  ),
+                ],
+              ),
+              child: Row(
+                mainAxisSize: MainAxisSize.min,
+                children: [
+                  Icon(
+                    Icons.info_outline_rounded,
+                    size: 14,
+                    color: Colors.grey.shade500,
+                  ),
+                  const SizedBox(width: 6),
+                  Text(
+                    texto,
+                    style: TextStyle(
+                      fontSize: 11.5,
+                      fontWeight: FontWeight.w600,
+                      color: Colors.grey.shade700,
+                    ),
+                  ),
+                ],
+              ),
+            ),
+            const SizedBox(width: 12),
+            Expanded(
+              child: Container(
+                height: 1,
+                color: Colors.grey.shade200,
+              ),
+            ),
+          ],
         ),
       );
     }
 
-    // Cliente normal → direita (roxo). Atendente ou saudação automática do
-    // suporte → esquerda (laranja).
     final ehCliente = tipo == 'client' && !suporteAuto;
-    return Align(
-      alignment: ehCliente ? Alignment.centerRight : Alignment.centerLeft,
-      child: Container(
-        margin: const EdgeInsets.only(bottom: 10),
-        padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 8),
-        constraints: BoxConstraints(
-          maxWidth: MediaQuery.of(context).size.width * 0.8,
-        ),
-        decoration: BoxDecoration(
-          color: ehCliente ? diPertinRoxo : diPertinLaranja,
-          borderRadius: BorderRadius.only(
-            topLeft: const Radius.circular(15),
-            topRight: const Radius.circular(15),
-            bottomLeft: ehCliente
-                ? const Radius.circular(15)
-                : const Radius.circular(0),
-            bottomRight: ehCliente
-                ? const Radius.circular(0)
-                : const Radius.circular(15),
-          ),
-        ),
-        child: Column(
-          crossAxisAlignment: CrossAxisAlignment.start,
-          mainAxisSize: MainAxisSize.min,
-          children: [
-            if (suporteAuto)
-              Padding(
-                padding: const EdgeInsets.only(
-                  left: 4,
-                  right: 4,
-                  top: 2,
-                  bottom: 4,
-                ),
-                child: Row(
-                  mainAxisSize: MainAxisSize.min,
-                  children: const [
-                    Icon(
-                      Icons.support_agent,
-                      size: 14,
-                      color: Colors.white,
+
+    return Padding(
+      padding: EdgeInsets.only(
+        left: ehCliente ? 48 : 14,
+        right: ehCliente ? 14 : 48,
+        bottom: 6,
+      ),
+      child: Column(
+        crossAxisAlignment:
+            ehCliente ? CrossAxisAlignment.end : CrossAxisAlignment.start,
+        children: [
+          if (suporteAuto)
+            Padding(
+              padding: const EdgeInsets.only(bottom: 4, left: 4),
+              child: Row(
+                mainAxisSize: MainAxisSize.min,
+                children: [
+                  Container(
+                    width: 18,
+                    height: 18,
+                    decoration: BoxDecoration(
+                      color: diPertinLaranja.withValues(alpha: 0.15),
+                      borderRadius: BorderRadius.circular(6),
                     ),
-                    SizedBox(width: 6),
-                    Text(
-                      'Central de Ajuda · DiPertin',
-                      style: TextStyle(
-                        color: Colors.white,
-                        fontSize: 11,
-                        fontWeight: FontWeight.w700,
-                        letterSpacing: 0.2,
-                      ),
+                    child: const Icon(
+                      Icons.support_agent_rounded,
+                      size: 11,
+                      color: diPertinLaranja,
                     ),
-                  ],
-                ),
+                  ),
+                  const SizedBox(width: 5),
+                  Text(
+                    'DiPertin',
+                    style: TextStyle(
+                      color: diPertinLaranja,
+                      fontSize: 10.5,
+                      fontWeight: FontWeight.w700,
+                      letterSpacing: 0.3,
+                    ),
+                  ),
+                ],
               ),
-            _construirConteudoMensagem(msg, texto),
-          ],
-        ),
+            ),
+          Container(
+            padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 10),
+            constraints: BoxConstraints(
+              maxWidth: MediaQuery.of(context).size.width * 0.78,
+            ),
+            decoration: BoxDecoration(
+              color: ehCliente ? diPertinRoxo : Colors.white,
+              borderRadius: BorderRadius.only(
+                topLeft: const Radius.circular(18),
+                topRight: const Radius.circular(18),
+                bottomLeft: Radius.circular(ehCliente ? 18 : 4),
+                bottomRight: Radius.circular(ehCliente ? 4 : 18),
+              ),
+              boxShadow: [
+                BoxShadow(
+                  color: (ehCliente ? diPertinRoxo : Colors.black)
+                      .withValues(alpha: ehCliente ? 0.15 : 0.06),
+                  blurRadius: 8,
+                  offset: const Offset(0, 2),
+                ),
+              ],
+            ),
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              mainAxisSize: MainAxisSize.min,
+              children: [
+                _construirConteudoMensagem(
+                  msg,
+                  texto,
+                  ehCliente,
+                ),
+                const SizedBox(height: 2),
+                Align(
+                  alignment: Alignment.bottomRight,
+                  child: Row(
+                    mainAxisSize: MainAxisSize.min,
+                    children: [
+                      if (horario.isNotEmpty)
+                        Text(
+                          horario,
+                          style: TextStyle(
+                            fontSize: 10,
+                            color: ehCliente
+                                ? Colors.white.withValues(alpha: 0.65)
+                                : Colors.grey.shade500,
+                          ),
+                        ),
+                      if (ehCliente) ...[
+                        const SizedBox(width: 3),
+                        Icon(
+                          Icons.done_all_rounded,
+                          size: 13,
+                          color: Colors.white.withValues(alpha: 0.55),
+                        ),
+                      ],
+                    ],
+                  ),
+                ),
+              ],
+            ),
+          ),
+        ],
       ),
     );
   }
@@ -982,13 +1183,13 @@ class _ChatSuporteScreenState extends State<ChatSuporteScreen> {
       child: Container(
         decoration: BoxDecoration(
           color: Colors.white,
-          borderRadius: BorderRadius.circular(14),
-          border: Border.all(color: Colors.black.withOpacity(0.06)),
+          borderRadius: BorderRadius.circular(16),
+          border: Border.all(color: Colors.grey.shade200),
           boxShadow: [
             BoxShadow(
-              color: Colors.black.withOpacity(0.04),
-              blurRadius: 6,
-              offset: const Offset(0, 2),
+              color: Colors.black.withValues(alpha: 0.05),
+              blurRadius: 12,
+              offset: const Offset(0, 4),
             ),
           ],
         ),
@@ -996,15 +1197,15 @@ class _ChatSuporteScreenState extends State<ChatSuporteScreen> {
           crossAxisAlignment: CrossAxisAlignment.stretch,
           children: [
             Padding(
-              padding: const EdgeInsets.fromLTRB(14, 12, 14, 6),
+              padding: const EdgeInsets.fromLTRB(16, 14, 16, 4),
               child: Row(
                 children: [
                   Container(
-                    width: 28,
-                    height: 28,
+                    width: 32,
+                    height: 32,
                     decoration: BoxDecoration(
-                      color: diPertinRoxo.withOpacity(0.10),
-                      borderRadius: BorderRadius.circular(8),
+                      color: diPertinRoxo.withValues(alpha: 0.10),
+                      borderRadius: BorderRadius.circular(10),
                     ),
                     child: const Icon(
                       Icons.tune_rounded,
@@ -1012,28 +1213,35 @@ class _ChatSuporteScreenState extends State<ChatSuporteScreen> {
                       color: diPertinRoxo,
                     ),
                   ),
-                  const SizedBox(width: 10),
+                  const SizedBox(width: 12),
                   const Expanded(
-                    child: Text(
-                      'Qual o assunto do atendimento?',
-                      style: TextStyle(
-                        fontWeight: FontWeight.w700,
-                        fontSize: 13.5,
-                        color: Colors.black87,
-                      ),
+                    child: Column(
+                      crossAxisAlignment: CrossAxisAlignment.start,
+                      children: [
+                        Text(
+                          'Qual o assunto?',
+                          style: TextStyle(
+                            fontWeight: FontWeight.w700,
+                            fontSize: 14.5,
+                            color: Color(0xFF1A1A2E),
+                          ),
+                        ),
+                        SizedBox(height: 2),
+                        Text(
+                          'Selecione para direcionar seu chamado.',
+                          style: TextStyle(
+                            fontSize: 11.5,
+                            color: Colors.black54,
+                          ),
+                        ),
+                      ],
                     ),
                   ),
                 ],
               ),
             ),
-            Padding(
-              padding: const EdgeInsets.fromLTRB(14, 0, 14, 4),
-              child: Text(
-                'Selecione uma categoria para direcionar seu chamado.',
-                style: TextStyle(fontSize: 11.5, color: Colors.grey[600]),
-              ),
-            ),
-            const SizedBox(height: 6),
+            const SizedBox(height: 10),
+            const Divider(height: 1, thickness: 0.5),
             for (var i = 0; i < opcoes.length; i++) ...[
               _itemCategoriaCompacto(
                 opcao: opcoes[i],
@@ -1042,7 +1250,7 @@ class _ChatSuporteScreenState extends State<ChatSuporteScreen> {
                     _onEscolherCategoria(ticketId, opcoes[i].codigo),
               ),
               if (i < opcoes.length - 1)
-                const Divider(height: 1, thickness: 0.6, indent: 52),
+                const Divider(height: 1, thickness: 0.5, indent: 56),
             ],
             const SizedBox(height: 6),
           ],
@@ -1060,20 +1268,21 @@ class _ChatSuporteScreenState extends State<ChatSuporteScreen> {
       color: Colors.transparent,
       child: InkWell(
         onTap: habilitado ? onTap : null,
+        borderRadius: BorderRadius.circular(0),
         child: Padding(
-          padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 10),
+          padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 12),
           child: Row(
             children: [
               Container(
-                width: 30,
-                height: 30,
+                width: 36,
+                height: 36,
                 decoration: BoxDecoration(
-                  color: diPertinRoxo.withOpacity(0.08),
-                  borderRadius: BorderRadius.circular(8),
+                  color: diPertinRoxo.withValues(alpha: 0.08),
+                  borderRadius: BorderRadius.circular(10),
                 ),
-                child: Icon(opcao.icone, size: 16, color: diPertinRoxo),
+                child: Icon(opcao.icone, size: 18, color: diPertinRoxo),
               ),
-              const SizedBox(width: 12),
+              const SizedBox(width: 14),
               Expanded(
                 child: Column(
                   crossAxisAlignment: CrossAxisAlignment.start,
@@ -1082,26 +1291,33 @@ class _ChatSuporteScreenState extends State<ChatSuporteScreen> {
                     Text(
                       opcao.rotulo,
                       style: const TextStyle(
-                        fontSize: 13.5,
+                        fontSize: 14,
                         fontWeight: FontWeight.w600,
-                        color: Colors.black87,
+                        color: Color(0xFF1A1A2E),
                       ),
                     ),
                     const SizedBox(height: 2),
                     Text(
                       opcao.descricao,
                       style: TextStyle(
-                        fontSize: 11.5,
-                        color: Colors.grey[600],
+                        fontSize: 12,
+                        color: Colors.grey.shade600,
                       ),
                     ),
                   ],
                 ),
               ),
-              const Icon(
-                Icons.chevron_right_rounded,
-                size: 18,
-                color: Colors.black38,
+              Container(
+                padding: const EdgeInsets.all(4),
+                decoration: BoxDecoration(
+                  color: Colors.grey.shade100,
+                  borderRadius: BorderRadius.circular(8),
+                ),
+                child: const Icon(
+                  Icons.chevron_right_rounded,
+                  size: 18,
+                  color: Colors.black38,
+                ),
               ),
             ],
           ),
@@ -1237,18 +1453,52 @@ class _ChatSuporteScreenState extends State<ChatSuporteScreen> {
   /// Banner fino que substitui o rodapé de digitação indicando que o chamado
   /// está encerrado e explicando o motivo.
   Widget _faixaAtendimentoEncerrado(String status) {
+    IconData icone;
+    String texto;
+    Color cor;
+
+    switch (status) {
+      case SuporteTicketStatus.cancelled:
+        icone = Icons.cancel_outlined;
+        texto = 'Você encerrou este atendimento.';
+        cor = Colors.orange;
+      case SuporteTicketStatus.closed:
+        icone = Icons.check_circle_outline;
+        texto = 'Este atendimento foi encerrado pelo suporte.';
+        cor = const Color(0xFF16A34A);
+      case SuporteTicketStatus.finished:
+        icone = Icons.check_circle_outline;
+        texto = 'Atendimento finalizado.';
+        cor = const Color(0xFF16A34A);
+      default:
+        icone = Icons.info_outline;
+        texto = 'Atendimento encerrado.';
+        cor = Colors.grey;
+    }
+
     return Container(
       width: double.infinity,
-      color: Colors.grey[100],
-      padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 8),
+      color: cor.withValues(alpha: 0.05),
+      padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 10),
       child: Row(
         children: [
-          const Icon(Icons.info_outline, size: 16, color: Colors.black54),
-          const SizedBox(width: 8),
+          Container(
+            padding: const EdgeInsets.all(4),
+            decoration: BoxDecoration(
+              color: cor.withValues(alpha: 0.1),
+              borderRadius: BorderRadius.circular(6),
+            ),
+            child: Icon(icone, size: 16, color: cor),
+          ),
+          const SizedBox(width: 10),
           Expanded(
             child: Text(
-              _mensagemFinalizado(status),
-              style: const TextStyle(fontSize: 12, color: Colors.black87),
+              texto,
+              style: TextStyle(
+                fontSize: 12.5,
+                fontWeight: FontWeight.w500,
+                color: cor.withValues(alpha: 0.9),
+              ),
             ),
           ),
         ],
@@ -1285,13 +1535,17 @@ class _ChatSuporteScreenState extends State<ChatSuporteScreen> {
   /// iniciar novo atendimento. Avaliação e histórico são exibidos como
   /// itens rolantes da lista de mensagens (ver `_corpoFinalizadoComChat`).
   Widget _rodapeNovoAtendimento() {
-    return Material(
-      color: Colors.white,
-      elevation: 4,
+    return Container(
+      decoration: BoxDecoration(
+        color: Colors.white,
+        border: Border(
+          top: BorderSide(color: Colors.grey.shade200),
+        ),
+      ),
       child: SafeArea(
         top: false,
         child: Padding(
-          padding: const EdgeInsets.fromLTRB(14, 10, 14, 12),
+          padding: const EdgeInsets.fromLTRB(16, 12, 16, 12),
           child: SizedBox(
             height: 48,
             width: double.infinity,
@@ -1300,8 +1554,9 @@ class _ChatSuporteScreenState extends State<ChatSuporteScreen> {
               style: ElevatedButton.styleFrom(
                 backgroundColor: diPertinLaranja,
                 foregroundColor: Colors.white,
+                elevation: 0,
                 shape: RoundedRectangleBorder(
-                  borderRadius: BorderRadius.circular(10),
+                  borderRadius: BorderRadius.circular(14),
                 ),
               ),
               icon: _criandoTicket
@@ -1313,10 +1568,13 @@ class _ChatSuporteScreenState extends State<ChatSuporteScreen> {
                         color: Colors.white,
                       ),
                     )
-                  : const Icon(Icons.add_comment, size: 18),
+                  : const Icon(Icons.add_comment_rounded, size: 20),
               label: const Text(
                 'Iniciar novo atendimento',
-                style: TextStyle(fontWeight: FontWeight.bold),
+                style: TextStyle(
+                  fontWeight: FontWeight.w700,
+                  fontSize: 14.5,
+                ),
               ),
             ),
           ),
@@ -1327,20 +1585,32 @@ class _ChatSuporteScreenState extends State<ChatSuporteScreen> {
 
   Widget _cartaoAgradecimentoAvaliacao() {
     return Container(
-      padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 10),
+      padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 14),
       decoration: BoxDecoration(
-        color: Colors.green[50],
-        border: Border.all(color: Colors.green.shade200),
-        borderRadius: BorderRadius.circular(10),
+        color: const Color(0xFFF0FDF4),
+        border: Border.all(color: const Color(0xFF22C55E).withValues(alpha: 0.2)),
+        borderRadius: BorderRadius.circular(14),
       ),
       child: Row(
         children: [
-          Icon(Icons.check_circle, color: Colors.green[700], size: 20),
-          const SizedBox(width: 8),
+          Container(
+            padding: const EdgeInsets.all(6),
+            decoration: BoxDecoration(
+              color: const Color(0xFF22C55E).withValues(alpha: 0.1),
+              borderRadius: BorderRadius.circular(8),
+            ),
+            child: const Icon(Icons.check_circle_rounded,
+                color: Color(0xFF16A34A), size: 20),
+          ),
+          const SizedBox(width: 10),
           const Expanded(
             child: Text(
               'Obrigado pela avaliação! Sua opinião nos ajuda a melhorar.',
-              style: TextStyle(fontSize: 13),
+              style: TextStyle(
+                fontSize: 13,
+                fontWeight: FontWeight.w500,
+                color: Color(0xFF166534),
+              ),
             ),
           ),
         ],
@@ -1353,62 +1623,89 @@ class _ChatSuporteScreenState extends State<ChatSuporteScreen> {
     required String protocolo,
   }) {
     return Container(
-      padding: const EdgeInsets.fromLTRB(14, 12, 14, 12),
+      padding: const EdgeInsets.fromLTRB(16, 14, 16, 16),
       decoration: BoxDecoration(
-        color: const Color(0xFFF6F0FB),
-        border: Border.all(color: diPertinRoxo.withValues(alpha: 0.25)),
-        borderRadius: BorderRadius.circular(12),
+        color: Colors.white,
+        borderRadius: BorderRadius.circular(16),
+        border: Border.all(color: Colors.grey.shade200),
+        boxShadow: [
+          BoxShadow(
+            color: diPertinRoxo.withValues(alpha: 0.06),
+            blurRadius: 12,
+            offset: const Offset(0, 4),
+          ),
+        ],
       ),
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
           Row(
             children: [
-              const Icon(Icons.star_rate_rounded,
-                  color: diPertinLaranja, size: 22),
-              const SizedBox(width: 6),
+              Container(
+                padding: const EdgeInsets.all(8),
+                decoration: BoxDecoration(
+                  color: diPertinLaranja.withValues(alpha: 0.12),
+                  borderRadius: BorderRadius.circular(10),
+                ),
+                child: const Icon(Icons.star_rate_rounded,
+                    color: diPertinLaranja, size: 20),
+              ),
+              const SizedBox(width: 10),
               const Expanded(
-                child: Text(
-                  'Como foi o atendimento?',
-                  style: TextStyle(
-                    fontWeight: FontWeight.w700,
-                    fontSize: 14,
-                    color: diPertinRoxo,
-                  ),
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    Text(
+                      'Como foi o atendimento?',
+                      style: TextStyle(
+                        fontWeight: FontWeight.w700,
+                        fontSize: 14.5,
+                        color: Color(0xFF1A1A2E),
+                      ),
+                    ),
+                    SizedBox(height: 2),
+                    Text(
+                      'Sua opinião é muito importante para nós.',
+                      style: TextStyle(
+                        fontSize: 12,
+                        color: Colors.black54,
+                      ),
+                    ),
+                  ],
                 ),
               ),
             ],
           ),
-          const SizedBox(height: 2),
-          Text(
-            'Avalie o atendimento do protocolo $protocolo.',
-            style: TextStyle(fontSize: 12, color: Colors.grey[700]),
-          ),
-          const SizedBox(height: 8),
+          const SizedBox(height: 14),
           Row(
             mainAxisAlignment: MainAxisAlignment.center,
             children: List.generate(5, (i) {
               final n = i + 1;
               final ativa = n <= _estrelasAvaliacao;
-              return IconButton(
-                visualDensity: VisualDensity.compact,
-                padding: EdgeInsets.zero,
-                constraints: const BoxConstraints(
-                  minWidth: 36,
-                  minHeight: 36,
-                ),
-                icon: Icon(
-                  ativa ? Icons.star_rounded : Icons.star_border_rounded,
-                  color: diPertinLaranja,
-                  size: 32,
-                ),
-                onPressed: _enviandoAvaliacao
+              return GestureDetector(
+                onTap: _enviandoAvaliacao
                     ? null
                     : () => setState(() => _estrelasAvaliacao = n),
+                child: AnimatedContainer(
+                  duration: const Duration(milliseconds: 200),
+                  margin: const EdgeInsets.symmetric(horizontal: 3),
+                  padding: const EdgeInsets.all(6),
+                  decoration: BoxDecoration(
+                    color: ativa
+                        ? diPertinLaranja.withValues(alpha: 0.1)
+                        : Colors.transparent,
+                    borderRadius: BorderRadius.circular(10),
+                  ),
+                  child: Icon(
+                    ativa ? Icons.star_rounded : Icons.star_border_rounded,
+                    color: ativa ? diPertinLaranja : Colors.grey.shade300,
+                    size: 34,
+                  ),
+                ),
               );
             }),
           ),
-          const SizedBox(height: 6),
+          const SizedBox(height: 12),
           TextField(
             controller: _comentarioAvaliacao,
             enabled: !_enviandoAvaliacao,
@@ -1416,32 +1713,36 @@ class _ChatSuporteScreenState extends State<ChatSuporteScreen> {
             maxLength: 240,
             decoration: InputDecoration(
               isDense: true,
-              hintText: 'Comentário (opcional)',
+              hintText: 'Deixe um comentário (opcional)',
+              hintStyle: TextStyle(
+                color: Colors.grey.shade400,
+                fontSize: 13,
+              ),
               counterText: '',
               filled: true,
-              fillColor: Colors.white,
+              fillColor: Colors.grey.shade50,
               contentPadding: const EdgeInsets.symmetric(
-                horizontal: 10,
-                vertical: 10,
+                horizontal: 14,
+                vertical: 12,
               ),
               border: OutlineInputBorder(
-                borderRadius: BorderRadius.circular(8),
-                borderSide: BorderSide(color: Colors.grey.shade300),
+                borderRadius: BorderRadius.circular(12),
+                borderSide: BorderSide(color: Colors.grey.shade200),
               ),
               enabledBorder: OutlineInputBorder(
-                borderRadius: BorderRadius.circular(8),
-                borderSide: BorderSide(color: Colors.grey.shade300),
+                borderRadius: BorderRadius.circular(12),
+                borderSide: BorderSide(color: Colors.grey.shade200),
               ),
               focusedBorder: OutlineInputBorder(
-                borderRadius: BorderRadius.circular(8),
-                borderSide: const BorderSide(color: diPertinRoxo, width: 1.2),
+                borderRadius: BorderRadius.circular(12),
+                borderSide: const BorderSide(color: diPertinRoxo, width: 1.5),
               ),
             ),
           ),
-          const SizedBox(height: 10),
+          const SizedBox(height: 14),
           SizedBox(
             width: double.infinity,
-            height: 40,
+            height: 44,
             child: ElevatedButton.icon(
               onPressed: _enviandoAvaliacao
                   ? null
@@ -1451,23 +1752,27 @@ class _ChatSuporteScreenState extends State<ChatSuporteScreen> {
               style: ElevatedButton.styleFrom(
                 backgroundColor: diPertinRoxo,
                 foregroundColor: Colors.white,
+                elevation: 0,
                 shape: RoundedRectangleBorder(
-                  borderRadius: BorderRadius.circular(8),
+                  borderRadius: BorderRadius.circular(12),
                 ),
               ),
               icon: _enviandoAvaliacao
                   ? const SizedBox(
-                      height: 16,
-                      width: 16,
+                      height: 18,
+                      width: 18,
                       child: CircularProgressIndicator(
                         strokeWidth: 2,
                         color: Colors.white,
                       ),
                     )
-                  : const Icon(Icons.send_rounded, size: 16),
+                  : const Icon(Icons.send_rounded, size: 18),
               label: const Text(
                 'Enviar avaliação',
-                style: TextStyle(fontWeight: FontWeight.w600, fontSize: 13),
+                style: TextStyle(
+                  fontWeight: FontWeight.w700,
+                  fontSize: 14,
+                ),
               ),
             ),
           ),
@@ -1513,19 +1818,6 @@ class _ChatSuporteScreenState extends State<ChatSuporteScreen> {
     }
   }
 
-  String _mensagemFinalizado(String s) {
-    switch (s) {
-      case SuporteTicketStatus.cancelled:
-        return 'Você encerrou este atendimento.';
-      case SuporteTicketStatus.closed:
-        return 'Este atendimento foi encerrado pelo suporte.';
-      case SuporteTicketStatus.finished:
-        return 'Atendimento finalizado.';
-      default:
-        return 'Atendimento encerrado.';
-    }
-  }
-
   /// Card compacto mostrando os últimos atendimentos (até 3) e um link para
   /// abrir o histórico completo. Usado no rodapé da tela de atendimento
   /// encerrado, para que o cliente não fique sem acesso ao histórico.
@@ -1543,7 +1835,7 @@ class _ChatSuporteScreenState extends State<ChatSuporteScreen> {
           child: Container(
             decoration: BoxDecoration(
               color: Colors.white,
-              borderRadius: BorderRadius.circular(12),
+              borderRadius: BorderRadius.circular(14),
               border: Border.all(color: Colors.grey.shade200),
             ),
             child: Column(
@@ -1551,32 +1843,40 @@ class _ChatSuporteScreenState extends State<ChatSuporteScreen> {
               mainAxisSize: MainAxisSize.min,
               children: [
                 Padding(
-                  padding: const EdgeInsets.fromLTRB(14, 10, 8, 6),
+                  padding: const EdgeInsets.fromLTRB(14, 12, 8, 6),
                   child: Row(
                     children: [
-                      const Icon(Icons.history, size: 18, color: diPertinRoxo),
+                      Container(
+                        padding: const EdgeInsets.all(6),
+                        decoration: BoxDecoration(
+                          color: diPertinRoxo.withValues(alpha: 0.08),
+                          borderRadius: BorderRadius.circular(8),
+                        ),
+                        child: const Icon(Icons.history_rounded,
+                            size: 16, color: diPertinRoxo),
+                      ),
                       const SizedBox(width: 8),
                       const Expanded(
                         child: Text(
-                          'Seus atendimentos anteriores',
+                          'Atendimentos anteriores',
                           style: TextStyle(
                             fontWeight: FontWeight.w700,
-                            fontSize: 13,
-                            color: diPertinRoxo,
+                            fontSize: 13.5,
+                            color: Color(0xFF1A1A2E),
                           ),
                         ),
                       ),
                       TextButton(
                         onPressed: _abrirHistoricoChamados,
                         style: TextButton.styleFrom(
-                          padding: const EdgeInsets.symmetric(horizontal: 8),
+                          padding: const EdgeInsets.symmetric(horizontal: 10),
                           minimumSize: const Size(0, 32),
                           tapTargetSize: MaterialTapTargetSize.shrinkWrap,
                         ),
                         child: const Text(
                           'Ver todos',
                           style: TextStyle(
-                            fontSize: 12,
+                            fontSize: 12.5,
                             fontWeight: FontWeight.w600,
                             color: diPertinLaranja,
                           ),
@@ -1585,11 +1885,11 @@ class _ChatSuporteScreenState extends State<ChatSuporteScreen> {
                     ],
                   ),
                 ),
-                const Divider(height: 1),
+                const Divider(height: 1, thickness: 0.5),
                 for (var i = 0; i < anteriores.length; i++) ...[
                   _linhaHistoricoCompacta(anteriores[i]),
                   if (i < anteriores.length - 1)
-                    const Divider(height: 1, indent: 48),
+                    const Divider(height: 1, indent: 52),
                 ],
               ],
             ),
@@ -1611,8 +1911,19 @@ class _ChatSuporteScreenState extends State<ChatSuporteScreen> {
         padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 10),
         child: Row(
           children: [
-            Icon(_iconeStatus(s), color: _corStatus(s), size: 20),
-            const SizedBox(width: 10),
+            Container(
+              padding: const EdgeInsets.all(8),
+              decoration: BoxDecoration(
+                color: _corStatus(s).withValues(alpha: 0.1),
+                borderRadius: BorderRadius.circular(10),
+              ),
+              child: Icon(
+                _iconeStatus(s),
+                color: _corStatus(s),
+                size: 18,
+              ),
+            ),
+            const SizedBox(width: 12),
             Expanded(
               child: Column(
                 crossAxisAlignment: CrossAxisAlignment.start,
@@ -1623,21 +1934,31 @@ class _ChatSuporteScreenState extends State<ChatSuporteScreen> {
                     style: const TextStyle(
                       fontSize: 13,
                       fontWeight: FontWeight.w600,
-                      color: Colors.black87,
+                      color: Color(0xFF1A1A2E),
                     ),
                   ),
                   const SizedBox(height: 2),
                   Text(
                     _labelStatus(s),
-                    style: TextStyle(fontSize: 11.5, color: Colors.grey[700]),
+                    style: TextStyle(
+                      fontSize: 11.5,
+                      color: Colors.grey.shade600,
+                    ),
                   ),
                 ],
               ),
             ),
-            const Icon(
-              Icons.chevron_right_rounded,
-              size: 18,
-              color: Colors.black38,
+            Container(
+              padding: const EdgeInsets.all(4),
+              decoration: BoxDecoration(
+                color: Colors.grey.shade100,
+                borderRadius: BorderRadius.circular(8),
+              ),
+              child: const Icon(
+                Icons.chevron_right_rounded,
+                size: 16,
+                color: Colors.black38,
+              ),
             ),
           ],
         ),
@@ -1647,46 +1968,81 @@ class _ChatSuporteScreenState extends State<ChatSuporteScreen> {
 
   Widget _painelInicial() {
     return SingleChildScrollView(
-      padding: const EdgeInsets.all(20),
+      padding: const EdgeInsets.fromLTRB(16, 12, 16, 24),
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.stretch,
         children: [
-          Card(
-            elevation: 2,
-            shape: RoundedRectangleBorder(
-              borderRadius: BorderRadius.circular(16),
+          // --- Hero card ---
+          Container(
+            decoration: BoxDecoration(
+              gradient: const LinearGradient(
+                begin: Alignment.topLeft,
+                end: Alignment.bottomRight,
+                colors: [
+                  Color(0xFF7B1FA2),
+                  Color(0xFF6A1B9A),
+                  Color(0xFF4A148C),
+                ],
+              ),
+              borderRadius: BorderRadius.circular(20),
+              boxShadow: [
+                BoxShadow(
+                  color: diPertinRoxo.withValues(alpha: 0.3),
+                  blurRadius: 20,
+                  offset: const Offset(0, 8),
+                ),
+              ],
             ),
             child: Padding(
-              padding: const EdgeInsets.all(24),
+              padding: const EdgeInsets.symmetric(horizontal: 24, vertical: 32),
               child: Column(
                 children: [
-                  const Icon(Icons.headset_mic, size: 56, color: diPertinRoxo),
+                  Container(
+                    width: 64,
+                    height: 64,
+                    decoration: BoxDecoration(
+                      color: Colors.white.withValues(alpha: 0.15),
+                      shape: BoxShape.circle,
+                    ),
+                    child: const Icon(
+                      Icons.headset_mic_rounded,
+                      color: Colors.white,
+                      size: 32,
+                    ),
+                  ),
                   const SizedBox(height: 16),
                   const Text(
                     'Central de Ajuda',
                     style: TextStyle(
-                      fontSize: 22,
-                      fontWeight: FontWeight.bold,
-                      color: diPertinRoxo,
+                      fontSize: 24,
+                      fontWeight: FontWeight.w800,
+                      color: Colors.white,
+                      letterSpacing: -0.5,
                     ),
                   ),
-                  const SizedBox(height: 12),
+                  const SizedBox(height: 8),
                   Text(
-                    'O atendimento só começa quando você clicar no botão abaixo. '
-                    'Será gerado um protocolo de 8 dígitos e você poderá acompanhar a fila em tempo real.',
+                    'Estamos prontos para ajudar!\nSua solicitação será atendida em breve.',
                     textAlign: TextAlign.center,
-                    style: TextStyle(color: Colors.grey[800], height: 1.35),
+                    style: TextStyle(
+                      color: Colors.white.withValues(alpha: 0.85),
+                      fontSize: 14,
+                      height: 1.45,
+                    ),
                   ),
                   const SizedBox(height: 24),
                   SizedBox(
+                    width: double.infinity,
                     height: 52,
                     child: ElevatedButton(
-                      onPressed: _criandoTicket ? null : _iniciarAtendimento,
+                      onPressed:
+                          _criandoTicket ? null : _iniciarAtendimento,
                       style: ElevatedButton.styleFrom(
-                        backgroundColor: diPertinLaranja,
-                        foregroundColor: Colors.white,
+                        backgroundColor: Colors.white,
+                        foregroundColor: diPertinRoxo,
+                        elevation: 0,
                         shape: RoundedRectangleBorder(
-                          borderRadius: BorderRadius.circular(12),
+                          borderRadius: BorderRadius.circular(14),
                         ),
                       ),
                       child: _criandoTicket
@@ -1694,16 +2050,23 @@ class _ChatSuporteScreenState extends State<ChatSuporteScreen> {
                               height: 22,
                               width: 22,
                               child: CircularProgressIndicator(
-                                strokeWidth: 2,
-                                color: Colors.white,
+                                strokeWidth: 2.5,
+                                color: diPertinRoxo,
                               ),
                             )
-                          : const Text(
-                              'Iniciar atendimento',
-                              style: TextStyle(
-                                fontSize: 16,
-                                fontWeight: FontWeight.bold,
-                              ),
+                          : const Row(
+                              mainAxisSize: MainAxisSize.min,
+                              children: [
+                                Icon(Icons.add_comment_rounded, size: 20),
+                                SizedBox(width: 8),
+                                Text(
+                                  'Iniciar atendimento',
+                                  style: TextStyle(
+                                    fontSize: 16,
+                                    fontWeight: FontWeight.w700,
+                                  ),
+                                ),
+                              ],
                             ),
                     ),
                   ),
@@ -1711,23 +2074,112 @@ class _ChatSuporteScreenState extends State<ChatSuporteScreen> {
               ),
             ),
           ),
-          const SizedBox(height: 24),
-          const Text(
-            'Histórico recente',
-            style: TextStyle(
-              fontWeight: FontWeight.bold,
-              fontSize: 16,
-              color: diPertinRoxo,
+
+          const SizedBox(height: 20),
+
+          // --- Como funciona ---
+          Container(
+            padding: const EdgeInsets.all(16),
+            decoration: BoxDecoration(
+              color: Colors.white,
+              borderRadius: BorderRadius.circular(16),
+              border: Border.all(color: Colors.grey.shade100),
+            ),
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                const Row(
+                  children: [
+                    Icon(Icons.info_outline_rounded,
+                        color: diPertinRoxo, size: 18),
+                    SizedBox(width: 8),
+                    Text(
+                      'Como funciona',
+                      style: TextStyle(
+                        fontWeight: FontWeight.w700,
+                        fontSize: 14,
+                        color: Color(0xFF1A1A2E),
+                      ),
+                    ),
+                  ],
+                ),
+                const SizedBox(height: 12),
+                _stepItem(
+                  icon: Icons.description_outlined,
+                  titulo: 'Abra um chamado',
+                  descricao: 'Descreva seu problema ou dúvida.',
+                ),
+                const SizedBox(height: 8),
+                _stepItem(
+                  icon: Icons.people_alt_outlined,
+                  titulo: 'Aguarde na fila',
+                  descricao: 'Acompanhe sua posição em tempo real.',
+                ),
+                const SizedBox(height: 8),
+                _stepItem(
+                  icon: Icons.chat_outlined,
+                  titulo: 'Converse com a equipe',
+                  descricao: 'Atendimento ágil pelo chat.',
+                ),
+              ],
             ),
           ),
-          const SizedBox(height: 8),
+
+          const SizedBox(height: 20),
+
+          // --- Histórico recente ---
+          Row(
+            children: [
+              Container(
+                padding: const EdgeInsets.all(6),
+                decoration: BoxDecoration(
+                  color: diPertinRoxo.withValues(alpha: 0.08),
+                  borderRadius: BorderRadius.circular(8),
+                ),
+                child: const Icon(
+                  Icons.history_rounded,
+                  size: 16,
+                  color: diPertinRoxo,
+                ),
+              ),
+              const SizedBox(width: 8),
+              const Text(
+                'Histórico recente',
+                style: TextStyle(
+                  fontWeight: FontWeight.w700,
+                  fontSize: 15,
+                  color: Color(0xFF1A1A2E),
+                ),
+              ),
+            ],
+          ),
+          const SizedBox(height: 10),
           StreamBuilder<QuerySnapshot<Map<String, dynamic>>>(
             stream: _svc.streamHistoricoUsuario(),
             builder: (context, snap) {
               if (!snap.hasData || snap.data!.docs.isEmpty) {
-                return Text(
-                  'Nenhum chamado anterior.',
-                  style: TextStyle(color: Colors.grey[600]),
+                return Container(
+                  padding: const EdgeInsets.all(20),
+                  decoration: BoxDecoration(
+                    color: Colors.white,
+                    borderRadius: BorderRadius.circular(12),
+                    border: Border.all(color: Colors.grey.shade100),
+                  ),
+                  child: Row(
+                    mainAxisAlignment: MainAxisAlignment.center,
+                    children: [
+                      Icon(Icons.inbox_rounded,
+                          size: 18, color: Colors.grey.shade400),
+                      const SizedBox(width: 8),
+                      Text(
+                        'Nenhum chamado anterior',
+                        style: TextStyle(
+                          color: Colors.grey.shade500,
+                          fontSize: 13,
+                        ),
+                      ),
+                    ],
+                  ),
                 );
               }
               return Column(
@@ -1738,15 +2190,63 @@ class _ChatSuporteScreenState extends State<ChatSuporteScreen> {
                     '0',
                   );
                   final s = x['status']?.toString() ?? '';
-                  return ListTile(
-                    tileColor: Colors.white,
-                    shape: RoundedRectangleBorder(
-                      borderRadius: BorderRadius.circular(8),
+                  return Container(
+                    margin: const EdgeInsets.only(bottom: 8),
+                    decoration: BoxDecoration(
+                      color: Colors.white,
+                      borderRadius: BorderRadius.circular(12),
+                      border: Border.all(color: Colors.grey.shade100),
                     ),
-                    title: Text('Protocolo $p'),
-                    subtitle: Text(_labelStatus(s)),
-                    trailing: const Icon(Icons.chevron_right),
-                    onTap: () => _abrirConversaHistorico(context, doc.id),
+                    child: ListTile(
+                      contentPadding: const EdgeInsets.symmetric(
+                        horizontal: 14,
+                        vertical: 2,
+                      ),
+                      leading: Container(
+                        padding: const EdgeInsets.all(8),
+                        decoration: BoxDecoration(
+                          color: _corStatus(s).withValues(alpha: 0.1),
+                          borderRadius: BorderRadius.circular(10),
+                        ),
+                        child: Icon(
+                          _iconeStatus(s),
+                          color: _corStatus(s),
+                          size: 20,
+                        ),
+                      ),
+                      title: Text(
+                        'Protocolo $p',
+                        style: const TextStyle(
+                          fontWeight: FontWeight.w600,
+                          fontSize: 13.5,
+                          color: Color(0xFF1A1A2E),
+                        ),
+                      ),
+                      subtitle: Text(
+                        _labelStatus(s),
+                        style: TextStyle(
+                          fontSize: 12,
+                          color: Colors.grey.shade600,
+                        ),
+                      ),
+                      trailing: Container(
+                        padding: const EdgeInsets.all(4),
+ decoration: BoxDecoration(
+                          color: Colors.grey.shade100,
+                          borderRadius: BorderRadius.circular(8),
+                        ),
+                        child: const Icon(
+                          Icons.chevron_right_rounded,
+                          size: 18,
+                          color: Colors.black38,
+                        ),
+                      ),
+                      shape: RoundedRectangleBorder(
+                        borderRadius: BorderRadius.circular(12),
+                      ),
+                      onTap: () =>
+                          _abrirConversaHistorico(context, doc.id),
+                    ),
                   );
                 }).toList(),
               );
@@ -1754,6 +2254,50 @@ class _ChatSuporteScreenState extends State<ChatSuporteScreen> {
           ),
         ],
       ),
+    );
+  }
+
+  Widget _stepItem({
+    required IconData icon,
+    required String titulo,
+    required String descricao,
+  }) {
+    return Row(
+      crossAxisAlignment: CrossAxisAlignment.start,
+      children: [
+        Container(
+          padding: const EdgeInsets.all(8),
+          decoration: BoxDecoration(
+            color: diPertinRoxo.withValues(alpha: 0.06),
+            borderRadius: BorderRadius.circular(10),
+          ),
+          child: Icon(icon, size: 18, color: diPertinRoxo),
+        ),
+        const SizedBox(width: 12),
+        Expanded(
+          child: Column(
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              Text(
+                titulo,
+                style: const TextStyle(
+                  fontWeight: FontWeight.w600,
+                  fontSize: 13.5,
+                  color: Color(0xFF1A1A2E),
+                ),
+              ),
+              const SizedBox(height: 2),
+              Text(
+                descricao,
+                style: TextStyle(
+                  fontSize: 12,
+                  color: Colors.grey.shade600,
+                ),
+              ),
+            ],
+          ),
+        ),
+      ],
     );
   }
 
@@ -1781,77 +2325,132 @@ class _ChatSuporteScreenState extends State<ChatSuporteScreen> {
     String? agentNome,
     VoidCallback? onEncerrar,
   }) {
-    Color bg;
-    IconData ic;
-    String msg;
+    final isWaiting = status == SuporteTicketStatus.waiting;
+
+    Color badgeCor;
+    IconData badgeIcon;
+    String badgeTexto;
     if (encerrado) {
-      bg = Colors.green[100]!;
-      ic = Icons.check_circle_outline;
-      msg = 'Este atendimento foi encerrado.';
-    } else if (status == SuporteTicketStatus.waiting) {
-      bg = Colors.amber[100]!;
-      ic = Icons.hourglass_top;
-      msg = 'Aguardando atendente';
+      badgeCor = const Color(0xFF16A34A);
+      badgeIcon = Icons.check_circle_rounded;
+      badgeTexto = 'Finalizado';
+    } else if (isWaiting) {
+      badgeCor = diPertinLaranja;
+      badgeIcon = Icons.access_time_rounded;
+      badgeTexto = 'Aguardando';
     } else {
-      bg = Colors.blue[50]!;
-      ic = Icons.support_agent;
-      msg = agentNome != null && agentNome.isNotEmpty
-          ? 'Em atendimento com $agentNome'
+      badgeCor = const Color(0xFF2563EB);
+      badgeIcon = Icons.support_agent_rounded;
+      badgeTexto = agentNome != null && agentNome.isNotEmpty
+          ? agentNome
           : 'Em atendimento';
     }
-    return Material(
-      color: bg,
+
+    return Container(
+      padding: EdgeInsets.zero,
+      decoration: BoxDecoration(
+        color: Colors.white,
+        border: Border(
+          bottom: BorderSide(color: Colors.grey.shade200),
+        ),
+      ),
       child: Padding(
-        padding: const EdgeInsets.all(12),
+        padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 14),
         child: Row(
-          crossAxisAlignment: CrossAxisAlignment.start,
           children: [
-            Icon(ic, color: Colors.black87, size: 22),
-            const SizedBox(width: 10),
+            Container(
+              padding: const EdgeInsets.all(10),
+              decoration: BoxDecoration(
+                color: diPertinRoxo.withValues(alpha: 0.08),
+                borderRadius: BorderRadius.circular(12),
+              ),
+              child: const Icon(
+                Icons.verified_outlined,
+                color: diPertinRoxo,
+                size: 22,
+              ),
+            ),
+            const SizedBox(width: 14),
             Expanded(
               child: Column(
                 crossAxisAlignment: CrossAxisAlignment.start,
                 children: [
-                  Text(
-                    'Protocolo $protocolo',
-                    style: const TextStyle(
-                      fontWeight: FontWeight.bold,
-                      fontSize: 14,
-                    ),
+                  Row(
+                    children: [
+                      Text(
+                        'Protocolo #$protocolo',
+                        style: const TextStyle(
+                          fontWeight: FontWeight.w700,
+                          fontSize: 15,
+                          color: Color(0xFF1A1A2E),
+                        ),
+                      ),
+                      const SizedBox(width: 8),
+                      Container(
+                        padding: const EdgeInsets.symmetric(
+                          horizontal: 8,
+                          vertical: 3,
+                        ),
+                        decoration: BoxDecoration(
+                          color: badgeCor.withValues(alpha: 0.12),
+                          borderRadius: BorderRadius.circular(6),
+                          border: Border.all(
+                            color: badgeCor.withValues(alpha: 0.25),
+                          ),
+                        ),
+                        child: Row(
+                          mainAxisSize: MainAxisSize.min,
+                          children: [
+                            Icon(
+                              badgeIcon,
+                              size: 12,
+                              color: badgeCor,
+                            ),
+                            const SizedBox(width: 4),
+                            Text(
+                              badgeTexto,
+                              style: TextStyle(
+                                fontSize: 11,
+                                fontWeight: FontWeight.w700,
+                                color: badgeCor,
+                              ),
+                            ),
+                          ],
+                        ),
+                      ),
+                    ],
                   ),
                   const SizedBox(height: 4),
                   Text(
-                    msg,
-                    style: const TextStyle(fontSize: 12, color: Colors.black87),
+                    encerrado
+                        ? 'Esta conversa foi encerrada.'
+                        : isWaiting
+                            ? 'Seu chamado está na fila de espera.'
+                            : 'Atendente disponível para ajudar.',
+                    style: TextStyle(
+                      fontSize: 12,
+                      color: Colors.grey.shade600,
+                    ),
                   ),
                 ],
               ),
             ),
             if (onEncerrar != null && !encerrado) ...[
               const SizedBox(width: 8),
-              Tooltip(
-                message: 'Encerrar atendimento',
-                child: TextButton.icon(
+              Container(
+                decoration: BoxDecoration(
+                  color: Colors.red.withValues(alpha: 0.06),
+                  borderRadius: BorderRadius.circular(10),
+                ),
+                child: IconButton(
+                  tooltip: 'Encerrar atendimento',
+                  icon: const Icon(
+                    Icons.close_rounded,
+                    size: 20,
+                    color: Colors.red,
+                  ),
                   onPressed: onEncerrar,
-                  style: TextButton.styleFrom(
-                    foregroundColor: Colors.red,
-                    padding: const EdgeInsets.symmetric(
-                      horizontal: 10,
-                      vertical: 4,
-                    ),
-                    minimumSize: const Size(0, 32),
-                    tapTargetSize: MaterialTapTargetSize.shrinkWrap,
-                    visualDensity: VisualDensity.compact,
-                  ),
-                  icon: const Icon(Icons.close, size: 18, color: Colors.red),
-                  label: const Text(
-                    'Encerrar',
-                    style: TextStyle(
-                      color: Colors.red,
-                      fontWeight: FontWeight.w600,
-                      fontSize: 12,
-                    ),
-                  ),
+                  visualDensity: VisualDensity.compact,
                 ),
               ),
             ],
@@ -1869,24 +2468,97 @@ class _ChatSuporteScreenState extends State<ChatSuporteScreen> {
       ),
       builder: (context, snap) {
         final pos = snap.data ?? 0;
-        return Material(
-          color: diPertinLaranja.withValues(alpha: 0.15),
-          child: Padding(
-            padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 10),
-            child: Row(
-              children: [
-                const Icon(Icons.queue, color: diPertinLaranja),
-                const SizedBox(width: 8),
-                Expanded(
-                  child: Text(
-                    pos > 0
-                        ? 'Fila de espera: você é o $posº na sua região.'
-                        : 'Na fila de espera — aguarde um atendente.',
-                    style: const TextStyle(fontSize: 12, color: Colors.black87),
+        final emFila = pos > 0;
+        return Container(
+          padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 14),
+          decoration: BoxDecoration(
+            color: diPertinLaranja.withValues(alpha: 0.07),
+            border: Border(
+              bottom: BorderSide(color: diPertinLaranja.withValues(alpha: 0.15)),
+            ),
+          ),
+          child: Row(
+            children: [
+              AnimatedContainer(
+                duration: const Duration(milliseconds: 400),
+                padding: const EdgeInsets.all(10),
+                decoration: BoxDecoration(
+                  color: emFila
+                      ? diPertinLaranja.withValues(alpha: 0.15)
+                      : diPertinLaranja.withValues(alpha: 0.08),
+                  borderRadius: BorderRadius.circular(12),
+                ),
+                child: Icon(
+                  emFila ? Icons.people_alt_rounded : Icons.hourglass_bottom_rounded,
+                  color: diPertinLaranja,
+                  size: 22,
+                ),
+              ),
+              const SizedBox(width: 14),
+              Expanded(
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    Text(
+                      emFila
+                          ? 'Você é o $posº na fila'
+                          : 'Na fila de espera',
+                      style: const TextStyle(
+                        fontSize: 14,
+                        fontWeight: FontWeight.w700,
+                        color: Color(0xFF1A1A2E),
+                      ),
+                    ),
+                    const SizedBox(height: 2),
+                    Text(
+                      emFila
+                          ? 'Aguarde enquanto um atendente fica disponível.'
+                          : 'Em breve um atendente irá atender você.',
+                      style: TextStyle(
+                        fontSize: 12,
+                        color: Colors.grey.shade600,
+                      ),
+                    ),
+                  ],
+                ),
+              ),
+              if (emFila)
+                Container(
+                  padding: const EdgeInsets.symmetric(
+                    horizontal: 10,
+                    vertical: 6,
+                  ),
+                  decoration: BoxDecoration(
+                    color: Colors.white,
+                    borderRadius: BorderRadius.circular(8),
+                    border: Border.all(
+                      color: diPertinLaranja.withValues(alpha: 0.2),
+                    ),
+                  ),
+                  child: Row(
+                    mainAxisSize: MainAxisSize.min,
+                    children: [
+                      Container(
+                        width: 6,
+                        height: 6,
+                        decoration: BoxDecoration(
+                          color: diPertinLaranja,
+                          shape: BoxShape.circle,
+                        ),
+                      ),
+                      const SizedBox(width: 6),
+                      Text(
+                        '$pos',
+                        style: TextStyle(
+                          fontSize: 16,
+                          fontWeight: FontWeight.w800,
+                          color: diPertinLaranja,
+                        ),
+                      ),
+                    ],
                   ),
                 ),
-              ],
-            ),
+            ],
           ),
         );
       },
@@ -1897,60 +2569,83 @@ class _ChatSuporteScreenState extends State<ChatSuporteScreen> {
     required String ticketId,
     required String status,
   }) {
-    // Importante: o TextField fica SEMPRE habilitado para não fechar o
-    // teclado entre envios (o que antes causava o efeito de "piscar
-    // carregando"). O controle de concorrência é feito apenas nos botões.
     return Container(
-      padding: const EdgeInsets.all(10),
-      color: Colors.white,
+      padding: const EdgeInsets.fromLTRB(8, 8, 8, 10),
+      decoration: BoxDecoration(
+        color: Colors.white,
+        border: Border(
+          top: BorderSide(color: Colors.grey.shade200),
+        ),
+      ),
       child: SafeArea(
+        top: false,
         child: Row(
+          crossAxisAlignment: CrossAxisAlignment.end,
           children: [
-            IconButton(
-              tooltip: 'Anexar',
-              icon: _enviandoAnexo
-                  ? const SizedBox(
-                      width: 22,
-                      height: 22,
-                      child: CircularProgressIndicator(
-                        strokeWidth: 2,
-                        color: diPertinRoxo,
+            Container(
+              decoration: BoxDecoration(
+                color: Colors.grey.shade100,
+                borderRadius: BorderRadius.circular(24),
+              ),
+              child: IconButton(
+                tooltip: 'Anexar',
+                icon: _enviandoAnexo
+                    ? const SizedBox(
+                        width: 22,
+                        height: 22,
+                        child: CircularProgressIndicator(
+                          strokeWidth: 2,
+                          color: diPertinRoxo,
+                        ),
+                      )
+                    : Icon(
+                        Icons.add_circle_outline_rounded,
+                        color: diPertinRoxo.withValues(alpha: 0.7),
+                        size: 26,
                       ),
-                    )
-                  : const Icon(
-                      Icons.attach_file,
-                      color: diPertinRoxo,
-                    ),
-              onPressed: (_enviandoAnexo || _enviando)
-                  ? null
-                  : () => _abrirSheetAnexo(ticketId),
-            ),
-            Expanded(
-              child: TextField(
-                controller: _mensagemController,
-                decoration: InputDecoration(
-                  hintText: status == SuporteTicketStatus.waiting
-                      ? 'Primeira mensagem ou detalhes...'
-                      : 'Digite sua mensagem...',
-                  border: OutlineInputBorder(
-                    borderRadius: BorderRadius.circular(25),
-                    borderSide: BorderSide.none,
-                  ),
-                  filled: true,
-                  fillColor: Colors.grey[100],
-                  contentPadding: const EdgeInsets.symmetric(
-                    horizontal: 20,
-                    vertical: 10,
-                  ),
-                ),
-                textCapitalization: TextCapitalization.sentences,
-                onSubmitted: (_) => _enviarMensagem(ticketId),
+                onPressed: (_enviandoAnexo || _enviando)
+                    ? null
+                    : () => _abrirSheetAnexo(ticketId),
               ),
             ),
-            const SizedBox(width: 10),
-            Container(
-              decoration: const BoxDecoration(
-                color: diPertinRoxo,
+            const SizedBox(width: 6),
+            Expanded(
+              child: Container(
+                constraints: const BoxConstraints(maxHeight: 120),
+                decoration: BoxDecoration(
+                  color: Colors.grey.shade100,
+                  borderRadius: BorderRadius.circular(24),
+                ),
+                child: TextField(
+                  controller: _mensagemController,
+                  maxLines: null,
+                  textInputAction: TextInputAction.send,
+                  decoration: InputDecoration(
+                    hintText: status == SuporteTicketStatus.waiting
+                        ? 'Descreva seu problema...'
+                        : 'Digite sua mensagem...',
+                    hintStyle: TextStyle(
+                      color: Colors.grey.shade400,
+                      fontSize: 14.5,
+                    ),
+                    border: InputBorder.none,
+                    contentPadding: const EdgeInsets.symmetric(
+                      horizontal: 18,
+                      vertical: 12,
+                    ),
+                  ),
+                  textCapitalization: TextCapitalization.sentences,
+                  onSubmitted: (_) => _enviarMensagem(ticketId),
+                ),
+              ),
+            ),
+            const SizedBox(width: 6),
+            AnimatedContainer(
+              duration: const Duration(milliseconds: 200),
+              decoration: BoxDecoration(
+                color: _mensagemController.text.trim().isNotEmpty || _enviando
+                    ? diPertinRoxo
+                    : diPertinRoxo.withValues(alpha: 0.15),
                 shape: BoxShape.circle,
               ),
               child: IconButton(
@@ -1959,12 +2654,78 @@ class _ChatSuporteScreenState extends State<ChatSuporteScreen> {
                         width: 22,
                         height: 22,
                         child: CircularProgressIndicator(
-                          strokeWidth: 2,
+                          strokeWidth: 2.5,
                           color: Colors.white,
                         ),
                       )
-                    : const Icon(Icons.send, color: Colors.white),
-                onPressed: _enviando ? null : () => _enviarMensagem(ticketId),
+                    : const Icon(Icons.send_rounded, color: Colors.white),
+                onPressed:
+                    _enviando ? null : () => _enviarMensagem(ticketId),
+                visualDensity: VisualDensity.comfortable,
+              ),
+            ),
+          ],
+        ),
+      ),
+    );
+  }
+  Widget _anexoOpcao({
+    required BuildContext ctx,
+    required IconData icone,
+    required String titulo,
+    required String subtitulo,
+    required String valor,
+  }) {
+    return InkWell(
+      onTap: () => Navigator.pop(ctx, valor),
+      borderRadius: BorderRadius.circular(12),
+      child: Padding(
+        padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 8),
+        child: Row(
+          children: [
+            Container(
+              width: 44,
+              height: 44,
+              decoration: BoxDecoration(
+                color: diPertinRoxo.withValues(alpha: 0.06),
+                borderRadius: BorderRadius.circular(12),
+              ),
+              child: Icon(icone, color: diPertinRoxo, size: 22),
+            ),
+            const SizedBox(width: 14),
+            Expanded(
+              child: Column(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  Text(
+                    titulo,
+                    style: const TextStyle(
+                      fontSize: 14.5,
+                      fontWeight: FontWeight.w600,
+                      color: Color(0xFF1A1A2E),
+                    ),
+                  ),
+                  const SizedBox(height: 2),
+                  Text(
+                    subtitulo,
+                    style: TextStyle(
+                      fontSize: 12,
+                      color: Colors.grey.shade600,
+                    ),
+                  ),
+                ],
+              ),
+            ),
+            Container(
+              padding: const EdgeInsets.all(4),
+              decoration: BoxDecoration(
+                color: Colors.grey.shade100,
+                borderRadius: BorderRadius.circular(8),
+              ),
+              child: Icon(
+                Icons.chevron_right_rounded,
+                size: 16,
+                color: Colors.grey.shade400,
               ),
             ),
           ],

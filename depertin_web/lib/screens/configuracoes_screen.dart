@@ -24,8 +24,6 @@ const List<String> _kFretePresetsOrdenadosPainel = <String>[
   TiposEntrega.codCarroFrete,
 ];
 
-final RegExp _kRegexSlugFretePersonalizadoPainel = RegExp(r'^[a-z0-9_]{2,48}$');
-
 String _suffixDocFretePainel(String docId) {
   final id = docId.toLowerCase().trim();
   if (id.isEmpty) return TiposEntrega.codMoto;
@@ -40,6 +38,49 @@ String _suffixDocFretePainel(String docId) {
   }
   return id.substring(i + 1);
 }
+
+/// Normaliza valores de veículo legados salvos na coleção planos_taxas
+/// para os novos rótulos expandidos.
+///
+/// Compatibilidade:
+///   "Carro"        → "Carro de Passeio"
+///   "Carro frete"  → "Utilitário / Frete"
+///   "Moto"         → "Moto"
+///   "Bicicleta"    → "Bicicleta"
+///   "Todos"        → "Todos"
+///   (qualquer outro) → raw
+String _normalizarVeiculoComissao(String? raw) {
+  if (raw == null || raw.trim().isEmpty) return 'Todos';
+  switch (raw.trim()) {
+    case 'Carro':
+      return 'Carro de Passeio';
+    case 'carro':
+      return 'Carro de Passeio';
+    case 'Carro frete':
+    case 'carro_frete':
+      return 'Utilitário / Frete';
+    case 'Moto':
+    case 'moto':
+      return 'Moto';
+    case 'Bicicleta':
+    case 'bicicleta':
+      return 'Bicicleta';
+    case 'Todos':
+    case 'todos':
+      return 'Todos';
+    default:
+      return raw.trim();
+  }
+}
+
+/// Lista fixa de categorias de veículo para comissão de entregadores.
+const List<String> _kCategoriasVeiculoComissao = <String>[
+  'Todos',
+  'Bicicleta',
+  'Moto',
+  'Carro de Passeio',
+  'Utilitário / Frete',
+];
 
 String _rotuloPresetListaFretePainel(String slugPreset) {
   switch (slugPreset) {
@@ -56,19 +97,6 @@ String _rotuloPresetListaFretePainel(String slugPreset) {
     default:
       return slugPreset;
   }
-}
-
-String _campoVeiculoLegadoFretePainel({
-  required bool usarPersonalizado,
-  required String tipoTabelaCanon,
-  required String presetOuSlugManual,
-}) {
-  if (usarPersonalizado) {
-    final alvo =
-        _rotuloPresetListaFretePainel(tipoTabelaCanon.toLowerCase());
-    return 'Personalizado (${presetOuSlugManual.trim()}) — no app: $alvo';
-  }
-  return _rotuloPresetListaFretePainel(presetOuSlugManual);
 }
 
 /// Chave canônica em `tabela_fretes/{cidade}_{slug}` — sem acento, minúscula
@@ -407,8 +435,11 @@ class _ConfiguracoesScreenState extends State<ConfiguracoesScreen>
         dadosEditar != null ? (dadosEditar['tipo_cobranca'] ?? 'porcentagem') : 'porcentagem';
     String frequencia =
         dadosEditar != null ? (dadosEditar['frequencia'] ?? 'venda') : 'venda';
-    String veiculo =
-        dadosEditar != null ? (dadosEditar['veiculo'] ?? 'Todos') : 'Todos';
+    String veiculo = dadosEditar != null
+        ? _normalizarVeiculoComissao(
+            dadosEditar['veiculo']?.toString() ?? 'Todos',
+          )
+        : 'Todos';
     final nomePlanoC = TextEditingController(
       text: dadosEditar != null ? (dadosEditar['nome'] ?? '') : '',
     );
@@ -525,7 +556,8 @@ class _ConfiguracoesScreenState extends State<ConfiguracoesScreen>
                           ? "Editar comissão"
                           : "Nova comissão ou taxa",
                       subtitulo:
-                          "Defina o público, a cidade e como o app cobra (percentual ou valor fixo).",
+                          "Defina o público, a cidade e como o app cobra. Para entregadores, "
+                          "escolha também a categoria de veículo.",
                     ),
                     Expanded(
                       child: SingleChildScrollView(
@@ -599,9 +631,9 @@ class _ConfiguracoesScreenState extends State<ConfiguracoesScreen>
                                 ),
                                 initialValue: veiculo,
                                 decoration: _dialogFieldDecoration(
-                                  "Tipo de veículo",
+                                  "Categoria do veículo",
                                 ),
-                                items: ['Todos', 'Moto', 'Carro', 'Bicicleta']
+                                items: _kCategoriasVeiculoComissao
                                     .map(
                                       (v) => DropdownMenuItem(
                                         value: v,
@@ -870,28 +902,13 @@ class _ConfiguracoesScreenState extends State<ConfiguracoesScreen>
         docIdEditar != null ? _suffixDocFretePainel(docIdEditar) : '';
     final tipoTblSalvo =
         dadosEditar?['tipo_tabela']?.toString().trim().toLowerCase();
-    var usarSlugPersonalizado = docIdEditar != null &&
-        slugDoDocIni.isNotEmpty &&
-        !_kSlugsFretePresetPainel.contains(slugDoDocIni);
-    var tipoTabelaFallback =
-        (tipoTblSalvo != null &&
-                _kSlugsFretePresetPainel.contains(tipoTblSalvo))
-            ? tipoTblSalvo
-            : (slugDoDocIni.isNotEmpty &&
-                    _kSlugsFretePresetPainel.contains(slugDoDocIni)
-                ? slugDoDocIni
-                : TiposEntrega.codMoto);
-    var presetSlug = !usarSlugPersonalizado &&
-            slugDoDocIni.isNotEmpty &&
+    var presetSlug = slugDoDocIni.isNotEmpty &&
             _kSlugsFretePresetPainel.contains(slugDoDocIni)
         ? slugDoDocIni
         : ((tipoTblSalvo != null &&
                 _kSlugsFretePresetPainel.contains(tipoTblSalvo))
             ? tipoTblSalvo
             : TiposEntrega.codMoto);
-    final slugManualCtrl = TextEditingController(
-      text: usarSlugPersonalizado ? slugDoDocIni : '',
-    );
     var isLoading = false;
 
     showDialog<void>(
@@ -910,40 +927,6 @@ class _ConfiguracoesScreenState extends State<ConfiguracoesScreen>
                   SnackBar(
                     content: const Text(
                       "Preencha valor base, distância e valor por km extra.",
-                    ),
-                    backgroundColor: diPertinRoxo,
-                    behavior: SnackBarBehavior.floating,
-                  ),
-                );
-                return;
-              }
-
-              final slugManualLimpo =
-                  slugManualCtrl.text.trim().toLowerCase();
-
-              if (usarSlugPersonalizado &&
-                  !_kRegexSlugFretePersonalizadoPainel
-                      .hasMatch(slugManualLimpo)) {
-                ScaffoldMessenger.of(context).showSnackBar(
-                  SnackBar(
-                    content: const Text(
-                      "Slug personalizado inválido. Use apenas letras minúsculas, números e sublinhado "
-                      "(2 a 48 caracteres). Reserve palavras-preset (ex.: «moto», «bicicleta»).",
-                    ),
-                    backgroundColor: diPertinRoxo,
-                    behavior: SnackBarBehavior.floating,
-                  ),
-                );
-                return;
-              }
-
-              if (usarSlugPersonalizado &&
-                  _kSlugsFretePresetPainel.contains(slugManualLimpo)) {
-                ScaffoldMessenger.of(context).showSnackBar(
-                  SnackBar(
-                    content: const Text(
-                      "Esse slug é reservado para uma categoria pré-definida. "
-                      "Desative «Identificador personalizado» e escolha a categoria correspondente.",
                     ),
                     backgroundColor: diPertinRoxo,
                     behavior: SnackBarBehavior.floating,
@@ -979,18 +962,11 @@ class _ConfiguracoesScreenState extends State<ConfiguracoesScreen>
                   return;
                 }
 
-                final String suffixDoc =
-                    usarSlugPersonalizado ? slugManualLimpo : presetSlug;
-                final String tipoTabelaCanon = usarSlugPersonalizado
-                    ? tipoTabelaFallback
-                    : presetSlug;
+                final String suffixDoc = presetSlug;
+                final String tipoTabelaCanon = presetSlug;
 
-                final veiculoLegado = _campoVeiculoLegadoFretePainel(
-                  usarPersonalizado: usarSlugPersonalizado,
-                  tipoTabelaCanon: tipoTabelaCanon,
-                  presetOuSlugManual:
-                      usarSlugPersonalizado ? slugManualLimpo : presetSlug,
-                );
+                final veiculoLegado =
+                    _rotuloPresetListaFretePainel(presetSlug);
 
                 final novoDocId = '${cidadeChave}_$suffixDoc';
 
@@ -1187,94 +1163,32 @@ class _ConfiguracoesScreenState extends State<ConfiguracoesScreen>
                               ),
                               const SizedBox(height: 8),
                             ],
-                            SwitchListTile.adaptive(
-                              contentPadding: EdgeInsets.zero,
-                              title:
-                                  const Text('Identificador personalizado da regra'),
-                              subtitle: Text(
-                                isEdicao
-                                    ? 'Não é possível alternar modo ao editar.'
-                                    : 'Use para várias tarifas paralelas às categorias pré-definidas '
-                                        '(precisa definir quando o carrinho aplica esta linha).',
-                                style: TextStyle(
-                                  fontSize: 12,
-                                  color: Colors.grey.shade600,
-                                ),
+                            DropdownButtonFormField<String>(
+                              key: ValueKey<String>(
+                                  'preset_${presetSlug}_$isEdicao'),
+                              value: presetSlug,
+                              decoration: _dialogFieldDecoration(
+                                'Categoria do frete (tabela no app)',
+                                helperText:
+                                    'Carros comuns use "Carro de Passeio". Veículos de carga '
+                                    'use "Utilitário / Frete". Bicicleta e moto têm valores '
+                                    'separados. «Padrão» cobre regras antigas.',
                               ),
-                              value: usarSlugPersonalizado,
-                              onChanged: isEdicao
-                                  ? null
-                                  : (v) {
-                                      setState(() {
-                                        usarSlugPersonalizado = v;
-                                        slugManualCtrl.text = '';
-                                      });
-                                    },
+                              items: [
+                                for (final s in _kFretePresetsOrdenadosPainel)
+                                  DropdownMenuItem<String>(
+                                    value: s,
+                                    child: Text(
+                                      _rotuloPresetListaFretePainel(s),
+                                    ),
+                                  ),
+                              ],
+                              onChanged: (v) {
+                                if (v != null) {
+                                  setState(() => presetSlug = v);
+                                }
+                              },
                             ),
-                            if (!usarSlugPersonalizado) ...[
-                              DropdownButtonFormField<String>(
-                                key: ValueKey<String>('preset_${presetSlug}_$isEdicao'),
-                                value: presetSlug,
-                                decoration: _dialogFieldDecoration(
-                                  'Categoria do frete (tabela no app)',
-                                  helperText:
-                                      'Bicicleta e moto têm valores separados. «Padrão» cobre '
-                                      'regras antigas que uniam moto e bike.',
-                                ),
-                                items: [
-                                  for (final s in _kFretePresetsOrdenadosPainel)
-                                    DropdownMenuItem<String>(
-                                      value: s,
-                                      child: Text(
-                                        _rotuloPresetListaFretePainel(s),
-                                      ),
-                                    ),
-                                ],
-                                onChanged: (v) {
-                                  if (v != null) {
-                                    setState(() => presetSlug = v);
-                                  }
-                                },
-                              ),
-                            ] else ...[
-                              TextField(
-                                controller: slugManualCtrl,
-                                readOnly: false,
-                                autocorrect: false,
-                                decoration: _dialogFieldDecoration(
-                                  'Slug (identificador do documento)',
-                                  helperText:
-                                      'Nome único sem acento. O ID fica cidade_slug '
-                                      '(apenas minúsculas e _; 2 a 48 caracteres). '
-                                      'Evite slug reservado tipo «moto» ou «bicicleta».',
-                                ),
-                              ),
-                              const SizedBox(height: 12),
-                              DropdownButtonFormField<String>(
-                                key: ValueKey<String>(
-                                  'fallback_${tipoTabelaFallback}_${presetSlug}_${usarSlugPersonalizado}_$isEdicao',
-                                ),
-                                value: tipoTabelaFallback,
-                                decoration: _dialogFieldDecoration(
-                                  'No app conta como',
-                                  helperText:
-                                      'Tipo canônico usado na busca pelo carrinho (cadeia de fallback). '
-                                      'Ao editar, você pode só ajustar este vínculo sem mudar o slug.',
-                                ),
-                                items: [
-                                  for (final s in _kFretePresetsOrdenadosPainel)
-                                    DropdownMenuItem<String>(
-                                      value: s,
-                                      child: Text(_rotuloPresetListaFretePainel(s)),
-                                    ),
-                                ],
-                                onChanged: (v) {
-                                  if (v != null) {
-                                    setState(() => tipoTabelaFallback = v);
-                                  }
-                                },
-                              ),
-                            ],
                             const SizedBox(height: 16),
                             Row(
                               crossAxisAlignment: CrossAxisAlignment.start,
@@ -1386,7 +1300,7 @@ class _ConfiguracoesScreenState extends State<ConfiguracoesScreen>
           },
         );
       },
-    ).whenComplete(slugManualCtrl.dispose);
+    );
   }
 
   Future<void> _deletarDocumento(
@@ -1472,45 +1386,54 @@ class _ConfiguracoesScreenState extends State<ConfiguracoesScreen>
   }) {
     return Center(
       child: ConstrainedBox(
-        constraints: const BoxConstraints(maxWidth: 420),
+        constraints: const BoxConstraints(maxWidth: 400),
         child: Padding(
-          padding: const EdgeInsets.all(32),
+          padding: const EdgeInsets.all(40),
           child: Column(
             mainAxisAlignment: MainAxisAlignment.center,
             children: [
-              Icon(icon, size: 56, color: diPertinRoxo.withValues(alpha: 0.35)),
-              const SizedBox(height: 20),
+              Container(
+                padding: const EdgeInsets.all(24),
+                decoration: BoxDecoration(
+                  color: diPertinRoxo.withValues(alpha: 0.06),
+                  borderRadius: BorderRadius.circular(20),
+                  border: Border.all(color: diPertinRoxo.withValues(alpha: 0.12)),
+                ),
+                child: Icon(icon, size: 48, color: diPertinRoxo.withValues(alpha: 0.4)),
+              ),
+              const SizedBox(height: 24),
               Text(
                 titulo,
                 textAlign: TextAlign.center,
                 style: TextStyle(
                   fontSize: 18,
                   fontWeight: FontWeight.w700,
-                  color: diPertinRoxo,
+                  color: PainelAdminTheme.dashboardInk,
+                  height: 1.3,
                 ),
               ),
               const SizedBox(height: 8),
               Text(
                 subtitulo,
                 textAlign: TextAlign.center,
-                style: const TextStyle(
+                style: TextStyle(
+                  fontSize: 14,
+                  height: 1.5,
                   color: PainelAdminTheme.textoSecundario,
-                  height: 1.45,
                 ),
               ),
               if (onAdicionar != null && labelBotao != null) ...[
                 const SizedBox(height: 24),
                 FilledButton.icon(
                   onPressed: onAdicionar,
-                  icon: const Icon(Icons.add, size: 20),
+                  icon: const Icon(Icons.add_rounded, size: 20),
                   label: Text(labelBotao),
                   style: FilledButton.styleFrom(
                     backgroundColor: diPertinLaranja,
                     foregroundColor: Colors.white,
-                    padding: const EdgeInsets.symmetric(
-                      horizontal: 20,
-                      vertical: 14,
-                    ),
+                    padding: const EdgeInsets.symmetric(horizontal: 24, vertical: 14),
+                    shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
+                    textStyle: const TextStyle(fontSize: 14, fontWeight: FontWeight.w600),
                   ),
                 ),
               ],
@@ -1521,19 +1444,469 @@ class _ConfiguracoesScreenState extends State<ConfiguracoesScreen>
     );
   }
 
-  Widget _chipInfo(String texto, {IconData? icon}) {
+  Widget _chipInfo(String texto, {IconData? icon, Color? cor}) {
+    final corFinal = cor ?? diPertinRoxo;
     return Chip(
       avatar: icon != null
-          ? Icon(icon, size: 16, color: diPertinRoxo)
+          ? Icon(icon, size: 15, color: corFinal)
           : null,
       label: Text(texto),
       visualDensity: VisualDensity.compact,
-      padding: const EdgeInsets.symmetric(horizontal: 4),
-      side: BorderSide(color: Colors.grey.shade300),
-      backgroundColor: Colors.grey.shade50,
-      labelStyle: const TextStyle(fontSize: 13),
+      padding: const EdgeInsets.symmetric(horizontal: 6),
+      materialTapTargetSize: MaterialTapTargetSize.shrinkWrap,
+      side: BorderSide(color: corFinal.withValues(alpha: 0.25)),
+      backgroundColor: corFinal.withValues(alpha: 0.07),
+      labelStyle: TextStyle(fontSize: 12.5, fontWeight: FontWeight.w500, color: corFinal),
     );
   }
+
+  Widget _breadcrumb() {
+    return Padding(
+      padding: const EdgeInsets.only(bottom: 16),
+      child: Row(
+        children: [
+          _crumbItem('Configurações', Icons.settings_rounded),
+          _crumbSep(),
+          _crumbItem('Financeiro', Icons.account_balance_wallet_rounded),
+          _crumbSep(),
+          Text(
+            _kCfgFinanceSecoes[_tabController.index].tituloPainel,
+            style: TextStyle(
+              fontSize: 12,
+              fontWeight: FontWeight.w600,
+              color: diPertinRoxo,
+            ),
+          ),
+        ],
+      ),
+    );
+  }
+
+  Widget _crumbItem(String label, IconData icon) {
+    return Row(
+      mainAxisSize: MainAxisSize.min,
+      children: [
+        Icon(icon, size: 13, color: Colors.grey.shade500),
+        const SizedBox(width: 4),
+        Text(
+          label,
+          style: TextStyle(
+            fontSize: 12,
+            fontWeight: FontWeight.w500,
+            color: Colors.grey.shade600,
+          ),
+        ),
+      ],
+    );
+  }
+
+  Widget _crumbSep() {
+    return Padding(
+      padding: const EdgeInsets.symmetric(horizontal: 6),
+      child: Icon(Icons.chevron_right_rounded, size: 14, color: Colors.grey.shade400),
+    );
+  }
+
+  Widget _cabecalhoSecao() {
+    final idx = _tabController.index;
+    final meta = _kCfgFinanceSecoes[idx];
+    return Container(
+      margin: const EdgeInsets.only(bottom: 20),
+      child: Row(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          Container(
+            padding: const EdgeInsets.all(14),
+            decoration: BoxDecoration(
+              gradient: LinearGradient(
+                begin: Alignment.topLeft,
+                end: Alignment.bottomRight,
+                colors: [diPertinRoxo, diPertinRoxo.withValues(alpha: 0.8)],
+              ),
+              borderRadius: BorderRadius.circular(16),
+              boxShadow: [
+                BoxShadow(
+                  color: diPertinRoxo.withValues(alpha: 0.25),
+                  blurRadius: 16,
+                  offset: const Offset(0, 6),
+                ),
+              ],
+            ),
+            child: Icon(meta.icon, color: Colors.white, size: 28),
+          ),
+          const SizedBox(width: 18),
+          Expanded(
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                Text(
+                  meta.tituloPainel,
+                  style: TextStyle(
+                    fontSize: 24,
+                    fontWeight: FontWeight.w800,
+                    color: PainelAdminTheme.dashboardInk,
+                    letterSpacing: -0.5,
+                    height: 1.1,
+                  ),
+                ),
+                const SizedBox(height: 6),
+                Text(
+                  meta.descricao,
+                  style: TextStyle(
+                    fontSize: 14,
+                    height: 1.45,
+                    color: PainelAdminTheme.textoSecundario,
+                  ),
+                ),
+              ],
+            ),
+          ),
+          const SizedBox(width: 16),
+          _buildAcoesContextuaisTopo(),
+        ],
+      ),
+    );
+  }
+
+  Widget _summaryCards() {
+    return Padding(
+      padding: const EdgeInsets.only(bottom: 24),
+      child: LayoutBuilder(
+        builder: (context, constraints) {
+          return Wrap(
+            spacing: 12,
+            runSpacing: 12,
+            children: [
+              _summaryCard(
+                icon: Icons.storefront_rounded,
+                titulo: 'Comissões Lojistas',
+                stream: FirebaseFirestore.instance
+                    .collection('planos_taxas')
+                    .where('publico', isEqualTo: 'lojista')
+                    .snapshots(),
+                cor: diPertinRoxo,
+              ),
+              _summaryCard(
+                icon: Icons.two_wheeler_rounded,
+                titulo: 'Comissões Entregadores',
+                stream: FirebaseFirestore.instance
+                    .collection('planos_taxas')
+                    .where('publico', isEqualTo: 'entregador')
+                    .snapshots(),
+                cor: const Color(0xFF0284C7),
+              ),
+              _summaryCard(
+                icon: Icons.route_rounded,
+                titulo: 'Regras de Frete',
+                stream: FirebaseFirestore.instance
+                    .collection('tabela_fretes')
+                    .snapshots(),
+                cor: const Color(0xFFD97706),
+              ),
+              _summaryCard(
+                icon: Icons.credit_card_rounded,
+                titulo: 'Gateways Pagamento',
+                stream: FirebaseFirestore.instance
+                    .collection('gateways_pagamento')
+                    .snapshots(),
+                cor: const Color(0xFF059669),
+              ),
+            ],
+          );
+        },
+      ),
+    );
+  }
+
+  Widget _summaryCard({
+    required IconData icon,
+    required String titulo,
+    required Stream<QuerySnapshot> stream,
+    required Color cor,
+  }) {
+    return SizedBox(
+      width: 200,
+      child: StreamBuilder<QuerySnapshot>(
+        stream: stream,
+        builder: (context, snap) {
+          final qtd = snap.data?.docs.length ?? 0;
+          return Container(
+            padding: const EdgeInsets.all(16),
+            decoration: BoxDecoration(
+              color: Colors.white,
+              borderRadius: BorderRadius.circular(16),
+              border: Border.all(color: Colors.grey.shade200),
+              boxShadow: [
+                BoxShadow(
+                  color: Colors.black.withValues(alpha: 0.04),
+                  blurRadius: 12,
+                  offset: const Offset(0, 4),
+                ),
+              ],
+            ),
+            child: Row(
+              children: [
+                Container(
+                  padding: const EdgeInsets.all(10),
+                  decoration: BoxDecoration(
+                    color: cor.withValues(alpha: 0.1),
+                    borderRadius: BorderRadius.circular(12),
+                  ),
+                  child: Icon(icon, size: 22, color: cor),
+                ),
+                const SizedBox(width: 14),
+                Expanded(
+                  child: Column(
+                    crossAxisAlignment: CrossAxisAlignment.start,
+                    children: [
+                      Text(
+                        titulo,
+                        style: TextStyle(
+                          fontSize: 12,
+                          fontWeight: FontWeight.w600,
+                          color: Colors.grey.shade700,
+                        ),
+                      ),
+                      const SizedBox(height: 4),
+                      Text(
+                        '$qtd ${qtd == 1 ? 'regra' : 'regras'}',
+                        style: TextStyle(
+                          fontSize: 18,
+                          fontWeight: FontWeight.w800,
+                          color: cor,
+                        ),
+                      ),
+                    ],
+                  ),
+                ),
+              ],
+            ),
+          );
+        },
+      ),
+    );
+  }
+
+  Widget _sideHelpPanel() {
+    return Container(
+      width: 260,
+      padding: const EdgeInsets.all(20),
+      decoration: BoxDecoration(
+        color: Colors.white,
+        borderRadius: BorderRadius.circular(18),
+        border: Border.all(color: Colors.grey.shade200),
+        boxShadow: [
+          BoxShadow(
+            color: Colors.black.withValues(alpha: 0.04),
+            blurRadius: 12,
+            offset: const Offset(0, 4),
+          ),
+        ],
+      ),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          Row(
+            children: [
+              Container(
+                padding: const EdgeInsets.all(8),
+                decoration: BoxDecoration(
+                  color: diPertinRoxo.withValues(alpha: 0.1),
+                  borderRadius: BorderRadius.circular(10),
+                ),
+                child: Icon(Icons.help_outline_rounded, size: 18, color: diPertinRoxo),
+              ),
+              const SizedBox(width: 10),
+              Expanded(
+                child: Text(
+                  'Entenda como funciona',
+                  style: TextStyle(
+                    fontSize: 15,
+                    fontWeight: FontWeight.w700,
+                    color: PainelAdminTheme.dashboardInk,
+                  ),
+                ),
+              ),
+            ],
+          ),
+          const SizedBox(height: 20),
+          _helpSection(
+            titulo: 'Tipos de comissão',
+            items: ['Percentual', 'Valor fixo'],
+            descricao: 'Escolha entre cobrar um percentual ou um valor fixo por transação.',
+          ),
+          const SizedBox(height: 20),
+          _helpSection(
+            titulo: 'Como é aplicada',
+            items: ['Cidade específica', 'Grupo de cidades', 'Todas as cidades'],
+            descricao: 'Defina o escopo geográfico da regra de comissão.',
+          ),
+          const Spacer(),
+          Container(
+            width: double.infinity,
+            padding: const EdgeInsets.all(16),
+            decoration: BoxDecoration(
+              gradient: LinearGradient(
+                colors: [diPertinRoxo.withValues(alpha: 0.06), diPertinRoxo.withValues(alpha: 0.02)],
+              ),
+              borderRadius: BorderRadius.circular(14),
+              border: Border.all(color: diPertinRoxo.withValues(alpha: 0.12)),
+            ),
+            child: Column(
+              children: [
+                Icon(Icons.forum_outlined, size: 24, color: diPertinRoxo.withValues(alpha: 0.6)),
+                const SizedBox(height: 8),
+                Text(
+                  'Dúvidas?',
+                  style: TextStyle(
+                    fontSize: 14,
+                    fontWeight: FontWeight.w700,
+                    color: diPertinRoxo,
+                  ),
+                ),
+                const SizedBox(height: 4),
+                Text(
+                  'Consulte o guia completo de configuração.',
+                  textAlign: TextAlign.center,
+                  style: TextStyle(fontSize: 12, color: Colors.grey.shade600, height: 1.4),
+                ),
+                const SizedBox(height: 12),
+                OutlinedButton.icon(
+                  onPressed: () {},
+                  icon: const Icon(Icons.open_in_new_rounded, size: 16),
+                  label: const Text('Ver guia completo'),
+                  style: OutlinedButton.styleFrom(
+                    foregroundColor: diPertinRoxo,
+                    side: BorderSide(color: diPertinRoxo.withValues(alpha: 0.3)),
+                    shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(10)),
+                    padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 8),
+                    textStyle: const TextStyle(fontSize: 12, fontWeight: FontWeight.w600),
+                  ),
+                ),
+              ],
+            ),
+          ),
+        ],
+      ),
+    );
+  }
+
+  Widget _helpSection({
+    required String titulo,
+    required List<String> items,
+    required String descricao,
+  }) {
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.start,
+      children: [
+        Text(
+          titulo,
+          style: TextStyle(
+            fontSize: 13,
+            fontWeight: FontWeight.w700,
+            color: PainelAdminTheme.dashboardInk,
+          ),
+        ),
+        const SizedBox(height: 8),
+        ...items.map(
+          (item) => Padding(
+            padding: const EdgeInsets.only(bottom: 4),
+            child: Row(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                Container(
+                  margin: const EdgeInsets.only(top: 5, right: 8),
+                  width: 6,
+                  height: 6,
+                  decoration: BoxDecoration(
+                    color: diPertinRoxo.withValues(alpha: 0.5),
+                    shape: BoxShape.circle,
+                  ),
+                ),
+                Expanded(
+                  child: Text(
+                    item,
+                    style: TextStyle(fontSize: 12.5, color: Colors.grey.shade700, height: 1.4),
+                  ),
+                ),
+              ],
+            ),
+          ),
+        ),
+        const SizedBox(height: 6),
+        Text(
+          descricao,
+          style: TextStyle(fontSize: 11.5, color: Colors.grey.shade500, height: 1.4),
+        ),
+      ],
+    );
+  }
+
+  Widget _financialImpactBox(double valor, String tipo) {
+    final isFixo = tipo == 'fixo';
+    return Container(
+      width: double.infinity,
+      margin: const EdgeInsets.only(top: 12),
+      padding: const EdgeInsets.all(14),
+      decoration: BoxDecoration(
+        color: diPertinRoxo.withValues(alpha: 0.04),
+        borderRadius: BorderRadius.circular(12),
+        border: Border.all(color: diPertinRoxo.withValues(alpha: 0.1)),
+      ),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          Row(
+            children: [
+              Icon(Icons.trending_up_rounded, size: 16, color: diPertinRoxo),
+              const SizedBox(width: 6),
+              Text(
+                'Impacto estimado',
+                style: TextStyle(
+                  fontSize: 12,
+                  fontWeight: FontWeight.w700,
+                  color: diPertinRoxo.withValues(alpha: 0.8),
+                ),
+              ),
+            ],
+          ),
+          const SizedBox(height: 10),
+          ..._simularImpactos(valor, isFixo),
+        ],
+      ),
+    );
+  }
+
+  List<Widget> _simularImpactos(double valor, bool isFixo) {
+    final cenarios = isFixo ? [100.0] : [100.0, 500.0, 1000.0];
+    return cenarios.map((venda) {
+      final receita = isFixo ? valor : (venda * valor / 100);
+      return Padding(
+        padding: const EdgeInsets.only(bottom: 6),
+        child: Row(
+          children: [
+            Expanded(
+              child: Text(
+                isFixo ? 'Valor fixo' : 'Venda de R\$${venda.toStringAsFixed(0)}',
+                style: TextStyle(fontSize: 12, color: Colors.grey.shade700),
+              ),
+            ),
+            Icon(Icons.arrow_forward_rounded, size: 12, color: Colors.grey.shade400),
+            const SizedBox(width: 6),
+            Text(
+              isFixo ? 'R\$${valor.toStringAsFixed(2)}' : 'Plataforma recebe R\$${receita.toStringAsFixed(0)}',
+              style: TextStyle(
+                fontSize: 12,
+                fontWeight: FontWeight.w700,
+                color: diPertinRoxo,
+              ),
+            ),
+          ],
+        ),
+      );
+    }).toList();
+  }
+
 
   Widget _buildListaPlanos(String publico) {
     final isLojista = publico == 'lojista';
@@ -1580,99 +1953,160 @@ class _ConfiguracoesScreenState extends State<ConfiguracoesScreen>
                   : 'todas';
               final isFixo = dados['tipo_cobranca'] == 'fixo';
               final freq = _labelFrequencia(dados['frequencia']);
-              final valorResumo = isFixo
-                  ? "R\$ ${dados['valor']} · $freq"
-                  : "${dados['valor']}% · $freq";
               final tipoLabel =
                   isFixo ? "Valor fixo" : "Percentual";
+              final veiculoLabel = isLojista
+                  ? null
+                  : (dados['veiculo']?.toString() ?? 'Todos');
 
-              return Material(
-                color: Colors.white,
-                elevation: 0,
-                shape: RoundedRectangleBorder(
-                  borderRadius: BorderRadius.circular(16),
-                  side: const BorderSide(color: PainelAdminTheme.dashboardBorder),
+              return Container(
+                margin: const EdgeInsets.only(bottom: 12),
+                decoration: BoxDecoration(
+                  color: Colors.white,
+                  borderRadius: BorderRadius.circular(18),
+                  border: Border.all(color: Colors.grey.shade200),
+                  boxShadow: [
+                    BoxShadow(
+                      color: Colors.black.withValues(alpha: 0.04),
+                      blurRadius: 12,
+                      offset: const Offset(0, 4),
+                    ),
+                  ],
                 ),
                 clipBehavior: Clip.antiAlias,
                 child: Padding(
-                  padding: const EdgeInsets.symmetric(
-                    horizontal: 18,
-                    vertical: 16,
-                  ),
-                  child: Row(
+                  padding: const EdgeInsets.all(20),
+                  child: Column(
                     crossAxisAlignment: CrossAxisAlignment.start,
                     children: [
-                      Container(
-                        padding: const EdgeInsets.all(12),
-                        decoration: BoxDecoration(
-                          color: diPertinRoxo.withValues(alpha: 0.08),
-                          borderRadius: BorderRadius.circular(12),
-                          border: Border.all(
-                            color: diPertinRoxo.withValues(alpha: 0.12),
-                          ),
-                        ),
-                        child: Icon(
-                          isLojista ? Icons.storefront_rounded : Icons.moped_rounded,
-                          color: diPertinRoxo,
-                          size: 26,
-                        ),
-                      ),
-                      const SizedBox(width: 16),
-                      Expanded(
-                        child: Column(
-                          crossAxisAlignment: CrossAxisAlignment.start,
-                          children: [
-                            Text(
-                              nome,
-                              style: const TextStyle(
-                                fontSize: 17,
-                                fontWeight: FontWeight.w700,
-                                letterSpacing: -0.2,
+                      Row(
+                        crossAxisAlignment: CrossAxisAlignment.start,
+                        children: [
+                          Container(
+                            padding: const EdgeInsets.all(12),
+                            decoration: BoxDecoration(
+                              gradient: LinearGradient(
+                                begin: Alignment.topLeft,
+                                end: Alignment.bottomRight,
+                                colors: [
+                                  diPertinRoxo,
+                                  diPertinRoxo.withValues(alpha: 0.7),
+                                ],
                               ),
-                            ),
-                            const SizedBox(height: 10),
-                            Wrap(
-                              spacing: 8,
-                              runSpacing: 8,
-                              children: [
-                                _chipInfo(
-                                  "Local: ${cidade.toUpperCase()}",
-                                  icon: Icons.place_outlined,
-                                ),
-                                _chipInfo(tipoLabel, icon: Icons.category_outlined),
-                                _chipInfo(
-                                  "Comissão: $valorResumo",
-                                  icon: Icons.payments_outlined,
+                              borderRadius: BorderRadius.circular(14),
+                              boxShadow: [
+                                BoxShadow(
+                                  color: diPertinRoxo.withValues(alpha: 0.2),
+                                  blurRadius: 8,
+                                  offset: const Offset(0, 4),
                                 ),
                               ],
                             ),
-                          ],
-                        ),
+                            child: Icon(
+                              isLojista ? Icons.storefront_rounded : Icons.moped_rounded,
+                              color: Colors.white,
+                              size: 22,
+                            ),
+                          ),
+                          const SizedBox(width: 16),
+                          Expanded(
+                            child: Column(
+                              crossAxisAlignment: CrossAxisAlignment.start,
+                              children: [
+                                Row(
+                                  children: [
+                                    Text(
+                                      nome,
+                                      style: const TextStyle(
+                                        fontSize: 17,
+                                        fontWeight: FontWeight.w700,
+                                        color: PainelAdminTheme.dashboardInk,
+                                        letterSpacing: -0.2,
+                                      ),
+                                    ),
+                                    const SizedBox(width: 10),
+                                    Container(
+                                      padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 3),
+                                      decoration: BoxDecoration(
+                                        color: diPertinLaranja.withValues(alpha: 0.12),
+                                        borderRadius: BorderRadius.circular(6),
+                                        border: Border.all(color: diPertinLaranja.withValues(alpha: 0.25)),
+                                      ),
+                                      child: Text(
+                                        'Padrão',
+                                        style: TextStyle(
+                                          fontSize: 11,
+                                          fontWeight: FontWeight.w700,
+                                          color: diPertinLaranja,
+                                        ),
+                                      ),
+                                    ),
+                                  ],
+                                ),
+                                const SizedBox(height: 8),
+                                Wrap(
+                                  spacing: 6,
+                                  runSpacing: 6,
+                                  children: [
+                                    _chipInfo(
+                                      cidade.toUpperCase(),
+                                      icon: Icons.place_outlined,
+                                    ),
+                                    if (veiculoLabel != null)
+                                      _chipInfo(
+                                        _normalizarVeiculoComissao(veiculoLabel),
+                                        icon: Icons.two_wheeler_outlined,
+                                      ),
+                                    _chipInfo(tipoLabel, icon: Icons.category_outlined),
+                                    _chipInfo(
+                                      '${isFixo ? 'R\$' : ''}${dados['valor']}${isFixo ? '' : '%'} · $freq',
+                                      icon: Icons.payments_outlined,
+                                    ),
+                                  ],
+                                ),
+                              ],
+                            ),
+                          ),
+                          Column(
+                            children: [
+                              Container(
+                                decoration: BoxDecoration(
+                                  color: diPertinRoxo.withValues(alpha: 0.07),
+                                  borderRadius: BorderRadius.circular(10),
+                                ),
+                                child: IconButton(
+                                  tooltip: "Editar",
+                                  icon: Icon(Icons.edit_outlined, size: 20, color: diPertinRoxo),
+                                  onPressed: () => _mostrarFormularioNovoPlano(
+                                    publicoInicial: publico,
+                                    docIdEditar: doc.id,
+                                    dadosEditar: dados,
+                                  ),
+                                ),
+                              ),
+                              const SizedBox(height: 4),
+                              Container(
+                                decoration: BoxDecoration(
+                                  color: Colors.red.withValues(alpha: 0.06),
+                                  borderRadius: BorderRadius.circular(10),
+                                ),
+                                child: IconButton(
+                                  tooltip: "Excluir",
+                                  icon: Icon(Icons.delete_outline_rounded, size: 20, color: Colors.red.shade400),
+                                  onPressed: () => _deletarDocumento(
+                                    'planos_taxas',
+                                    doc.id,
+                                    nomeExibicao: nome,
+                                  ),
+                                ),
+                              ),
+                            ],
+                          ),
+                        ],
                       ),
-                      const SizedBox(width: 8),
-                      IconButton(
-                        tooltip: "Editar plano",
-                        icon: Icon(
-                          Icons.edit_outlined,
-                          color: diPertinRoxo,
-                        ),
-                        onPressed: () => _mostrarFormularioNovoPlano(
-                          publicoInicial: publico,
-                          docIdEditar: doc.id,
-                          dadosEditar: dados,
-                        ),
-                      ),
-                      IconButton(
-                        tooltip: "Remover plano",
-                        icon: Icon(
-                          Icons.delete_outline_rounded,
-                          color: Colors.grey.shade600,
-                        ),
-                        onPressed: () => _deletarDocumento(
-                          'planos_taxas',
-                          doc.id,
-                          nomeExibicao: nome,
-                        ),
+                      _financialImpactBox(
+                        (dados['valor'] as num?)?.toDouble() ?? 0.0,
+                        dados['tipo_cobranca']?.toString() ?? 'porcentagem',
                       ),
                     ],
                   ),
@@ -1730,35 +2164,50 @@ class _ConfiguracoesScreenState extends State<ConfiguracoesScreen>
                 _normalizarChaveCidadeFretePainel(cidade),
               ).toUpperCase();
               final titulo = '$cidadeFmt · $rotuloNoApp';
-              return Material(
-                color: Colors.white,
-                elevation: 0,
-                shape: RoundedRectangleBorder(
-                  borderRadius: BorderRadius.circular(16),
-                  side: const BorderSide(color: PainelAdminTheme.dashboardBorder),
+              return Container(
+                margin: const EdgeInsets.only(bottom: 12),
+                decoration: BoxDecoration(
+                  color: Colors.white,
+                  borderRadius: BorderRadius.circular(18),
+                  border: Border.all(color: Colors.grey.shade200),
+                  boxShadow: [
+                    BoxShadow(
+                      color: Colors.black.withValues(alpha: 0.04),
+                      blurRadius: 12,
+                      offset: const Offset(0, 4),
+                    ),
+                  ],
                 ),
                 clipBehavior: Clip.antiAlias,
                 child: Padding(
-                  padding: const EdgeInsets.symmetric(
-                    horizontal: 18,
-                    vertical: 16,
-                  ),
+                  padding: const EdgeInsets.all(20),
                   child: Row(
                     crossAxisAlignment: CrossAxisAlignment.start,
                     children: [
                       Container(
                         padding: const EdgeInsets.all(12),
                         decoration: BoxDecoration(
-                          color: diPertinLaranja.withValues(alpha: 0.12),
-                          borderRadius: BorderRadius.circular(12),
-                          border: Border.all(
-                            color: diPertinLaranja.withValues(alpha: 0.22),
+                          gradient: LinearGradient(
+                            begin: Alignment.topLeft,
+                            end: Alignment.bottomRight,
+                            colors: [
+                              diPertinLaranja,
+                              diPertinLaranja.withValues(alpha: 0.7),
+                            ],
                           ),
+                          borderRadius: BorderRadius.circular(14),
+                          boxShadow: [
+                            BoxShadow(
+                              color: diPertinLaranja.withValues(alpha: 0.2),
+                              blurRadius: 8,
+                              offset: const Offset(0, 4),
+                            ),
+                          ],
                         ),
                         child: Icon(
                           Icons.local_shipping_outlined,
-                          color: diPertinLaranja,
-                          size: 26,
+                          color: Colors.white,
+                          size: 22,
                         ),
                       ),
                       const SizedBox(width: 16),
@@ -1766,64 +2215,89 @@ class _ConfiguracoesScreenState extends State<ConfiguracoesScreen>
                         child: Column(
                           crossAxisAlignment: CrossAxisAlignment.start,
                           children: [
-                            Text(
-                              titulo,
-                              style: const TextStyle(
-                                fontSize: 17,
-                                fontWeight: FontWeight.w700,
-                                letterSpacing: -0.2,
-                              ),
-                            ),
-                            const SizedBox(height: 4),
-                            Text(
-                              doc.id,
-                              style: TextStyle(
-                                fontSize: 12,
-                                height: 1.35,
-                                color: Colors.grey.shade600,
-                                fontWeight: FontWeight.w500,
-                              ),
+                            Row(
+                              children: [
+                                Text(
+                                  titulo,
+                                  style: const TextStyle(
+                                    fontSize: 16,
+                                    fontWeight: FontWeight.w700,
+                                    color: PainelAdminTheme.dashboardInk,
+                                    letterSpacing: -0.2,
+                                  ),
+                                ),
+                                const SizedBox(width: 10),
+                                Container(
+                                  padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 3),
+                                  decoration: BoxDecoration(
+                                    color: diPertinLaranja.withValues(alpha: 0.12),
+                                    borderRadius: BorderRadius.circular(6),
+                                    border: Border.all(color: diPertinLaranja.withValues(alpha: 0.25)),
+                                  ),
+                                  child: Text(
+                                    doc.id,
+                                    style: TextStyle(
+                                      fontSize: 11,
+                                      fontWeight: FontWeight.w600,
+                                      color: diPertinLaranja,
+                                    ),
+                                  ),
+                                ),
+                              ],
                             ),
                             const SizedBox(height: 10),
                             Wrap(
-                              spacing: 8,
-                              runSpacing: 8,
+                              spacing: 6,
+                              runSpacing: 6,
                               children: [
                                 _chipInfo(
-                                  "Base: R\$ ${base.toStringAsFixed(2)} até ${dist.toStringAsFixed(0)} km",
+                                  "R\$ ${base.toStringAsFixed(2)} até ${dist.toStringAsFixed(0)} km",
                                   icon: Icons.flag_outlined,
+                                  cor: diPertinLaranja,
                                 ),
                                 _chipInfo(
                                   "+ R\$ ${extra.toStringAsFixed(2)} / km extra",
                                   icon: Icons.add_road,
+                                  cor: diPertinLaranja,
                                 ),
                               ],
                             ),
                           ],
                         ),
                       ),
-                      IconButton(
-                        tooltip: "Editar regra",
-                        icon: Icon(
-                          Icons.edit_outlined,
-                          color: diPertinLaranja,
-                        ),
-                        onPressed: () => _mostrarFormularioNovoFrete(
-                          docIdEditar: doc.id,
-                          dadosEditar: dados,
-                        ),
-                      ),
-                      IconButton(
-                        tooltip: "Remover regra",
-                        icon: Icon(
-                          Icons.delete_outline_rounded,
-                          color: Colors.grey.shade600,
-                        ),
-                        onPressed: () => _deletarDocumento(
-                          'tabela_fretes',
-                          doc.id,
-                          nomeExibicao: titulo,
-                        ),
+                      Column(
+                        children: [
+                          Container(
+                            decoration: BoxDecoration(
+                              color: diPertinLaranja.withValues(alpha: 0.07),
+                              borderRadius: BorderRadius.circular(10),
+                            ),
+                            child: IconButton(
+                              tooltip: "Editar",
+                              icon: Icon(Icons.edit_outlined, size: 20, color: diPertinLaranja),
+                              onPressed: () => _mostrarFormularioNovoFrete(
+                                docIdEditar: doc.id,
+                                dadosEditar: dados,
+                              ),
+                            ),
+                          ),
+                          const SizedBox(height: 4),
+                          Container(
+                            decoration: BoxDecoration(
+                              color: Colors.red.withValues(alpha: 0.06),
+                              borderRadius: BorderRadius.circular(10),
+                            ),
+                            child: IconButton(
+                              tooltip: "Excluir",
+                              icon: Icon(Icons.delete_outline_rounded, size: 20, color: Colors.red.shade400),
+                              onPressed: () => _deletarDocumento(
+                                'tabela_fretes',
+                                doc.id,
+                                nomeExibicao: titulo,
+                              ),
+                            ),
+                          ),
+                        ],
                       ),
                     ],
                   ),
@@ -2033,61 +2507,6 @@ class _ConfiguracoesScreenState extends State<ConfiguracoesScreen>
     );
   }
 
-  Widget _pillSecao(int i) {
-    final sel = _tabController.index == i;
-    final m = _kCfgFinanceSecoes[i];
-    return Material(
-      color: Colors.transparent,
-      child: InkWell(
-        borderRadius: BorderRadius.circular(999),
-        onTap: () => _tabController.animateTo(i),
-        child: AnimatedContainer(
-          duration: const Duration(milliseconds: 200),
-          curve: Curves.easeOutCubic,
-          padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 10),
-          decoration: BoxDecoration(
-            color: sel ? diPertinRoxo.withValues(alpha: 0.11) : Colors.white,
-            borderRadius: BorderRadius.circular(999),
-            border: Border.all(
-              color: sel
-                  ? diPertinRoxo.withValues(alpha: 0.35)
-                  : PainelAdminTheme.dashboardBorder,
-            ),
-            boxShadow: sel
-                ? [
-                    BoxShadow(
-                      color: diPertinRoxo.withValues(alpha: 0.08),
-                      blurRadius: 12,
-                      offset: const Offset(0, 4),
-                    ),
-                  ]
-                : null,
-          ),
-          child: Row(
-            mainAxisSize: MainAxisSize.min,
-            children: [
-              Icon(
-                m.icon,
-                size: 18,
-                color: sel ? diPertinRoxo : PainelAdminTheme.textoSecundario,
-              ),
-              const SizedBox(width: 8),
-              Text(
-                m.rotuloNavegacao,
-                style: TextStyle(
-                  fontWeight: sel ? FontWeight.w700 : FontWeight.w600,
-                  fontSize: 12,
-                  color: sel
-                      ? PainelAdminTheme.dashboardInk
-                      : PainelAdminTheme.textoSecundario,
-                ),
-              ),
-            ],
-          ),
-        ),
-      ),
-    );
-  }
 
   Widget _toolbarSecao(
     ThemeData theme,
@@ -2214,30 +2633,50 @@ class _ConfiguracoesScreenState extends State<ConfiguracoesScreen>
                 : const BouncingScrollPhysics(),
           );
 
+          final conteudoPrincipal = Column(
+            crossAxisAlignment: CrossAxisAlignment.stretch,
+            children: [
+              _breadcrumb(),
+              _cabecalhoSecao(),
+              _summaryCards(),
+              Expanded(
+                child: Container(
+                  decoration: PainelAdminTheme.dashboardCard(),
+                  clipBehavior: Clip.antiAlias,
+                  child: Column(
+                    crossAxisAlignment: CrossAxisAlignment.stretch,
+                    children: [
+                      _toolbarSecao(theme, meta, empilharAcao: false),
+                      Expanded(
+                        child: _painelConteudoTab(tabView),
+                      ),
+                    ],
+                  ),
+                ),
+              ),
+            ],
+          );
+
           if (useRail) {
-            final maxOuter = min(constraints.maxWidth - hPad * 2, 1240.0);
+            final maxOuter = min(constraints.maxWidth - hPad * 2, 1360.0);
             return Padding(
               padding: EdgeInsets.fromLTRB(hPad, 20, hPad, 20),
               child: Center(
                 child: ConstrainedBox(
                   constraints: BoxConstraints(maxWidth: maxOuter),
                   child: Row(
-                    crossAxisAlignment: CrossAxisAlignment.stretch,
+                    crossAxisAlignment: CrossAxisAlignment.start,
                     children: [
                       Container(
-                        width: 286,
+                        width: 240,
                         decoration: PainelAdminTheme.dashboardCard(),
                         clipBehavior: Clip.antiAlias,
                         child: Column(
                           crossAxisAlignment: CrossAxisAlignment.stretch,
+                          mainAxisSize: MainAxisSize.min,
                           children: [
                             Padding(
-                              padding: const EdgeInsets.fromLTRB(
-                                22,
-                                24,
-                                22,
-                                8,
-                              ),
+                              padding: const EdgeInsets.fromLTRB(18, 20, 18, 8),
                               child: Column(
                                 crossAxisAlignment: CrossAxisAlignment.start,
                                 children: [
@@ -2246,42 +2685,36 @@ class _ConfiguracoesScreenState extends State<ConfiguracoesScreen>
                                     style: theme.textTheme.labelSmall?.copyWith(
                                           fontWeight: FontWeight.w800,
                                           letterSpacing: 1.35,
-                                          color: diPertinRoxo.withValues(
-                                            alpha: 0.85,
-                                          ),
+                                          color: diPertinRoxo.withValues(alpha: 0.85),
                                           fontSize: 11,
                                         ) ??
                                         TextStyle(
                                           fontWeight: FontWeight.w800,
                                           letterSpacing: 1.35,
-                                          color: diPertinRoxo.withValues(
-                                            alpha: 0.85,
-                                          ),
+                                          color: diPertinRoxo.withValues(alpha: 0.85),
                                           fontSize: 11,
                                         ),
                                   ),
-                                  const SizedBox(height: 10),
+                                  const SizedBox(height: 8),
                                   Text(
                                     'Configurações',
-                                    style: theme.textTheme.headlineSmall
-                                            ?.copyWith(
-                                              fontWeight: FontWeight.w800,
-                                              color: PainelAdminTheme
-                                                  .dashboardInk,
-                                              letterSpacing: -0.55,
-                                            ) ??
+                                    style: theme.textTheme.titleLarge?.copyWith(
+                                          fontWeight: FontWeight.w800,
+                                          color: PainelAdminTheme.dashboardInk,
+                                          letterSpacing: -0.55,
+                                        ) ??
                                         const TextStyle(
-                                          fontSize: 26,
+                                          fontSize: 22,
                                           fontWeight: FontWeight.w800,
                                           color: PainelAdminTheme.dashboardInk,
                                           letterSpacing: -0.55,
                                         ),
                                   ),
-                                  const SizedBox(height: 6),
+                                  const SizedBox(height: 4),
                                   Text(
                                     'Comissões, fretes e meios de pagamento.',
                                     style: TextStyle(
-                                      fontSize: 13,
+                                      fontSize: 12,
                                       height: 1.4,
                                       color: PainelAdminTheme.textoSecundario,
                                     ),
@@ -2289,42 +2722,20 @@ class _ConfiguracoesScreenState extends State<ConfiguracoesScreen>
                                 ],
                               ),
                             ),
-                            const SizedBox(height: 8),
-                            Expanded(
-                              child: ListView.builder(
-                                padding: const EdgeInsets.fromLTRB(
-                                  12,
-                                  0,
-                                  12,
-                                  16,
-                                ),
-                                itemCount: _kCfgFinanceSecoes.length,
-                                itemBuilder: (context, i) => _railDestino(i),
-                              ),
+                            const SizedBox(height: 4),
+                            ListView.builder(
+                              shrinkWrap: true,
+                              padding: const EdgeInsets.fromLTRB(10, 0, 10, 12),
+                              itemCount: _kCfgFinanceSecoes.length,
+                              itemBuilder: (context, i) => _railDestino(i),
                             ),
                           ],
                         ),
                       ),
                       const SizedBox(width: 22),
-                      Expanded(
-                        child: Container(
-                          decoration: PainelAdminTheme.dashboardCard(),
-                          clipBehavior: Clip.antiAlias,
-                          child: Column(
-                            crossAxisAlignment: CrossAxisAlignment.stretch,
-                            children: [
-                              _toolbarSecao(
-                                theme,
-                                meta,
-                                empilharAcao: false,
-                              ),
-                              Expanded(
-                                child: _painelConteudoTab(tabView),
-                              ),
-                            ],
-                          ),
-                        ),
-                      ),
+                      Expanded(child: conteudoPrincipal),
+                      const SizedBox(width: 22),
+                      _sideHelpPanel(),
                     ],
                   ),
                 ),
@@ -2334,68 +2745,7 @@ class _ConfiguracoesScreenState extends State<ConfiguracoesScreen>
 
           return Padding(
             padding: EdgeInsets.fromLTRB(hPad, 16, hPad, 16),
-            child: Column(
-              crossAxisAlignment: CrossAxisAlignment.stretch,
-              children: [
-                Text(
-                  'Configurações financeiras',
-                  style: theme.textTheme.headlineSmall?.copyWith(
-                        fontWeight: FontWeight.w800,
-                        color: PainelAdminTheme.dashboardInk,
-                        letterSpacing: -0.45,
-                      ) ??
-                      const TextStyle(
-                        fontSize: 22,
-                        fontWeight: FontWeight.w800,
-                        color: PainelAdminTheme.dashboardInk,
-                      ),
-                ),
-                const SizedBox(height: 4),
-                const Text(
-                  'Escolha uma área abaixo.',
-                  style: TextStyle(
-                    fontSize: 13,
-                    color: PainelAdminTheme.textoSecundario,
-                    height: 1.35,
-                  ),
-                ),
-                const SizedBox(height: 14),
-                SingleChildScrollView(
-                  scrollDirection: Axis.horizontal,
-                  child: Row(
-                    children: [
-                      for (var i = 0; i < _kCfgFinanceSecoes.length; i++)
-                        Padding(
-                          padding: EdgeInsets.only(
-                            right: i == _kCfgFinanceSecoes.length - 1 ? 0 : 10,
-                          ),
-                          child: _pillSecao(i),
-                        ),
-                    ],
-                  ),
-                ),
-                const SizedBox(height: 16),
-                Expanded(
-                  child: Container(
-                    decoration: PainelAdminTheme.dashboardCard(),
-                    clipBehavior: Clip.antiAlias,
-                    child: Column(
-                      crossAxisAlignment: CrossAxisAlignment.stretch,
-                      children: [
-                        _toolbarSecao(
-                          theme,
-                          meta,
-                          empilharAcao: true,
-                        ),
-                        Expanded(
-                          child: _painelConteudoTab(tabView),
-                        ),
-                      ],
-                    ),
-                  ),
-                ),
-              ],
-            ),
+            child: conteudoPrincipal,
           );
         },
       ),

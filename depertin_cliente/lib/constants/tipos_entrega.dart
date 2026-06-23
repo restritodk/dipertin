@@ -95,9 +95,9 @@ class TiposEntrega {
       case codMoto:
         return 'Moto';
       case codCarro:
-        return 'Carro popular';
+        return 'Carro de Passeio';
       case codCarroFrete:
-        return 'Carro frete';
+        return 'Utilitário / Frete';
       default:
         return codigo;
     }
@@ -111,9 +111,9 @@ class TiposEntrega {
       case codMoto:
         return 'Ideal para refeições, encomendas leves.';
       case codCarro:
-        return 'Carros de passeio (volumes médios).';
+        return 'Carros de passeio como Gol, Onix, Corolla.';
       case codCarroFrete:
-        return 'Utilitários: Fiorino, Montana, pick-ups, Kombi.';
+        return 'Utilitários: Fiorino, Saveiro, Kangoo, Van.';
       default:
         return '';
     }

@@ -32,15 +32,6 @@ String statusLegivelSuporte(String st) {
   }
 }
 
-/// Sufixo nos cards da fila/lista: categoria já escolhida ou pendente.
-String _legendaCategoriaNaLista(Map<String, dynamic> m) {
-  final lab = (m['categoria_label'] ?? '').toString().trim();
-  if (lab.isNotEmpty) return ' · $lab';
-  final prev = (m['first_message_preview'] ?? '').toString().trim();
-  if (prev.isNotEmpty) return ' · categoria pendente';
-  return '';
-}
-
 String iniciaisNomeSuporte(String nome) {
   final partes = nome
       .trim()
@@ -688,246 +679,6 @@ class _AtendimentoSuporteScreenState extends State<AtendimentoSuporteScreen> {
     );
   }
 
-  /// Banner exibido ao atendente (somente quando o ticket está encerrado)
-  /// com a avaliação que o cliente deixou em `support_ratings`. Caso o
-  /// cliente ainda não tenha avaliado, mostra um aviso discreto "Aguardando
-  /// avaliação do cliente".
-  Widget _bannerAvaliacaoCliente(String ticketId) {
-    return StreamBuilder<QuerySnapshot<Map<String, dynamic>>>(
-      stream: FirebaseFirestore.instance
-          .collection('support_ratings')
-          .where('ticket_id', isEqualTo: ticketId)
-          .limit(1)
-          .snapshots(),
-      builder: (context, snap) {
-        final temAvaliacao = snap.hasData && snap.data!.docs.isNotEmpty;
-        if (!temAvaliacao) {
-          return Container(
-            width: double.infinity,
-            padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 8),
-            color: Colors.amber.shade50,
-            child: Row(
-              children: [
-                Icon(
-                  Icons.hourglass_bottom,
-                  size: 16,
-                  color: Colors.amber[800],
-                ),
-                const SizedBox(width: 8),
-                Text(
-                  'Aguardando avaliação do cliente…',
-                  style: TextStyle(
-                    fontSize: 12,
-                    color: Colors.amber[900],
-                    fontWeight: FontWeight.w600,
-                  ),
-                ),
-              ],
-            ),
-          );
-        }
-        final dados = snap.data!.docs.first.data();
-        final rating = (dados['rating'] is num)
-            ? (dados['rating'] as num).toInt()
-            : 0;
-        final comentario = (dados['comment'] ?? '').toString().trim();
-        final criadoEm = dados['created_at'];
-        final quando = criadoEm is Timestamp ? _fmtHora(criadoEm) : '';
-        return Container(
-          width: double.infinity,
-          padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 10),
-          decoration: BoxDecoration(
-            color: const Color(0xFFF6F0FB),
-            border: Border(
-              bottom: BorderSide(color: diPertinRoxo.withValues(alpha: 0.15)),
-            ),
-          ),
-          child: Row(
-            crossAxisAlignment: CrossAxisAlignment.start,
-            children: [
-              Icon(Icons.reviews, size: 18, color: diPertinRoxo),
-              const SizedBox(width: 10),
-              Expanded(
-                child: Column(
-                  crossAxisAlignment: CrossAxisAlignment.start,
-                  mainAxisSize: MainAxisSize.min,
-                  children: [
-                    Row(
-                      children: [
-                        Text(
-                          'Avaliação do cliente',
-                          style: TextStyle(
-                            fontWeight: FontWeight.w700,
-                            fontSize: 13,
-                            color: diPertinRoxo,
-                          ),
-                        ),
-                        const SizedBox(width: 10),
-                        Row(
-                          children: List.generate(5, (i) {
-                            final ativa = i < rating;
-                            return Icon(
-                              ativa
-                                  ? Icons.star_rounded
-                                  : Icons.star_border_rounded,
-                              color: diPertinLaranja,
-                              size: 18,
-                            );
-                          }),
-                        ),
-                        const SizedBox(width: 6),
-                        Text(
-                          '$rating/5',
-                          style: const TextStyle(
-                            fontSize: 12,
-                            color: Colors.black87,
-                            fontWeight: FontWeight.w600,
-                          ),
-                        ),
-                        if (quando.isNotEmpty) ...[
-                          const SizedBox(width: 10),
-                          Text(
-                            '· $quando',
-                            style: TextStyle(
-                              fontSize: 11,
-                              color: Colors.grey[600],
-                            ),
-                          ),
-                        ],
-                      ],
-                    ),
-                    if (comentario.isNotEmpty) ...[
-                      const SizedBox(height: 4),
-                      Text(
-                        '"$comentario"',
-                        style: TextStyle(
-                          fontSize: 12.5,
-                          fontStyle: FontStyle.italic,
-                          color: Colors.grey[800],
-                        ),
-                      ),
-                    ],
-                  ],
-                ),
-              ),
-            ],
-          ),
-        );
-      },
-    );
-  }
-
-  Widget _chipStatusSuporte(
-    BuildContext context, {
-    required bool aguardando,
-    required bool emAndamento,
-    required bool encerrado,
-  }) {
-    late String rotulo;
-    late Color bg;
-    late Color fg;
-    late IconData ic;
-    if (aguardando) {
-      rotulo = 'Na fila';
-      ic = Icons.schedule_rounded;
-      bg = PainelAdminTheme.laranja.withValues(alpha: 0.14);
-      fg = const Color(0xFFB45309);
-    } else if (emAndamento) {
-      rotulo = 'Em atendimento';
-      ic = Icons.headset_mic_rounded;
-      bg = const Color(0xFFDBEAFE);
-      fg = const Color(0xFF1D4ED8);
-    } else if (encerrado) {
-      rotulo = 'Encerrado';
-      ic = Icons.check_circle_outline_rounded;
-      bg = const Color(0xFFD1FAE5);
-      fg = const Color(0xFF047857);
-    } else {
-      rotulo = 'Status';
-      ic = Icons.info_outline_rounded;
-      bg = Colors.grey.shade200;
-      fg = Colors.grey.shade800;
-    }
-    return Chip(
-      avatar: Icon(ic, size: 16, color: fg),
-      label: Text(
-        rotulo,
-        style: TextStyle(fontSize: 12, fontWeight: FontWeight.w700, color: fg),
-      ),
-      backgroundColor: bg,
-      side: BorderSide.none,
-      visualDensity: VisualDensity.compact,
-      padding: const EdgeInsets.symmetric(horizontal: 8),
-    );
-  }
-
-  Widget _chipPerfilSolicitante(String perfil) {
-    final cor = _corPerfilSolicitante(perfil);
-    return Chip(
-      avatar: Icon(_iconePerfilSolicitante(perfil), size: 16, color: cor),
-      label: Text(
-        _rotuloPerfilSolicitante(perfil),
-        style: TextStyle(fontSize: 12, fontWeight: FontWeight.w700, color: cor),
-      ),
-      backgroundColor: cor.withValues(alpha: 0.10),
-      side: BorderSide.none,
-      visualDensity: VisualDensity.compact,
-      padding: const EdgeInsets.symmetric(horizontal: 8),
-    );
-  }
-
-  Widget _resumoSolicitanteSuporte({
-    required String perfil,
-    required String email,
-    required String telefone,
-    required String documento,
-    required String lojaNome,
-    required String cidade,
-  }) {
-    final itens = <Widget>[
-      if (email.isNotEmpty) _miniDadoSolicitante(Icons.email_outlined, email),
-      if (telefone.isNotEmpty)
-        _miniDadoSolicitante(Icons.phone_outlined, telefone),
-      if (documento.isNotEmpty)
-        _miniDadoSolicitante(
-          Icons.badge_outlined,
-          perfil == 'lojista' ? 'Documento: $documento' : 'CPF: $documento',
-        ),
-      if (perfil == 'lojista' && lojaNome.isNotEmpty)
-        _miniDadoSolicitante(Icons.storefront_outlined, lojaNome),
-      if (cidade.isNotEmpty && cidade != '—')
-        _miniDadoSolicitante(Icons.location_city_outlined, cidade),
-    ];
-    if (itens.isEmpty) return const SizedBox.shrink();
-    return Wrap(spacing: 8, runSpacing: 8, children: itens);
-  }
-
-  Widget _miniDadoSolicitante(IconData icon, String texto) {
-    return Container(
-      padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 6),
-      decoration: BoxDecoration(
-        color: PainelAdminTheme.fundoCanvas,
-        borderRadius: BorderRadius.circular(999),
-        border: Border.all(color: PainelAdminTheme.dashboardBorder),
-      ),
-      child: Row(
-        mainAxisSize: MainAxisSize.min,
-        children: [
-          Icon(icon, size: 14, color: PainelAdminTheme.textoSecundario),
-          const SizedBox(width: 5),
-          Text(
-            texto,
-            style: const TextStyle(
-              fontSize: 12,
-              fontWeight: FontWeight.w600,
-              color: PainelAdminTheme.textoSecundario,
-            ),
-          ),
-        ],
-      ),
-    );
-  }
-
   Future<void> _abrirAnexoSuporte(String url) async {
     final uri = Uri.tryParse(url);
     if (uri == null) return;
@@ -1224,6 +975,51 @@ class _AtendimentoSuporteScreenState extends State<AtendimentoSuporteScreen> {
     );
   }
 
+  Widget _actionButton({
+    required IconData icon,
+    required String label,
+    required VoidCallback onTap,
+    required Color cor,
+    bool filled = false,
+  }) {
+    return Padding(
+      padding: const EdgeInsets.only(right: 6),
+      child: filled
+          ? FilledButton.icon(
+              onPressed: onTap,
+              icon: Icon(icon, size: 16),
+              label: Text(
+                label,
+                style: const TextStyle(fontSize: 12, fontWeight: FontWeight.w700),
+              ),
+              style: FilledButton.styleFrom(
+                backgroundColor: cor,
+                foregroundColor: Colors.white,
+                padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 8),
+                shape: RoundedRectangleBorder(
+                  borderRadius: BorderRadius.circular(10),
+                ),
+              ),
+            )
+          : OutlinedButton.icon(
+              onPressed: onTap,
+              icon: Icon(icon, size: 16),
+              label: Text(
+                label,
+                style: const TextStyle(fontSize: 12, fontWeight: FontWeight.w600),
+              ),
+              style: OutlinedButton.styleFrom(
+                foregroundColor: cor,
+                side: BorderSide(color: cor.withValues(alpha: 0.35)),
+                padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 8),
+                shape: RoundedRectangleBorder(
+                  borderRadius: BorderRadius.circular(10),
+                ),
+              ),
+            ),
+    );
+  }
+
   @override
   Widget build(BuildContext context) {
     final uid = FirebaseAuth.instance.currentUser?.uid;
@@ -1250,13 +1046,7 @@ class _AtendimentoSuporteScreenState extends State<AtendimentoSuporteScreen> {
     }
 
     Widget conversa() {
-      return DecoratedBox(
-        decoration: PainelAdminTheme.dashboardCard(),
-        child: ClipRRect(
-          borderRadius: BorderRadius.circular(16),
-          child: _painelChat(uid),
-        ),
-      );
+      return _painelChat(uid);
     }
 
     return Scaffold(
@@ -1265,14 +1055,14 @@ class _AtendimentoSuporteScreenState extends State<AtendimentoSuporteScreen> {
         child: LayoutBuilder(
           builder: (context, constraints) {
             final estreito = constraints.maxWidth < 1000;
-            final pad = estreito ? 12.0 : 22.0;
+            final pad = estreito ? 12.0 : 20.0;
             if (estreito) {
               return Padding(
                 padding: EdgeInsets.all(pad),
                 child: Column(
                   crossAxisAlignment: CrossAxisAlignment.stretch,
                   children: [
-                    SizedBox(height: 340, child: listaTickets()),
+                    SizedBox(height: 320, child: listaTickets()),
                     const SizedBox(height: 14),
                     Expanded(child: conversa()),
                   ],
@@ -1282,10 +1072,13 @@ class _AtendimentoSuporteScreenState extends State<AtendimentoSuporteScreen> {
             return Padding(
               padding: EdgeInsets.all(pad),
               child: Row(
-                crossAxisAlignment: CrossAxisAlignment.stretch,
+                crossAxisAlignment: CrossAxisAlignment.start,
                 children: [
-                  SizedBox(width: 392, child: listaTickets()),
-                  const SizedBox(width: 22),
+                  SizedBox(
+                    width: 380,
+                    child: listaTickets(),
+                  ),
+                  const SizedBox(width: 20),
                   Expanded(child: conversa()),
                 ],
               ),
@@ -1299,49 +1092,59 @@ class _AtendimentoSuporteScreenState extends State<AtendimentoSuporteScreen> {
   Widget _painelChat(String? uidMeu) {
     if (_selecionadoId == null) {
       return Container(
-        color: Colors.white,
+        decoration: BoxDecoration(
+          color: Colors.white,
+          borderRadius: BorderRadius.circular(18),
+          border: Border.all(color: Colors.grey.shade200),
+          boxShadow: [
+            BoxShadow(
+              color: Colors.black.withValues(alpha: 0.04),
+              blurRadius: 12,
+              offset: const Offset(0, 4),
+            ),
+          ],
+        ),
         child: Center(
           child: ConstrainedBox(
-            constraints: const BoxConstraints(maxWidth: 440),
+            constraints: const BoxConstraints(maxWidth: 400),
             child: Padding(
-              padding: const EdgeInsets.all(36),
+              padding: const EdgeInsets.all(40),
               child: Column(
                 mainAxisAlignment: MainAxisAlignment.center,
                 children: [
                   Container(
-                    padding: const EdgeInsets.all(26),
+                    padding: const EdgeInsets.all(22),
                     decoration: BoxDecoration(
-                      color: PainelAdminTheme.roxo.withValues(alpha: 0.06),
-                      shape: BoxShape.circle,
-                      border: Border.all(
-                        color: PainelAdminTheme.roxo.withValues(alpha: 0.12),
-                      ),
+                      color: diPertinRoxo.withValues(alpha: 0.06),
+                      borderRadius: BorderRadius.circular(20),
                     ),
                     child: Icon(
-                      Icons.forum_outlined,
-                      size: 52,
-                      color: PainelAdminTheme.roxo.withValues(alpha: 0.55),
+                      Icons.chat_bubble_outline_rounded,
+                      size: 48,
+                      color: diPertinRoxo.withValues(alpha: 0.5),
                     ),
                   ),
-                  const SizedBox(height: 26),
+                  const SizedBox(height: 24),
                   Text(
                     'Selecione um protocolo',
                     textAlign: TextAlign.center,
-                    style: Theme.of(context).textTheme.headlineSmall?.copyWith(
-                      color: PainelAdminTheme.dashboardInk,
-                      fontWeight: FontWeight.w800,
-                      letterSpacing: -0.4,
-                    ),
+                    style:
+                        Theme.of(context).textTheme.titleLarge?.copyWith(
+                              color: PainelAdminTheme.dashboardInk,
+                              fontWeight: FontWeight.w800,
+                              letterSpacing: -0.4,
+                            ),
                   ),
-                  const SizedBox(height: 12),
+                  const SizedBox(height: 10),
                   Text(
-                    'Na coluna ao lado, escolha um chamado na fila, em atendimento '
-                    'ou no histórico para visualizar a conversa e responder ao cliente.',
+                    'Escolha um chamado na lista ao lado para visualizar a '
+                    'conversa, responder o cliente e acompanhar o atendimento.',
                     textAlign: TextAlign.center,
-                    style: Theme.of(context).textTheme.bodyMedium?.copyWith(
-                      height: 1.5,
-                      color: PainelAdminTheme.textoSecundario,
-                    ),
+                    style:
+                        Theme.of(context).textTheme.bodyMedium?.copyWith(
+                              height: 1.5,
+                              color: PainelAdminTheme.textoSecundario,
+                            ),
                   ),
                 ],
               ),
@@ -1377,21 +1180,6 @@ class _AtendimentoSuporteScreenState extends State<AtendimentoSuporteScreen> {
         final nomeSolicitante = (d['solicitante_nome'] ?? d['user_nome'] ?? '')
             .toString()
             .trim();
-        final emailSolicitante = (d['solicitante_email'] ?? '')
-            .toString()
-            .trim();
-        final telefoneSolicitante = (d['solicitante_telefone'] ?? '')
-            .toString()
-            .trim();
-        final documentoSolicitante = (d['solicitante_documento'] ?? '')
-            .toString()
-            .trim();
-        final lojaSolicitante = (d['solicitante_loja_nome'] ?? '')
-            .toString()
-            .trim();
-        final cidadeSolicitante = (d['solicitante_cidade'] ?? d['cidade'] ?? '')
-            .toString()
-            .trim();
 
         final possoResponder =
             st == _kInProgress && uidMeu != null && agentId == uidMeu;
@@ -1407,202 +1195,153 @@ class _AtendimentoSuporteScreenState extends State<AtendimentoSuporteScreen> {
             ? 'C'
             : nomeTopo.substring(0, 1).toUpperCase();
 
-        return Column(
+        return Container(
+          decoration: BoxDecoration(
+            color: Colors.white,
+            borderRadius: BorderRadius.circular(18),
+            border: Border.all(color: Colors.grey.shade200),
+            boxShadow: [
+              BoxShadow(
+                color: Colors.black.withValues(alpha: 0.04),
+                blurRadius: 12,
+                offset: const Offset(0, 4),
+              ),
+            ],
+          ),
+          child: Column(
           children: [
-            Material(
-              color: Colors.white,
-              elevation: 0,
-              child: Container(
-                width: double.infinity,
-                padding: const EdgeInsets.fromLTRB(18, 14, 18, 14),
-                decoration: BoxDecoration(
-                  border: Border(
-                    bottom: BorderSide(color: PainelAdminTheme.dashboardBorder),
-                  ),
-                  gradient: LinearGradient(
-                    colors: [
-                      Colors.white,
-                      PainelAdminTheme.fundoCanvas.withValues(alpha: 0.35),
-                    ],
-                    begin: Alignment.topCenter,
-                    end: Alignment.bottomCenter,
-                  ),
+            // --- Modern chat header ---
+            Container(
+              width: double.infinity,
+              padding: const EdgeInsets.fromLTRB(16, 12, 16, 12),
+              decoration: BoxDecoration(
+                border: Border(
+                  bottom: BorderSide(color: Colors.grey.shade100),
                 ),
-                child: Column(
-                  crossAxisAlignment: CrossAxisAlignment.start,
-                  children: [
-                    Row(
-                      crossAxisAlignment: CrossAxisAlignment.start,
-                      children: [
-                        CircleAvatar(
-                          radius: 22,
-                          backgroundColor: PainelAdminTheme.roxo.withValues(
-                            alpha: 0.12,
-                          ),
-                          child: Text(
-                            letraAvatar,
-                            style: const TextStyle(
-                              color: PainelAdminTheme.roxo,
-                              fontWeight: FontWeight.w800,
-                              fontSize: 18,
+                gradient: LinearGradient(
+                  colors: [
+                    Colors.white,
+                    PainelAdminTheme.fundoCanvas.withValues(alpha: 0.3),
+                  ],
+                  begin: Alignment.topCenter,
+                  end: Alignment.bottomCenter,
+                ),
+              ),
+              child: Column(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  // Top row: avatar + name + protocol
+                  Row(
+                    crossAxisAlignment: CrossAxisAlignment.start,
+                    children: [
+                      Stack(
+                        children: [
+                          CircleAvatar(
+                            radius: 22,
+                            backgroundColor:
+                                diPertinRoxo.withValues(alpha: 0.10),
+                            child: Text(
+                              letraAvatar,
+                              style: const TextStyle(
+                                color: diPertinRoxo,
+                                fontWeight: FontWeight.w800,
+                                fontSize: 18,
+                              ),
                             ),
                           ),
-                        ),
-                        const SizedBox(width: 14),
-                        Expanded(
-                          child: Column(
-                            crossAxisAlignment: CrossAxisAlignment.start,
-                            children: [
-                              Text(
-                                nomeTopo.isEmpty ? 'Cliente' : nomeTopo,
-                                style: Theme.of(context).textTheme.titleLarge
-                                    ?.copyWith(
-                                      fontWeight: FontWeight.w800,
-                                      color: PainelAdminTheme.dashboardInk,
-                                      letterSpacing: -0.3,
-                                    ),
-                              ),
-                              const SizedBox(height: 4),
-                              Text(
-                                'Protocolo $protocolo',
-                                style: Theme.of(context).textTheme.bodySmall
-                                    ?.copyWith(
-                                      fontWeight: FontWeight.w600,
-                                      color: PainelAdminTheme.textoSecundario,
-                                    ),
-                              ),
-                              const SizedBox(height: 4),
-                              Text(
-                                preview,
-                                style: Theme.of(context).textTheme.bodySmall,
-                                maxLines: 2,
-                                overflow: TextOverflow.ellipsis,
-                              ),
-                              const SizedBox(height: 8),
-                              Wrap(
-                                spacing: 8,
-                                runSpacing: 8,
-                                crossAxisAlignment: WrapCrossAlignment.center,
-                                children: [
-                                  _chipStatusSuporte(
-                                    context,
-                                    aguardando: aguardando,
-                                    emAndamento: emAndamento,
-                                    encerrado: encerrado,
+                          if (emAndamento)
+                            Positioned(
+                              bottom: 0,
+                              right: 0,
+                              child: Container(
+                                width: 14,
+                                height: 14,
+                                decoration: BoxDecoration(
+                                  color: const Color(0xFF22C55E),
+                                  shape: BoxShape.circle,
+                                  border: Border.all(
+                                    color: Colors.white,
+                                    width: 2.5,
                                   ),
-                                  _chipPerfilSolicitante(perfilSolicitante),
-                                  if ((d['categoria_label'] ?? '')
-                                      .toString()
-                                      .trim()
-                                      .isNotEmpty)
-                                    Chip(
-                                      avatar: Icon(
-                                        Icons.category_outlined,
-                                        size: 16,
-                                        color: PainelAdminTheme.roxo,
-                                      ),
-                                      label: Text(
-                                        d['categoria_label'].toString(),
-                                        style: const TextStyle(
-                                          fontSize: 12,
-                                          fontWeight: FontWeight.w600,
-                                        ),
-                                      ),
-                                      backgroundColor: PainelAdminTheme.roxo
-                                          .withValues(alpha: 0.08),
-                                      side: BorderSide.none,
-                                      visualDensity: VisualDensity.compact,
-                                      padding: const EdgeInsets.symmetric(
-                                        horizontal: 8,
-                                      ),
-                                    )
-                                  else if (aguardando &&
-                                      preview != '(sem prévia)')
-                                    Chip(
-                                      avatar: Icon(
-                                        Icons.hourglass_top_rounded,
-                                        size: 16,
-                                        color: Colors.orange.shade800,
-                                      ),
-                                      label: Text(
-                                        'Categoria pendente no app',
-                                        style: TextStyle(
-                                          fontSize: 12,
-                                          fontWeight: FontWeight.w600,
-                                          color: Colors.orange.shade900,
-                                        ),
-                                      ),
-                                      backgroundColor: Colors.orange.shade50,
-                                      side: BorderSide.none,
-                                      visualDensity: VisualDensity.compact,
-                                    ),
-                                ],
-                              ),
-                              const SizedBox(height: 10),
-                              _resumoSolicitanteSuporte(
-                                perfil: perfilSolicitante,
-                                email: emailSolicitante,
-                                telefone: telefoneSolicitante,
-                                documento: documentoSolicitante,
-                                lojaNome: lojaSolicitante,
-                                cidade: cidadeSolicitante,
-                              ),
-                            ],
-                          ),
-                        ),
-                      ],
-                    ),
-                    const SizedBox(height: 14),
-                    if (aguardando &&
-                        (d['categoria_suporte'] ?? '')
-                            .toString()
-                            .trim()
-                            .isEmpty &&
-                        preview != '(sem prévia)')
-                      Padding(
-                        padding: const EdgeInsets.only(bottom: 14),
-                        child: DecoratedBox(
-                          decoration: BoxDecoration(
-                            color: Colors.orange.shade50,
-                            borderRadius: BorderRadius.circular(12),
-                            border: Border.all(color: Colors.orange.shade200),
-                          ),
-                          child: Padding(
-                            padding: const EdgeInsets.all(14),
-                            child: Row(
-                              crossAxisAlignment: CrossAxisAlignment.start,
-                              children: [
-                                Icon(
-                                  Icons.info_outline_rounded,
-                                  color: Colors.orange.shade900,
-                                  size: 22,
                                 ),
-                                const SizedBox(width: 12),
-                                Expanded(
-                                  child: Column(
-                                    crossAxisAlignment:
-                                        CrossAxisAlignment.start,
+                              ),
+                            ),
+                        ],
+                      ),
+                      const SizedBox(width: 12),
+                      Expanded(
+                        child: Column(
+                          crossAxisAlignment: CrossAxisAlignment.start,
+                          children: [
+                            Text(
+                              nomeTopo.isEmpty ? 'Cliente' : nomeTopo,
+                              maxLines: 1,
+                              overflow: TextOverflow.ellipsis,
+                              style: Theme.of(context).textTheme.titleMedium
+                                  ?.copyWith(
+                                    fontWeight: FontWeight.w800,
+                                    color: PainelAdminTheme.dashboardInk,
+                                    letterSpacing: -0.3,
+                                  ),
+                            ),
+                            const SizedBox(height: 2),
+                            Row(
+                              children: [
+                                Text(
+                                  'Protocolo $protocolo',
+                                  style: TextStyle(
+                                    fontSize: 11.5,
+                                    fontWeight: FontWeight.w600,
+                                    color: Colors.grey.shade500,
+                                  ),
+                                ),
+                                const SizedBox(width: 8),
+                                // Status badge
+                                Container(
+                                  padding: const EdgeInsets.symmetric(
+                                    horizontal: 6,
+                                    vertical: 2,
+                                  ),
+                                  decoration: BoxDecoration(
+                                    color: aguardando
+                                        ? diPertinLaranja.withValues(alpha: 0.12)
+                                        : emAndamento
+                                            ? const Color(0xFFDBEAFE)
+                                            : const Color(0xFFD1FAE5),
+                                    borderRadius: BorderRadius.circular(6),
+                                  ),
+                                  child: Row(
+                                    mainAxisSize: MainAxisSize.min,
                                     children: [
-                                      Text(
-                                        'Categoria obrigatória antes de iniciar',
-                                        style: TextStyle(
-                                          fontWeight: FontWeight.w800,
-                                          fontSize: 13,
-                                          color: Colors.orange.shade900,
-                                        ),
+                                      Icon(
+                                        aguardando
+                                            ? Icons.schedule_rounded
+                                            : emAndamento
+                                                ? Icons.headset_mic_rounded
+                                                : Icons
+                                                    .check_circle_rounded,
+                                        size: 10,
+                                        color: aguardando
+                                            ? const Color(0xFFB45309)
+                                            : emAndamento
+                                                ? const Color(0xFF1D4ED8)
+                                                : const Color(0xFF047857),
                                       ),
-                                      const SizedBox(height: 6),
+                                      const SizedBox(width: 3),
                                       Text(
-                                        'No app, o cliente deve escolher uma '
-                                        'categoria na Central de Ajuda depois '
-                                        'da primeira mensagem. Enquanto isso não '
-                                        'ocorre, «Iniciar» permanece desabilitado. '
-                                        'Use «Definir categoria» se precisar '
-                                        'assumir o chamado agora.',
+                                        aguardando
+                                            ? 'Na fila'
+                                            : emAndamento
+                                                ? 'Em atendimento'
+                                                : 'Encerrado',
                                         style: TextStyle(
-                                          fontSize: 12.5,
-                                          height: 1.4,
-                                          color: Colors.brown.shade800,
+                                          fontSize: 10,
+                                          fontWeight: FontWeight.w700,
+                                          color: aguardando
+                                              ? const Color(0xFFB45309)
+                                              : emAndamento
+                                                  ? const Color(0xFF1D4ED8)
+                                                  : const Color(0xFF047857),
                                         ),
                                       ),
                                     ],
@@ -1610,114 +1349,148 @@ class _AtendimentoSuporteScreenState extends State<AtendimentoSuporteScreen> {
                                 ),
                               ],
                             ),
-                          ),
+                            const SizedBox(height: 4),
+                            // Perfil + tempo
+                            Row(
+                              children: [
+                                Container(
+                                  padding: const EdgeInsets.symmetric(
+                                    horizontal: 8,
+                                    vertical: 3,
+                                  ),
+                                  decoration: BoxDecoration(
+                                    color: _corPerfilSolicitante(
+                                            perfilSolicitante)
+                                        .withValues(alpha: 0.08),
+                                    borderRadius: BorderRadius.circular(6),
+                                  ),
+                                  child: Row(
+                                    mainAxisSize: MainAxisSize.min,
+                                    children: [
+                                      Icon(
+                                        _iconePerfilSolicitante(
+                                            perfilSolicitante),
+                                        size: 11,
+                                        color: _corPerfilSolicitante(
+                                            perfilSolicitante),
+                                      ),
+                                      const SizedBox(width: 3),
+                                      Text(
+                                        _rotuloPerfilSolicitante(
+                                            perfilSolicitante),
+                                        style: TextStyle(
+                                          fontSize: 10,
+                                          fontWeight: FontWeight.w600,
+                                          color: _corPerfilSolicitante(
+                                              perfilSolicitante),
+                                        ),
+                                      ),
+                                    ],
+                                  ),
+                                ),
+                                if (aguardando) ...[
+                                  const SizedBox(width: 8),
+                                  Icon(
+                                    Icons.access_time_rounded,
+                                    size: 10,
+                                    color: Colors.grey.shade400,
+                                  ),
+                                  const SizedBox(width: 2),
+                                  Text(
+                                    'Aguardando ${_tempoEspera(d['created_at'])}',
+                                    style: TextStyle(
+                                      fontSize: 10,
+                                      color: Colors.grey.shade500,
+                                    ),
+                                  ),
+                                ],
+                              ],
+                            ),
+                          ],
                         ),
                       ),
-                    Wrap(
-                      spacing: 10,
-                      runSpacing: 10,
-                      alignment: WrapAlignment.start,
-                      children: [
-                        if (userClienteId != null)
-                          OutlinedButton.icon(
-                            onPressed: () =>
-                                _abrirModalEditarUsuario(userClienteId),
-                            icon: const Icon(
-                              Icons.manage_accounts_outlined,
-                              size: 18,
-                            ),
-                            label: const Text('Ficha do solicitante'),
-                            style: OutlinedButton.styleFrom(
-                              foregroundColor: PainelAdminTheme.roxo,
-                              side: BorderSide(
-                                color: PainelAdminTheme.roxo.withValues(
-                                  alpha: 0.35,
-                                ),
-                              ),
-                            ),
-                          ),
-                        if (aguardando &&
-                            (d['categoria_suporte'] ?? '')
-                                .toString()
-                                .trim()
-                                .isEmpty &&
-                            preview != '(sem prévia)')
-                          OutlinedButton.icon(
-                            onPressed: _definirCategoriaPeloPainel,
-                            icon: const Icon(Icons.category_outlined, size: 20),
-                            label: const Text('Definir categoria'),
-                            style: OutlinedButton.styleFrom(
-                              foregroundColor: PainelAdminTheme.roxo,
-                              side: BorderSide(
-                                color: PainelAdminTheme.roxo.withValues(
-                                  alpha: 0.45,
-                                ),
-                              ),
-                              padding: const EdgeInsets.symmetric(
-                                horizontal: 16,
-                                vertical: 12,
-                              ),
-                            ),
-                          ),
-                        if (aguardando)
-                          Tooltip(
+                    ],
+                  ),
+                  // --- Action buttons row ---
+                  const SizedBox(height: 12),
+                  Row(
+                    children: [
+                      if (userClienteId != null)
+                        _actionButton(
+                          icon: Icons.person_outline_rounded,
+                          label: 'Ficha',
+                          onTap: () => _abrirModalEditarUsuario(userClienteId),
+                          cor: diPertinRoxo,
+                        ),
+                      if (aguardando &&
+                          (d['categoria_suporte'] ?? '').toString().trim().isEmpty &&
+                          preview != '(sem prévia)')
+                        _actionButton(
+                          icon: Icons.category_outlined,
+                          label: 'Categoria',
+                          onTap: _definirCategoriaPeloPainel,
+                          cor: Colors.orange.shade700,
+                        ),
+                      if (aguardando)
+                        Padding(
+                          padding: const EdgeInsets.only(left: 6),
+                          child: Tooltip(
                             message:
-                                (d['categoria_suporte'] ?? '')
-                                        .toString()
-                                        .trim()
-                                        .isEmpty &&
-                                    preview != '(sem prévia)'
-                                ? 'O cliente precisa registrar a categoria no '
-                                      'app depois da primeira mensagem, ou use '
-                                      '«Definir categoria» ao lado.'
-                                : '',
+                                (d['categoria_suporte'] ?? '').toString().trim().isEmpty &&
+                                        preview != '(sem prévia)'
+                                    ? 'O cliente precisa registrar a categoria.'
+                                    : '',
                             child: FilledButton.icon(
                               onPressed:
-                                  (d['categoria_suporte'] ?? '')
-                                          .toString()
-                                          .trim()
-                                          .isEmpty &&
-                                      preview != '(sem prévia)'
-                                  ? null
-                                  : _iniciarAtendimentoPainel,
+                                  (d['categoria_suporte'] ?? '').toString().trim().isEmpty &&
+                                          preview != '(sem prévia)'
+                                      ? null
+                                      : _iniciarAtendimentoPainel,
                               icon: const Icon(
                                 Icons.play_arrow_rounded,
-                                size: 20,
+                                size: 18,
                               ),
-                              label: const Text('Iniciar atendimento'),
+                              label: const Text(
+                                'Iniciar',
+                                style: TextStyle(fontSize: 13, fontWeight: FontWeight.w700),
+                              ),
                               style: FilledButton.styleFrom(
-                                backgroundColor: PainelAdminTheme.laranja,
+                                backgroundColor: diPertinLaranja,
                                 foregroundColor: Colors.white,
+                                padding: const EdgeInsets.symmetric(
+                                  horizontal: 14,
+                                  vertical: 10,
+                                ),
+                                shape: RoundedRectangleBorder(
+                                  borderRadius: BorderRadius.circular(10),
+                                ),
                               ),
                             ),
                           ),
-                        if (emAndamento)
-                          FilledButton.icon(
-                            onPressed: _encerrarChamado,
-                            icon: const Icon(Icons.task_alt_rounded, size: 20),
-                            label: const Text('Finalizar'),
-                            style: FilledButton.styleFrom(
-                              backgroundColor: const Color(0xFF047857),
-                              foregroundColor: Colors.white,
-                            ),
-                          ),
-                        if (encerrado)
-                          FilledButton.icon(
-                            onPressed: _reabrirChamado,
-                            icon: const Icon(Icons.replay_rounded, size: 20),
-                            label: const Text('Reabrir'),
-                            style: FilledButton.styleFrom(
-                              backgroundColor: PainelAdminTheme.laranja,
-                              foregroundColor: Colors.white,
-                            ),
-                          ),
-                      ],
-                    ),
-                  ],
-                ),
+                        ),
+                      if (emAndamento)
+                        _actionButton(
+                          icon: Icons.task_alt_rounded,
+                          label: 'Finalizar',
+                          onTap: _encerrarChamado,
+                          cor: const Color(0xFF047857),
+                          filled: true,
+                        ),
+                      if (encerrado)
+                        _actionButton(
+                          icon: Icons.replay_rounded,
+                          label: 'Reabrir',
+                          onTap: _reabrirChamado,
+                          cor: diPertinLaranja,
+                          filled: true,
+                        ),
+                    ],
+                  ),
+                ],
               ),
             ),
-            if (encerrado) _bannerAvaliacaoCliente(_selecionadoId!),
+            if (encerrado)
+                  _BannerAvaliacaoSuporte(ticketId: _selecionadoId!),
             Expanded(
               child: StreamBuilder<QuerySnapshot<Map<String, dynamic>>>(
                 stream: FirebaseFirestore.instance
@@ -1732,7 +1505,7 @@ class _AtendimentoSuporteScreenState extends State<AtendimentoSuporteScreen> {
                   }
                   final msgs = snapMsg.data!.docs;
                   return Container(
-                    color: PainelAdminTheme.fundoCanvas.withValues(alpha: 0.5),
+                    color: const Color(0xFFF5F5F7),
                     child: ListView.builder(
                       reverse: true,
                       padding: const EdgeInsets.fromLTRB(18, 16, 18, 20),
@@ -1741,104 +1514,167 @@ class _AtendimentoSuporteScreenState extends State<AtendimentoSuporteScreen> {
                         final msg = msgs[index].data();
                         final tipo = msg['sender_type']?.toString() ?? '';
                         final texto = msg['mensagem']?.toString() ?? '';
+                        final cr = msg['created_at'];
+                        final hora = cr is Timestamp
+                            ? '${cr.toDate().hour.toString().padLeft(2, '0')}:${cr.toDate().minute.toString().padLeft(2, '0')}'
+                            : '';
                         final suporteAuto = msg['suporte_auto'] == true;
                         if (tipo == 'system' || suporteAuto) {
-                          return Center(
-                            child: Container(
-                              margin: const EdgeInsets.symmetric(vertical: 10),
-                              padding: const EdgeInsets.symmetric(
-                                horizontal: 12,
-                                vertical: 10,
-                              ),
-                              constraints: const BoxConstraints(maxWidth: 520),
-                              decoration: BoxDecoration(
-                                color: suporteAuto
-                                    ? diPertinLaranja.withValues(alpha: 0.12)
-                                    : Colors.grey[300],
-                                borderRadius: BorderRadius.circular(10),
-                                border: suporteAuto
-                                    ? Border.all(
-                                        color: diPertinLaranja.withValues(
-                                          alpha: 0.5,
-                                        ),
-                                      )
-                                    : null,
-                              ),
-                              child: Column(
-                                crossAxisAlignment: CrossAxisAlignment.start,
-                                mainAxisSize: MainAxisSize.min,
-                                children: [
-                                  if (suporteAuto)
-                                    Padding(
-                                      padding: const EdgeInsets.only(bottom: 6),
-                                      child: Row(
-                                        mainAxisSize: MainAxisSize.min,
-                                        children: [
-                                          Icon(
-                                            Icons.support_agent,
-                                            size: 14,
-                                            color: diPertinLaranja,
-                                          ),
-                                          const SizedBox(width: 6),
-                                          Text(
-                                            'Mensagem automática · Central de Ajuda',
-                                            style: TextStyle(
-                                              color: diPertinLaranja,
-                                              fontSize: 11,
-                                              fontWeight: FontWeight.w700,
-                                            ),
-                                          ),
-                                        ],
-                                      ),
-                                    ),
-                                  Text(
-                                    texto,
-                                    style: TextStyle(
-                                      fontSize: suporteAuto ? 13 : 12,
-                                      fontWeight: suporteAuto
-                                          ? FontWeight.w500
-                                          : FontWeight.bold,
-                                      color: suporteAuto
-                                          ? Colors.black87
-                                          : Colors.black54,
-                                    ),
+                          return Padding(
+                            padding: const EdgeInsets.symmetric(vertical: 10),
+                            child: Column(
+                              children: [
+                                Container(
+                                  padding: const EdgeInsets.symmetric(
+                                    horizontal: 14,
+                                    vertical: 8,
                                   ),
-                                ],
-                              ),
+                                  constraints: const BoxConstraints(
+                                    maxWidth: 420,
+                                  ),
+                                  decoration: BoxDecoration(
+                                    color: suporteAuto
+                                        ? diPertinLaranja.withValues(alpha: 0.10)
+                                        : Colors.grey[200],
+                                    borderRadius: BorderRadius.circular(10),
+                                    border: suporteAuto
+                                        ? Border.all(
+                                            color: diPertinLaranja.withValues(
+                                              alpha: 0.3,
+                                            ),
+                                          )
+                                        : null,
+                                  ),
+                                  child: Column(
+                                    mainAxisSize: MainAxisSize.min,
+                                    children: [
+                                      if (suporteAuto)
+                                        Padding(
+                                          padding: const EdgeInsets.only(
+                                            bottom: 4,
+                                          ),
+                                          child: Row(
+                                            mainAxisSize: MainAxisSize.min,
+                                            children: [
+                                              Icon(
+                                                Icons.support_agent_rounded,
+                                                size: 12,
+                                                color: diPertinLaranja,
+                                              ),
+                                              const SizedBox(width: 4),
+                                              Text(
+                                                'DiPertin',
+                                                style: TextStyle(
+                                                  color: diPertinLaranja,
+                                                  fontSize: 10,
+                                                  fontWeight: FontWeight.w700,
+                                                ),
+                                              ),
+                                            ],
+                                          ),
+                                        ),
+                                      Text(
+                                        texto,
+                                        textAlign: TextAlign.center,
+                                        style: TextStyle(
+                                          fontSize: suporteAuto ? 12 : 11.5,
+                                          fontWeight: suporteAuto
+                                              ? FontWeight.w500
+                                              : FontWeight.w600,
+                                          color: suporteAuto
+                                              ? Colors.black87
+                                              : Colors.black54,
+                                          height: 1.35,
+                                        ),
+                                      ),
+                                    ],
+                                  ),
+                                ),
+                                const SizedBox(height: 4),
+                                Text(
+                                  hora,
+                                  style: TextStyle(
+                                    fontSize: 10,
+                                    color: Colors.grey.shade400,
+                                  ),
+                                ),
+                              ],
                             ),
                           );
                         }
                         final ehCliente = tipo == 'client';
-                        final alinhamento = ehCliente
-                            ? Alignment.centerLeft
-                            : Alignment.centerRight;
                         final bg = ehCliente ? Colors.white : diPertinRoxo;
                         final fg = ehCliente
                             ? PainelAdminTheme.dashboardInk
                             : Colors.white;
-                        return Align(
-                          alignment: alinhamento,
-                          child: Container(
-                            margin: const EdgeInsets.only(bottom: 10),
-                            padding: const EdgeInsets.all(12),
-                            constraints: const BoxConstraints(maxWidth: 440),
-                            decoration: BoxDecoration(
-                              color: bg,
-                              borderRadius: BorderRadius.circular(14),
-                              border: ehCliente
-                                  ? Border.all(
-                                      color: PainelAdminTheme.dashboardBorder,
-                                    )
-                                  : null,
-                              boxShadow: [
-                                BoxShadow(
-                                  color: Colors.black.withValues(alpha: 0.05),
-                                  blurRadius: 12,
-                                  offset: const Offset(0, 4),
+                        return Padding(
+                          padding: EdgeInsets.only(
+                            bottom: 6,
+                            left: ehCliente ? 0 : 48,
+                            right: ehCliente ? 48 : 0,
+                          ),
+                          child: Column(
+                            crossAxisAlignment: ehCliente
+                                ? CrossAxisAlignment.start
+                                : CrossAxisAlignment.end,
+                            children: [
+                              Container(
+                                padding: const EdgeInsets.all(12),
+                                constraints: const BoxConstraints(maxWidth: 440),
+                                decoration: BoxDecoration(
+                                  color: bg,
+                                  borderRadius: BorderRadius.only(
+                                    topLeft: const Radius.circular(14),
+                                    topRight: const Radius.circular(14),
+                                    bottomLeft: Radius.circular(
+                                      ehCliente ? 4 : 14,
+                                    ),
+                                    bottomRight: Radius.circular(
+                                      ehCliente ? 14 : 4,
+                                    ),
+                                  ),
+                                  border: ehCliente
+                                      ? Border.all(
+                                          color: Colors.grey.shade200,
+                                        )
+                                      : null,
+                                  boxShadow: [
+                                    BoxShadow(
+                                      color: Colors.black.withValues(alpha: 0.04),
+                                      blurRadius: 8,
+                                      offset: const Offset(0, 2),
+                                    ),
+                                  ],
                                 ),
-                              ],
-                            ),
-                            child: _bolhaConteudoSuporte(msg, texto, fg),
+                                child: _bolhaConteudoSuporte(msg, texto, fg),
+                              ),
+                              const SizedBox(height: 2),
+                              Padding(
+                                padding: EdgeInsets.symmetric(
+                                  horizontal: 4,
+                                ),
+                                child: Row(
+                                  mainAxisSize: MainAxisSize.min,
+                                  children: [
+                                    if (!ehCliente)
+                                      Icon(
+                                        Icons.done_all_rounded,
+                                        size: 12,
+                                        color: Colors.grey.shade400,
+                                      ),
+                                    if (!ehCliente)
+                                      const SizedBox(width: 4),
+                                    Text(
+                                      hora,
+                                      style: TextStyle(
+                                        fontSize: 10,
+                                        color: Colors.grey.shade400,
+                                      ),
+                                    ),
+                                  ],
+                                ),
+                              ),
+                            ],
                           ),
                         );
                       },
@@ -1848,40 +1684,49 @@ class _AtendimentoSuporteScreenState extends State<AtendimentoSuporteScreen> {
               ),
             ),
             Container(
-              padding: const EdgeInsets.fromLTRB(14, 12, 14, 16),
+              padding: const EdgeInsets.fromLTRB(14, 10, 14, 14),
               decoration: BoxDecoration(
                 color: Colors.white,
                 border: Border(
-                  top: BorderSide(color: PainelAdminTheme.dashboardBorder),
+                  top: BorderSide(color: Colors.grey.shade100),
                 ),
               ),
               child: Row(
                 crossAxisAlignment: CrossAxisAlignment.end,
                 children: [
-                  IconButton(
-                    tooltip: 'Anexar arquivo',
-                    style: IconButton.styleFrom(
-                      foregroundColor: possoResponder
-                          ? PainelAdminTheme.roxo
-                          : Colors.grey,
+                  // Attach button
+                  Container(
+                    decoration: BoxDecoration(
+                      color: possoResponder
+                          ? diPertinRoxo.withValues(alpha: 0.06)
+                          : Colors.transparent,
+                      borderRadius: BorderRadius.circular(12),
                     ),
-                    icon: _enviandoAnexo
-                        ? SizedBox(
-                            width: 22,
-                            height: 22,
-                            child: CircularProgressIndicator(
-                              strokeWidth: 2,
-                              color: diPertinRoxo,
-                            ),
-                          )
-                        : Icon(
-                            Icons.attach_file,
-                            color: possoResponder ? diPertinRoxo : Colors.grey,
-                          ),
-                    onPressed: possoResponder && !_enviandoAnexo
-                        ? _enviarAnexo
-                        : null,
+                    child: IconButton(
+                      tooltip: 'Anexar arquivo',
+                      style: IconButton.styleFrom(
+                        foregroundColor: possoResponder
+                            ? diPertinRoxo
+                            : Colors.grey.shade400,
+                        padding: const EdgeInsets.all(10),
+                      ),
+                      icon: _enviandoAnexo
+                          ? SizedBox(
+                              width: 20,
+                              height: 20,
+                              child: CircularProgressIndicator(
+                                strokeWidth: 2,
+                                color: diPertinRoxo,
+                              ),
+                            )
+                          : const Icon(Icons.attach_file_rounded, size: 22),
+                      onPressed: possoResponder && !_enviandoAnexo
+                          ? _enviarAnexo
+                          : null,
+                    ),
                   ),
+                  const SizedBox(width: 8),
+                  // Text field
                   Expanded(
                     child: TextField(
                       controller: _mensagemController,
@@ -1892,63 +1737,261 @@ class _AtendimentoSuporteScreenState extends State<AtendimentoSuporteScreen> {
                         hintText: encerrado
                             ? 'Chamado encerrado (somente leitura).'
                             : possoResponder
-                            ? 'Digite sua resposta ao cliente…'
-                            : aguardando
-                            ? 'Inicie o atendimento para responder.'
-                            : 'Apenas o atendente responsável pode enviar mensagens.',
-                        filled: true,
-                        fillColor: PainelAdminTheme.fundoCanvas.withValues(
-                          alpha: 0.65,
+                                ? 'Digite sua resposta...'
+                                : aguardando
+                                    ? 'Inicie o atendimento para responder.'
+                                    : 'Apenas o atendente responsável pode enviar mensagens.',
+                        hintStyle: TextStyle(
+                          color: Colors.grey.shade400,
+                          fontSize: 13.5,
                         ),
+                        filled: true,
+                        fillColor: const Color(0xFFF5F4F8),
                         border: OutlineInputBorder(
                           borderRadius: BorderRadius.circular(14),
-                          borderSide: BorderSide(
-                            color: PainelAdminTheme.dashboardBorder,
-                          ),
+                          borderSide: BorderSide.none,
                         ),
                         enabledBorder: OutlineInputBorder(
                           borderRadius: BorderRadius.circular(14),
                           borderSide: BorderSide(
-                            color: PainelAdminTheme.dashboardBorder,
+                            color: Colors.grey.shade200,
                           ),
                         ),
                         focusedBorder: OutlineInputBorder(
                           borderRadius: BorderRadius.circular(14),
                           borderSide: const BorderSide(
-                            color: PainelAdminTheme.roxo,
+                            color: diPertinRoxo,
                             width: 1.5,
                           ),
                         ),
                         contentPadding: const EdgeInsets.symmetric(
-                          horizontal: 18,
-                          vertical: 14,
+                          horizontal: 16,
+                          vertical: 12,
                         ),
                       ),
                       onSubmitted: (_) {
                         if (possoResponder) _enviarMensagem();
                       },
+                      onChanged: (v) => setState(() {}),
                     ),
                   ),
-                  const SizedBox(width: 10),
-                  FilledButton(
-                    onPressed: possoResponder ? _enviarMensagem : null,
-                    style: FilledButton.styleFrom(
-                      backgroundColor: PainelAdminTheme.laranja,
-                      foregroundColor: Colors.white,
-                      padding: const EdgeInsets.symmetric(
-                        horizontal: 22,
-                        vertical: 14,
-                      ),
-                      shape: RoundedRectangleBorder(
-                        borderRadius: BorderRadius.circular(14),
+                  const SizedBox(width: 8),
+                  // Send button
+                  AnimatedContainer(
+                    duration: const Duration(milliseconds: 200),
+                    decoration: BoxDecoration(
+                      color: possoResponder
+                          ? diPertinRoxo
+                          : Colors.grey.shade300,
+                      borderRadius: BorderRadius.circular(14),
+                      boxShadow: possoResponder
+                          ? [
+                              BoxShadow(
+                                color: diPertinRoxo.withValues(alpha: 0.3),
+                                blurRadius: 6,
+                                offset: const Offset(0, 2),
+                              ),
+                            ]
+                          : [],
+                    ),
+                    child: IconButton(
+                      onPressed:
+                          possoResponder && _mensagemController.text.trim().isNotEmpty
+                              ? _enviarMensagem
+                              : null,
+                      icon: Icon(
+                        Icons.send_rounded,
+                        size: 20,
+                        color: possoResponder &&
+                                _mensagemController.text.trim().isNotEmpty
+                            ? Colors.white
+                            : Colors.grey.shade500,
                       ),
                     ),
-                    child: const Icon(Icons.send_rounded, size: 22),
                   ),
                 ],
               ),
             ),
           ],
+        ),
+      );
+    },
+  );
+}
+}
+
+/// Widget separado para exibir a avaliação do cliente no banner do ticket encerrado.
+/// É um StatefulWidget para que o StreamBuilder preserve seu estado mesmo quando
+/// o widget pai (que escuta o ticket) for reconstruído.
+class _BannerAvaliacaoSuporte extends StatefulWidget {
+  final String ticketId;
+
+  const _BannerAvaliacaoSuporte({required this.ticketId});
+
+  @override
+  State<_BannerAvaliacaoSuporte> createState() =>
+      _BannerAvaliacaoSuporteState();
+}
+
+class _BannerAvaliacaoSuporteState extends State<_BannerAvaliacaoSuporte> {
+  @override
+  Widget build(BuildContext context) {
+    return StreamBuilder<QuerySnapshot<Map<String, dynamic>>>(
+      stream: FirebaseFirestore.instance
+          .collection('support_ratings')
+          .where('ticket_id', isEqualTo: widget.ticketId)
+          .limit(1)
+          .snapshots(),
+      builder: (context, snap) {
+        if (snap.connectionState == ConnectionState.waiting) {
+          return const SizedBox.shrink();
+        }
+        if (snap.hasError || !snap.hasData) {
+          return Container(
+            width: double.infinity,
+            padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 8),
+            color: Colors.amber.shade50,
+            child: Row(
+              children: [
+                Icon(Icons.hourglass_bottom, size: 16, color: Colors.amber[800]),
+                const SizedBox(width: 8),
+                Text(
+                  'Aguardando avaliação do cliente…',
+                  style: TextStyle(
+                    fontSize: 12,
+                    color: Colors.amber[900],
+                    fontWeight: FontWeight.w600,
+                  ),
+                ),
+              ],
+            ),
+          );
+        }
+        final docs = snap.data!.docs;
+        if (docs.isEmpty) {
+          return Container(
+            width: double.infinity,
+            padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 8),
+            color: Colors.amber.shade50,
+            child: Row(
+              children: [
+                Icon(Icons.hourglass_bottom, size: 16, color: Colors.amber[800]),
+                const SizedBox(width: 8),
+                Text(
+                  'Aguardando avaliação do cliente…',
+                  style: TextStyle(
+                    fontSize: 12,
+                    color: Colors.amber[900],
+                    fontWeight: FontWeight.w600,
+                  ),
+                ),
+              ],
+            ),
+          );
+        }
+        final dados = docs.first.data();
+        final rating = (dados['rating'] is num)
+            ? (dados['rating'] as num).toInt()
+            : 0;
+        final comentario = (dados['comment'] ?? '').toString().trim();
+        final criadoEm = dados['created_at'];
+        String quando = '';
+        if (criadoEm is Timestamp) {
+          final d = criadoEm.toDate();
+          final dd = d.day.toString().padLeft(2, '0');
+          final mm = d.month.toString().padLeft(2, '0');
+          final hh = d.hour.toString().padLeft(2, '0');
+          final min = d.minute.toString().padLeft(2, '0');
+          quando = '$dd/$mm ${d.year} $hh:$min';
+        }
+
+        return Container(
+          width: double.infinity,
+          padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 10),
+          decoration: BoxDecoration(
+            color: const Color(0xFFF6F0FB),
+            border: Border(
+              bottom: BorderSide(color: Colors.grey.shade200),
+            ),
+          ),
+          child: Row(
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              Container(
+                padding: const EdgeInsets.all(6),
+                decoration: BoxDecoration(
+                  color: PainelAdminTheme.roxo.withValues(alpha: 0.10),
+                  borderRadius: BorderRadius.circular(10),
+                ),
+                child: Icon(Icons.reviews, size: 16, color: PainelAdminTheme.roxo),
+              ),
+              const SizedBox(width: 10),
+              Expanded(
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  mainAxisSize: MainAxisSize.min,
+                  children: [
+                    Row(
+                      children: [
+                        Text(
+                          'Avaliação do cliente',
+                          style: TextStyle(
+                            fontWeight: FontWeight.w700,
+                            fontSize: 12,
+                            color: PainelAdminTheme.roxo,
+                          ),
+                        ),
+                        const SizedBox(width: 8),
+                        Row(
+                          children: List.generate(5, (i) {
+                            final ativa = i < rating;
+                            return Icon(
+                              ativa
+                                  ? Icons.star_rounded
+                                  : Icons.star_border_rounded,
+                              color: PainelAdminTheme.laranja,
+                              size: 16,
+                            );
+                          }),
+                        ),
+                        const SizedBox(width: 4),
+                        Text(
+                          '$rating/5',
+                          style: const TextStyle(
+                            fontSize: 11,
+                            color: Colors.black87,
+                            fontWeight: FontWeight.w600,
+                          ),
+                        ),
+                        if (quando.isNotEmpty) ...[
+                          const SizedBox(width: 8),
+                          Text(
+                            '· $quando',
+                            style: TextStyle(
+                              fontSize: 10,
+                              color: Colors.grey[500],
+                            ),
+                          ),
+                        ],
+                      ],
+                    ),
+                    if (comentario.isNotEmpty) ...[
+                      const SizedBox(height: 3),
+                      Text(
+                        '"$comentario"',
+                        style: TextStyle(
+                          fontSize: 11.5,
+                          fontStyle: FontStyle.italic,
+                          color: Colors.grey[700],
+                          height: 1.3,
+                        ),
+                      ),
+                    ],
+                  ],
+                ),
+              ),
+            ],
+          ),
         );
       },
     );
@@ -1994,8 +2037,10 @@ class _ColunaFilaSuporteState extends State<ColunaFilaSuporte>
     with SingleTickerProviderStateMixin {
   final TextEditingController _filtroNome = TextEditingController();
   final TextEditingController _filtroProtocolo = TextEditingController();
+  final TextEditingController _searchController = TextEditingController();
   DateTime? _dataDe;
   DateTime? _dataAte;
+  String _filtroPerfil = '';
   late TabController _tabController;
 
   @override
@@ -2009,16 +2054,38 @@ class _ColunaFilaSuporteState extends State<ColunaFilaSuporte>
     _tabController.dispose();
     _filtroNome.dispose();
     _filtroProtocolo.dispose();
+    _searchController.dispose();
     super.dispose();
+  }
+
+  bool _filtroDocPassa(Map<String, dynamic> m, String busca) {
+    if (busca.isEmpty) return true;
+    final nome = (m['user_nome'] ?? '').toString().toLowerCase();
+    final proto = (m['protocol_number'] ?? '').toString();
+    final preview = (m['first_message_preview'] ?? '').toString().toLowerCase();
+    final loja = (m['solicitante_loja_nome'] ?? '').toString().toLowerCase();
+    return nome.contains(busca) ||
+        proto.contains(busca) ||
+        preview.contains(busca) ||
+        loja.contains(busca);
+  }
+
+  bool _filtroPerfilPassa(Map<String, dynamic> m, String perfil) {
+    if (perfil.isEmpty) return true;
+    return (m['solicitante_perfil'] ?? 'cliente').toString() == perfil;
   }
 
   List<QueryDocumentSnapshot<Map<String, dynamic>>> _aplicarFiltrosHistorico(
     List<QueryDocumentSnapshot<Map<String, dynamic>>> docs,
   ) {
+    final busca = _searchController.text.toLowerCase().trim();
+    final perfil = _filtroPerfil;
     final nome = _filtroNome.text.toLowerCase().trim();
     final proto = _filtroProtocolo.text.replaceAll(RegExp(r'\D'), '');
     return docs.where((doc) {
       final m = doc.data();
+      if (!_filtroDocPassa(m, busca)) return false;
+      if (!_filtroPerfilPassa(m, perfil)) return false;
       if (nome.isNotEmpty) {
         final n = (m['user_nome'] ?? '').toString().toLowerCase();
         if (!n.contains(nome)) return false;
@@ -2083,44 +2150,158 @@ class _ColunaFilaSuporteState extends State<ColunaFilaSuporte>
   Widget _cabecalhoPainelTickets() {
     final rx = widget.diPertinRoxo;
     return Padding(
-      padding: const EdgeInsets.fromLTRB(16, 16, 16, 6),
-      child: Row(
-        crossAxisAlignment: CrossAxisAlignment.start,
+      padding: const EdgeInsets.fromLTRB(16, 16, 16, 0),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.stretch,
         children: [
-          Container(
-            padding: const EdgeInsets.all(11),
-            decoration: BoxDecoration(
-              color: rx.withValues(alpha: 0.1),
-              borderRadius: BorderRadius.circular(12),
-              border: Border.all(color: rx.withValues(alpha: 0.15)),
-            ),
-            child: Icon(Icons.support_agent_rounded, color: rx, size: 24),
+          Row(
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              Container(
+                padding: const EdgeInsets.all(10),
+                decoration: BoxDecoration(
+                  gradient: LinearGradient(
+                    begin: Alignment.topLeft,
+                    end: Alignment.bottomRight,
+                    colors: [rx, rx.withValues(alpha: 0.8)],
+                  ),
+                  borderRadius: BorderRadius.circular(12),
+                  boxShadow: [
+                    BoxShadow(
+                      color: rx.withValues(alpha: 0.25),
+                      blurRadius: 8,
+                      offset: const Offset(0, 3),
+                    ),
+                  ],
+                ),
+                child: const Icon(
+                  Icons.headset_mic_rounded,
+                  color: Colors.white,
+                  size: 22,
+                ),
+              ),
+              const SizedBox(width: 12),
+              Expanded(
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    Text(
+                      'Central de atendimento',
+                      style:
+                          Theme.of(context).textTheme.titleLarge?.copyWith(
+                                fontWeight: FontWeight.w800,
+                                color: PainelAdminTheme.dashboardInk,
+                                letterSpacing: -0.4,
+                              ),
+                    ),
+                    const SizedBox(height: 2),
+                    Text(
+                      'Fila, chamados ativos e histórico em um só lugar.',
+                      style:
+                          Theme.of(context).textTheme.bodySmall?.copyWith(
+                                color: PainelAdminTheme.textoSecundario,
+                                height: 1.35,
+                              ),
+                    ),
+                  ],
+                ),
+              ),
+            ],
           ),
-          const SizedBox(width: 12),
-          Expanded(
-            child: Column(
-              crossAxisAlignment: CrossAxisAlignment.start,
+          const SizedBox(height: 14),
+          // --- Search field ---
+          TextField(
+            controller: _searchController,
+            onChanged: (_) => setState(() {}),
+            decoration: InputDecoration(
+              hintText: 'Buscar protocolo, cliente ou loja...',
+              hintStyle: TextStyle(
+                color: Colors.grey.shade400,
+                fontSize: 13.5,
+              ),
+              prefixIcon: Icon(
+                Icons.search_rounded,
+                size: 20,
+                color: Colors.grey.shade500,
+              ),
+              suffixIcon: _searchController.text.isNotEmpty
+                  ? IconButton(
+                      icon: Icon(
+                        Icons.clear_rounded,
+                        size: 18,
+                        color: Colors.grey.shade500,
+                      ),
+                      onPressed: () {
+                        _searchController.clear();
+                        setState(() {});
+                      },
+                    )
+                  : null,
+              filled: true,
+              fillColor: const Color(0xFFF5F4F8),
+              contentPadding: const EdgeInsets.symmetric(
+                horizontal: 14,
+                vertical: 12,
+              ),
+              border: OutlineInputBorder(
+                borderRadius: BorderRadius.circular(12),
+                borderSide: BorderSide.none,
+              ),
+              enabledBorder: OutlineInputBorder(
+                borderRadius: BorderRadius.circular(12),
+                borderSide: BorderSide(color: Colors.grey.shade200),
+              ),
+              focusedBorder: OutlineInputBorder(
+                borderRadius: BorderRadius.circular(12),
+                borderSide: BorderSide(color: rx, width: 1.5),
+              ),
+            ),
+          ),
+          const SizedBox(height: 10),
+          // --- Filter chips ---
+          SingleChildScrollView(
+            scrollDirection: Axis.horizontal,
+            child: Row(
               children: [
-                Text(
-                  'Central de atendimento',
-                  style: Theme.of(context).textTheme.titleLarge?.copyWith(
-                    fontWeight: FontWeight.w800,
-                    color: PainelAdminTheme.dashboardInk,
-                    letterSpacing: -0.4,
-                  ),
-                ),
-                const SizedBox(height: 3),
-                Text(
-                  'Fila, chamados ativos e histórico em um só lugar.',
-                  style: Theme.of(context).textTheme.bodySmall?.copyWith(
-                    color: PainelAdminTheme.textoSecundario,
-                    height: 1.35,
-                  ),
-                ),
+                _filtroChip('Todos', '', rx),
+                const SizedBox(width: 6),
+                _filtroChip('Cliente', 'cliente', rx),
+                const SizedBox(width: 6),
+                _filtroChip('Lojista', 'lojista', rx),
+                const SizedBox(width: 6),
+                _filtroChip('Entregador', 'entregador', rx),
               ],
             ),
           ),
+          const SizedBox(height: 6),
         ],
+      ),
+    );
+  }
+
+  Widget _filtroChip(String label, String valor, Color rx) {
+    final ativo = _filtroPerfil == valor;
+    return GestureDetector(
+      onTap: () => setState(() => _filtroPerfil = valor),
+      child: AnimatedContainer(
+        duration: const Duration(milliseconds: 200),
+        padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 7),
+        decoration: BoxDecoration(
+          color: ativo ? rx : Colors.transparent,
+          borderRadius: BorderRadius.circular(20),
+          border: Border.all(
+            color: ativo ? rx : Colors.grey.shade300,
+            width: ativo ? 0 : 1,
+          ),
+        ),
+        child: Text(
+          label,
+          style: TextStyle(
+            fontSize: 12,
+            fontWeight: FontWeight.w600,
+            color: ativo ? Colors.white : Colors.grey.shade700,
+          ),
+        ),
       ),
     );
   }
@@ -2133,31 +2314,45 @@ class _ColunaFilaSuporteState extends State<ColunaFilaSuporte>
           return _loaderSecao();
         }
         final docs = snap.data?.docs ?? [];
-        if (docs.isEmpty) {
+        final busca = _searchController.text.toLowerCase().trim();
+        final perfil = _filtroPerfil;
+        final filtrados = docs.where((d) {
+          final m = d.data();
+          return _filtroDocPassa(m, busca) && _filtroPerfilPassa(m, perfil);
+        }).toList();
+        if (filtrados.isEmpty) {
           return SingleChildScrollView(
             padding: const EdgeInsets.only(top: 8),
-            child: _emptyEstado(
-              'Nenhum cliente aguardando no momento.',
-              icon: Icons.hourglass_empty_rounded,
-            ),
+            child: docs.isEmpty
+                ? _emptyEstado(
+                    'Nenhum chamado aguardando',
+                    descricao:
+                        'Quando um cliente solicitar suporte, o protocolo aparecerá aqui automaticamente.',
+                    icon: Icons.inbox_rounded,
+                  )
+                : _emptyEstado(
+                    'Nenhum resultado para a busca',
+                    descricao: 'Tente alterar os filtros ou o termo buscado.',
+                    icon: Icons.search_off_rounded,
+                  ),
           );
         }
         return ListView.builder(
           padding: const EdgeInsets.fromLTRB(8, 4, 8, 16),
-          itemCount: docs.length,
+          itemCount: filtrados.length,
           itemBuilder: (context, i) {
-            final doc = docs[i];
+            final doc = filtrados[i];
             final m = doc.data();
             final pos = widget.posicaoNaFila(docs, doc.id);
             final sel = widget.selecionadoId == doc.id;
             return _tile(
+              doc: doc,
               nome: m['user_nome']?.toString() ?? 'Cliente',
-              protocolo: (m['protocol_number'] ?? '').toString().padLeft(
-                8,
-                '0',
-              ),
-              subtitulo:
-                  '${widget.fmtHora(m['created_at'])} · espera ${widget.tempoEspera(m['created_at'])} · #$pos na fila${_legendaCategoriaNaLista(m)}',
+              protocolo: (m['protocol_number'] ?? '').toString().padLeft(8, '0'),
+              perfil: (m['solicitante_perfil'] ?? 'cliente').toString(),
+              statusDoc: 'waiting',
+              posicaoFila: pos,
+              tempoEspera: widget.tempoEspera(m['created_at']),
               preview: (m['first_message_preview'] ?? '').toString(),
               selecionado: sel,
               onTap: () => widget.onSelect(doc),
@@ -2176,30 +2371,43 @@ class _ColunaFilaSuporteState extends State<ColunaFilaSuporte>
           return _loaderSecao();
         }
         final docs = snap.data?.docs ?? [];
-        if (docs.isEmpty) {
+        final busca = _searchController.text.toLowerCase().trim();
+        final perfil = _filtroPerfil;
+        final filtrados = docs.where((d) {
+          final m = d.data();
+          return _filtroDocPassa(m, busca) && _filtroPerfilPassa(m, perfil);
+        }).toList();
+        if (filtrados.isEmpty) {
           return SingleChildScrollView(
             padding: const EdgeInsets.only(top: 8),
-            child: _emptyEstado(
-              'Nenhum atendimento em curso.',
-              icon: Icons.assignment_ind_outlined,
-            ),
+            child: docs.isEmpty
+                ? _emptyEstado(
+                    'Nenhum atendimento em curso',
+                    descricao: 'Os chamados sendo atendidos aparecerão aqui.',
+                    icon: Icons.assignment_ind_outlined,
+                  )
+                : _emptyEstado(
+                    'Nenhum resultado para a busca',
+                    descricao: 'Tente alterar os filtros ou o termo buscado.',
+                    icon: Icons.search_off_rounded,
+                  ),
           );
         }
         return ListView.builder(
           padding: const EdgeInsets.fromLTRB(8, 4, 8, 16),
-          itemCount: docs.length,
+          itemCount: filtrados.length,
           itemBuilder: (context, i) {
-            final doc = docs[i];
+            final doc = filtrados[i];
             final m = doc.data();
             final sel = widget.selecionadoId == doc.id;
             final agente = m['agent_nome']?.toString() ?? '—';
             return _tile(
+              doc: doc,
               nome: m['user_nome']?.toString() ?? 'Cliente',
-              protocolo: (m['protocol_number'] ?? '').toString().padLeft(
-                8,
-                '0',
-              ),
-              subtitulo: 'Atendente: $agente${_legendaCategoriaNaLista(m)}',
+              protocolo: (m['protocol_number'] ?? '').toString().padLeft(8, '0'),
+              perfil: (m['solicitante_perfil'] ?? 'cliente').toString(),
+              statusDoc: 'in_progress',
+              agenteNome: agente,
               preview: (m['first_message_preview'] ?? '').toString(),
               selecionado: sel,
               onTap: () => widget.onSelect(doc),
@@ -2226,12 +2434,19 @@ class _ColunaFilaSuporteState extends State<ColunaFilaSuporte>
                 return _loaderSecao();
               }
               final raw = snap.data?.docs ?? [];
-              final docs = _aplicarFiltrosHistorico(raw);
+              final busca = _searchController.text.toLowerCase().trim();
+              final perfil = _filtroPerfil;
+              final filtrados = raw.where((d) {
+                final m = d.data();
+                return _filtroDocPassa(m, busca) && _filtroPerfilPassa(m, perfil);
+              }).toList();
+              final docs = _aplicarFiltrosHistorico(filtrados);
               if (raw.isEmpty) {
                 return SingleChildScrollView(
                   padding: const EdgeInsets.only(top: 8),
                   child: _emptyEstado(
-                    'Nenhum registro no histórico ainda.',
+                    'Nenhum registro no histórico',
+                    descricao: 'Quando um chamado for finalizado, aparecerá aqui.',
                     icon: Icons.folder_open_outlined,
                   ),
                 );
@@ -2240,7 +2455,8 @@ class _ColunaFilaSuporteState extends State<ColunaFilaSuporte>
                 return SingleChildScrollView(
                   padding: const EdgeInsets.only(top: 8),
                   child: _emptyEstado(
-                    'Nenhum resultado com os filtros atuais.',
+                    'Nenhum resultado com os filtros atuais',
+                    descricao: 'Tente limpar os filtros ou ampliar o período.',
                     icon: Icons.search_off_rounded,
                   ),
                 );
@@ -2254,15 +2470,15 @@ class _ColunaFilaSuporteState extends State<ColunaFilaSuporte>
                   final sel = widget.selecionadoId == doc.id;
                   final st = m['status']?.toString() ?? '';
                   return _tile(
+                    doc: doc,
                     nome: m['user_nome']?.toString() ?? 'Cliente',
-                    protocolo: (m['protocol_number'] ?? '').toString().padLeft(
-                      8,
-                      '0',
-                    ),
-                    subtitulo:
-                        '${widget.fmtHora(m['created_at'])} · ${statusLegivelSuporte(st)}${_legendaCategoriaNaLista(m)}',
+                    protocolo:
+                        (m['protocol_number'] ?? '').toString().padLeft(8, '0'),
+                    perfil: (m['solicitante_perfil'] ?? 'cliente').toString(),
+                    statusDoc: st,
                     preview: (m['first_message_preview'] ?? '').toString(),
                     selecionado: sel,
+                    tempoEspera: widget.fmtHora(m['created_at']),
                     onTap: () => widget.onSelect(doc),
                   );
                 },
@@ -2274,30 +2490,54 @@ class _ColunaFilaSuporteState extends State<ColunaFilaSuporte>
     );
   }
 
-  Widget _emptyEstado(String mensagem, {IconData icon = Icons.inbox_outlined}) {
+  Widget _emptyEstado(String titulo,
+      {IconData icon = Icons.inbox_outlined, String descricao = ''}) {
     return Container(
-      constraints: const BoxConstraints(minHeight: 76),
-      margin: const EdgeInsets.symmetric(horizontal: 8),
-      padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 14),
+      constraints: const BoxConstraints(minHeight: 200),
+      margin: const EdgeInsets.symmetric(horizontal: 16, vertical: 20),
+      padding: const EdgeInsets.symmetric(horizontal: 24, vertical: 28),
       decoration: BoxDecoration(
-        color: PainelAdminTheme.fundoCanvas.withValues(alpha: 0.65),
-        borderRadius: BorderRadius.circular(12),
-        border: Border.all(color: PainelAdminTheme.dashboardBorder),
+        color: Colors.white,
+        borderRadius: BorderRadius.circular(16),
+        border: Border.all(color: Colors.grey.shade200),
       ),
-      child: Row(
+      child: Column(
+        mainAxisSize: MainAxisSize.min,
         children: [
-          Icon(icon, size: 26, color: PainelAdminTheme.textoSecundario),
-          const SizedBox(width: 12),
-          Expanded(
-            child: Text(
-              mensagem,
-              style: TextStyle(
-                color: PainelAdminTheme.textoSecundario,
-                fontSize: 13,
-                height: 1.35,
-              ),
+          Container(
+            padding: const EdgeInsets.all(16),
+            decoration: BoxDecoration(
+              color: Colors.grey.shade50,
+              borderRadius: BorderRadius.circular(16),
+            ),
+            child: Icon(
+              icon,
+              size: 40,
+              color: Colors.grey.shade400,
             ),
           ),
+          const SizedBox(height: 14),
+          Text(
+            titulo,
+            textAlign: TextAlign.center,
+            style: TextStyle(
+              fontSize: 14,
+              fontWeight: FontWeight.w700,
+              color: Colors.grey.shade700,
+            ),
+          ),
+          if (descricao.isNotEmpty) ...[
+            const SizedBox(height: 6),
+            Text(
+              descricao,
+              textAlign: TextAlign.center,
+              style: TextStyle(
+                fontSize: 12.5,
+                color: Colors.grey.shade500,
+                height: 1.4,
+              ),
+            ),
+          ],
         ],
       ),
     );
@@ -2471,14 +2711,60 @@ class _ColunaFilaSuporteState extends State<ColunaFilaSuporte>
   Widget build(BuildContext context) {
     final rx = widget.diPertinRoxo;
     return Container(
-      decoration: PainelAdminTheme.dashboardCard(),
+      decoration: BoxDecoration(
+        color: Colors.white,
+        borderRadius: BorderRadius.circular(18),
+        border: Border.all(color: Colors.grey.shade200),
+        boxShadow: [
+          BoxShadow(
+            color: Colors.black.withValues(alpha: 0.04),
+            blurRadius: 12,
+            offset: const Offset(0, 4),
+          ),
+        ],
+      ),
       clipBehavior: Clip.antiAlias,
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.stretch,
         children: [
           _cabecalhoPainelTickets(),
+          // --- Summary cards ---
+          Padding(
+            padding: const EdgeInsets.symmetric(horizontal: 16),
+            child: Row(
+              children: [
+                Expanded(
+                  child: _summaryCard(
+                    icon: Icons.hourglass_empty_rounded,
+                    label: 'Na fila',
+                    cor: widget.diPertinLaranja,
+                    stream: widget.queryFila.snapshots(),
+                  ),
+                ),
+                const SizedBox(width: 8),
+                Expanded(
+                  child: _summaryCard(
+                    icon: Icons.headset_mic_rounded,
+                    label: 'Em atendimento',
+                    cor: const Color(0xFF2563EB),
+                    stream: widget.queryAndamento.snapshots(),
+                  ),
+                ),
+                const SizedBox(width: 8),
+                Expanded(
+                  child: _summaryCard(
+                    icon: Icons.check_circle_rounded,
+                    label: 'Finalizados',
+                    cor: const Color(0xFF16A34A),
+                    stream: widget.queryHistorico.snapshots(),
+                  ),
+                ),
+              ],
+            ),
+          ),
+          const SizedBox(height: 12),
           Material(
-            color: Colors.white,
+            color: Colors.transparent,
             child: TabBar(
               controller: _tabController,
               indicatorColor: rx,
@@ -2489,6 +2775,7 @@ class _ColunaFilaSuporteState extends State<ColunaFilaSuporte>
                 fontWeight: FontWeight.w700,
                 fontSize: 13,
               ),
+              indicatorSize: TabBarIndicatorSize.tab,
               tabs: const [
                 Tab(text: 'Fila'),
                 Tab(text: 'Em curso'),
@@ -2511,98 +2798,326 @@ class _ColunaFilaSuporteState extends State<ColunaFilaSuporte>
     );
   }
 
+  Widget _summaryCard({
+    required IconData icon,
+    required String label,
+    required Color cor,
+    required Stream<QuerySnapshot<Map<String, dynamic>>> stream,
+  }) {
+    return StreamBuilder<QuerySnapshot<Map<String, dynamic>>>(
+      stream: stream,
+      builder: (context, snap) {
+        final count = snap.data?.docs.length ?? 0;
+        return AnimatedContainer(
+          duration: const Duration(milliseconds: 300),
+          padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 10),
+          decoration: BoxDecoration(
+            color: cor.withValues(alpha: 0.06),
+            borderRadius: BorderRadius.circular(12),
+            border: Border.all(color: cor.withValues(alpha: 0.12)),
+          ),
+          child: Row(
+            children: [
+              Container(
+                padding: const EdgeInsets.all(6),
+                decoration: BoxDecoration(
+                  color: cor.withValues(alpha: 0.12),
+                  borderRadius: BorderRadius.circular(8),
+                ),
+                child: Icon(icon, size: 14, color: cor),
+              ),
+              const SizedBox(width: 8),
+              Expanded(
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  mainAxisSize: MainAxisSize.min,
+                  children: [
+                    Text(
+                      count.toString(),
+                      style: TextStyle(
+                        fontSize: 16,
+                        fontWeight: FontWeight.w800,
+                        color: cor,
+                        height: 1.1,
+                      ),
+                    ),
+                    Text(
+                      label,
+                      style: TextStyle(
+                        fontSize: 10,
+                        color: Colors.grey.shade600,
+                        height: 1.2,
+                      ),
+                    ),
+                  ],
+                ),
+              ),
+            ],
+          ),
+        );
+      },
+    );
+  }
+
   Widget _tile({
+    required QueryDocumentSnapshot<Map<String, dynamic>> doc,
     required String nome,
     required String protocolo,
-    required String subtitulo,
+    required String perfil,
+    required String statusDoc,
     required String preview,
     required bool selecionado,
     required VoidCallback onTap,
+    int posicaoFila = 0,
+    String tempoEspera = '',
+    String agenteNome = '',
   }) {
     final rx = widget.diPertinRoxo;
     final iniciais = iniciaisNomeSuporte(nome);
+    final isWaiting = statusDoc == 'waiting';
+    final isInProgress = statusDoc == 'in_progress';
+
+    Color statusBg;
+    Color statusFg;
+    IconData statusIcon;
+    String statusLabel;
+
+    if (isWaiting) {
+      statusBg = widget.diPertinLaranja.withValues(alpha: 0.12);
+      statusFg = const Color(0xFFB45309);
+      statusIcon = Icons.schedule_rounded;
+      statusLabel = 'Na fila';
+    } else if (isInProgress) {
+      statusBg = const Color(0xFFDBEAFE);
+      statusFg = const Color(0xFF1D4ED8);
+      statusIcon = Icons.headset_mic_rounded;
+      statusLabel = 'Em atendimento';
+    } else {
+      statusBg = const Color(0xFFD1FAE5);
+      statusFg = const Color(0xFF047857);
+      statusIcon = Icons.check_circle_rounded;
+      statusLabel = 'Encerrado';
+    }
+
+    final corPerfil = _corPerfilSolicitante(perfil);
+    final iconePerfil = _iconePerfilSolicitante(perfil);
+    final rotuloPerfil = _rotuloPerfilSolicitante(perfil);
+
     return Padding(
-      padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 4),
+      padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
       child: Material(
         color: Colors.transparent,
         child: InkWell(
           onTap: onTap,
-          borderRadius: BorderRadius.circular(12),
-          splashColor: rx.withValues(alpha: 0.08),
-          hoverColor: rx.withValues(alpha: 0.04),
+          borderRadius: BorderRadius.circular(14),
+          splashColor: rx.withValues(alpha: 0.06),
+          hoverColor: rx.withValues(alpha: 0.03),
           child: AnimatedContainer(
             duration: const Duration(milliseconds: 160),
             curve: Curves.easeOut,
             padding: const EdgeInsets.all(12),
             decoration: BoxDecoration(
-              color: selecionado
-                  ? rx.withValues(alpha: 0.09)
-                  : const Color(0xFFFAFAFC),
-              borderRadius: BorderRadius.circular(12),
+              gradient: selecionado
+                  ? LinearGradient(
+                      begin: Alignment.topLeft,
+                      end: Alignment.bottomRight,
+                      colors: [
+                        rx.withValues(alpha: 0.07),
+                        rx.withValues(alpha: 0.02),
+                      ],
+                    )
+                  : null,
+              color: selecionado ? null : Colors.white,
+              borderRadius: BorderRadius.circular(14),
               border: Border.all(
                 color: selecionado
                     ? rx.withValues(alpha: 0.5)
-                    : const Color(0xFFE8E6EF),
+                    : Colors.grey.shade200,
                 width: selecionado ? 1.5 : 1,
               ),
+              boxShadow: selecionado
+                  ? [
+                      BoxShadow(
+                        color: rx.withValues(alpha: 0.08),
+                        blurRadius: 8,
+                        offset: const Offset(0, 2),
+                      ),
+                    ]
+                  : [],
             ),
             child: Row(
               crossAxisAlignment: CrossAxisAlignment.start,
               children: [
-                CircleAvatar(
-                  radius: 20,
-                  backgroundColor: rx.withValues(alpha: 0.14),
-                  child: Text(
-                    iniciais,
-                    style: TextStyle(
-                      fontSize: 12,
-                      fontWeight: FontWeight.w800,
-                      color: rx,
-                      letterSpacing: 0.2,
+                // Avatar
+                Stack(
+                  children: [
+                    CircleAvatar(
+                      radius: 20,
+                      backgroundColor: rx.withValues(alpha: 0.10),
+                      child: Text(
+                        iniciais,
+                        style: TextStyle(
+                          fontSize: 12,
+                          fontWeight: FontWeight.w800,
+                          color: rx,
+                          letterSpacing: 0.2,
+                        ),
+                      ),
                     ),
-                  ),
+                    if (isInProgress)
+                      Positioned(
+                        bottom: 0,
+                        right: 0,
+                        child: Container(
+                          width: 12,
+                          height: 12,
+                          decoration: BoxDecoration(
+                            color: const Color(0xFF22C55E),
+                            shape: BoxShape.circle,
+                            border: Border.all(
+                              color: Colors.white,
+                              width: 2,
+                            ),
+                          ),
+                        ),
+                      ),
+                  ],
                 ),
-                const SizedBox(width: 12),
+                const SizedBox(width: 10),
+                // Content
                 Expanded(
                   child: Column(
                     crossAxisAlignment: CrossAxisAlignment.start,
                     children: [
-                      Text(
-                        nome,
-                        style: const TextStyle(
-                          fontWeight: FontWeight.w700,
-                          fontSize: 14,
-                          letterSpacing: -0.1,
-                          color: Color(0xFF1E1B2E),
-                        ),
+                      // Nome + Protocolo
+                      Row(
+                        children: [
+                          Expanded(
+                            child: Text(
+                              nome,
+                              maxLines: 1,
+                              overflow: TextOverflow.ellipsis,
+                              style: const TextStyle(
+                                fontWeight: FontWeight.w700,
+                                fontSize: 13.5,
+                                letterSpacing: -0.1,
+                                color: Color(0xFF1E1B2E),
+                              ),
+                            ),
+                          ),
+                          const SizedBox(width: 6),
+                          Container(
+                            padding: const EdgeInsets.symmetric(
+                              horizontal: 6,
+                              vertical: 2,
+                            ),
+                            decoration: BoxDecoration(
+                              color: statusBg,
+                              borderRadius: BorderRadius.circular(6),
+                            ),
+                            child: Row(
+                              mainAxisSize: MainAxisSize.min,
+                              children: [
+                                Icon(statusIcon, size: 10, color: statusFg),
+                                const SizedBox(width: 3),
+                                Text(
+                                  statusLabel,
+                                  style: TextStyle(
+                                    fontSize: 9,
+                                    fontWeight: FontWeight.w700,
+                                    color: statusFg,
+                                  ),
+                                ),
+                              ],
+                            ),
+                          ),
+                        ],
                       ),
-                      const SizedBox(height: 2),
+                      const SizedBox(height: 4),
+                      // Protocolo
                       Text(
                         'Protocolo $protocolo',
                         style: TextStyle(
                           fontSize: 11,
-                          color: Colors.grey.shade700,
+                          color: Colors.grey.shade500,
                           fontWeight: FontWeight.w500,
                         ),
                       ),
-                      Text(
-                        subtitulo,
-                        style: TextStyle(
-                          fontSize: 11,
-                          color: Colors.grey.shade600,
-                          height: 1.25,
-                        ),
+                      const SizedBox(height: 4),
+                      // Perfil + Tempo
+                      Row(
+                        children: [
+                          Icon(
+                            iconePerfil,
+                            size: 12,
+                            color: corPerfil,
+                          ),
+                          const SizedBox(width: 3),
+                          Text(
+                            rotuloPerfil,
+                            style: TextStyle(
+                              fontSize: 10.5,
+                              fontWeight: FontWeight.w600,
+                              color: corPerfil,
+                            ),
+                          ),
+                          if (tempoEspera.isNotEmpty) ...[
+                            const SizedBox(width: 8),
+                            Icon(
+                              Icons.access_time_rounded,
+                              size: 10,
+                              color: Colors.grey.shade400,
+                            ),
+                            const SizedBox(width: 2),
+                            Text(
+                              tempoEspera,
+                              style: TextStyle(
+                                fontSize: 10.5,
+                                color: Colors.grey.shade500,
+                              ),
+                            ),
+                          ],
+                          if (agenteNome.isNotEmpty) ...[
+                            const SizedBox(width: 8),
+                            Icon(
+                              Icons.support_agent_rounded,
+                              size: 10,
+                              color: Colors.grey.shade400,
+                            ),
+                            const SizedBox(width: 2),
+                            Text(
+                              agenteNome,
+                              maxLines: 1,
+                              overflow: TextOverflow.ellipsis,
+                              style: TextStyle(
+                                fontSize: 10,
+                                color: Colors.grey.shade500,
+                              ),
+                            ),
+                          ],
+                          if (posicaoFila > 0) ...[
+                            const SizedBox(width: 8),
+                            Text(
+                              '#$posicaoFila',
+                              style: TextStyle(
+                                fontSize: 10,
+                                fontWeight: FontWeight.w700,
+                                color: widget.diPertinLaranja,
+                              ),
+                            ),
+                          ],
+                        ],
                       ),
                       if (preview.isNotEmpty) ...[
-                        const SizedBox(height: 4),
+                        const SizedBox(height: 6),
                         Text(
                           preview,
-                          maxLines: 2,
+                          maxLines: 1,
                           overflow: TextOverflow.ellipsis,
                           style: TextStyle(
-                            fontSize: 12,
+                            fontSize: 11.5,
                             height: 1.3,
-                            color: Colors.grey.shade800,
+                            color: Colors.grey.shade600,
                           ),
                         ),
                       ],

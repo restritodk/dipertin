@@ -52,7 +52,12 @@ class _EntregadorFormScreenState extends State<EntregadorFormScreen> {
   String? _motivoRecusa;
   DateTime? _reingressoBloqueadoAte;
 
-  final List<String> _tiposVeiculo = ['Moto', 'Carro', 'Bicicleta'];
+  final List<String> _tiposVeiculo = <String>[
+    'Bicicleta',
+    'Moto',
+    'Carro de Passeio',
+    'Utilitário / Frete',
+  ];
 
   bool get _precisaPlaca => _veiculoSelecionado != 'Bicicleta';
 
@@ -107,9 +112,14 @@ class _EntregadorFormScreenState extends State<EntregadorFormScreen> {
                   ContaBloqueioEntregadorService.dataReingressoEntregadorLiberado(
                 dados,
               );
-              if (dados['veiculoTipo'] != null &&
-                  _tiposVeiculo.contains(dados['veiculoTipo'])) {
-                _veiculoSelecionado = dados['veiculoTipo'];
+              if (dados['veiculoTipo'] != null) {
+                final vt = (dados['veiculoTipo'] as String).trim();
+                // Compatibilidade legada: 'Carro' → 'Carro de Passeio'
+                if (vt == 'Carro') {
+                  _veiculoSelecionado = 'Carro de Passeio';
+                } else if (_tiposVeiculo.contains(vt)) {
+                  _veiculoSelecionado = vt;
+                }
               }
               _modeloController.text = (modeloAtivo?.isNotEmpty ?? false)
                   ? modeloAtivo!
@@ -462,12 +472,14 @@ class _EntregadorFormScreenState extends State<EntregadorFormScreen> {
 
   String _tipoCodigo(String label) {
     switch (label) {
-      case 'Moto':
-        return 'moto';
-      case 'Carro':
-        return 'carro';
       case 'Bicicleta':
         return 'bike';
+      case 'Moto':
+        return 'moto';
+      case 'Carro de Passeio':
+        return 'carro';
+      case 'Utilitário / Frete':
+        return 'carro_frete';
       default:
         return label.toLowerCase();
     }
@@ -828,7 +840,7 @@ class _EntregadorFormScreenState extends State<EntregadorFormScreen> {
                   const SizedBox(height: 20),
 
                   const Text(
-                    "Tipo de Veículo",
+                    "Categoria do Veículo",
                     style: TextStyle(fontWeight: FontWeight.bold),
                   ),
                   const SizedBox(height: 5),
@@ -863,6 +875,43 @@ class _EntregadorFormScreenState extends State<EntregadorFormScreen> {
                       ),
                     ),
                   ),
+                  if (_veiculoSelecionado == 'Utilitário / Frete')
+                    Padding(
+                      padding: const EdgeInsets.only(top: 10),
+                      child: Container(
+                        padding: const EdgeInsets.all(12),
+                        decoration: BoxDecoration(
+                          color: Color(0xFFFFF3E0).withValues(alpha: 0.85),
+                          borderRadius: BorderRadius.circular(10),
+                          border: Border.all(
+                            color: const Color(0xFFFFB74D).withValues(alpha: 0.5),
+                          ),
+                        ),
+                        child: Row(
+                          crossAxisAlignment: CrossAxisAlignment.start,
+                          children: [
+                            Icon(
+                              Icons.info_outline_rounded,
+                              size: 18,
+                              color: const Color(0xFFE65100),
+                            ),
+                            const SizedBox(width: 10),
+                            Expanded(
+                              child: Text(
+                                "Veículos de carga e transporte de mercadorias devem utilizar "
+                                "a categoria \"Utilitário / Frete\". Carros comuns devem utilizar "
+                                "\"Carro de Passeio\".",
+                                style: TextStyle(
+                                  fontSize: 12.5,
+                                  height: 1.45,
+                                  color: Colors.brown.shade800,
+                                ),
+                              ),
+                            ),
+                          ],
+                        ),
+                      ),
+                    ),
                   const SizedBox(height: 14),
 
                   TextField(
