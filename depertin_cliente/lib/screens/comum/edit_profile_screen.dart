@@ -379,7 +379,13 @@ class _EditProfileScreenState extends State<EditProfileScreen> {
 
   String _mensagemErroFunctions(Object e) {
     if (e is FirebaseFunctionsException) {
-      if (e.message != null && e.message!.isNotEmpty) return e.message!;
+      final msg = e.message?.trim();
+      if (msg != null &&
+          msg.isNotEmpty &&
+          msg.toUpperCase() != 'INTERNAL' &&
+          msg.toUpperCase() != 'UNAVAILABLE') {
+        return msg;
+      }
       switch (e.code) {
         case 'resource-exhausted':
           return 'Muitas tentativas de SMS. Aguarde alguns minutos.';

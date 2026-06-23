@@ -267,7 +267,9 @@ exports.comteleCadastroTelefoneValidarCodigo = onCall(fnOpcoes, async (request) 
   await sleep(MIN_RESPONSE_MS);
 
   const { ok, status, data } = await comtelePutValidar(authKey, phoneDigits, codigoStr);
-  if (!ok) {
+  const sucessoComtele =
+    ok && data && (data.Success === true || data.success === true);
+  if (!sucessoComtele) {
     console.warn("[comtele] PUT validar", status, data);
     const msg =
       (data && data.Message) ||
@@ -315,9 +317,11 @@ exports.cadastroConfirmarTelefoneVerificadoSms = onCall(fnOpcoes, async (request
 
   const db = admin.firestore();
   const ref = db.collection(COL_TICKETS).doc(ticketId);
+  const userRef = db.collection("users").doc(uid);
 
   await db.runTransaction(async (tx) => {
     const snap = await tx.get(ref);
+    const userSnap = await tx.get(userRef);
     if (!snap.exists) {
       throw new HttpsError(
         "not-found",
@@ -351,14 +355,6 @@ exports.cadastroConfirmarTelefoneVerificadoSms = onCall(fnOpcoes, async (request
       );
     }
 
-    tx.update(ref, {
-      consumido: true,
-      consumido_por_uid: uid,
-      consumido_em: admin.firestore.FieldValue.serverTimestamp(),
-    });
-
-    const userRef = db.collection("users").doc(uid);
-    const userSnap = await tx.get(userRef);
     if (!userSnap.exists) {
       throw new HttpsError(
         "failed-precondition",
@@ -373,6 +369,12 @@ exports.cadastroConfirmarTelefoneVerificadoSms = onCall(fnOpcoes, async (request
         "O telefone do cadastro não confere com o número verificado por SMS."
       );
     }
+
+    tx.update(ref, {
+      consumido: true,
+      consumido_por_uid: uid,
+      consumido_em: admin.firestore.FieldValue.serverTimestamp(),
+    });
 
     tx.update(userRef, {
       telefone_verificado_sms_em: admin.firestore.FieldValue.serverTimestamp(),
@@ -409,9 +411,11 @@ exports.perfilAtualizarTelefoneVerificadoSms = onCall(fnOpcoes, async (request) 
 
   const db = admin.firestore();
   const ref = db.collection(COL_TICKETS).doc(ticketId);
+  const userRef = db.collection("users").doc(uid);
 
   await db.runTransaction(async (tx) => {
     const snap = await tx.get(ref);
+    const userSnap = await tx.get(userRef);
     if (!snap.exists) {
       throw new HttpsError(
         "not-found",
@@ -445,20 +449,18 @@ exports.perfilAtualizarTelefoneVerificadoSms = onCall(fnOpcoes, async (request) 
       );
     }
 
-    tx.update(ref, {
-      consumido: true,
-      consumido_por_uid: uid,
-      consumido_em: admin.firestore.FieldValue.serverTimestamp(),
-    });
-
-    const userRef = db.collection("users").doc(uid);
-    const userSnap = await tx.get(userRef);
     if (!userSnap.exists) {
       throw new HttpsError(
         "failed-precondition",
         "Perfil não encontrado."
       );
     }
+
+    tx.update(ref, {
+      consumido: true,
+      consumido_por_uid: uid,
+      consumido_em: admin.firestore.FieldValue.serverTimestamp(),
+    });
 
     tx.update(userRef, {
       telefone: mascararTelefoneBrParaFirestore(phoneDigits),

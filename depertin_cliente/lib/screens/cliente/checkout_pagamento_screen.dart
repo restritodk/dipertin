@@ -76,6 +76,12 @@ String mensagemAmigavelErroPagamentoCartao(
     case 'resource-exhausted':
       return 'O serviço de pagamento está temporariamente sobrecarregado. Aguarde um momento e tente de novo.';
     case 'unauthenticated':
+      if (raw.toLowerCase().contains('app check') ||
+          raw.toLowerCase().contains('appcheck')) {
+        return 'Não foi possível validar o aplicativo com o servidor. '
+            'Feche e abra o app, verifique sua conexão e tente novamente. '
+            'Em modo de desenvolvimento, registre o token App Check no Firebase Console.';
+      }
       return 'Sua sessão não foi aceita pelo servidor. Faça login novamente e tente outra vez.';
     case 'permission-denied':
       return 'Acesso negado ao pagamento. Faça login novamente ou atualize o aplicativo.';
@@ -154,7 +160,6 @@ class _CheckoutPagamentoScreenState extends State<CheckoutPagamentoScreen> {
 
   // Bandeira do cartão
   String? _bandeiraCartao;
-  String _tipoCartaoSelecionado = 'Crédito';
 
   Timer? _debounceParcelas;
   bool _consultandoParcelasNoMp = false;
@@ -394,7 +399,7 @@ class _CheckoutPagamentoScreenState extends State<CheckoutPagamentoScreen> {
     });
   }
 
-  /// Crédito: consulta o backend (Mercado Pago). Débito: só à vista no estado local.
+  /// Consulta parcelas no backend (Mercado Pago).
   Future<void> _atualizarParcelasMercadoPagoCheckout() async {
     if (_metodoAtual != 'Cartão') return;
 
@@ -414,25 +419,6 @@ class _CheckoutPagamentoScreenState extends State<CheckoutPagamentoScreen> {
         _parcelasEscolhidas = null;
         _erroOpcoesParcelas = null;
         _consultandoParcelasNoMp = false;
-      });
-      return;
-    }
-
-    if (_tipoCartaoSelecionado == 'Débito') {
-      final v = widget.valorTotal;
-      setState(() {
-        _consultandoParcelasNoMp = false;
-        _erroOpcoesParcelas = null;
-        _opcoesParcelasMp = [
-          _OpcaoParcelaCheckout(
-            parcelas: 1,
-            valorParcela: v,
-            valorTotalCobrado: v,
-            textoLinha:
-                '1x de ${_formatarMoedaBrlCheckout(v)} (débito à vista)',
-          ),
-        ];
-        _parcelasEscolhidas = 1;
       });
       return;
     }
@@ -517,7 +503,6 @@ class _CheckoutPagamentoScreenState extends State<CheckoutPagamentoScreen> {
   }
 
   int? _parcelasParaCheckoutCartao() {
-    if (_tipoCartaoSelecionado == 'Débito') return 1;
     if (_opcoesParcelasMp.isEmpty) return null;
     final validos = _opcoesParcelasMp.map((o) => o.parcelas).toSet();
     if (_parcelasEscolhidas != null && validos.contains(_parcelasEscolhidas)) {
@@ -528,12 +513,9 @@ class _CheckoutPagamentoScreenState extends State<CheckoutPagamentoScreen> {
 
   bool _habilitarBotaoPagarInferiorCheckout() {
     if (_pixGerado || _metodoAtual != 'Cartão') return true;
-    if (_tipoCartaoSelecionado == 'Crédito') {
-      return !_consultandoParcelasNoMp &&
-          _erroOpcoesParcelas == null &&
-          _parcelasParaCheckoutCartao() != null;
-    }
-    return !_consultandoParcelasNoMp;
+    return !_consultandoParcelasNoMp &&
+        _erroOpcoesParcelas == null &&
+        _parcelasParaCheckoutCartao() != null;
   }
 
   bool get _temPedidoFirestore =>
@@ -1152,23 +1134,24 @@ class _CheckoutPagamentoScreenState extends State<CheckoutPagamentoScreen> {
         return mensagemRecusaCartaoParaCliente(
           mensagem: msg,
           codigoRecusa: cod,
-          tipoCartaoSolicitado: tipo.isNotEmpty
-              ? tipo
-              : (_tipoCartaoSelecionado == 'Débito' ? 'debito' : 'credito'),
+          tipoCartaoSolicitado: tipo.isNotEmpty ? tipo : 'credito',
         );
       }
     } catch (_) {}
     return mensagemRecusaCartaoParaCliente(
       mensagem: 'Pagamento recusado pelo provedor. Tente outro cartão.',
-      tipoCartaoSolicitado:
-          _tipoCartaoSelecionado == 'Débito' ? 'debito' : 'credito',
+      tipoCartaoSolicitado: 'credito',
     );
   }
 
-  String _tipoCartaoCallable() =>
-      _tipoCartaoSelecionado == 'Débito' ? 'debito' : 'credito';
+  String _tipoCartaoCallable() => 'credito';
 
-  Future<void> _mostrarPopupPagamentoRecusado(String mensagem) async {
+  Future<void> _mostrarPopupPagamentoRecusado(
+    String mensagem, {
+    String? mpStatusDetail,
+    String? mpPaymentMethodId,
+    String? mpIssuerId,
+  }) async {
     if (!mounted) return;
     await showDialog<void>(
       context: context,
@@ -1182,7 +1165,61 @@ class _CheckoutPagamentoScreenState extends State<CheckoutPagamentoScreen> {
             const Expanded(child: Text('Pagamento recusado')),
           ],
         ),
-        content: Text(mensagem),
+        content: Column(
+          mainAxisSize: MainAxisSize.min,
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            Text(mensagem),
+            if (mpStatusDetail != null ||
+                mpPaymentMethodId != null ||
+                mpIssuerId != null) ...[
+              const SizedBox(height: 16),
+              Container(
+                padding: const EdgeInsets.all(12),
+                decoration: BoxDecoration(
+                  color: Colors.grey.shade100,
+                  borderRadius: BorderRadius.circular(8),
+                ),
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    if (mpStatusDetail != null)
+                      Padding(
+                        padding: const EdgeInsets.only(bottom: 4),
+                        child: Text(
+                          'Código: $mpStatusDetail',
+                          style: TextStyle(
+                            fontSize: 12,
+                            color: Colors.grey.shade700,
+                            fontFamily: 'monospace',
+                          ),
+                        ),
+                      ),
+                    if (mpPaymentMethodId != null)
+                      Padding(
+                        padding: const EdgeInsets.only(bottom: 4),
+                        child: Text(
+                          'Bandeira: $mpPaymentMethodId',
+                          style: TextStyle(
+                            fontSize: 12,
+                            color: Colors.grey.shade700,
+                          ),
+                        ),
+                      ),
+                    if (mpIssuerId != null)
+                      Text(
+                        'Emissor: $mpIssuerId',
+                        style: TextStyle(
+                          fontSize: 12,
+                          color: Colors.grey.shade700,
+                        ),
+                      ),
+                  ],
+                ),
+              ),
+            ],
+          ],
+        ),
         actions: [
           FilledButton(
             style: FilledButton.styleFrom(backgroundColor: diPertinRoxo),
@@ -1284,7 +1321,7 @@ class _CheckoutPagamentoScreenState extends State<CheckoutPagamentoScreen> {
     }
 
     final parcelasEnvioCheckout = _parcelasParaCheckoutCartao();
-    if (_tipoCartaoSelecionado == 'Crédito' && parcelasEnvioCheckout == null) {
+    if (parcelasEnvioCheckout == null) {
       ScaffoldMessenger.of(context).showSnackBar(
         const SnackBar(
           content: Text(
@@ -1317,8 +1354,8 @@ class _CheckoutPagamentoScreenState extends State<CheckoutPagamentoScreen> {
         'cvv': cvv,
         'cpf': cpf,
         'paymentMethodId': paymentMethodId,
-        'tipoCartao': _tipoCartaoSelecionado == 'Débito' ? 'debito' : 'credito',
-        'parcelas': parcelasEnvioCheckout ?? 1,
+        'tipoCartao': 'credito',
+        'parcelas': parcelasEnvioCheckout,
         'email': FirebaseAuth.instance.currentUser?.email,
       });
 
@@ -1340,7 +1377,12 @@ class _CheckoutPagamentoScreenState extends State<CheckoutPagamentoScreen> {
                 tipoCartaoSolicitado: _tipoCartaoCallable(),
               )
             : await _mensagemRecusaDoPedido(pedidoId);
-        await _mostrarPopupPagamentoRecusado(msg);
+        await _mostrarPopupPagamentoRecusado(
+          msg,
+          mpStatusDetail: data['mp_erro_detalhe']?.toString(),
+          mpPaymentMethodId: data['pagamento_cartao_bandeira_mp']?.toString(),
+          mpIssuerId: data['pagamento_tentativa_issuer_id']?.toString(),
+        );
         return;
       }
 
@@ -1376,7 +1418,7 @@ class _CheckoutPagamentoScreenState extends State<CheckoutPagamentoScreen> {
       if (mounted) Navigator.of(context, rootNavigator: true).pop();
       final msgErro = mensagemAmigavelErroPagamentoCartao(
         e,
-        tipoCartaoUi: _tipoCartaoSelecionado,
+        tipoCartaoUi: 'Crédito',
       );
       await _cancelarReservaDeSaldo(
         motivo: 'Erro ao processar pagamento: ${e.code}',
@@ -1417,7 +1459,20 @@ class _CheckoutPagamentoScreenState extends State<CheckoutPagamentoScreen> {
       );
       return;
     }
-    String emailCliente = user.email ?? "cliente@depertin.com";
+    final emailCliente = user.email;
+    if (emailCliente == null) {
+      setState(() => _isProcessando = false);
+      if (!mounted) return;
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(
+          content: Text(
+            'Sua conta não possui email. Entre em contato com o suporte.',
+          ),
+          backgroundColor: Colors.red,
+        ),
+      );
+      return;
+    }
 
     try {
       await user.getIdToken(true);
@@ -2157,58 +2212,18 @@ class _CheckoutPagamentoScreenState extends State<CheckoutPagamentoScreen> {
             letterSpacing: -0.2,
           ),
         ),
-        const SizedBox(height: 12),
-        Wrap(
-          spacing: 10,
-          runSpacing: 8,
+        const SizedBox(height: 8),
+        Row(
           children: [
-            ChoiceChip(
-              label: const Text('Crédito'),
-              selectedColor: diPertinRoxo.withValues(alpha: 0.15),
-              labelStyle: TextStyle(
-                fontWeight: FontWeight.w700,
-                color: _tipoCartaoSelecionado == 'Crédito'
-                    ? diPertinRoxo
-                    : Colors.grey.shade700,
+            Icon(Icons.credit_card_rounded, size: 18, color: diPertinRoxo),
+            const SizedBox(width: 8),
+            Text(
+              'Cartão de crédito',
+              style: TextStyle(
+                fontSize: 13.5,
+                fontWeight: FontWeight.w600,
+                color: Colors.grey.shade700,
               ),
-              shape: RoundedRectangleBorder(
-                borderRadius: BorderRadius.circular(12),
-                side: BorderSide(
-                  color: _tipoCartaoSelecionado == 'Crédito'
-                      ? diPertinRoxo
-                      : Colors.grey.shade300,
-                ),
-              ),
-              showCheckmark: true,
-              selected: _tipoCartaoSelecionado == 'Crédito',
-              onSelected: (_) {
-                setState(() => _tipoCartaoSelecionado = 'Crédito');
-                _agendarAtualizacaoParcelasMercadoPago();
-              },
-            ),
-            ChoiceChip(
-              label: const Text('Débito'),
-              selectedColor: diPertinRoxo.withValues(alpha: 0.15),
-              labelStyle: TextStyle(
-                fontWeight: FontWeight.w700,
-                color: _tipoCartaoSelecionado == 'Débito'
-                    ? diPertinRoxo
-                    : Colors.grey.shade700,
-              ),
-              shape: RoundedRectangleBorder(
-                borderRadius: BorderRadius.circular(12),
-                side: BorderSide(
-                  color: _tipoCartaoSelecionado == 'Débito'
-                      ? diPertinRoxo
-                      : Colors.grey.shade300,
-                ),
-              ),
-              showCheckmark: true,
-              selected: _tipoCartaoSelecionado == 'Débito',
-              onSelected: (_) {
-                setState(() => _tipoCartaoSelecionado = 'Débito');
-                _agendarAtualizacaoParcelasMercadoPago();
-              },
             ),
           ],
         ),
@@ -2283,10 +2298,9 @@ class _CheckoutPagamentoScreenState extends State<CheckoutPagamentoScreen> {
           ],
         ),
 
-        if (_tipoCartaoSelecionado == 'Crédito')
-          Padding(
-            padding: const EdgeInsets.only(top: 22, bottom: 6),
-            child: Column(
+        Padding(
+          padding: const EdgeInsets.only(top: 22, bottom: 6),
+          child: Column(
               crossAxisAlignment: CrossAxisAlignment.start,
               children: [
                 if (_consultandoParcelasNoMp) ...[

@@ -24,6 +24,7 @@ import 'lojista_produtos_screen.dart';
 import 'lojista_cupons_screen.dart';
 import 'lojista_config_screen.dart';
 import 'lojista_encomendas_screen.dart';
+import '../../widgets/dipertin_safe_bottom_panel.dart';
 
 const Color diPertinLaranja = Color(0xFFFF8F00);
 const Color diPertinRoxo = Color(0xFF6A1B9A);
@@ -1439,23 +1440,26 @@ class _LojistaDashboardScreenState extends State<LojistaDashboardScreen> {
     final tipoDoc = (dados['loja_tipo_documento'] ?? 'CPF').toString();
     final docMascarado = _mascararDocumentoLoja(dados['loja_documento']);
 
-    return CustomScrollView(
-      physics: const BouncingScrollPhysics(),
-      slivers: [
-        SliverToBoxAdapter(
-          child: _heroAprovacaoPendente(nomeLoja, ehColaborador),
-        ),
-        SliverPadding(
-          padding: const EdgeInsets.fromLTRB(20, 20, 20, 28),
-          sliver: SliverToBoxAdapter(
-            child: AnimatedOpacity(
-              opacity: _entradaAnimada ? 1 : 0,
-              duration: const Duration(milliseconds: 220),
-              curve: Curves.easeOut,
-              child: Column(
-                crossAxisAlignment: CrossAxisAlignment.stretch,
-                children: [
-                  _cardPendenteSuperficie(
+    return Column(
+      children: [
+        Expanded(
+          child: CustomScrollView(
+            physics: const BouncingScrollPhysics(),
+            slivers: [
+              SliverToBoxAdapter(
+                child: _heroAprovacaoPendente(nomeLoja, ehColaborador),
+              ),
+              SliverPadding(
+                padding: const EdgeInsets.fromLTRB(20, 20, 20, 20),
+                sliver: SliverToBoxAdapter(
+                  child: AnimatedOpacity(
+                    opacity: _entradaAnimada ? 1 : 0,
+                    duration: const Duration(milliseconds: 220),
+                    curve: Curves.easeOut,
+                    child: Column(
+                      crossAxisAlignment: CrossAxisAlignment.stretch,
+                      children: [
+                        _cardPendenteSuperficie(
                     child: Column(
                       crossAxisAlignment: CrossAxisAlignment.start,
                       children: [
@@ -1650,34 +1654,39 @@ class _LojistaDashboardScreenState extends State<LojistaDashboardScreen> {
                       ],
                     ),
                   ),
-                  const SizedBox(height: 14),
-                  SizedBox(
-                    height: 52,
-                    child: FilledButton.icon(
-                      onPressed: () => Navigator.push(
-                        context,
-                        MaterialPageRoute<void>(
-                          builder: (_) => const ChatSuporteScreen(),
-                        ),
-                      ),
-                      icon: const Icon(Icons.support_agent_rounded, size: 22),
-                      label: const Text(
-                        'Falar com o suporte',
-                        style: TextStyle(
-                          fontWeight: FontWeight.w800,
-                          fontSize: 15,
-                        ),
-                      ),
-                      style: FilledButton.styleFrom(
-                        backgroundColor: diPertinRoxo,
-                        foregroundColor: Colors.white,
-                        shape: RoundedRectangleBorder(
-                          borderRadius: BorderRadius.circular(12),
-                        ),
-                      ),
+                      ],
                     ),
                   ),
-                ],
+                ),
+              ),
+            ],
+          ),
+        ),
+        DiPertinSafeBottomPanel(
+          child: SizedBox(
+            height: 52,
+            width: double.infinity,
+            child: FilledButton.icon(
+              onPressed: () => Navigator.push(
+                context,
+                MaterialPageRoute<void>(
+                  builder: (_) => const ChatSuporteScreen(),
+                ),
+              ),
+              icon: const Icon(Icons.support_agent_rounded, size: 22),
+              label: const Text(
+                'Falar com o suporte',
+                style: TextStyle(
+                  fontWeight: FontWeight.w800,
+                  fontSize: 15,
+                ),
+              ),
+              style: FilledButton.styleFrom(
+                backgroundColor: diPertinRoxo,
+                foregroundColor: Colors.white,
+                shape: RoundedRectangleBorder(
+                  borderRadius: BorderRadius.circular(12),
+                ),
               ),
             ),
           ),

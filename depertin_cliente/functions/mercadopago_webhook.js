@@ -23,14 +23,11 @@ const MP_API = "https://api.mercadopago.com";
 const PIX_PRAZO_MINUTOS = 5;
 const PAYMENT_CALLABLE_OPTIONS = {
     region: "us-central1",
-    // App Check obrigatório: impede que alguém chame essas callables fora do app oficial
-    // (ex.: um atacante usando as credenciais do usuário em um script pra flood de PIX).
-    // - Android release → Play Integrity (automático).
-    // - Android debug   → AndroidDebugProvider + token registrado no Firebase Console.
-    // - iOS release     → DeviceCheck (quando o app for publicado).
-    // Se um dispositivo não apresentar token válido, a callable retorna
-    // `functions/unauthenticated` e NADA é processado.
-    enforceAppCheck: true,
+    // App Check desativado: callables já exigem request.auth + validação de pedido/cliente.
+    // Com enforceAppCheck:true, builds debug sem token de debug cadastrado (ou rate-limit
+    // "Too many attempts") falham com unauthenticated — a UI mostra "sessão não aceita"
+    // mesmo com o cliente logado. Reativar quando App Check estiver estável em todos os builds.
+    enforceAppCheck: false,
 };
 
 /** Compara valores monetários (evita falha por float Firestore vs MP). */
@@ -411,8 +408,9 @@ async function fetchPaymentFromMp(accessToken, paymentId) {
 async function criarCardTokenMp({ publicKey, accessToken, payload }) {
     const url = `${MP_API}/v1/card_tokens`;
     const authCandidates = [];
-    if (publicKey) authCandidates.push(publicKey);
+    // access_token primeiro: public_key sozinha costuma falhar (HTTP 500) na tokenização.
     if (accessToken) authCandidates.push(accessToken);
+    if (publicKey) authCandidates.push(publicKey);
     let lastError = null;
     for (const credential of authCandidates) {
         const res = await fetch(url, {
@@ -443,18 +441,26 @@ async function criarCardTokenMp({ publicKey, accessToken, payload }) {
 async function resolverMetodoPagamentoPorBinMp({ accessToken, publicKey, bin, tipoPreferido }) {
     const binLimpo = String(bin || "").replace(/\D/g, "").slice(0, 8);
     if (binLimpo.length < 6) return null;
+    const publicKeyLimpo = publicKey ? String(publicKey).trim() : "";
+    // API MP exige `public_key` na query string; só Bearer access_token retorna 400.
+    if (!publicKeyLimpo) {
+        console.warn("[mp] resolverMetodoPagamentoPorBinMp: public_key ausente no gateway");
+        return null;
+    }
     const authCandidates = [];
     if (accessToken) authCandidates.push(accessToken);
-    if (publicKey) authCandidates.push(publicKey);
+    if (publicKeyLimpo) authCandidates.push(publicKeyLimpo);
     const tipoAlvo = String(tipoPreferido || "").toLowerCase() === "debito"
         ? "debit_card"
         : String(tipoPreferido || "").toLowerCase() === "credito"
           ? "credit_card"
           : "";
+    const urlBase =
+        `${MP_API}/v1/payment_methods/search?bin=${binLimpo.slice(0, 8)}` +
+        `&public_key=${encodeURIComponent(publicKeyLimpo)}`;
     for (const credential of authCandidates) {
         try {
-            const url = `${MP_API}/v1/payment_methods/search?bin=${binLimpo.slice(0, 6)}`;
-            const res = await fetch(url, {
+            const res = await fetch(urlBase, {
                 method: "GET",
                 headers: {
                     Authorization: `Bearer ${credential}`,
@@ -462,7 +468,14 @@ async function resolverMetodoPagamentoPorBinMp({ accessToken, publicKey, bin, ti
                 },
             });
             const body = await res.json().catch(() => ({}));
-            if (!res.ok) continue;
+            if (!res.ok) {
+                console.warn(
+                    "[mp] BIN search HTTP",
+                    res.status,
+                    body.message || body.error || "",
+                );
+                continue;
+            }
             // A resposta pode vir como array direto ou { results: [...] } dependendo do endpoint.
             const results = Array.isArray(body)
                 ? body
@@ -477,8 +490,7 @@ async function resolverMetodoPagamentoPorBinMp({ accessToken, publicKey, bin, ti
                     (m) => String(m.payment_type_id || "").toLowerCase() === tipoAlvo,
                 );
             }
-            // Se o usuário pediu um tipo específico (débito/crédito), não faz fallback para outro tipo
-            const escolhido = preferido;
+            const escolhido = tipoAlvo ? preferido : (preferido || results[0]);
             if (!escolhido || !escolhido.id) continue;
             return {
                 payment_method_id: String(escolhido.id).toLowerCase(),
@@ -496,16 +508,21 @@ async function resolverMetodoPagamentoPorBinMp({ accessToken, publicKey, bin, ti
 }
 
 async function criarPagamentoMpComCartao(accessToken, payload) {
+    // Log completo da requisição (token truncado por segurança)
+    const logPayload = { ...payload, token: payload.token ? payload.token.substring(0, 8) + "…" : null };
+    console.log("PAYMENT REQUEST:", JSON.stringify(logPayload));
+    const idempotencyKey = `card-${String(payload.external_reference || Date.now()).trim()}`;
     const res = await fetch(`${MP_API}/v1/payments`, {
         method: "POST",
         headers: {
             Authorization: `Bearer ${accessToken}`,
             "Content-Type": "application/json",
-            "X-Idempotency-Key": `${Date.now()}-${Math.random().toString(36).slice(2, 10)}`,
+            "X-Idempotency-Key": idempotencyKey,
         },
         body: JSON.stringify(payload),
     });
     const body = await res.json().catch(() => ({}));
+    console.log("PAYMENT RESPONSE:", JSON.stringify(body));
     if (!res.ok) {
         const err = new Error(body.message || `MP PAY ${res.status}`);
         err.status = res.status;
@@ -1204,7 +1221,13 @@ exports.mpCriarPagamentoPix = onCall(
         const emailPayer =
             (data.email != null ? String(data.email).trim() : "") ||
             (request.auth.token?.email ? String(request.auth.token.email).trim() : "") ||
-            "cliente@depertin.com";
+            null;
+        if (!emailPayer) {
+            throw new HttpsError(
+                "failed-precondition",
+                "Email do pagador não encontrado. Faça login novamente.",
+            );
+        }
 
         try {
             const payment = await criarPagamentoPixMp(token, {
@@ -1535,7 +1558,13 @@ exports.mpProcessarPagamentoCartao = onCall(
         const emailPayer =
             (data.email != null ? String(data.email).trim() : "") ||
             (usuarioAuth.email ? String(usuarioAuth.email).trim() : "") ||
-            "cliente@depertin.com";
+            null;
+        if (!emailPayer) {
+            throw new HttpsError(
+                "failed-precondition",
+                "Email do pagador não encontrado. Faça login novamente com um email válido.",
+            );
+        }
 
         // Resolve bandeira oficial pelo BIN no MP. Evita `diff_param_bins` quando
         // a detecção local (regex de BIN) diverge do cadastro da Mercado Pago.
@@ -1555,8 +1584,8 @@ exports.mpProcessarPagamentoCartao = onCall(
 
         if (!metodoPagamentoResolvido || !metodoPagamentoResolvido.payment_method_id) {
             const msgBin = isDebito
-                ? "Este cartão não permite pagamento em débito nesta operação. Use crédito, outro cartão ou o PIX."
-                : "Este cartão não permite pagamento em crédito nesta operação. Use débito, outro cartão ou o PIX.";
+                ? "Débito online não está habilitado no Mercado Pago para esta loja. O pagamento não foi enviado ao seu banco — não é falta de saldo ou limite. Use Crédito ou PIX."
+                : "Este cartão não permite pagamento em crédito nesta operação. Verifique os dados, tente outro cartão ou use o PIX.";
             await marcarRecusaPagamentoGrupoAguardando(db, pedidoId, {
                 mp_status: "rejected",
                 status_pagamento_mp: "rejected",
@@ -1659,7 +1688,9 @@ exports.mpProcessarPagamentoCartao = onCall(
         try {
             // Bandeira: somente BIN oficial do MP (evita misturar débito/crédito via token).
             const paymentMethodEnviar = paymentMethodIdFinal;
-            const issuerIdRaw = issuerIdResolvido || cardToken?.issuer?.id;
+            // issuer_id: prioriza o cardToken (dado real do emissor na tokenização)
+            // sobre a sugestão do BIN search, que pode ser imprecisa para alguns bancos.
+            const issuerIdRaw = cardToken?.issuer?.id || issuerIdResolvido;
             const issuerId = issuerIdRaw != null ? String(issuerIdRaw).trim() : "";
             const parcelasFinal = isDebito
                 ? 1
@@ -1689,9 +1720,10 @@ exports.mpProcessarPagamentoCartao = onCall(
                 payment_method_id: paymentMethodEnviar,
                 payment_type_id: paymentTypeIdFinal,
                 // `binary_mode` desabilitado: permite que o MP faça a análise
-                // antifraude normal e aprove transações que antes eram recusadas
-                // imediatamente. O webhook trata o status final (approved/rejected)
-                // e o polling abaixo aguarda até 30s para resposta síncrona.
+                // antifraude normal com revisão manual para transações suspeitas,
+                // aprovando transações legítimas que seriam recusadas imediatamente
+                // no modo binário. O webhook trata o status final via IPN + polling.
+                binary_mode: false,
                 capture: true,
                 description: `Pedido DiPertin ${pedidoId}`,
                 statement_descriptor: "DIPERTIN",

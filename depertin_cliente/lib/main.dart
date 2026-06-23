@@ -123,6 +123,18 @@ Future<void> configurarBarraNavegacaoAndroidPadrao() async {
 /// `enforceAppCheck: true` falham em desenvolvimento.
 Future<void> ativarFirebaseAppCheck() async {
   await _ativarFirebaseAppCheckNoIsolate();
+  if (kDebugMode && !kIsWeb) {
+    try {
+      final token = await FirebaseAppCheck.instance.getToken();
+      if (token != null && token.isNotEmpty) {
+        debugPrint(
+          '[AppCheck] Token de debug (cadastre no Firebase Console → App Check): $token',
+        );
+      }
+    } catch (e, _) {
+      debugPrint('[AppCheck] Falha ao obter token de debug: $e');
+    }
+  }
 }
 
 void main() async {
