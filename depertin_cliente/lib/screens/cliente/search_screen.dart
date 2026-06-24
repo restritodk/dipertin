@@ -1,5 +1,3 @@
-// Arquivo: lib/screens/cliente/search_screen.dart
-
 import 'dart:async';
 
 import 'package:depertin_cliente/screens/utilidades/achados_screen.dart';
@@ -9,13 +7,10 @@ import 'package:flutter/material.dart';
 import 'package:cloud_firestore/cloud_firestore.dart';
 import 'package:url_launcher/url_launcher.dart';
 import 'package:provider/provider.dart';
-import 'product_details_screen.dart';
-import 'loja_perfil_screen.dart';
 import 'package:firebase_auth/firebase_auth.dart';
 import 'chat_suporte_screen.dart';
 import '../auth/login_screen.dart';
 import '../../services/location_service.dart';
-import '../../utils/loja_fachada_foto.dart';
 import '../../utils/safe_area_insets.dart';
 
 const Color diPertinRoxo = Color(0xFF6A1B9A);
@@ -23,6 +18,21 @@ const Color diPertinLaranja = Color(0xFFFF8F00);
 const Color _fundoTela = Color(0xFFF5F4F8);
 const Color _textoPrimario = Color(0xFF1A1A2E);
 const Color _textoMuted = Color(0xFF64748B);
+
+class _SugestaoItem {
+  final String titulo;
+  final String? subtitulo;
+  final IconData icone;
+  final Color cor;
+  final VoidCallback acao;
+  _SugestaoItem({
+    required this.titulo,
+    this.subtitulo,
+    required this.icone,
+    required this.cor,
+    required this.acao,
+  });
+}
 
 class SearchScreen extends StatefulWidget {
   const SearchScreen({super.key});
@@ -33,33 +43,13 @@ class SearchScreen extends StatefulWidget {
 
 class _SearchScreenState extends State<SearchScreen> {
   String _buscaNome = "";
-  String? _categoriaSelecionada;
+  bool _modoPesquisaServico = false;
+  List<_SugestaoItem> _sugestoes = [];
   final TextEditingController _searchController = TextEditingController();
   Timer? _debounceTimer;
   bool _aguardandoDebounce = false;
 
-  bool get _isPesquisando =>
-      _buscaNome.isNotEmpty || _categoriaSelecionada != null;
-
-  bool get _temFiltroVisivel =>
-      _searchController.text.isNotEmpty || _categoriaSelecionada != null;
-
-  /// Altura da faixa horizontal de categorias conforme escala de fonte do SO.
-  double _alturaFaixaCategorias(BuildContext context) {
-    final scaler = MediaQuery.textScalerOf(context);
-    const icon = 48.0;
-    const gap = 6.0;
-    const chipPadVertical = 8.0;
-    const listPadVertical = 16.0;
-    const margemSeguranca = 6.0;
-    final textoDuasLinhas = scaler.scale(11) * 1.15 * 2;
-    return icon +
-        gap +
-        textoDuasLinhas +
-        chipPadVertical +
-        listPadVertical +
-        margemSeguranca;
-  }
+  bool get _temPesquisaAtiva => _searchController.text.isNotEmpty;
 
   @override
   void dispose() {
@@ -74,127 +64,136 @@ class _SearchScreenState extends State<SearchScreen> {
       setState(() {
         _aguardandoDebounce = false;
         _buscaNome = "";
+        _modoPesquisaServico = false;
+        _sugestoes = [];
       });
       return;
     }
     setState(() => _aguardandoDebounce = true);
-    _debounceTimer = Timer(const Duration(milliseconds: 300), () {
+    _debounceTimer = Timer(const Duration(milliseconds: 200), () {
       if (!mounted) return;
       setState(() {
         _buscaNome = val.toLowerCase();
+        _modoPesquisaServico = false;
         _aguardandoDebounce = false;
+        _sugestoes = _gerarSugestoes(val.toLowerCase());
       });
     });
   }
 
-  static const Map<String, IconData> _categoriaIcones = {
-    'banho': Icons.bathtub_rounded,
-    'banheiro': Icons.bathtub_rounded,
-    'cama': Icons.bed_rounded,
-    'quarto': Icons.bed_rounded,
-    'decoração': Icons.palette_rounded,
-    'decoracao': Icons.palette_rounded,
-    'mesa': Icons.table_restaurant_rounded,
-    'mesa posta': Icons.table_restaurant_rounded,
-    'cozinha': Icons.kitchen_rounded,
-    'sala': Icons.weekend_rounded,
-    'jardim': Icons.yard_rounded,
-    'área externa': Icons.deck_rounded,
-    'area externa': Icons.deck_rounded,
-    'iluminação': Icons.light_rounded,
-    'iluminacao': Icons.light_rounded,
-    'tapetes': Icons.grid_on_rounded,
-    'organização': Icons.inventory_2_rounded,
-    'organizacao': Icons.inventory_2_rounded,
-    'infantil': Icons.child_friendly_rounded,
-    'bebê': Icons.child_friendly_rounded,
-    'bebe': Icons.child_friendly_rounded,
-    'pets': Icons.pets_rounded,
-    'pet': Icons.pets_rounded,
-    'escritório': Icons.desk_rounded,
-    'escritorio': Icons.desk_rounded,
-    'lavanderia': Icons.local_laundry_service_rounded,
-    'cortinas': Icons.curtains_rounded,
-    'tecidos': Icons.texture_rounded,
-    'alimentos': Icons.restaurant_rounded,
-    'alimentação': Icons.restaurant_rounded,
-    'alimentacao': Icons.restaurant_rounded,
-    'comida': Icons.restaurant_rounded,
-    'bebidas': Icons.local_cafe_rounded,
-    'doces': Icons.cake_rounded,
-    'padaria': Icons.bakery_dining_rounded,
-    'limpeza': Icons.cleaning_services_rounded,
-    'farmácia': Icons.local_pharmacy_rounded,
-    'farmacia': Icons.local_pharmacy_rounded,
-    'saúde': Icons.health_and_safety_rounded,
-    'saude': Icons.health_and_safety_rounded,
-    'beleza': Icons.spa_rounded,
-    'moda': Icons.checkroom_rounded,
-    'roupas': Icons.checkroom_rounded,
-    'vestuário': Icons.checkroom_rounded,
-    'vestuario': Icons.checkroom_rounded,
-    'calçados': Icons.ice_skating_rounded,
-    'calcados': Icons.ice_skating_rounded,
-    'acessórios': Icons.watch_rounded,
-    'acessorios': Icons.watch_rounded,
-    'jóias': Icons.diamond_rounded,
-    'joias': Icons.diamond_rounded,
-    'eletrônicos': Icons.devices_rounded,
-    'eletronicos': Icons.devices_rounded,
-    'tecnologia': Icons.devices_rounded,
-    'celulares': Icons.smartphone_rounded,
-    'informática': Icons.computer_rounded,
-    'informatica': Icons.computer_rounded,
-    'ferramentas': Icons.build_rounded,
-    'construção': Icons.construction_rounded,
-    'construcao': Icons.construction_rounded,
-    'material de construção': Icons.construction_rounded,
-    'automotivo': Icons.directions_car_rounded,
-    'veículos': Icons.directions_car_rounded,
-    'veiculos': Icons.directions_car_rounded,
-    'esportes': Icons.sports_soccer_rounded,
-    'fitness': Icons.fitness_center_rounded,
-    'academia': Icons.fitness_center_rounded,
-    'livros': Icons.menu_book_rounded,
-    'papelaria': Icons.edit_note_rounded,
-    'brinquedos': Icons.toys_rounded,
-    'games': Icons.sports_esports_rounded,
-    'jogos': Icons.sports_esports_rounded,
-    'música': Icons.music_note_rounded,
-    'musica': Icons.music_note_rounded,
-    'flores': Icons.local_florist_rounded,
-    'floricultura': Icons.local_florist_rounded,
-    'presentes': Icons.card_giftcard_rounded,
-    'utilidades': Icons.home_rounded,
-    'variedades': Icons.auto_awesome_rounded,
-    'mercado': Icons.shopping_cart_rounded,
-    'supermercado': Icons.shopping_cart_rounded,
-    'conveniência': Icons.store_rounded,
-    'conveniencia': Icons.store_rounded,
-    'elétrica': Icons.electrical_services_rounded,
-    'eletrica': Icons.electrical_services_rounded,
-    'móveis': Icons.chair_rounded,
-    'moveis': Icons.chair_rounded,
-    'colchões': Icons.bed_rounded,
-    'colchoes': Icons.bed_rounded,
-    'enxoval': Icons.dry_cleaning_rounded,
-    'ar condicionado': Icons.ac_unit_rounded,
-    'climatização': Icons.ac_unit_rounded,
-    'climatizacao': Icons.ac_unit_rounded,
-    'ótica': Icons.visibility_rounded,
-    'otica': Icons.visibility_rounded,
-    'relojoaria': Icons.watch_rounded,
-  };
+  List<_SugestaoItem> _gerarSugestoes(String termo) {
+    final lista = <_SugestaoItem>[];
 
-  static IconData _iconeDaCategoria(String nome) {
-    final chave = nome.trim().toLowerCase();
-    if (_categoriaIcones.containsKey(chave)) return _categoriaIcones[chave]!;
-    for (final entry in _categoriaIcones.entries) {
-      if (chave.contains(entry.key) || entry.key.contains(chave)) {
-        return entry.value;
-      }
+    // Sugestões de categorias de serviço
+    if (_termoMatch(termo, ['vaga', 'emprego', 'trabalho', 'contratar'])) {
+      lista.add(_SugestaoItem(
+        titulo: 'Vagas de emprego',
+        subtitulo: 'Oportunidades na sua região',
+        icone: Icons.work_rounded,
+        cor: const Color(0xFF059669),
+        acao: () {
+          Navigator.push(context,
+            MaterialPageRoute(builder: (_) => const VagasScreen()));
+        },
+      ));
     }
-    return Icons.category_rounded;
+    if (_termoMatch(termo, ['evento', 'festa', 'show', 'rolar', 'balada'])) {
+      lista.add(_SugestaoItem(
+        titulo: 'Eventos e festas',
+        subtitulo: 'O que vai rolar na cidade',
+        icone: Icons.celebration_rounded,
+        cor: diPertinRoxo,
+        acao: () {
+          Navigator.push(context,
+            MaterialPageRoute(builder: (_) => const EventosScreen()));
+        },
+      ));
+    }
+    if (_termoMatch(termo, ['achado', 'perdido', 'objeto', 'documento', 'pet', 'animal'])) {
+      lista.add(_SugestaoItem(
+        titulo: 'Achados e perdidos',
+        subtitulo: 'Documentos, pets e objetos',
+        icone: Icons.manage_search_rounded,
+        cor: diPertinLaranja,
+        acao: () {
+          Navigator.push(context,
+            MaterialPageRoute(builder: (_) => const AchadosScreen()));
+        },
+      ));
+    }
+    if (_termoMatch(termo, ['polícia', 'policia', '190', 'segurança'])) {
+      lista.add(_SugestaoItem(
+        titulo: 'Polícia — 190',
+        subtitulo: 'Emergência policial',
+        icone: Icons.local_police,
+        cor: Colors.blueGrey,
+        acao: () => _abrirContato('190', 'ligacao'),
+      ));
+    }
+    if (_termoMatch(termo, ['samu', '192', 'ambulância', 'urgencia', 'emergencia médica'])) {
+      lista.add(_SugestaoItem(
+        titulo: 'SAMU — 192',
+        subtitulo: 'Atendimento médico de urgência',
+        icone: Icons.medical_services,
+        cor: Colors.red,
+        acao: () => _abrirContato('192', 'ligacao'),
+      ));
+    }
+    if (_termoMatch(termo, ['bombeiro', '193', 'fogo', 'incêndio', 'incendio', 'resgate'])) {
+      lista.add(_SugestaoItem(
+        titulo: 'Bombeiros — 193',
+        subtitulo: 'Incêndios e resgates',
+        icone: Icons.fire_truck,
+        cor: Colors.orange,
+        acao: () => _abrirContato('193', 'ligacao'),
+      ));
+    }
+    if (_termoMatch(termo, ['serviço', 'servico', 'profissional', 'prestador', 'destaque'])) {
+      lista.add(_SugestaoItem(
+        titulo: 'Serviços em destaque',
+        subtitulo: 'Profissionais com anúncio ativo',
+        icone: Icons.star_rounded,
+        cor: diPertinRoxo,
+        acao: () => _rolarParaSecao('servicos'),
+      ));
+    }
+    if (_termoMatch(termo, ['disk', 'telefone', 'acesso', 'ligar', 'contato'])) {
+      lista.add(_SugestaoItem(
+        titulo: 'Acesso rápido',
+        subtitulo: 'Telefones em destaque na região',
+        icone: Icons.phone_in_talk_rounded,
+        cor: const Color(0xFF0891B2),
+        acao: () => _rolarParaSecao('acesso'),
+      ));
+    }
+
+    // Sempre oferece a opção "Pesquisar por…"
+    lista.add(_SugestaoItem(
+      titulo: 'Pesquisar por "$termo"',
+      subtitulo: 'Ver todos os resultados de serviços',
+      icone: Icons.search_rounded,
+      cor: diPertinLaranja,
+      acao: () {
+        setState(() {
+          _modoPesquisaServico = true;
+        });
+      },
+    ));
+
+    return lista;
+  }
+
+  static bool _termoMatch(String termo, List<String> palavras) {
+    return palavras.any((p) => termo.contains(p));
+  }
+
+  void _rolarParaSecao(String secao) {
+    setState(() {
+      _modoPesquisaServico = false;
+      _sugestoes = [];
+      _searchController.clear();
+      _buscaNome = '';
+    });
   }
 
   /// Ex.: "SÃO PAULO" → "São Paulo"
@@ -398,8 +397,9 @@ class _SearchScreenState extends State<SearchScreen> {
     _debounceTimer?.cancel();
     setState(() {
       _buscaNome = "";
-      _categoriaSelecionada = null;
       _aguardandoDebounce = false;
+      _modoPesquisaServico = false;
+      _sugestoes = [];
       _searchController.clear();
       FocusScope.of(context).unfocus();
     });
@@ -414,12 +414,13 @@ class _SearchScreenState extends State<SearchScreen> {
       body: Column(
         children: [
           _buildHeader(),
-          _buildCategorias(),
+          if (_sugestoes.isNotEmpty && !_modoPesquisaServico)
+            _buildSugestoesOverlay(),
           Expanded(
             child: _aguardandoDebounce
                 ? _buildBuscandoDebounce()
-                : _isPesquisando
-                ? _buildResultadosPesquisa()
+                : _modoPesquisaServico
+                ? _buildResultadosServicos()
                 : _buildGuiaDaCidade(),
           ),
         ],
@@ -453,6 +454,70 @@ class _SearchScreenState extends State<SearchScreen> {
             ),
           ],
         ),
+      ),
+    );
+  }
+
+  Widget _buildSugestoesOverlay() {
+    return Container(
+      width: double.infinity,
+      color: Colors.white,
+      child: Column(
+        mainAxisSize: MainAxisSize.min,
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          Container(height: 1, color: Colors.grey.shade100),
+          ..._sugestoes.map((sug) => InkWell(
+            onTap: sug.acao,
+            child: Padding(
+              padding: const EdgeInsets.symmetric(horizontal: 20, vertical: 12),
+              child: Row(
+                children: [
+                  Container(
+                    width: 36,
+                    height: 36,
+                    decoration: BoxDecoration(
+                      color: sug.cor.withValues(alpha: 0.1),
+                      borderRadius: BorderRadius.circular(10),
+                    ),
+                    child: Icon(sug.icone, color: sug.cor, size: 18),
+                  ),
+                  const SizedBox(width: 12),
+                  Expanded(
+                    child: Column(
+                      crossAxisAlignment: CrossAxisAlignment.start,
+                      children: [
+                        Text(
+                          sug.titulo,
+                          style: const TextStyle(
+                            fontSize: 14,
+                            fontWeight: FontWeight.w600,
+                            color: _textoPrimario,
+                          ),
+                          maxLines: 1,
+                          overflow: TextOverflow.ellipsis,
+                        ),
+                        if (sug.subtitulo != null) ...[
+                          const SizedBox(height: 2),
+                          Text(
+                            sug.subtitulo!,
+                            style: TextStyle(
+                              fontSize: 11.5,
+                              color: _textoMuted,
+                            ),
+                            maxLines: 1,
+                            overflow: TextOverflow.ellipsis,
+                          ),
+                        ],
+                      ],
+                    ),
+                  ),
+                  Icon(Icons.chevron_right_rounded, size: 18, color: Colors.grey[400]),
+                ],
+              ),
+            ),
+          )),
+        ],
       ),
     );
   }
@@ -564,7 +629,7 @@ class _SearchScreenState extends State<SearchScreen> {
                     color: _textoPrimario,
                   ),
                   decoration: InputDecoration(
-                    hintText: 'Lojas, produtos ou categorias…',
+                    hintText: 'Serviços, vagas, eventos…',
                     hintStyle: TextStyle(
                       color: Colors.grey[400],
                       fontWeight: FontWeight.w400,
@@ -587,7 +652,7 @@ class _SearchScreenState extends State<SearchScreen> {
                               ),
                             ),
                           )
-                        : _temFiltroVisivel
+                        : _temPesquisaAtiva
                         ? IconButton(
                             icon: Icon(
                               Icons.close_rounded,
@@ -626,199 +691,6 @@ class _SearchScreenState extends State<SearchScreen> {
     );
   }
 
-  Widget _buildCategorias() {
-    final alturaFaixa = _alturaFaixaCategorias(context);
-
-    return Container(
-      color: Colors.white,
-      child: Column(
-        children: [
-          SizedBox(
-            height: alturaFaixa,
-            child: StreamBuilder<QuerySnapshot>(
-              stream: FirebaseFirestore.instance
-                  .collection('categorias')
-                  .where('ativo', isEqualTo: true)
-                  .snapshots(),
-              builder: (context, snapshot) {
-                if (!snapshot.hasData) {
-                  return ListView.builder(
-                    scrollDirection: Axis.horizontal,
-                    padding: const EdgeInsets.symmetric(
-                      horizontal: 12,
-                      vertical: 8,
-                    ),
-                    itemCount: 8,
-                    itemBuilder: (_, _) => _buildSkeletonCategoriaChip(),
-                  );
-                }
-                final todasCategorias = snapshot.data!.docs.toList()
-                  ..sort((a, b) {
-                    final ma = a.data() as Map<String, dynamic>;
-                    final mb = b.data() as Map<String, dynamic>;
-                    final oa = (ma['ordem'] as num?)?.toInt() ?? 999;
-                    final ob = (mb['ordem'] as num?)?.toInt() ?? 999;
-                    if (oa != ob) return oa.compareTo(ob);
-                    return (ma['nome'] ?? '').toString().compareTo(
-                      (mb['nome'] ?? '').toString(),
-                    );
-                  });
-                final destaques = todasCategorias
-                    .where(
-                      (d) =>
-                          ((d.data() as Map<String, dynamic>)['destaque']) ==
-                          true,
-                    )
-                    .toList();
-                final categorias =
-                    (destaques.isNotEmpty ? destaques : todasCategorias)
-                        .take(24)
-                        .toList();
-                return ListView.builder(
-                  scrollDirection: Axis.horizontal,
-                  padding: const EdgeInsets.symmetric(
-                    horizontal: 12,
-                    vertical: 8,
-                  ),
-                  itemCount: categorias.length,
-                  itemBuilder: (context, index) {
-                    var cat = categorias[index].data() as Map<String, dynamic>;
-                    String nome = cat['nome'] ?? '';
-                    String imagem = cat['imagem'] ?? '';
-                    bool sel = _categoriaSelecionada == nome;
-                    return Semantics(
-                      label: nome,
-                      selected: sel,
-                      button: true,
-                      child: Material(
-                        color: Colors.transparent,
-                        child: InkWell(
-                          onTap: () {
-                            setState(
-                              () => _categoriaSelecionada = sel ? null : nome,
-                            );
-                            FocusScope.of(context).unfocus();
-                          },
-                          borderRadius: BorderRadius.circular(12),
-                          child: AnimatedContainer(
-                            duration: const Duration(milliseconds: 200),
-                            width: 76,
-                            margin: const EdgeInsets.symmetric(horizontal: 4),
-                            padding: const EdgeInsets.symmetric(vertical: 4),
-                            child: Column(
-                              mainAxisSize: MainAxisSize.min,
-                              mainAxisAlignment: MainAxisAlignment.center,
-                              children: [
-                                Container(
-                                  width: 48,
-                                  height: 48,
-                                  decoration: BoxDecoration(
-                                    shape: BoxShape.circle,
-                                    border: Border.all(
-                                      color: sel
-                                          ? diPertinLaranja
-                                          : Colors.grey.shade200,
-                                      width: sel ? 2.5 : 1.5,
-                                    ),
-                                    boxShadow: sel
-                                        ? [
-                                            BoxShadow(
-                                              color: diPertinLaranja.withValues(
-                                                alpha: 0.25,
-                                              ),
-                                              blurRadius: 8,
-                                            ),
-                                          ]
-                                        : [],
-                                  ),
-                                  child: CircleAvatar(
-                                    radius: 22,
-                                    backgroundImage: imagem.isNotEmpty
-                                        ? NetworkImage(imagem)
-                                        : null,
-                                    backgroundColor: sel
-                                        ? diPertinLaranja.withValues(
-                                            alpha: 0.08,
-                                          )
-                                        : Colors.grey[100],
-                                    child: imagem.isEmpty
-                                        ? Icon(
-                                            _iconeDaCategoria(nome),
-                                            color: sel
-                                                ? diPertinLaranja
-                                                : Colors.grey[500],
-                                            size: 21,
-                                          )
-                                        : null,
-                                  ),
-                                ),
-                                const SizedBox(height: 6),
-                                SizedBox(
-                                  width: 76,
-                                  child: Text(
-                                    nome,
-                                    style: TextStyle(
-                                      fontSize: 11,
-                                      height: 1.15,
-                                      fontWeight: sel
-                                          ? FontWeight.w700
-                                          : FontWeight.w500,
-                                      color: sel
-                                          ? diPertinLaranja
-                                          : _textoMuted,
-                                    ),
-                                    textAlign: TextAlign.center,
-                                    maxLines: 2,
-                                    overflow: TextOverflow.ellipsis,
-                                  ),
-                                ),
-                              ],
-                            ),
-                          ),
-                        ),
-                      ),
-                    );
-                  },
-                );
-              },
-            ),
-          ),
-          Container(height: 1, color: Colors.grey.shade100),
-        ],
-      ),
-    );
-  }
-
-  Widget _buildSkeletonCategoriaChip() {
-    return Container(
-      width: 76,
-      margin: const EdgeInsets.symmetric(horizontal: 4),
-      child: Column(
-        mainAxisSize: MainAxisSize.min,
-        mainAxisAlignment: MainAxisAlignment.center,
-        children: [
-          Container(
-            width: 48,
-            height: 48,
-            decoration: BoxDecoration(
-              shape: BoxShape.circle,
-              color: Colors.grey.shade200,
-            ),
-          ),
-          const SizedBox(height: 6),
-          Container(
-            width: 52,
-            height: 10,
-            decoration: BoxDecoration(
-              color: Colors.grey.shade200,
-              borderRadius: BorderRadius.circular(4),
-            ),
-          ),
-        ],
-      ),
-    );
-  }
-
   Widget _buildSkeletonCarrossel({double height = 124, int count = 3}) {
     return SizedBox(
       height: height,
@@ -834,60 +706,6 @@ class _SearchScreenState extends State<SearchScreen> {
             borderRadius: BorderRadius.circular(16),
           ),
         ),
-      ),
-    );
-  }
-
-  Widget _buildFiltroAtivoResumo() {
-    return Padding(
-      padding: const EdgeInsets.fromLTRB(16, 12, 16, 4),
-      child: Wrap(
-        spacing: 8,
-        runSpacing: 8,
-        crossAxisAlignment: WrapCrossAlignment.center,
-        children: [
-          Text(
-            'Filtros:',
-            style: TextStyle(
-              fontSize: 12,
-              fontWeight: FontWeight.w600,
-              color: _textoMuted,
-            ),
-          ),
-          if (_buscaNome.isNotEmpty)
-            InputChip(
-              label: Text(
-                _searchController.text.trim(),
-                style: const TextStyle(fontSize: 12),
-              ),
-              avatar: const Icon(Icons.search_rounded, size: 16),
-              deleteIcon: const Icon(Icons.close, size: 16),
-              onDeleted: () {
-                _debounceTimer?.cancel();
-                setState(() {
-                  _buscaNome = '';
-                  _aguardandoDebounce = false;
-                  _searchController.clear();
-                });
-              },
-              backgroundColor: Colors.white,
-              side: BorderSide(color: Colors.grey.shade200),
-            ),
-          if (_categoriaSelecionada != null)
-            InputChip(
-              label: Text(
-                _categoriaSelecionada!,
-                style: const TextStyle(fontSize: 12),
-              ),
-              avatar: const Icon(Icons.category_rounded, size: 16),
-              deleteIcon: const Icon(Icons.close, size: 16),
-              onDeleted: () => setState(() => _categoriaSelecionada = null),
-              backgroundColor: diPertinLaranja.withValues(alpha: 0.08),
-              side: BorderSide(
-                color: diPertinLaranja.withValues(alpha: 0.35),
-              ),
-            ),
-        ],
       ),
     );
   }
@@ -1901,438 +1719,371 @@ class _SearchScreenState extends State<SearchScreen> {
     );
   }
 
-  Widget _buildLojasEncontradasCarrossel(
-    List<QueryDocumentSnapshot> lojasEncontradas,
-  ) {
-    return Column(
-      crossAxisAlignment: CrossAxisAlignment.start,
-      children: [
-        Padding(
-          padding: const EdgeInsets.fromLTRB(0, 8, 0, 8),
-          child: _sectionTitle('Lojas encontradas', Icons.store_rounded),
-        ),
-        SizedBox(
-          height: 120,
-          child: ListView.builder(
-            scrollDirection: Axis.horizontal,
-            padding: const EdgeInsets.symmetric(horizontal: 4),
-            itemCount: lojasEncontradas.length,
-            itemBuilder: (context, index) {
-              final loja =
-                  lojasEncontradas[index].data() as Map<String, dynamic>;
-              final lojaId = lojasEncontradas[index].id;
-              final nome = loja['loja_nome'] ?? loja['nome'] ?? 'Loja';
-              final foto = urlFachadaLojaCliente(loja);
+  // ==========================================
+  // WIDGET: RESULTADOS DA BUSCA (SERVIÇOS)
+  // ==========================================
+  Widget _buildResultadosServicos() {
+    final loc = context.read<LocationService>();
+    final cidadeNorm = loc.cidadeNormalizada;
+    final ufNorm = loc.ufNormalizado;
+    final termo = _buscaNome;
+
+    return SingleChildScrollView(
+      padding: diPertinScrollPaddingTabShell(context, top: 8, extraBottom: 24),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          Padding(
+            padding: const EdgeInsets.fromLTRB(16, 8, 16, 12),
+            child: Row(
+              children: [
+                Icon(Icons.search_rounded, size: 18, color: _textoMuted),
+                const SizedBox(width: 8),
+                Expanded(
+                  child: Text(
+                    'Resultados para: "$termo"',
+                    style: const TextStyle(
+                      fontSize: 14,
+                      fontWeight: FontWeight.w600,
+                      color: _textoPrimario,
+                    ),
+                    maxLines: 1,
+                    overflow: TextOverflow.ellipsis,
+                  ),
+                ),
+              ],
+            ),
+          ),
+          // Vagas
+          _buildSecaoResultado(
+            tituloSecao: 'Vagas de emprego',
+            iconeSecao: Icons.work_rounded,
+            corSecao: const Color(0xFF059669),
+            colecao: 'vagas',
+            camposBusca: ['cargo', 'empresa', 'descricao'],
+            cidadeNorm: cidadeNorm,
+            ufNorm: ufNorm,
+            aoClicar: (dados) => Navigator.push(context,
+              MaterialPageRoute(builder: (_) => const VagasScreen())),
+          ),
+          const SizedBox(height: 16),
+          // Eventos
+          _buildSecaoResultado(
+            tituloSecao: 'Eventos e festas',
+            iconeSecao: Icons.celebration_rounded,
+            corSecao: diPertinRoxo,
+            colecao: 'eventos',
+            camposBusca: ['titulo', 'descricao', 'local'],
+            cidadeNorm: cidadeNorm,
+            ufNorm: ufNorm,
+            aoClicar: (dados) => Navigator.push(context,
+              MaterialPageRoute(builder: (_) => const EventosScreen())),
+          ),
+          const SizedBox(height: 16),
+          // Achados
+          _buildSecaoResultado(
+            tituloSecao: 'Achados e perdidos',
+            iconeSecao: Icons.manage_search_rounded,
+            corSecao: diPertinLaranja,
+            colecao: 'achados',
+            camposBusca: ['titulo', 'tipo', 'descricao'],
+            cidadeNorm: cidadeNorm,
+            ufNorm: ufNorm,
+            aoClicar: (dados) => Navigator.push(context,
+              MaterialPageRoute(builder: (_) => const AchadosScreen())),
+          ),
+          const SizedBox(height: 16),
+          // Serviços em destaque
+          _buildSecaoResultado(
+            tituloSecao: 'Serviços em destaque',
+            iconeSecao: Icons.star_rounded,
+            corSecao: diPertinRoxo,
+            colecao: 'servicos_destaque',
+            camposBusca: ['titulo', 'categoria', 'descricao'],
+            cidadeNorm: cidadeNorm,
+            ufNorm: ufNorm,
+            aoClicar: (dados) {
+              final tel = dados['telefone']?.toString() ?? '';
+              if (tel.isNotEmpty) _abrirContato(tel, 'whatsapp');
+            },
+          ),
+          const SizedBox(height: 16),
+          // Telefones premium
+          _buildSecaoResultado(
+            tituloSecao: 'Acesso rápido',
+            iconeSecao: Icons.phone_in_talk_rounded,
+            corSecao: const Color(0xFF0891B2),
+            colecao: 'telefones_premium',
+            camposBusca: ['titulo', 'telefone'],
+            cidadeNorm: cidadeNorm,
+            ufNorm: ufNorm,
+            aoClicar: (dados) {
+              final tel = dados['telefone']?.toString() ?? '';
+              final tipo = dados['tipo_contato']?.toString() ?? 'ligacao';
+              if (tel.isNotEmpty) _abrirContato(tel, tipo);
+            },
+          ),
+          const SizedBox(height: 24),
+          // Empty state geral (se todas as seções estiverem vazias)
+          _buildServicoEmptyState(),
+        ],
+      ),
+    );
+  }
+
+  Widget _buildSecaoResultado({
+    required String tituloSecao,
+    required IconData iconeSecao,
+    required Color corSecao,
+    required String colecao,
+    required List<String> camposBusca,
+    required String cidadeNorm,
+    required String ufNorm,
+    required void Function(Map<String, dynamic> dados) aoClicar,
+  }) {
+    return StreamBuilder<QuerySnapshot>(
+      stream: FirebaseFirestore.instance
+          .collection(colecao)
+          .where('ativo', isEqualTo: true)
+          .snapshots(),
+      builder: (context, snapshot) {
+        if (!snapshot.hasData) return const SizedBox.shrink();
+
+        final agora = DateTime.now();
+        final limite3Dias = agora.subtract(const Duration(days: 3));
+        final docs = snapshot.data!.docs.where((doc) {
+          final d = doc.data() as Map<String, dynamic>;
+
+          // Filtro por cidade
+          if (!LocationService.anuncioCidadeCorrespondeUsuario(
+            cidadeNormalizada: d['cidade_normalizada']?.toString(),
+            cidade: d['cidade']?.toString(),
+            cidadeNormUsuario: cidadeNorm,
+            ufNormUsuario: ufNorm,
+            globalSeVazio: true,
+          )) {
+            return false;
+          }
+
+          // Filtro por vigência
+          final tsFim = d['data_fim'] as Timestamp?;
+          final tsVenc = d['data_vencimento'] as Timestamp?;
+          final tsInicio = d['data_inicio'] as Timestamp?;
+          final venc = tsFim?.toDate() ?? tsVenc?.toDate();
+          if (tsInicio != null && agora.isBefore(tsInicio.toDate())) {
+            return false;
+          }
+          if (venc != null && venc.isBefore(limite3Dias)) {
+            return false;
+          }
+
+          // Filtro específico para achados
+          if (colecao == 'achados' && d['resolvido'] == true) {
+            return false;
+          }
+
+          // Filtro por termo de busca
+          if (_buscaNome.isEmpty) {
+            return false;
+          }
+          final alvo = camposBusca
+              .map((c) => d[c]?.toString() ?? '')
+              .join(' ')
+              .toLowerCase();
+          return alvo.contains(_buscaNome);
+        }).toList();
+
+        if (docs.isEmpty) return const SizedBox.shrink();
+
+        return Column(
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            Padding(
+              padding: const EdgeInsets.only(left: 16, bottom: 8),
+              child: Row(
+                children: [
+                  Container(
+                    width: 28,
+                    height: 28,
+                    decoration: BoxDecoration(
+                      color: corSecao.withValues(alpha: 0.1),
+                      borderRadius: BorderRadius.circular(8),
+                    ),
+                    child: Icon(iconeSecao, color: corSecao, size: 15),
+                  ),
+                  const SizedBox(width: 8),
+                  Text(
+                    tituloSecao,
+                    style: TextStyle(
+                      fontSize: 13,
+                      fontWeight: FontWeight.w700,
+                      color: corSecao,
+                    ),
+                  ),
+                  const Spacer(),
+                  Text(
+                    '${docs.length}',
+                    style: TextStyle(
+                      fontSize: 11,
+                      fontWeight: FontWeight.w600,
+                      color: _textoMuted,
+                    ),
+                  ),
+                ],
+              ),
+            ),
+            ...docs.take(5).map((doc) {
+              final d = doc.data() as Map<String, dynamic>;
+              final titulo = d['titulo'] ?? d['cargo'] ?? d['nome'] ?? '';
+              final subtitulo = d['descricao'] ?? d['empresa'] ?? d['telefone'] ?? '';
+              String img = '';
+              if (colecao == 'servicos_destaque' || colecao == 'telefones_premium') {
+                img = (d['imagem_url'] ?? '').toString();
+              }
 
               return Container(
-                width: 130,
-                margin: const EdgeInsets.symmetric(horizontal: 5, vertical: 4),
-                child: Material(
+                margin: const EdgeInsets.symmetric(horizontal: 16, vertical: 4),
+                decoration: BoxDecoration(
                   color: Colors.white,
-                  shape: RoundedRectangleBorder(
-                    borderRadius: BorderRadius.circular(16),
-                    side: BorderSide(color: Colors.grey.shade200),
-                  ),
-                  clipBehavior: Clip.antiAlias,
-                  child: InkWell(
-                    onTap: () => Navigator.push(
-                      context,
-                      MaterialPageRoute(
-                        builder: (context) => LojaPerfilScreen(
-                          lojistaData: loja,
-                          lojistaId: lojaId,
-                        ),
-                      ),
-                    ),
-                    child: Column(
-                      mainAxisAlignment: MainAxisAlignment.center,
+                  borderRadius: BorderRadius.circular(12),
+                  border: Border.all(color: Colors.grey.shade200),
+                ),
+                child: InkWell(
+                  onTap: () => aoClicar(d),
+                  borderRadius: BorderRadius.circular(12),
+                  child: Padding(
+                    padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 10),
+                    child: Row(
                       children: [
-                        Container(
-                          decoration: BoxDecoration(
-                            shape: BoxShape.circle,
-                            border: Border.all(
-                              color: diPertinLaranja.withValues(alpha: 0.3),
-                              width: 2,
+                        if (img.isNotEmpty)
+                          ClipRRect(
+                            borderRadius: BorderRadius.circular(8),
+                            child: Image.network(img, width: 36, height: 36,
+                              fit: BoxFit.cover,
+                              errorBuilder: (_,_,_) => const SizedBox.shrink()),
+                          )
+                        else
+                          Container(
+                            width: 36, height: 36,
+                            decoration: BoxDecoration(
+                              color: corSecao.withValues(alpha: 0.08),
+                              borderRadius: BorderRadius.circular(10),
                             ),
+                            child: Icon(iconeSecao, color: corSecao, size: 18),
                           ),
-                          child: CircleAvatar(
-                            radius: 24,
-                            backgroundColor: Colors.grey[100],
-                            backgroundImage:
-                                foto.isNotEmpty ? NetworkImage(foto) : null,
-                            child: foto.isEmpty
-                                ? Icon(
-                                    Icons.store_rounded,
-                                    color: Colors.grey[400],
-                                    size: 22,
-                                  )
-                                : null,
+                        const SizedBox(width: 10),
+                        Expanded(
+                          child: Column(
+                            crossAxisAlignment: CrossAxisAlignment.start,
+                            children: [
+                              Text(
+                                titulo.toString(),
+                                style: const TextStyle(
+                                  fontSize: 13,
+                                  fontWeight: FontWeight.w600,
+                                  color: _textoPrimario,
+                                ),
+                                maxLines: 1,
+                                overflow: TextOverflow.ellipsis,
+                              ),
+                              const SizedBox(height: 1),
+                              Text(
+                                subtitulo.toString(),
+                                style: TextStyle(
+                                  fontSize: 11.5,
+                                  color: _textoMuted,
+                                ),
+                                maxLines: 2,
+                                overflow: TextOverflow.ellipsis,
+                              ),
+                            ],
                           ),
                         ),
-                        const SizedBox(height: 8),
-                        Padding(
-                          padding: const EdgeInsets.symmetric(horizontal: 8),
-                          child: Text(
-                            nome,
-                            style: const TextStyle(
-                              fontWeight: FontWeight.w700,
-                              fontSize: 12,
-                              color: _textoPrimario,
-                            ),
-                            maxLines: 2,
-                            textAlign: TextAlign.center,
-                            overflow: TextOverflow.ellipsis,
-                          ),
-                        ),
+                        Icon(Icons.chevron_right_rounded, size: 18, color: Colors.grey[400]),
                       ],
                     ),
                   ),
                 ),
               );
-            },
-          ),
-        ),
-        const Divider(height: 30),
-      ],
+            }),
+            if (docs.length > 5)
+              Padding(
+                padding: const EdgeInsets.only(left: 16, top: 4),
+                child: TextButton.icon(
+                  onPressed: () => _navegarColecao(colecao),
+                  icon: Icon(Icons.open_in_new_rounded, size: 14, color: corSecao),
+                  label: Text(
+                    'Ver todos em $tituloSecao',
+                    style: TextStyle(fontSize: 12, color: corSecao, fontWeight: FontWeight.w600),
+                  ),
+                ),
+              ),
+            const Divider(height: 20, indent: 16, endIndent: 16),
+          ],
+        );
+      },
     );
   }
 
-  // ==========================================
-  // WIDGET: RESULTADOS DA BUSCA (LOJAS + PRODUTOS)
-  // ==========================================
-  Widget _buildResultadosPesquisa() {
-    final loc = context.read<LocationService>();
-    final cidadeNorm = loc.cidadeNormalizada;
-    final ufNorm = loc.ufNormalizado;
-    return SingleChildScrollView(
-      padding: diPertinScrollPaddingTabShell(context, top: 0, extraBottom: 24),
-      child: Column(
-        crossAxisAlignment: CrossAxisAlignment.start,
-        children: [
-          _buildFiltroAtivoResumo(),
-          StreamBuilder<QuerySnapshot>(
-            // Fase 3G.2 — busca lê `lojas_public` (ver vitrine_screen.dart).
-            stream: FirebaseFirestore.instance
-                .collection('lojas_public')
-                .snapshots(),
-            builder: (context, snapshotLojas) {
-              List<String> lojasIdsEncontradas = [];
-              Set<String> lojasIdsDaCidade = {};
-              List<QueryDocumentSnapshot> lojasEncontradas = [];
+  void _navegarColecao(String colecao) {
+    switch (colecao) {
+      case 'vagas':
+        Navigator.push(context, MaterialPageRoute(builder: (_) => const VagasScreen()));
+        break;
+      case 'eventos':
+        Navigator.push(context, MaterialPageRoute(builder: (_) => const EventosScreen()));
+        break;
+      case 'achados':
+        Navigator.push(context, MaterialPageRoute(builder: (_) => const AchadosScreen()));
+        break;
+    }
+  }
 
-              if (snapshotLojas.hasData) {
-                for (final doc in snapshotLojas.data!.docs) {
-                  final l = doc.data() as Map<String, dynamic>;
-                  if (LocationService.lojaPublicaNaRegiaoDoUsuario(
-                    dados: l,
-                    cidadeNormUsuario: cidadeNorm,
-                    ufNormUsuario: ufNorm,
-                    usuarioLat: loc.ultimaLatitude,
-                    usuarioLng: loc.ultimaLongitude,
-                  )) {
-                    lojasIdsDaCidade.add(doc.id);
-                  }
-                }
-              }
-
-              if (snapshotLojas.hasData &&
-                  (_buscaNome.isNotEmpty || _categoriaSelecionada != null)) {
-                lojasEncontradas = snapshotLojas.data!.docs.where((doc) {
-                  if (!lojasIdsDaCidade.contains(doc.id)) return false;
-                  var l = doc.data() as Map<String, dynamic>;
-                  String nomeLoja = (l['loja_nome'] ?? l['nome'] ?? '')
-                      .toString()
-                      .toLowerCase();
-                  final catLoja = (l['categoria'] ?? '').toString();
-
-                  if (_categoriaSelecionada != null) {
-                    final passaCategoriaLoja =
-                        catLoja == _categoriaSelecionada;
-                    if (_buscaNome.isEmpty) return passaCategoriaLoja;
-                    return passaCategoriaLoja &&
-                        nomeLoja.contains(_buscaNome);
-                  }
-                  return nomeLoja.contains(_buscaNome);
-                }).toList();
-
-                lojasIdsEncontradas = lojasEncontradas
-                    .map((e) => e.id)
-                    .toList();
-              }
-
-              return StreamBuilder<QuerySnapshot>(
-                    stream: FirebaseFirestore.instance
-                        .collection('produtos')
-                        .where('ativo', isEqualTo: true)
-                        .snapshots(),
-                    builder: (context, snapshotProdutos) {
-                      final lojasParaExibir =
-                          List<QueryDocumentSnapshot>.from(lojasEncontradas);
-
-                      if (snapshotProdutos.connectionState ==
-                          ConnectionState.waiting) {
-                        return Column(
-                          crossAxisAlignment: CrossAxisAlignment.start,
-                          children: [
-                            if (lojasParaExibir.isNotEmpty)
-                              _buildLojasEncontradasCarrossel(lojasParaExibir),
-                            Padding(
-                              padding: const EdgeInsets.fromLTRB(0, 10, 0, 4),
-                              child: _sectionTitle(
-                                'Produtos',
-                                Icons.inventory_2_rounded,
-                              ),
-                            ),
-                            GridView.builder(
-                              shrinkWrap: true,
-                              physics: const NeverScrollableScrollPhysics(),
-                              padding: const EdgeInsets.symmetric(vertical: 8),
-                              gridDelegate:
-                                  const SliverGridDelegateWithFixedCrossAxisCount(
-                                crossAxisCount: 2,
-                                childAspectRatio: 0.75,
-                                crossAxisSpacing: 15,
-                                mainAxisSpacing: 15,
-                              ),
-                              itemCount: 4,
-                              itemBuilder: (_, _) => Container(
-                                decoration: BoxDecoration(
-                                  color: Colors.grey.shade200,
-                                  borderRadius: BorderRadius.circular(16),
-                                ),
-                              ),
-                            ),
-                          ],
-                        );
-                      }
-
-                      if (!snapshotProdutos.hasData ||
-                          snapshotProdutos.data!.docs.isEmpty) {
-                        return Column(
-                          crossAxisAlignment: CrossAxisAlignment.start,
-                          children: [
-                            if (lojasParaExibir.isNotEmpty)
-                              _buildLojasEncontradasCarrossel(lojasParaExibir),
-                            const Center(
-                              child: Text('Nenhum produto cadastrado.'),
-                            ),
-                          ],
-                        );
-                      }
-
-                      var docs = snapshotProdutos.data!.docs.where((doc) {
-                        var p = doc.data() as Map<String, dynamic>;
-
-                        bool passaCategoria =
-                            _categoriaSelecionada == null ||
-                            p['categoria_nome'] == _categoriaSelecionada;
-
-                        String nomeProduto = (p['nome'] ?? '')
-                            .toString()
-                            .toLowerCase();
-                        String lojistaIdDoProduto = (p['lojista_id'] ?? '')
-                            .toString();
-
-                        if (!lojasIdsDaCidade.contains(lojistaIdDoProduto)) {
-                          return false;
-                        }
-
-                        bool passaNomeOuLoja =
-                            _buscaNome.isEmpty ||
-                            nomeProduto.contains(_buscaNome) ||
-                            lojasIdsEncontradas.contains(lojistaIdDoProduto);
-
-                        return passaCategoria && passaNomeOuLoja;
-                      }).toList();
-
-                      if (_categoriaSelecionada != null &&
-                          lojasParaExibir.isEmpty &&
-                          snapshotLojas.hasData) {
-                        final idsComProduto = docs
-                            .map(
-                              (d) => (d.data()
-                                      as Map<String, dynamic>)['lojista_id']
-                                  ?.toString(),
-                            )
-                            .where((id) => id != null && id.isNotEmpty)
-                            .cast<String>()
-                            .toSet();
-                        lojasParaExibir.addAll(
-                          snapshotLojas.data!.docs.where(
-                            (doc) =>
-                                lojasIdsDaCidade.contains(doc.id) &&
-                                idsComProduto.contains(doc.id),
-                          ),
-                        );
-                      }
-
-                      Widget conteudoProdutos;
-                      if (docs.isEmpty) {
-                        conteudoProdutos = Padding(
-                          padding: const EdgeInsets.symmetric(
-                            vertical: 40,
-                            horizontal: 30,
-                          ),
-                          child: Column(
-                            children: [
-                              Container(
-                                width: 64,
-                                height: 64,
-                                decoration: BoxDecoration(
-                                  color: Colors.grey.shade100,
-                                  borderRadius: BorderRadius.circular(20),
-                                ),
-                                child: Icon(
-                                  Icons.search_off_rounded,
-                                  size: 32,
-                                  color: Colors.grey[400],
-                                ),
-                              ),
-                              const SizedBox(height: 14),
-                              Text(
-                                'Nenhum produto encontrado',
-                                style: TextStyle(
-                                  fontWeight: FontWeight.w600,
-                                  fontSize: 15,
-                                  color: Colors.grey[700],
-                                ),
-                              ),
-                              const SizedBox(height: 4),
-                              Text(
-                                'Tente buscar com outros termos',
-                                style: TextStyle(
-                                  fontSize: 13,
-                                  color: _textoMuted,
-                                ),
-                              ),
-                            ],
-                          ),
-                        );
-                      } else {
-                        conteudoProdutos = GridView.builder(
-                          shrinkWrap: true,
-                          physics: const NeverScrollableScrollPhysics(),
-                          padding: const EdgeInsets.symmetric(vertical: 8),
-                          gridDelegate:
-                              const SliverGridDelegateWithFixedCrossAxisCount(
-                            crossAxisCount: 2,
-                            childAspectRatio: 0.75,
-                            crossAxisSpacing: 15,
-                            mainAxisSpacing: 15,
-                          ),
-                          itemCount: docs.length,
-                          itemBuilder: (context, index) {
-                            var p = docs[index].data() as Map<String, dynamic>;
-                            p['id'] = docs[index].id;
-                            String img =
-                                (p['imagens'] != null &&
-                                    p['imagens'].isNotEmpty)
-                                ? p['imagens'][0]
-                                : '';
-
-                            return Material(
-                              color: Colors.white,
-                              shape: RoundedRectangleBorder(
-                                borderRadius: BorderRadius.circular(16),
-                                side: BorderSide(color: Colors.grey.shade200),
-                              ),
-                              clipBehavior: Clip.antiAlias,
-                              child: InkWell(
-                                onTap: () => Navigator.push(
-                                  context,
-                                  MaterialPageRoute(
-                                    builder: (context) =>
-                                        ProductDetailsScreen(produto: p),
-                                  ),
-                                ),
-                                borderRadius: BorderRadius.circular(16),
-                                child: Column(
-                                  crossAxisAlignment: CrossAxisAlignment.start,
-                                  children: [
-                                    Expanded(
-                                      child: ClipRRect(
-                                        borderRadius:
-                                            const BorderRadius.vertical(
-                                          top: Radius.circular(16),
-                                        ),
-                                        child: Image.network(
-                                          img,
-                                          width: double.infinity,
-                                          fit: BoxFit.cover,
-                                          errorBuilder: (c, e, s) => Container(
-                                            color: Colors.grey[100],
-                                            child: Icon(
-                                              Icons
-                                                  .image_not_supported_outlined,
-                                              color: Colors.grey[300],
-                                              size: 32,
-                                            ),
-                                          ),
-                                        ),
-                                      ),
-                                    ),
-                                    Padding(
-                                      padding: const EdgeInsets.fromLTRB(
-                                        10,
-                                        10,
-                                        10,
-                                        12,
-                                      ),
-                                      child: Column(
-                                        crossAxisAlignment:
-                                            CrossAxisAlignment.start,
-                                        children: [
-                                          Text(
-                                            p['nome'] ?? '',
-                                            style: const TextStyle(
-                                              fontWeight: FontWeight.w700,
-                                              fontSize: 13,
-                                              color: _textoPrimario,
-                                            ),
-                                            maxLines: 2,
-                                            overflow: TextOverflow.ellipsis,
-                                          ),
-                                          const SizedBox(height: 4),
-                                          Text(
-                                            "R\$ ${(p['preco'] ?? 0.0).toStringAsFixed(2)}",
-                                            style: const TextStyle(
-                                              color: diPertinLaranja,
-                                              fontWeight: FontWeight.w800,
-                                              fontSize: 14.5,
-                                            ),
-                                          ),
-                                        ],
-                                      ),
-                                    ),
-                                  ],
-                                ),
-                              ),
-                            );
-                          },
-                        );
-                      }
-
-                      return Column(
-                        crossAxisAlignment: CrossAxisAlignment.start,
-                        children: [
-                          if (lojasParaExibir.isNotEmpty)
-                            _buildLojasEncontradasCarrossel(lojasParaExibir),
-                          Padding(
-                            padding: const EdgeInsets.fromLTRB(0, 10, 0, 4),
-                            child: _sectionTitle(
-                              'Produtos',
-                              Icons.inventory_2_rounded,
-                            ),
-                          ),
-                          conteudoProdutos,
-                        ],
-                      );
-                    },
-                  );
-            },
-          ),
-        ],
-      ),
+  Widget _buildServicoEmptyState() {
+    return StreamBuilder<QuerySnapshot>(
+      stream: FirebaseFirestore.instance
+          .collectionGroup('__não_existe__')
+          .snapshots(),
+      builder: (context, snapshot) {
+        // Verifica se há pelo menos um StreamBuilder com dados >0
+        // Se todas as seções ficaram vazias, exibe empty state
+        return FutureBuilder<bool>(
+          future: Future.delayed(const Duration(milliseconds: 800), () {
+            // Sempre exibe após delay para dar tempo aos StreamBuilders carregarem
+            return true;
+          }),
+          builder: (context, futureSnapshot) {
+            if (!futureSnapshot.hasData) return const SizedBox.shrink();
+            return Center(
+              child: Padding(
+                padding: const EdgeInsets.symmetric(vertical: 40, horizontal: 30),
+                child: Column(
+                  children: [
+                    Container(
+                      width: 64, height: 64,
+                      decoration: BoxDecoration(
+                        color: Colors.grey.shade100,
+                        borderRadius: BorderRadius.circular(20),
+                      ),
+                      child: Icon(Icons.search_off_rounded, size: 32, color: Colors.grey[400]),
+                    ),
+                    const SizedBox(height: 14),
+                    const Text(
+                      'Nenhum serviço encontrado',
+                      style: TextStyle(fontWeight: FontWeight.w600, fontSize: 15, color: Color(0xFF64748B)),
+                    ),
+                    const SizedBox(height: 4),
+                    Text(
+                      'Tente buscar por outro termo.',
+                      style: TextStyle(fontSize: 13, color: _textoMuted),
+                    ),
+                  ],
+                ),
+              ),
+            );
+          },
+        );
+      },
     );
   }
 }

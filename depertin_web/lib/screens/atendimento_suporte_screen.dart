@@ -1042,6 +1042,7 @@ class _AtendimentoSuporteScreenState extends State<AtendimentoSuporteScreen> {
         fmtHora: _fmtHora,
         tempoEspera: _tempoEspera,
         posicaoNaFila: _posicaoNaFila,
+        onDelete: _deletarChamadoHistorico,
       );
     }
 
@@ -1087,6 +1088,92 @@ class _AtendimentoSuporteScreenState extends State<AtendimentoSuporteScreen> {
         ),
       ),
     );
+  }
+
+  /// Soft delete de chamado encerrado no histórico.
+  Future<void> _deletarChamadoHistorico(String ticketId) async {
+    final user = FirebaseAuth.instance.currentUser;
+    if (user == null) return;
+
+    // Dialog de confirmação
+    final confirmado = await showDialog<bool>(
+      context: context,
+      barrierDismissible: false,
+      builder: (ctx) {
+        return AlertDialog(
+          shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(18)),
+          titlePadding: const EdgeInsets.fromLTRB(24, 24, 24, 0),
+          contentPadding: const EdgeInsets.fromLTRB(24, 16, 24, 8),
+          actionsPadding: const EdgeInsets.fromLTRB(12, 8, 12, 12),
+          title: const Row(
+            children: [
+              Icon(Icons.warning_amber_rounded, color: Color(0xFFEF4444), size: 22),
+              SizedBox(width: 10),
+              Text(
+                'Excluir chamado?',
+                style: TextStyle(fontWeight: FontWeight.w800, fontSize: 17),
+              ),
+            ],
+          ),
+          content: const SizedBox(
+            width: 400,
+            child: Text(
+              'Este chamado será removido do histórico do painel admin. '
+              'Esta ação não poderá ser desfeita.',
+              style: TextStyle(fontSize: 14, height: 1.5, color: Color(0xFF64748B)),
+            ),
+          ),
+          actions: [
+            TextButton(
+              onPressed: () => Navigator.of(ctx).pop(false),
+              style: TextButton.styleFrom(
+                padding: const EdgeInsets.symmetric(horizontal: 20, vertical: 12),
+              ),
+              child: const Text('Cancelar', style: TextStyle(fontWeight: FontWeight.w600)),
+            ),
+            FilledButton(
+              onPressed: () => Navigator.of(ctx).pop(true),
+              style: FilledButton.styleFrom(
+                backgroundColor: const Color(0xFFEF4444),
+                foregroundColor: Colors.white,
+                padding: const EdgeInsets.symmetric(horizontal: 20, vertical: 12),
+                shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(10)),
+              ),
+              child: const Text('Excluir chamado', style: TextStyle(fontWeight: FontWeight.w700)),
+            ),
+          ],
+        );
+      },
+    );
+
+    if (confirmado != true) return;
+
+    try {
+      await FirebaseFirestore.instance
+          .collection('support_tickets')
+          .doc(ticketId)
+          .update({
+        'deleted': true,
+        'deleted_at': FieldValue.serverTimestamp(),
+        'deleted_by': user.uid,
+      });
+
+      // Se o chamado deletado estava selecionado, limpa seleção
+      if (mounted && _selecionadoId == ticketId) {
+        setState(() {
+          _selecionadoId = null;
+          _selecionadoNome = null;
+        });
+      }
+
+      if (mounted) {
+        mostrarSnackPainel(context, mensagem: 'Chamado removido do histórico.');
+      }
+    } catch (e) {
+      if (mounted) {
+        mostrarSnackPainel(context, mensagem: 'Erro ao excluir chamado: $e', erro: true);
+      }
+    }
   }
 
   Widget _painelChat(String? uidMeu) {
@@ -2012,6 +2099,7 @@ class ColunaFilaSuporte extends StatefulWidget {
     required this.fmtHora,
     required this.tempoEspera,
     required this.posicaoNaFila,
+    this.onDelete,
   });
 
   final Color diPertinRoxo;
@@ -2028,6 +2116,7 @@ class ColunaFilaSuporte extends StatefulWidget {
     String id,
   )
   posicaoNaFila;
+  final Future<void> Function(String ticketId)? onDelete;
 
   @override
   State<ColunaFilaSuporte> createState() => _ColunaFilaSuporteState();
@@ -2078,6 +2167,11 @@ class _ColunaFilaSuporteState extends State<ColunaFilaSuporte>
   List<QueryDocumentSnapshot<Map<String, dynamic>>> _aplicarFiltrosHistorico(
     List<QueryDocumentSnapshot<Map<String, dynamic>>> docs,
   ) {
+    // Filtra soft-deleted
+    docs = docs.where((d) {
+      final m = d.data();
+      return m['deleted'] != true;
+    }).toList();
     final busca = _searchController.text.toLowerCase().trim();
     final perfil = _filtroPerfil;
     final nome = _filtroNome.text.toLowerCase().trim();
@@ -2441,7 +2535,12 @@ class _ColunaFilaSuporteState extends State<ColunaFilaSuporte>
                 return _filtroDocPassa(m, busca) && _filtroPerfilPassa(m, perfil);
               }).toList();
               final docs = _aplicarFiltrosHistorico(filtrados);
-              if (raw.isEmpty) {
+
+              // Verifica se todos os docs restantes são soft-deleted
+              final todosDeletados = raw.isNotEmpty && raw.every(
+                  (d) => d.data()['deleted'] == true);
+
+              if (raw.isEmpty || todosDeletados) {
                 return SingleChildScrollView(
                   padding: const EdgeInsets.only(top: 8),
                   child: _emptyEstado(
@@ -2480,6 +2579,9 @@ class _ColunaFilaSuporteState extends State<ColunaFilaSuporte>
                     selecionado: sel,
                     tempoEspera: widget.fmtHora(m['created_at']),
                     onTap: () => widget.onSelect(doc),
+                    onDelete: widget.onDelete != null
+                        ? () => widget.onDelete!(doc.id)
+                        : null,
                   );
                 },
               );
@@ -2757,6 +2859,8 @@ class _ColunaFilaSuporteState extends State<ColunaFilaSuporte>
                     label: 'Finalizados',
                     cor: const Color(0xFF16A34A),
                     stream: widget.queryHistorico.snapshots(),
+                    contagemAlternativa: (docs) =>
+                        docs.where((d) => d.data()['deleted'] != true).length,
                   ),
                 ),
               ],
@@ -2803,11 +2907,16 @@ class _ColunaFilaSuporteState extends State<ColunaFilaSuporte>
     required String label,
     required Color cor,
     required Stream<QuerySnapshot<Map<String, dynamic>>> stream,
+    int Function(List<QueryDocumentSnapshot<Map<String, dynamic>>> docs)?
+        contagemAlternativa,
   }) {
     return StreamBuilder<QuerySnapshot<Map<String, dynamic>>>(
       stream: stream,
       builder: (context, snap) {
-        final count = snap.data?.docs.length ?? 0;
+        final docs = snap.data?.docs ?? [];
+        final count = contagemAlternativa != null
+            ? contagemAlternativa(docs)
+            : docs.length;
         return AnimatedContainer(
           duration: const Duration(milliseconds: 300),
           padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 10),
@@ -2871,6 +2980,7 @@ class _ColunaFilaSuporteState extends State<ColunaFilaSuporte>
     int posicaoFila = 0,
     String tempoEspera = '',
     String agenteNome = '',
+    VoidCallback? onDelete,
   }) {
     final rx = widget.diPertinRoxo;
     final iniciais = iniciaisNomeSuporte(nome);
@@ -3124,6 +3234,33 @@ class _ColunaFilaSuporteState extends State<ColunaFilaSuporte>
                     ],
                   ),
                 ),
+                // Botão deletar — apenas encerrados
+                if (onDelete != null) ...[
+                  const SizedBox(width: 4),
+                  SizedBox(
+                    width: 32,
+                    height: 32,
+                    child: IconButton(
+                      onPressed: onDelete,
+                      icon: Icon(
+                        Icons.delete_outline_rounded,
+                        size: 18,
+                        color: Colors.grey.shade400,
+                      ),
+                      padding: EdgeInsets.zero,
+                      tooltip: 'Excluir chamado',
+                      splashRadius: 16,
+                      style: IconButton.styleFrom(
+                        foregroundColor: Colors.grey.shade400,
+                        hoverColor: Colors.red.withValues(alpha: 0.08),
+                        backgroundColor: Colors.transparent,
+                        shape: RoundedRectangleBorder(
+                          borderRadius: BorderRadius.circular(8),
+                        ),
+                      ),
+                    ),
+                  ),
+                ],
               ],
             ),
           ),

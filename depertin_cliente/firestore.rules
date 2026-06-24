@@ -431,6 +431,14 @@ service cloud.firestore {
       );
     }
 
+    // Favoritos do cliente — produtos salvos como favoritos.
+    match /users/{userId}/favoritos/{produtoId} {
+      allow read, write: if signedIn() && (
+        request.auth.uid == userId
+        || isStaff()
+      );
+    }
+
     match /pedidos/{pedidoId} {
       function p() {
         return resource.data;

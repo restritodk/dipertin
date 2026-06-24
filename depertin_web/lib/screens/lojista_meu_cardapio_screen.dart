@@ -91,6 +91,7 @@ class _LojistaMeuCardapioScreenState extends State<LojistaMeuCardapioScreen> {
     }
     var requerVeiculoGrande =
         d['requer_veiculo_grande'] == true || d['carga_maior'] == true;
+    var isOfertaEspecial = d['is_oferta_especial'] == true;
     String? categoriaSelecionada = catC.text.trim().isEmpty
         ? null
         : catC.text.trim();
@@ -402,6 +403,21 @@ class _LojistaMeuCardapioScreenState extends State<LojistaMeuCardapioScreen> {
                           activeThumbColor: _laranja,
                           onChanged: (v) => setS(() => ativo = v),
                         ),
+                        const SizedBox(height: 8),
+                        SwitchListTile(
+                          contentPadding: EdgeInsets.zero,
+                          title: const Text('Oferta especial'),
+                          subtitle: Text(
+                            'Ativo = aparece na seção "Ofertas especiais" da vitrine',
+                            style: TextStyle(
+                              fontSize: 12,
+                              color: Colors.grey.shade600,
+                            ),
+                          ),
+                          value: isOfertaEspecial,
+                          activeThumbColor: _laranja,
+                          onChanged: (v) => setS(() => isOfertaEspecial = v),
+                        ),
                         const SizedBox(height: 20),
                         _secForm('Logística de entrega'),
                         const SizedBox(height: 4),
@@ -542,6 +558,7 @@ class _LojistaMeuCardapioScreenState extends State<LojistaMeuCardapioScreen> {
                                     'estoque_qtd': est,
                                     'tipo_venda': tipo,
                                     'ativo': ativo,
+                                    'is_oferta_especial': isOfertaEspecial,
                                     'imagens': imgs,
                                     'lojista_id': uidLoja,
                                     'loja_id': uidLoja,

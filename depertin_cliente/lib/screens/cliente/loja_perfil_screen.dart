@@ -12,6 +12,7 @@ import '../../providers/cart_provider.dart';
 import '../../utils/loja_fachada_foto.dart';
 import '../../utils/loja_pausa.dart';
 import '../../utils/safe_area_insets.dart';
+import '../../widgets/favoritar_botao.dart';
 
 const Color diPertinRoxo = Color(0xFF6A1B9A);
 const Color diPertinLaranja = Color(0xFFFF8F00);
@@ -811,24 +812,7 @@ class _LojaPerfilScreenState extends State<LojaPerfilScreen> {
                                     // Botão favoritar
                                     Positioned(
                                       top: 8, right: 8,
-                                      child: Container(
-                                        padding: const EdgeInsets.all(6),
-                                        decoration: BoxDecoration(
-                                          color: Colors.white.withValues(alpha: 0.85),
-                                          shape: BoxShape.circle,
-                                          boxShadow: [
-                                            BoxShadow(
-                                              color: Colors.black.withValues(alpha: 0.08),
-                                              blurRadius: 6,
-                                            ),
-                                          ],
-                                        ),
-                                        child: Icon(
-                                          Icons.favorite_border_rounded,
-                                          size: 18,
-                                          color: Colors.grey.shade600,
-                                        ),
-                                      ),
+                                      child: FavoritarBotao(produto: p),
                                     ),
                                   ],
                                 ),

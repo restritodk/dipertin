@@ -17,6 +17,83 @@ class BannersScreen extends StatefulWidget {
 }
 
 class _BannersScreenState extends State<BannersScreen> {
+  final _filtroBuscaCtrl = TextEditingController();
+  String _filtroStatus = '';
+  bool _modoGrid = true;
+
+  @override
+  void dispose() {
+    _filtroBuscaCtrl.dispose();
+    super.dispose();
+  }
+
+  // ===== HELPERS DE STATUS =====
+  String _statusBanner(Map<String, dynamic> dados) {
+    final ativo = dados['ativo'] != false;
+    if (!ativo) return 'pausado';
+    final dataFim = (dados['data_fim'] as Timestamp?)?.toDate();
+    if (dataFim == null) return 'ativo';
+    if (dataFim.isBefore(DateTime.now())) return 'expirado';
+    if (dataFim.difference(DateTime.now()).inDays <= 3) return 'vencendo';
+    return 'ativo';
+  }
+
+  int _diasRestantes(Map<String, dynamic> dados) {
+    final dataFim = (dados['data_fim'] as Timestamp?)?.toDate();
+    if (dataFim == null) return 0;
+    return dataFim.difference(DateTime.now()).inDays.clamp(0, 9999);
+  }
+
+  String _formatarDataBanner(dynamic data) {
+    if (data is Timestamp) {
+      final dt = data.toDate();
+      return '${dt.day.toString().padLeft(2, '0')}/${dt.month.toString().padLeft(2, '0')}/${dt.year}';
+    }
+    return '—';
+  }
+
+  Color _corStatus(String status) {
+    switch (status) {
+      case 'ativo': return const Color(0xFF22C55E);
+      case 'vencendo': return const Color(0xFFF59E0B);
+      case 'pausado': return const Color(0xFF94A3B8);
+      case 'expirado': return const Color(0xFFEF4444);
+      default: return const Color(0xFF94A3B8);
+    }
+  }
+
+  String _rotuloStatus(String status) {
+    switch (status) {
+      case 'ativo': return 'Ativo';
+      case 'vencendo': return 'Vencendo';
+      case 'pausado': return 'Pausado';
+      case 'expirado': return 'Expirado';
+      default: return status;
+    }
+  }
+
+  IconData _iconeStatus(String status) {
+    switch (status) {
+      case 'ativo': return Icons.check_circle_rounded;
+      case 'vencendo': return Icons.schedule_rounded;
+      case 'pausado': return Icons.pause_circle_rounded;
+      case 'expirado': return Icons.timer_off_rounded;
+      default: return Icons.circle_rounded;
+    }
+  }
+
+  double _calcularProgresso(Map<String, dynamic> dados) {
+    final dtInicio = (dados['data_inicio'] as Timestamp?)?.toDate();
+    final dtFim = (dados['data_fim'] as Timestamp?)?.toDate();
+    if (dtInicio == null || dtFim == null || dtFim.isBefore(dtInicio)) return 1.0;
+    final agora = DateTime.now();
+    if (agora.isBefore(dtInicio)) return 0.0;
+    if (agora.isAfter(dtFim)) return 1.0;
+    final total = dtFim.difference(dtInicio).inMilliseconds.toDouble();
+    final decorrido = agora.difference(dtInicio).inMilliseconds.toDouble();
+    return (decorrido / total).clamp(0.0, 1.0);
+  }
+
   void _mostrarModalBanner({
     String? bannerId,
     Map<String, dynamic>? dadosAtuais,
@@ -882,423 +959,985 @@ class _BannersScreenState extends State<BannersScreen> {
 
   @override
   Widget build(BuildContext context) {
-    final wide = MediaQuery.sizeOf(context).width >= 900;
+    final screenW = MediaQuery.sizeOf(context).width;
+    final isCompact = screenW < 640;
 
     return Scaffold(
-      backgroundColor: PainelAdminTheme.fundoCanvas,
-      floatingActionButton: wide
-          ? null
-          : FloatingActionButton.extended(
-              heroTag: 'btn_novo_banner',
-              onPressed: () => _mostrarModalBanner(),
-              backgroundColor: PainelAdminTheme.laranja,
-              foregroundColor: Colors.white,
-              icon: const Icon(Icons.add_photo_alternate_outlined, size: 22),
-              label: Text(
-                'Novo banner',
-                style: GoogleFonts.plusJakartaSans(
-                  fontWeight: FontWeight.w800,
-                  fontSize: 14,
-                ),
-              ),
-            ),
-      body: Column(
-        crossAxisAlignment: CrossAxisAlignment.stretch,
-        children: [
-          Container(
-            width: double.infinity,
-            decoration: const BoxDecoration(
-              color: Colors.white,
-              border: Border(
-                bottom: BorderSide(color: Color(0xFFE2E8F0)),
-              ),
-            ),
-            child: Center(
-              child: ConstrainedBox(
-                constraints: const BoxConstraints(maxWidth: 1280),
+      backgroundColor: const Color(0xFFF8F7FC),
+      body: StreamBuilder<QuerySnapshot>(
+        stream: FirebaseFirestore.instance
+            .collection('banners')
+            .orderBy('data_criacao', descending: true)
+            .snapshots(),
+        builder: (context, snapshot) {
+          final isLoading = snapshot.connectionState == ConnectionState.waiting && !snapshot.hasData;
+          final banners = snapshot.data?.docs ?? [];
+          final total = banners.length;
+
+          // Métricas
+          final agora = DateTime.now();
+          int ativos = 0, vencendo = 0;
+          double receitaMes = 0;
+
+          for (final doc in banners) {
+            final d = doc.data()! as Map<String, dynamic>;
+            final ativo = d['ativo'] != false;
+            final dataFim = (d['data_fim'] as Timestamp?)?.toDate();
+            final dataInicio = (d['data_inicio'] as Timestamp?)?.toDate();
+            final valorTotal = (d['valor_total'] as num?)?.toDouble() ?? 0;
+            if (ativo && dataFim != null && !dataFim.isBefore(agora)) {
+              ativos++;
+              if (dataFim.difference(agora).inDays <= 3) vencendo++;
+            }
+            if (dataInicio != null && dataFim != null) {
+              final mesAtual = DateTime(agora.year, agora.month, 1);
+              final proxMes = DateTime(agora.year, agora.month + 1, 1);
+              if (!dataFim.isBefore(mesAtual) && dataInicio.isBefore(proxMes)) {
+                final diasMes = proxMes.difference(mesAtual).inDays;
+                final diasBanner = dataFim.difference(dataInicio).inDays + 1;
+                if (diasBanner > 0) receitaMes += (valorTotal / diasBanner) * diasMes;
+              }
+            }
+          }
+
+          return Column(
+            crossAxisAlignment: CrossAxisAlignment.stretch,
+            children: [
+              // ===== HEADER com Breadcrumb =====
+              Container(
+                color: Colors.white,
                 child: Padding(
-                  padding: const EdgeInsets.fromLTRB(28, 26, 28, 22),
-                  child: LayoutBuilder(
-                    builder: (context, c) {
-                      final rowLayout = c.maxWidth >= 640;
-                      if (rowLayout) {
-                        return Row(
-                          crossAxisAlignment: CrossAxisAlignment.start,
-                          children: [
-                            Container(
-                              padding: const EdgeInsets.all(12),
-                              decoration: BoxDecoration(
-                                color:
-                                    PainelAdminTheme.roxo.withValues(alpha: 0.08),
-                                borderRadius: BorderRadius.circular(14),
-                              ),
-                              child: Icon(
-                                Icons.view_carousel_rounded,
-                                color: PainelAdminTheme.roxo,
-                                size: 28,
-                              ),
-                            ),
-                            const SizedBox(width: 18),
-                            Expanded(
-                              child: Column(
-                                crossAxisAlignment: CrossAxisAlignment.start,
-                                children: [
-                                  Text(
-                                    'Vitrine publicitária',
-                                    style: GoogleFonts.plusJakartaSans(
-                                      fontSize: 24,
-                                      fontWeight: FontWeight.w800,
-                                      color: PainelAdminTheme.dashboardInk,
-                                      letterSpacing: -0.5,
-                                    ),
-                                  ),
-                                  const SizedBox(height: 6),
-                                  Text(
-                                    'Gerencie os banners exibidos no app. Toque em um card para editar valores, período e destino.',
-                                    style: GoogleFonts.plusJakartaSans(
-                                      fontSize: 14,
-                                      height: 1.45,
-                                      color: PainelAdminTheme.textoSecundario,
-                                    ),
-                                  ),
-                                ],
-                              ),
-                            ),
-                            if (wide) ...[
-                              StreamBuilder<QuerySnapshot>(
-                                stream: FirebaseFirestore.instance
-                                    .collection('banners')
-                                    .snapshots(),
-                                builder: (context, snap) {
-                                  final n = snap.data?.docs.length ?? 0;
-                                  return Padding(
-                                    padding: const EdgeInsets.only(right: 12),
-                                    child: Column(
-                                      crossAxisAlignment: CrossAxisAlignment.end,
-                                      children: [
-                                        Text(
-                                          '$n',
-                                          style: GoogleFonts.plusJakartaSans(
-                                            fontSize: 26,
-                                            fontWeight: FontWeight.w800,
-                                            color: PainelAdminTheme.roxo,
-                                            height: 1,
-                                          ),
-                                        ),
-                                        Text(
-                                          n == 1 ? 'banner' : 'banners',
-                                          style: GoogleFonts.plusJakartaSans(
-                                            fontSize: 12,
-                                            fontWeight: FontWeight.w600,
-                                            color: PainelAdminTheme.textoSecundario,
-                                          ),
-                                        ),
-                                      ],
-                                    ),
-                                  );
-                                },
-                              ),
-                              FilledButton.icon(
-                                onPressed: () => _mostrarModalBanner(),
-                                icon: const Icon(Icons.add_rounded, size: 20),
-                                label: Text(
-                                  'Novo banner',
-                                  style: GoogleFonts.plusJakartaSans(
-                                    fontWeight: FontWeight.w800,
-                                    fontSize: 14,
-                                  ),
-                                ),
-                                style: FilledButton.styleFrom(
-                                  backgroundColor: PainelAdminTheme.laranja,
-                                  foregroundColor: Colors.white,
-                                  padding: const EdgeInsets.symmetric(
-                                    horizontal: 20,
-                                    vertical: 14,
-                                  ),
-                                  shape: RoundedRectangleBorder(
-                                    borderRadius: BorderRadius.circular(12),
-                                  ),
-                                ),
-                              ),
-                            ],
-                          ],
-                        );
-                      }
-                      return Column(
+                  padding: const EdgeInsets.fromLTRB(32, 24, 32, 0),
+                  child: Column(
+                    crossAxisAlignment: CrossAxisAlignment.start,
+                    children: [
+                      Row(
+                        children: [
+                          const Text('Marketing',
+                              style: TextStyle(fontSize: 13, fontWeight: FontWeight.w600, color: Color(0xFF6A1B9A))),
+                          const SizedBox(width: 6),
+                          const Text('/', style: TextStyle(fontSize: 13, color: Color(0xFFCBD5E1))),
+                          const SizedBox(width: 6),
+                          const Text('Banners da vitrine',
+                              style: TextStyle(fontSize: 13, color: Color(0xFF64748B))),
+                        ],
+                      ),
+                      const SizedBox(height: 16),
+                      Row(
                         crossAxisAlignment: CrossAxisAlignment.start,
                         children: [
-                          Text(
-                            'Vitrine publicitária',
-                            style: GoogleFonts.plusJakartaSans(
-                              fontSize: 22,
-                              fontWeight: FontWeight.w800,
-                              color: PainelAdminTheme.dashboardInk,
+                          Expanded(
+                            child: Column(
+                              crossAxisAlignment: CrossAxisAlignment.start,
+                              children: [
+                                const Text(
+                                  'Vitrine Publicitária',
+                                  style: TextStyle(fontSize: 28, fontWeight: FontWeight.w800, color: Color(0xFF1A1A2E), letterSpacing: -0.3),
+                                ),
+                                const SizedBox(height: 6),
+                                Text(
+                                  'Gerencie os banners exibidos no app, valores, períodos e destinos.',
+                                  style: TextStyle(fontSize: 14, color: Colors.grey[600]),
+                                ),
+                              ],
                             ),
                           ),
-                          const SizedBox(height: 6),
-                          Text(
-                            'Toque em um banner para editar.',
-                            style: GoogleFonts.plusJakartaSans(
-                              fontSize: 14,
-                              color: PainelAdminTheme.textoSecundario,
+                          const SizedBox(width: 12),
+                          // Resumo card
+                          Container(
+                            padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 10),
+                            decoration: BoxDecoration(
+                              color: const Color(0xFFF3EFF7),
+                              borderRadius: BorderRadius.circular(14),
+                              border: Border.all(color: const Color(0xFF6A1B9A).withValues(alpha: 0.12)),
+                            ),
+                            child: Row(
+                              mainAxisSize: MainAxisSize.min,
+                              children: [
+                                Container(
+                                  width: 38, height: 38,
+                                  decoration: BoxDecoration(
+                                    color: const Color(0xFF6A1B9A).withValues(alpha: 0.12),
+                                    borderRadius: BorderRadius.circular(10),
+                                  ),
+                                  child: const Icon(Icons.view_carousel_rounded, color: Color(0xFF6A1B9A), size: 20),
+                                ),
+                                const SizedBox(width: 10),
+                                Column(
+                                  crossAxisAlignment: CrossAxisAlignment.start,
+                                  mainAxisSize: MainAxisSize.min,
+                                  children: [
+                                    Text(
+                                      '$total banners',
+                                      style: const TextStyle(fontSize: 16, fontWeight: FontWeight.w800, color: Color(0xFF1A1A2E)),
+                                    ),
+                                    const SizedBox(height: 1),
+                                    Text(
+                                      '$ativos ativos',
+                                      style: TextStyle(fontSize: 12, color: Colors.grey[600]),
+                                    ),
+                                  ],
+                                ),
+                              ],
                             ),
                           ),
+                          const SizedBox(width: 12),
+                          if (!isCompact)
+                            SizedBox(
+                              height: 46,
+                              child: FilledButton.icon(
+                                onPressed: () => _mostrarModalBanner(),
+                                icon: const Icon(Icons.add_rounded, size: 20),
+                                label: const Text('+ Novo banner', style: TextStyle(fontWeight: FontWeight.w700, fontSize: 14)),
+                                style: FilledButton.styleFrom(
+                                  backgroundColor: Color(0xFFFF8F00),
+                                  foregroundColor: Colors.white,
+                                  padding: const EdgeInsets.symmetric(horizontal: 22),
+                                  shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
+                                ),
+                              ),
+                            ),
                         ],
-                      );
-                    },
+                      ),
+                      const SizedBox(height: 20),
+                    ],
                   ),
                 ),
               ),
-            ),
-          ),
-          Expanded(
-            child: Center(
-              child: ConstrainedBox(
-                constraints: const BoxConstraints(maxWidth: 1280),
-                child: StreamBuilder<QuerySnapshot>(
-                  stream: FirebaseFirestore.instance
-                      .collection('banners')
-                      .orderBy('data_criacao', descending: true)
-                      .snapshots(),
-                  builder: (context, snapshot) {
-                    if (snapshot.connectionState == ConnectionState.waiting) {
-                      return Center(
-                        child: CircularProgressIndicator(
-                          color: PainelAdminTheme.roxo,
-                          strokeWidth: 2.5,
-                        ),
-                      );
-                    }
-                    if (!snapshot.hasData || snapshot.data!.docs.isEmpty) {
-                      return _emptyState();
-                    }
+              Divider(height: 1, color: Colors.grey.shade200),
 
-                    final banners = snapshot.data!.docs;
-
-                    return GridView.builder(
-                      padding: const EdgeInsets.fromLTRB(24, 24, 24, 100),
-                      gridDelegate: SliverGridDelegateWithMaxCrossAxisExtent(
-                        maxCrossAxisExtent: 400,
-                        mainAxisSpacing: 20,
-                        crossAxisSpacing: 20,
-                        childAspectRatio: 16 / 9,
-                      ),
-                      itemCount: banners.length,
-                      itemBuilder: (context, index) {
-                        final doc = banners[index];
-                        final dados = doc.data()! as Map<String, dynamic>;
-                        final imageUrl = dados['url_imagem'] as String? ?? '';
-                        final cidadeRaw = dados['cidade']?.toString() ?? 'todas';
-                        final cidade = cidadeRaw.toLowerCase() == 'todas'
-                            ? 'Todas as cidades'
-                            : cidadeRaw.toUpperCase();
-                        final valor = dados['valor']?.toString() ?? '0';
-                        final tipo = _rotuloTipoCobranca(
-                            dados['tipo_cobranca']?.toString());
-                        final valorLinha = 'R\$ $valor / $tipo';
-
-                        return Material(
-                          color: Colors.transparent,
-                          child: InkWell(
-                            onTap: () => _mostrarModalBanner(
-                              bannerId: doc.id,
-                              dadosAtuais: dados,
-                            ),
-                            borderRadius: BorderRadius.circular(16),
-                            child: Container(
-                              decoration: PainelAdminTheme.dashboardCard(),
-                              clipBehavior: Clip.antiAlias,
-                              child: Stack(
-                                fit: StackFit.expand,
-                                children: [
-                                  Image.network(
-                                    imageUrl,
-                                    fit: BoxFit.cover,
-                                    errorBuilder: (_, _, _) => Container(
-                                      color: const Color(0xFFF1F5F9),
-                                      alignment: Alignment.center,
-                                      child: Icon(
-                                        Icons.broken_image_outlined,
-                                        size: 48,
-                                        color: PainelAdminTheme.textoSecundario,
-                                      ),
-                                    ),
-                                  ),
-                                  Positioned(
-                                    left: 0,
-                                    right: 0,
-                                    bottom: 0,
-                                    child: Container(
-                                      padding: const EdgeInsets.fromLTRB(
-                                          12, 32, 12, 12),
-                                      decoration: BoxDecoration(
-                                        gradient: LinearGradient(
-                                          colors: [
-                                            Colors.transparent,
-                                            Colors.black.withValues(alpha: 0.75),
-                                          ],
-                                          begin: Alignment.topCenter,
-                                          end: Alignment.bottomCenter,
-                                        ),
-                                      ),
-                                      child: Row(
-                                        crossAxisAlignment:
-                                            CrossAxisAlignment.end,
-                                        children: [
-                                          Expanded(
-                                            child: Wrap(
-                                              spacing: 8,
-                                              runSpacing: 6,
-                                              children: [
-                                                _chipBadge(
-                                                  Icons.place_outlined,
-                                                  cidade,
-                                                  PainelAdminTheme.laranja,
-                                                ),
-                                                _chipBadge(
-                                                  Icons.payments_outlined,
-                                                  valorLinha,
-                                                  PainelAdminTheme.roxo,
-                                                ),
-                                              ],
-                                            ),
-                                          ),
-                                        ],
-                                      ),
-                                    ),
-                                  ),
-                                  Positioned(
-                                    top: 10,
-                                    right: 10,
-                                    child: Material(
-                                      color: Colors.white.withValues(alpha: 0.92),
-                                      shape: const CircleBorder(),
-                                      elevation: 1,
-                                      child: InkWell(
-                                        customBorder: const CircleBorder(),
-                                        onTap: () {
-                                          if (imageUrl.isNotEmpty) {
-                                            _deletarBanner(doc.id, imageUrl);
-                                          }
-                                        },
-                                        child: Padding(
-                                          padding: const EdgeInsets.all(8),
-                                          child: Icon(
-                                            Icons.delete_outline_rounded,
-                                            color: Colors.red.shade600,
-                                            size: 20,
-                                          ),
-                                        ),
-                                      ),
-                                    ),
-                                  ),
-                                ],
-                              ),
-                            ),
-                          ),
-                        );
-                      },
-                    );
-                  },
+              // ===== CARDS DE RESUMO =====
+              Padding(
+                padding: const EdgeInsets.fromLTRB(32, 20, 32, 0),
+                child: Wrap(
+                  spacing: 14,
+                  runSpacing: 12,
+                  children: [
+                    _cardResumo('Banners ativos', '$ativos', Icons.check_circle_rounded, const Color(0xFF22C55E)),
+                    _cardResumo('Vencendo em breve', '$vencendo', Icons.schedule_rounded, const Color(0xFFF59E0B)),
+                    _cardResumo('Receita do mês', 'R\$ ${receitaMes.toStringAsFixed(0)}', Icons.trending_up_rounded, const Color(0xFF6A1B9A)),
+                    _cardResumo('Visualizações est.', '—', Icons.visibility_rounded, const Color(0xFF3B82F6)),
+                  ],
                 ),
               ),
-            ),
-          ),
-        ],
+
+              // ===== FILTROS =====
+              Padding(
+                padding: const EdgeInsets.fromLTRB(32, 14, 32, 0),
+                child: Row(
+                  children: [
+                    Expanded(
+                      child: SizedBox(
+                        height: 44,
+                        child: TextField(
+                          controller: _filtroBuscaCtrl,
+                          onChanged: (_) => setState(() {}),
+                          decoration: InputDecoration(
+                            hintText: 'Buscar banner…',
+                            prefixIcon: const Icon(Icons.search_rounded, size: 20, color: Color(0xFF94A3B8)),
+                            filled: true,
+                            fillColor: Colors.white,
+                            contentPadding: const EdgeInsets.symmetric(horizontal: 16, vertical: 0),
+                            border: OutlineInputBorder(
+                              borderRadius: BorderRadius.circular(12),
+                              borderSide: BorderSide(color: Colors.grey.shade200),
+                            ),
+                            enabledBorder: OutlineInputBorder(
+                              borderRadius: BorderRadius.circular(12),
+                              borderSide: BorderSide(color: Colors.grey.shade200),
+                            ),
+                            focusedBorder: OutlineInputBorder(
+                              borderRadius: BorderRadius.circular(12),
+                              borderSide: const BorderSide(color: Color(0xFF6A1B9A), width: 1.5),
+                            ),
+                            isDense: true,
+                          ),
+                        ),
+                      ),
+                    ),
+                    const SizedBox(width: 12),
+                    _buildFiltroDropdown(),
+                    const SizedBox(width: 12),
+                    if (isCompact)
+                      SizedBox(
+                        height: 44,
+                        child: FilledButton.icon(
+                          onPressed: () => _mostrarModalBanner(),
+                          icon: const Icon(Icons.add_rounded, size: 18),
+                          label: const Text('Novo', style: TextStyle(fontSize: 13)),
+                          style: FilledButton.styleFrom(
+                            backgroundColor: Color(0xFFFF8F00),
+                            foregroundColor: Colors.white,
+                            padding: const EdgeInsets.symmetric(horizontal: 16),
+                            shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
+                          ),
+                        ),
+                      ),
+                  ],
+                ),
+              ),
+              const SizedBox(height: 16),
+
+              // ===== BARRA CAMPANHAS PUBLICITÁRIAS =====
+              Padding(
+                padding: const EdgeInsets.fromLTRB(32, 0, 32, 0),
+                child: Row(
+                  children: [
+                    Expanded(
+                      child: Row(
+                        children: [
+                          const Text('Campanhas publicitárias',
+                              style: TextStyle(fontSize: 17, fontWeight: FontWeight.w800, color: Color(0xFF1A1A2E))),
+                          const SizedBox(width: 10),
+                          Container(
+                            padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 3),
+                            decoration: BoxDecoration(
+                              color: const Color(0xFF6A1B9A).withValues(alpha: 0.08),
+                              borderRadius: BorderRadius.circular(8),
+                            ),
+                            child: Text('${_buildListaFiltrada(banners).length}',
+                                style: const TextStyle(fontSize: 12, fontWeight: FontWeight.w700, color: Color(0xFF6A1B9A))),
+                          ),
+                        ],
+                      ),
+                    ),
+                    Row(
+                      mainAxisSize: MainAxisSize.min,
+                      children: [
+                        const Text('Ordenar por:', style: TextStyle(fontSize: 12, color: Color(0xFF94A3B8))),
+                        const SizedBox(width: 6),
+                        const Text('Mais recentes',
+                            style: TextStyle(fontSize: 12, fontWeight: FontWeight.w600, color: Color(0xFF475569))),
+                        Icon(Icons.expand_more_rounded, size: 16, color: Colors.grey[500]),
+                        const SizedBox(width: 12),
+                        Container(height: 20, width: 1, color: Colors.grey[200]),
+                        const SizedBox(width: 12),
+                        _iconeToggle(Icons.grid_view_rounded, _modoGrid, () => setState(() => _modoGrid = true)),
+                        const SizedBox(width: 4),
+                        _iconeToggle(Icons.view_list_rounded, !_modoGrid, () => setState(() => _modoGrid = false)),
+                      ],
+                    ),
+                  ],
+                ),
+              ),
+              const SizedBox(height: 12),
+
+              // ===== LISTA OU EMPTY =====
+              Expanded(
+                child: isLoading
+                    ? const Center(child: CircularProgressIndicator(strokeWidth: 2.5, color: Color(0xFF6A1B9A)))
+                    : banners.isEmpty
+                        ? _emptyState()
+                        : _modoGrid
+                            ? _buildGridBanners(banners)
+                            : _buildListaBanners(banners),
+              ),
+              const SizedBox(height: 20),
+            ],
+          );
+        },
       ),
     );
   }
 
-  Widget _chipBadge(IconData icon, String text, Color accent) {
-    return Container(
-      padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 6),
+  Widget _cardResumo(String titulo, String valor, IconData icone, Color cor) {
+    return SizedBox(
+      width: 240,
+      child: Container(
+      padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 14),
       decoration: BoxDecoration(
-        color: Colors.black.withValues(alpha: 0.45),
-        borderRadius: BorderRadius.circular(20),
-        border: Border.all(
-          color: Colors.white.withValues(alpha: 0.35),
+        color: Colors.white,
+        borderRadius: BorderRadius.circular(16),
+        border: Border.all(color: Colors.grey.shade200),
+        boxShadow: [BoxShadow(color: Colors.black.withValues(alpha: 0.035), blurRadius: 6, offset: const Offset(0, 2))],
+      ),
+      child: Row(
+        children: [
+          Container(
+            width: 40, height: 40,
+            decoration: BoxDecoration(
+              color: cor.withValues(alpha: 0.10),
+              borderRadius: BorderRadius.circular(12),
+            ),
+            child: Icon(icone, color: cor, size: 20),
+          ),
+          const SizedBox(width: 12),
+          Expanded(
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              mainAxisSize: MainAxisSize.min,
+              children: [
+                Text(
+                  valor,
+                  style: TextStyle(fontSize: 18, fontWeight: FontWeight.w800, color: Colors.grey[800], height: 1.1),
+                ),
+                const SizedBox(height: 2),
+                Text(titulo, style: TextStyle(fontSize: 12, color: Colors.grey[500]), maxLines: 1, overflow: TextOverflow.ellipsis),
+              ],
+            ),
+          ),
+        ],
+      ),
+      ),
+    );
+  }
+
+  Widget _buildFiltroDropdown() {
+    const statusOpcoes = ['', 'ativo', 'vencendo', 'pausado', 'expirado'];
+    const rotulos = ['Status: Todos', 'Ativos', 'Vencendo', 'Pausados', 'Expirados'];
+    return Container(
+      height: 44,
+      padding: const EdgeInsets.symmetric(horizontal: 12),
+      decoration: BoxDecoration(
+        color: Colors.white,
+        borderRadius: BorderRadius.circular(12),
+        border: Border.all(color: Colors.grey.shade200),
+      ),
+      child: DropdownButtonHideUnderline(
+        child: DropdownButton<String>(
+          value: _filtroStatus,
+          isDense: true,
+          icon: const Icon(Icons.expand_more_rounded, size: 20, color: Color(0xFF94A3B8)),
+          style: const TextStyle(fontSize: 13, fontWeight: FontWeight.w600, color: Color(0xFF475569)),
+          items: List.generate(statusOpcoes.length, (i) => DropdownMenuItem(
+            value: statusOpcoes[i],
+            child: Text(rotulos[i], style: TextStyle(
+              fontWeight: _filtroStatus == statusOpcoes[i] ? FontWeight.w700 : null,
+              color: _filtroStatus == statusOpcoes[i] ? const Color(0xFF6A1B9A) : null,
+            )),
+          )),
+          onChanged: (v) => setState(() => _filtroStatus = v ?? ''),
         ),
+      ),
+    );
+  }
+
+  List<QueryDocumentSnapshot> _buildListaFiltrada(List<QueryDocumentSnapshot> banners) {
+    return banners.where((doc) {
+      final d = doc.data()! as Map<String, dynamic>;
+      final busca = _filtroBuscaCtrl.text.trim().toLowerCase();
+      if (busca.isNotEmpty) {
+        final cidade = (d['cidade'] ?? '').toString().toLowerCase();
+        final link = (d['link_destino'] ?? '').toString().toLowerCase();
+        if (!cidade.contains(busca) && !link.contains(busca)) return false;
+      }
+      if (_filtroStatus.isNotEmpty && _statusBanner(d) != _filtroStatus) return false;
+      return true;
+    }).toList();
+  }
+
+  Widget _iconeToggle(IconData icon, bool ativo, VoidCallback onTap) {
+    return Material(
+      color: Colors.transparent,
+      child: InkWell(
+        onTap: onTap,
+        borderRadius: BorderRadius.circular(8),
+        child: Container(
+          width: 36, height: 36,
+          decoration: BoxDecoration(
+            color: ativo ? const Color(0xFF6A1B9A).withValues(alpha: 0.08) : Colors.transparent,
+            borderRadius: BorderRadius.circular(8),
+          ),
+          child: Icon(icon, size: 20,
+              color: ativo ? const Color(0xFF6A1B9A) : Colors.grey[400]),
+        ),
+      ),
+    );
+  }
+
+  Widget _buildGridBanners(List<QueryDocumentSnapshot> banners) {
+    final docs = _buildListaFiltrada(banners);
+    if (docs.isEmpty) {
+      return Center(
+        child: Column(
+          mainAxisSize: MainAxisSize.min,
+          children: [
+            Icon(Icons.search_off_rounded, size: 48, color: Colors.grey[300]),
+            const SizedBox(height: 8),
+            Text('Nenhum banner encontrado.', style: TextStyle(color: Colors.grey[500], fontSize: 14)),
+          ],
+        ),
+      );
+    }
+
+    return SingleChildScrollView(
+      padding: const EdgeInsets.fromLTRB(32, 0, 32, 32),
+      child: LayoutBuilder(
+        builder: (context, constraints) {
+          final width = constraints.maxWidth;
+          final crossAxisCount = width > 1100 ? 3 : (width > 700 ? 2 : 1);
+          final gap = 20.0;
+          final cardWidth = (width - gap * (crossAxisCount - 1)) / crossAxisCount;
+
+          return Wrap(
+            spacing: gap,
+            runSpacing: gap,
+            children: docs.map((doc) => SizedBox(
+              width: cardWidth,
+              child: _buildBannerCard(doc),
+            )).toList(),
+          );
+        },
+      ),
+    );
+  }
+
+  Widget _buildBannerCard(QueryDocumentSnapshot doc) {
+    final d = doc.data()! as Map<String, dynamic>;
+    final imageUrl = d['url_imagem'] as String? ?? '';
+    final cidadeRaw = d['cidade']?.toString() ?? 'todas';
+    final cidade = cidadeRaw.toLowerCase() == 'todas' ? 'Todas as cidades' : cidadeRaw.toUpperCase();
+    final valor = (d['valor'] as num?)?.toDouble() ?? 0;
+    final tipo = _rotuloTipoCobranca(d['tipo_cobranca']?.toString());
+    final status = _statusBanner(d);
+    final dias = _diasRestantes(d);
+    final dataInicio = _formatarDataBanner(d['data_inicio']);
+    final dataFim = _formatarDataBanner(d['data_fim']);
+    final ativo = d['ativo'] != false;
+    final progresso = _calcularProgresso(d);
+    final temDataFim = (d['data_fim'] as Timestamp?)?.toDate() != null;
+
+    // Nome exibição: usa cidade ou nome loja
+    final titulo = d['nome']?.toString() ?? cidade;
+    final subtipo = d['tipo_cobranca']?.toString() ?? 'dia';
+
+    // Dias totais
+    int diasTotais = 0;
+    final dtInicio = (d['data_inicio'] as Timestamp?)?.toDate();
+    final dtFim = (d['data_fim'] as Timestamp?)?.toDate();
+    if (dtInicio != null && dtFim != null) {
+      diasTotais = dtFim.difference(dtInicio).inDays + 1;
+    }
+
+    // Texto rodapé
+    String textoRodape;
+    Color corRodape;
+    if (status == 'expirado') {
+      textoRodape = 'Expirado';
+      corRodape = const Color(0xFFEF4444);
+    } else if (status == 'pausado') {
+      textoRodape = 'Pausado';
+      corRodape = const Color(0xFF94A3B8);
+    } else if (status == 'vencendo') {
+      textoRodape = 'Expira em $dias dia${dias == 1 ? '' : 's'}';
+      corRodape = const Color(0xFFF59E0B);
+    } else {
+      textoRodape = 'Ativo por $dias dia${dias == 1 ? '' : 's'}';
+      corRodape = const Color(0xFF22C55E);
+    }
+
+    return Container(
+      decoration: BoxDecoration(
+        color: Colors.white,
+        borderRadius: BorderRadius.circular(18),
+        border: Border.all(
+          color: status == 'expirado'
+              ? Colors.red.withValues(alpha: 0.2)
+              : status == 'pausado'
+                  ? Colors.grey.withValues(alpha: 0.2)
+                  : Colors.grey.shade200,
+        ),
+        boxShadow: [BoxShadow(color: Colors.black.withValues(alpha: 0.04), blurRadius: 10, offset: const Offset(0, 2))],
+      ),
+      clipBehavior: Clip.antiAlias,
+      child: Column(
+        mainAxisSize: MainAxisSize.min,
+        crossAxisAlignment: CrossAxisAlignment.stretch,
+        children: [
+          // ===== IMAGEM =====
+          SizedBox(
+            height: 150,
+            child: Stack(
+              children: [
+                    // Imagem
+                    Positioned.fill(
+                      child: imageUrl.isNotEmpty
+                          ? Image.network(
+                              imageUrl,
+                              fit: BoxFit.cover,
+                              errorBuilder: (_, _, _) => Container(
+                                color: const Color(0xFFF1F5F9),
+                                alignment: Alignment.center,
+                                child: Column(
+                                  mainAxisSize: MainAxisSize.min,
+                                  children: [
+                                    Icon(Icons.broken_image_outlined, size: 32, color: Colors.grey[300]),
+                                    const SizedBox(height: 4),
+                                    Text('Banner sem imagem',
+                                        style: TextStyle(fontSize: 11, color: Colors.grey[400])),
+                                  ],
+                                ),
+                              ),
+                            )
+                          : Container(
+                              color: const Color(0xFFF1F5F9),
+                              alignment: Alignment.center,
+                              child: Column(
+                                mainAxisSize: MainAxisSize.min,
+                                children: [
+                                  Icon(Icons.image_outlined, size: 32, color: Colors.grey[300]),
+                                  const SizedBox(height: 4),
+                                  Text('Banner sem imagem',
+                                      style: TextStyle(fontSize: 11, color: Colors.grey[400])),
+                                ],
+                              ),
+                            ),
+                    ),
+                    // Badge status canto superior esquerdo
+                    Positioned(
+                      top: 10, left: 10,
+                      child: Container(
+                        padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 5),
+                        decoration: BoxDecoration(
+                          color: _corStatus(status).withValues(alpha: 0.90),
+                          borderRadius: BorderRadius.circular(10),
+                        ),
+                        child: Row(
+                          mainAxisSize: MainAxisSize.min,
+                          children: [
+                            Icon(_iconeStatus(status), size: 11, color: Colors.white),
+                            const SizedBox(width: 4),
+                            Text(_rotuloStatus(status),
+                                style: const TextStyle(fontSize: 10, fontWeight: FontWeight.w700, color: Colors.white)),
+                          ],
+                        ),
+                      ),
+                    ),
+                    // Menu 3 pontos canto superior direito
+                    Positioned(
+                      top: 6, right: 6,
+                      child: PopupMenuButton<_AcaoBanner>(
+                        offset: const Offset(0, 4),
+                        shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
+                        elevation: 4,
+                        color: Colors.white,
+                        onSelected: (acao) {
+                          switch (acao) {
+                            case _AcaoBanner.editar:
+                              _mostrarModalBanner(bannerId: doc.id, dadosAtuais: d);
+                            case _AcaoBanner.toggleAtivo:
+                              _toggleAtivoBanner(doc.id, !ativo);
+                            case _AcaoBanner.deletar:
+                              _deletarBanner(doc.id, imageUrl);
+                          }
+                        },
+                        itemBuilder: (_) => [
+                          PopupMenuItem(
+                            value: _AcaoBanner.editar,
+                            child: Row(
+                              children: [
+                                Container(
+                                  width: 28, height: 28,
+                                  decoration: BoxDecoration(
+                                    color: const Color(0xFF6A1B9A).withValues(alpha: 0.08),
+                                    borderRadius: BorderRadius.circular(8),
+                                  ),
+                                  child: const Icon(Icons.edit_outlined, size: 15, color: Color(0xFF6A1B9A)),
+                                ),
+                                const SizedBox(width: 10),
+                                const Text('Editar', style: TextStyle(fontSize: 13, fontWeight: FontWeight.w600)),
+                              ],
+                            ),
+                          ),
+                          PopupMenuItem(
+                            value: _AcaoBanner.toggleAtivo,
+                            child: Row(
+                              children: [
+                                Container(
+                                  width: 28, height: 28,
+                                  decoration: BoxDecoration(
+                                    color: (ativo ? Colors.red : Colors.green).withValues(alpha: 0.10),
+                                    borderRadius: BorderRadius.circular(8),
+                                  ),
+                                  child: Icon(
+                                    ativo ? Icons.pause_rounded : Icons.play_arrow_rounded,
+                                    size: 15,
+                                    color: ativo ? Colors.red : Colors.green,
+                                  ),
+                                ),
+                                const SizedBox(width: 10),
+                                Text(
+                                  ativo ? 'Pausar' : 'Ativar',
+                                  style: TextStyle(fontSize: 13, fontWeight: FontWeight.w600,
+                                      color: ativo ? Colors.red : Colors.green),
+                                ),
+                              ],
+                            ),
+                          ),
+                          const PopupMenuDivider(),
+                          PopupMenuItem(
+                            value: _AcaoBanner.deletar,
+                            child: Row(
+                              children: [
+                                Container(
+                                  width: 28, height: 28,
+                                  decoration: BoxDecoration(
+                                    color: Colors.red.withValues(alpha: 0.10),
+                                    borderRadius: BorderRadius.circular(8),
+                                  ),
+                                  child: const Icon(Icons.delete_outline_rounded, size: 15, color: Colors.red),
+                                ),
+                                const SizedBox(width: 10),
+                                const Text('Deletar', style: TextStyle(fontSize: 13, fontWeight: FontWeight.w600, color: Colors.red)),
+                              ],
+                            ),
+                          ),
+                        ],
+                        child: Container(
+                          width: 32, height: 32,
+                          decoration: BoxDecoration(
+                            color: Colors.white.withValues(alpha: 0.92),
+                            borderRadius: BorderRadius.circular(8),
+                          ),
+                          child: Center(child: Icon(Icons.more_vert_rounded, size: 16, color: Colors.grey[600])),
+                        ),
+                      ),
+                    ),
+                  ],
+                ),
+              ),
+              // ===== CONTEÚDO =====
+              Padding(
+                padding: const EdgeInsets.fromLTRB(14, 10, 14, 14),
+                child: Column(
+                  mainAxisSize: MainAxisSize.min,
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    // Título
+                    Text(
+                      titulo,
+                      style: const TextStyle(fontSize: 14, fontWeight: FontWeight.w700, color: Color(0xFF1A1A2E)),
+                      maxLines: 1,
+                      overflow: TextOverflow.ellipsis,
+                    ),
+                    const SizedBox(height: 2),
+                    Text(
+                      'Banner · $subtipo',
+                      style: TextStyle(fontSize: 11, color: Colors.grey[500]),
+                      maxLines: 1,
+                      overflow: TextOverflow.ellipsis,
+                    ),
+                    const SizedBox(height: 6),
+                    // Chips
+                    Wrap(
+                      spacing: 6,
+                      runSpacing: 4,
+                      children: [
+                        _bannerChip(Icons.place_outlined, cidade, const Color(0xFF6A1B9A)),
+                        if (valor > 0)
+                          _bannerChip(Icons.attach_money_rounded, 'R\$ ${valor.toStringAsFixed(0)}/$tipo',
+                              const Color(0xFFFF8F00)),
+                      ],
+                    ),
+                    const SizedBox(height: 6),
+                    // Período
+                    Row(
+                      children: [
+                        Icon(Icons.date_range_rounded, size: 12, color: Colors.grey[400]),
+                        const SizedBox(width: 4),
+                        Expanded(
+                          child: Text('$dataInicio — $dataFim',
+                              style: TextStyle(fontSize: 10, color: Colors.grey[500]),
+                              maxLines: 1, overflow: TextOverflow.ellipsis),
+                        ),
+                      ],
+                    ),
+                    const SizedBox(height: 10),
+                    // Barra de progresso
+                    if (temDataFim && diasTotais > 1) ...[
+                      ClipRRect(
+                        borderRadius: BorderRadius.circular(4),
+                        child: LinearProgressIndicator(
+                          value: progresso,
+                          minHeight: 4,
+                          backgroundColor: Colors.grey.shade100,
+                          valueColor: AlwaysStoppedAnimation<Color>(
+                            status == 'expirado' ? Colors.red : const Color(0xFF6A1B9A),
+                          ),
+                        ),
+                      ),
+                      const SizedBox(height: 4),
+                    ],
+                    // Rodapé
+                    Row(
+                      children: [
+                        Icon(
+                          status == 'expirado'
+                              ? Icons.timer_off_rounded
+                              : status == 'pausado'
+                                  ? Icons.pause_rounded
+                                  : Icons.schedule_rounded,
+                          size: 12, color: corRodape,
+                        ),
+                        const SizedBox(width: 4),
+                        Expanded(
+                          child: Text(textoRodape,
+                              style: TextStyle(fontSize: 10, fontWeight: FontWeight.w700, color: corRodape),
+                              maxLines: 1, overflow: TextOverflow.ellipsis),
+                        ),
+                      ],
+                    ),
+                    const SizedBox(height: 10),
+                    // Botão
+                    SizedBox(
+                      height: 32,
+                      child: OutlinedButton(
+                        onPressed: () => _mostrarModalBanner(bannerId: doc.id, dadosAtuais: d),
+                        style: OutlinedButton.styleFrom(
+                          foregroundColor: const Color(0xFF6A1B9A),
+                          side: BorderSide(color: const Color(0xFF6A1B9A).withValues(alpha: 0.3)),
+                          padding: const EdgeInsets.symmetric(vertical: 0, horizontal: 12),
+                          shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(10)),
+                          textStyle: const TextStyle(fontSize: 11, fontWeight: FontWeight.w700),
+                        ),
+                        child: const Text('Editar'),
+                      ),
+                    ),
+                  ],
+                ),
+              ),
+            ],
+          ),
+        );
+  }
+
+  Widget _bannerChip(IconData icon, String text, Color cor) {
+    return Container(
+      padding: const EdgeInsets.symmetric(horizontal: 6, vertical: 3),
+      decoration: BoxDecoration(
+        color: cor.withValues(alpha: 0.06),
+        borderRadius: BorderRadius.circular(6),
       ),
       child: Row(
         mainAxisSize: MainAxisSize.min,
         children: [
-          Icon(icon, size: 14, color: accent),
-          const SizedBox(width: 6),
-          Flexible(
-            child: Text(
-              text,
-              maxLines: 2,
-              overflow: TextOverflow.ellipsis,
-              style: GoogleFonts.plusJakartaSans(
-                color: Colors.white,
-                fontWeight: FontWeight.w700,
-                fontSize: 11.5,
-                height: 1.2,
-              ),
-            ),
-          ),
+          Icon(icon, size: 10, color: cor),
+          const SizedBox(width: 3),
+          Text(text, style: TextStyle(fontSize: 10, fontWeight: FontWeight.w600, color: cor)),
         ],
       ),
     );
   }
 
-  Widget _emptyState() {
-    return Padding(
-      padding: const EdgeInsets.all(40),
-      child: Column(
-        mainAxisAlignment: MainAxisAlignment.center,
-        children: [
-          Container(
-            padding: const EdgeInsets.all(28),
+  Widget _buildListaBanners(List<QueryDocumentSnapshot> banners) {
+    final docs = _buildListaFiltrada(banners);
+    if (docs.isEmpty) {
+      return Center(
+        child: Column(
+          mainAxisSize: MainAxisSize.min,
+          children: [
+            Icon(Icons.search_off_rounded, size: 48, color: Colors.grey[300]),
+            const SizedBox(height: 8),
+            Text('Nenhum banner encontrado.', style: TextStyle(color: Colors.grey[500], fontSize: 14)),
+          ],
+        ),
+      );
+    }
+
+    return ListView.builder(
+      padding: const EdgeInsets.fromLTRB(32, 0, 32, 32),
+      itemCount: docs.length,
+      itemBuilder: (context, i) {
+        final doc = docs[i];
+        final d = doc.data()! as Map<String, dynamic>;
+        final imageUrl = d['url_imagem'] as String? ?? '';
+        final cidadeRaw = d['cidade']?.toString() ?? 'todas';
+        final cidade = cidadeRaw.toLowerCase() == 'todas' ? 'Todas as cidades' : cidadeRaw.toUpperCase();
+        final valor = (d['valor'] as num?)?.toDouble() ?? 0;
+        final tipo = _rotuloTipoCobranca(d['tipo_cobranca']?.toString());
+        final status = _statusBanner(d);
+        final dias = _diasRestantes(d);
+        final ativo = d['ativo'] != false;
+
+        return Padding(
+          padding: const EdgeInsets.only(bottom: 12),
+          child: Container(
+            height: 100,
             decoration: BoxDecoration(
-              color: PainelAdminTheme.roxo.withValues(alpha: 0.07),
-              shape: BoxShape.circle,
+              color: Colors.white,
+              borderRadius: BorderRadius.circular(14),
+              border: Border.all(
+                color: status == 'expirado'
+                    ? Colors.red.withValues(alpha: 0.2)
+                    : status == 'pausado'
+                        ? Colors.grey.withValues(alpha: 0.2)
+                        : Colors.grey.shade200),
+              boxShadow: [BoxShadow(color: Colors.black.withValues(alpha: 0.03), blurRadius: 6, offset: const Offset(0, 1))],
             ),
-            child: Icon(
-              Icons.view_carousel_outlined,
-              size: 56,
-              color: PainelAdminTheme.roxo.withValues(alpha: 0.65),
+            child: Row(
+              children: [
+                ClipRRect(
+                  borderRadius: const BorderRadius.only(topLeft: Radius.circular(14), bottomLeft: Radius.circular(14)),
+                  child: SizedBox(
+                    width: 100, height: 100,
+                    child: imageUrl.isNotEmpty
+                        ? Image.network(imageUrl, fit: BoxFit.cover,
+                            loadingBuilder: (_, child, progress) => progress == null
+                                ? child
+                                : Container(color: const Color(0xFFF1F5F9),
+                                    child: Center(child: SizedBox(width: 20, height: 20,
+                                      child: CircularProgressIndicator(strokeWidth: 2, color: Colors.grey[300])))),
+                            errorBuilder: (_, _, _) => Container(color: const Color(0xFFF1F5F9),
+                              child: Icon(Icons.broken_image_outlined, size: 28, color: Colors.grey[300])))
+                        : Container(color: const Color(0xFFF1F5F9),
+                            child: Icon(Icons.image_outlined, size: 28, color: Colors.grey[300])),
+                  ),
+                ),
+                const SizedBox(width: 14),
+                Expanded(
+                  child: Column(
+                    crossAxisAlignment: CrossAxisAlignment.start,
+                    mainAxisAlignment: MainAxisAlignment.center,
+                    children: [
+                      Text(cidade, style: const TextStyle(fontSize: 14, fontWeight: FontWeight.w700, color: Color(0xFF1A1A2E)),
+                          maxLines: 1, overflow: TextOverflow.ellipsis),
+                      const SizedBox(height: 2),
+                      Row(
+                        children: [
+                          _bannerChip(Icons.place_outlined, cidade, const Color(0xFF6A1B9A)),
+                          const SizedBox(width: 6),
+                          if (valor > 0)
+                            _bannerChip(Icons.attach_money_rounded, 'R\$ ${valor.toStringAsFixed(0)}/$tipo', const Color(0xFFFF8F00)),
+                        ],
+                      ),
+                    ],
+                  ),
+                ),
+                const SizedBox(width: 8),
+                Container(
+                  padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 5),
+                  decoration: BoxDecoration(
+                    color: _corStatus(status).withValues(alpha: 0.10),
+                    borderRadius: BorderRadius.circular(8),
+                    border: Border.all(color: _corStatus(status).withValues(alpha: 0.25)),
+                  ),
+                  child: Row(
+                    mainAxisSize: MainAxisSize.min,
+                    children: [
+                      Icon(_iconeStatus(status), size: 11, color: _corStatus(status)),
+                      const SizedBox(width: 3),
+                      Text('${_rotuloStatus(status)} · ${dias}d',
+                          style: TextStyle(fontSize: 10, fontWeight: FontWeight.w700, color: _corStatus(status))),
+                    ],
+                  ),
+                ),
+                const SizedBox(width: 8),
+                PopupMenuButton<_AcaoBanner>(
+                  offset: const Offset(0, 4),
+                  shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
+                  elevation: 4, color: Colors.white,
+                  onSelected: (acao) {
+                    switch (acao) {
+                      case _AcaoBanner.editar: _mostrarModalBanner(bannerId: doc.id, dadosAtuais: d);
+                      case _AcaoBanner.toggleAtivo: _toggleAtivoBanner(doc.id, !ativo);
+                      case _AcaoBanner.deletar: _deletarBanner(doc.id, imageUrl);
+                    }
+                  },
+                  itemBuilder: (_) => [
+                    PopupMenuItem(value: _AcaoBanner.editar, child: Row(children: [
+                      Container(width: 28, height: 28,
+                        decoration: BoxDecoration(color: const Color(0xFF6A1B9A).withValues(alpha: 0.08), borderRadius: BorderRadius.circular(8)),
+                        child: const Icon(Icons.edit_outlined, size: 15, color: Color(0xFF6A1B9A))),
+                      const SizedBox(width: 10), const Text('Editar', style: TextStyle(fontSize: 13, fontWeight: FontWeight.w600)),
+                    ])),
+                    PopupMenuItem(value: _AcaoBanner.toggleAtivo, child: Row(children: [
+                      Container(width: 28, height: 28,
+                        decoration: BoxDecoration(color: (ativo ? Colors.red : Colors.green).withValues(alpha: 0.10), borderRadius: BorderRadius.circular(8)),
+                        child: Icon(ativo ? Icons.pause_rounded : Icons.play_arrow_rounded, size: 15, color: ativo ? Colors.red : Colors.green)),
+                      const SizedBox(width: 10),
+                      Text(ativo ? 'Pausar' : 'Ativar', style: TextStyle(fontSize: 13, fontWeight: FontWeight.w600, color: ativo ? Colors.red : Colors.green)),
+                    ])),
+                    const PopupMenuDivider(),
+                    PopupMenuItem(value: _AcaoBanner.deletar, child: Row(children: [
+                      Container(width: 28, height: 28,
+                        decoration: BoxDecoration(color: Colors.red.withValues(alpha: 0.10), borderRadius: BorderRadius.circular(8)),
+                        child: const Icon(Icons.delete_outline_rounded, size: 15, color: Colors.red)),
+                      const SizedBox(width: 10), const Text('Deletar', style: TextStyle(fontSize: 13, fontWeight: FontWeight.w600, color: Colors.red)),
+                    ])),
+                  ],
+                  child: Container(
+                    width: 32, height: 32,
+                    decoration: BoxDecoration(
+                      color: Colors.white, borderRadius: BorderRadius.circular(8),
+                      border: Border.all(color: Colors.grey.shade200)),
+                    child: Center(child: Icon(Icons.more_vert_rounded, size: 16, color: Colors.grey[600])),
+                  ),
+                ),
+                const SizedBox(width: 8),
+              ],
             ),
           ),
-          const SizedBox(height: 24),
-          Text(
-            'Nenhum banner na vitrine',
-            textAlign: TextAlign.center,
-            style: GoogleFonts.plusJakartaSans(
-              fontSize: 20,
-              fontWeight: FontWeight.w800,
-              color: PainelAdminTheme.dashboardInk,
+        );
+      },
+    );
+  }
+
+  Future<void> _toggleAtivoBanner(String docId, bool novoAtivo) async {
+    await FirebaseFirestore.instance.collection('banners').doc(docId).update({
+      'ativo': novoAtivo,
+      'data_atualizacao': FieldValue.serverTimestamp(),
+    });
+    if (mounted) {
+      mostrarSnackPainel(context, mensagem: novoAtivo ? 'Banner ativado!' : 'Banner pausado.');
+    }
+  }
+
+  Widget _emptyState() {
+    return Center(
+      child: Padding(
+        padding: const EdgeInsets.all(40),
+        child: Container(
+          constraints: const BoxConstraints(maxWidth: 420),
+          decoration: BoxDecoration(
+            color: Colors.white,
+            borderRadius: BorderRadius.circular(20),
+            border: Border.all(color: Colors.grey.shade200),
+            boxShadow: [BoxShadow(color: Colors.black.withValues(alpha: 0.04), blurRadius: 12, offset: const Offset(0, 4))],
+          ),
+          child: Padding(
+            padding: const EdgeInsets.symmetric(vertical: 48, horizontal: 32),
+            child: Column(
+              mainAxisSize: MainAxisSize.min,
+              children: [
+                Container(
+                  padding: const EdgeInsets.all(24),
+                  decoration: BoxDecoration(
+                    color: const Color(0xFF6A1B9A).withValues(alpha: 0.06),
+                    shape: BoxShape.circle,
+                  ),
+                  child: Icon(Icons.view_carousel_outlined, size: 48, color: const Color(0xFF6A1B9A).withValues(alpha: 0.6)),
+                ),
+                const SizedBox(height: 20),
+                const Text(
+                  'Nenhum banner cadastrado',
+                  textAlign: TextAlign.center,
+                  style: TextStyle(fontSize: 18, fontWeight: FontWeight.w800, color: Color(0xFF1A1A2E)),
+                ),
+                const SizedBox(height: 8),
+                Text(
+                  'Crie seu primeiro banner para começar a divulgar no app.',
+                  textAlign: TextAlign.center,
+                  style: TextStyle(fontSize: 13, height: 1.4, color: Colors.grey[500]),
+                ),
+                const SizedBox(height: 24),
+                FilledButton.icon(
+                  onPressed: () => _mostrarModalBanner(),
+                  icon: const Icon(Icons.add_rounded, size: 18),
+                  label: const Text('Criar banner', style: TextStyle(fontWeight: FontWeight.w700)),
+                  style: FilledButton.styleFrom(
+                    backgroundColor: const Color(0xFFFF8F00),
+                    foregroundColor: Colors.white,
+                    padding: const EdgeInsets.symmetric(horizontal: 24, vertical: 14),
+                    shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
+                  ),
+                ),
+              ],
             ),
           ),
-          const SizedBox(height: 10),
-          Text(
-            'Publique o primeiro banner para aparecer no carrossel do app.',
-            textAlign: TextAlign.center,
-            style: GoogleFonts.plusJakartaSans(
-              fontSize: 14,
-              height: 1.45,
-              color: PainelAdminTheme.textoSecundario,
-            ),
-          ),
-          const SizedBox(height: 28),
-          FilledButton.icon(
-            onPressed: () => _mostrarModalBanner(),
-            icon: const Icon(Icons.add_rounded),
-            label: Text(
-              'Criar primeiro banner',
-              style: GoogleFonts.plusJakartaSans(fontWeight: FontWeight.w800),
-            ),
-            style: FilledButton.styleFrom(
-              backgroundColor: PainelAdminTheme.laranja,
-              foregroundColor: Colors.white,
-              padding: const EdgeInsets.symmetric(horizontal: 24, vertical: 14),
-              shape: RoundedRectangleBorder(
-                borderRadius: BorderRadius.circular(12),
-              ),
-            ),
-          ),
-        ],
+        ),
       ),
     );
   }
 }
+
+enum _AcaoBanner { editar, toggleAtivo, deletar }

@@ -8,11 +8,14 @@ import 'package:provider/provider.dart';
 import 'package:share_plus/share_plus.dart';
 import 'package:depertin_cliente/widgets/loja_rating_row.dart';
 import 'package:depertin_cliente/widgets/compartilhar_produto_sheet.dart';
+import 'package:depertin_cliente/screens/auth/login_screen.dart';
+import 'package:firebase_auth/firebase_auth.dart';
 import '../../providers/cart_provider.dart';
 import '../../models/cart_item_model.dart';
 import '../../utils/loja_pausa.dart';
 import '../../widgets/botao_carrinho_app_bar.dart';
 import '../../widgets/dipertin_safe_bottom_panel.dart';
+import '../../services/favoritos_service.dart';
 import 'loja_perfil_screen.dart';
 import 'product_galeria_ampliada.dart';
 
@@ -50,13 +53,87 @@ class _ProductDetailsScreenState extends State<ProductDetailsScreen> {
     decimalDigits: 2,
   );
 
+  // Favoritos
+  bool _isFavorito = false;
+  bool _carregandoFavorito = true;
+
   @override
   void initState() {
     super.initState();
     _carregarDadosLojista();
+    _carregarEstadoFavorito();
     WidgetsBinding.instance.addPostFrameCallback((_) {
       if (mounted) setState(() => _entradaAnimada = true);
     });
+  }
+
+  Future<void> _carregarEstadoFavorito() async {
+    final user = FirebaseAuth.instance.currentUser;
+    if (user == null) {
+      if (mounted) setState(() => _carregandoFavorito = false);
+      return;
+    }
+    final produtoId = (widget.produto['id_documento'] ?? '').toString().trim();
+    if (produtoId.isEmpty) {
+      if (mounted) setState(() => _carregandoFavorito = false);
+      return;
+    }
+    final fav = await FavoritosService.instance.isFavorito(user.uid, produtoId);
+    if (mounted) setState(() {
+      _isFavorito = fav;
+      _carregandoFavorito = false;
+    });
+  }
+
+  Future<void> _toggleFavorito() async {
+    final user = FirebaseAuth.instance.currentUser;
+    if (user == null) {
+      _mostrarDialogoLogin();
+      return;
+    }
+    final produtoId = (widget.produto['id_documento'] ?? '').toString().trim();
+    if (produtoId.isEmpty) return;
+
+    setState(() => _carregandoFavorito = true);
+    final novoEstado = await FavoritosService.instance.toggle(
+      user.uid,
+      produtoId,
+      widget.produto,
+    );
+    if (mounted) setState(() {
+      _isFavorito = novoEstado;
+      _carregandoFavorito = false;
+    });
+  }
+
+  void _mostrarDialogoLogin() {
+    showDialog(
+      context: context,
+      builder: (ctx) => AlertDialog(
+        shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(18)),
+        title: const Text('Favoritar produto'),
+        content: const Text('Faça login para salvar produtos nos favoritos.'),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.pop(ctx),
+            child: const Text('Cancelar'),
+          ),
+          FilledButton(
+            style: FilledButton.styleFrom(backgroundColor: diPertinRoxo),
+            onPressed: () {
+              Navigator.pop(ctx);
+              Navigator.push(
+                context,
+                MaterialPageRoute(
+                  builder: (_) => const LoginScreen(),
+                ),
+              );
+            },
+            child: const Text('Fazer login'),
+          ),
+        ],
+      ),
+    );
   }
 
   BoxDecoration _decorCartaoPro({bool destacado = false}) {
@@ -385,6 +462,34 @@ class _ProductDetailsScreenState extends State<ProductDetailsScreen> {
             backgroundColor: diPertinRoxo,
             iconTheme: const IconThemeData(color: Colors.white),
             actions: [
+              // Botão favoritar
+              StreamBuilder<User?>(
+                stream: FirebaseAuth.instance.authStateChanges(),
+                builder: (context, authSnap) {
+                  return IconButton(
+                    tooltip: _isFavorito ? 'Remover dos favoritos' : 'Favoritar',
+                    style: IconButton.styleFrom(
+                      foregroundColor: Colors.white,
+                      backgroundColor: Colors.black.withValues(alpha: 0.35),
+                    ),
+                    icon: _carregandoFavorito
+                        ? const SizedBox(
+                            width: 20,
+                            height: 20,
+                            child: CircularProgressIndicator(
+                              strokeWidth: 2,
+                              color: Colors.white,
+                            ),
+                          )
+                        : Icon(
+                            _isFavorito
+                                ? Icons.favorite_rounded
+                                : Icons.favorite_border_rounded,
+                          ),
+                    onPressed: _toggleFavorito,
+                  );
+                },
+              ),
               IconButton(
                 tooltip: 'Compartilhar produto',
                 style: IconButton.styleFrom(

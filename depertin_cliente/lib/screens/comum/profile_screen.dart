@@ -30,6 +30,7 @@ import 'package:depertin_cliente/utils/safe_area_insets.dart';
 import '../auth/login_screen.dart';
 import '../cliente/orders_screen.dart';
 import '../cliente/cliente_encomendas_list_screen.dart';
+import '../cliente/meus_favoritos_screen.dart';
 import '../entregador/entregador_form_screen.dart';
 import '../entregador/entregador_painel_bloqueado_screen.dart';
 import '../lojista/lojista_dashboard_screen.dart';
@@ -880,6 +881,20 @@ class _ProfileScreenState extends State<ProfileScreen> {
           onTap: () => Navigator.push(
             context,
             MaterialPageRoute(builder: (context) => const OrdersScreen()),
+          ),
+        ),
+      );
+      itens.add(
+        _buildMenuItem(
+          icon: Icons.favorite_rounded,
+          color: const Color(0xFFE91E63),
+          title: 'Meus favoritos',
+          subtitle: 'Produtos salvos por você',
+          onTap: () => Navigator.push(
+            context,
+            MaterialPageRoute(
+              builder: (context) => const MeusFavoritosScreen(),
+            ),
           ),
         ),
       );

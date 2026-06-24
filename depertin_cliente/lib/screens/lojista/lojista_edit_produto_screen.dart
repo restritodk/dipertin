@@ -25,6 +25,7 @@ class _LojistaEditProdutoScreenState extends State<LojistaEditProdutoScreen> {
   late TextEditingController _ofertaController;
 
   bool _isSaving = false;
+  bool _isOfertaEspecial = false;
 
   @override
   void initState() {
@@ -40,6 +41,7 @@ class _LojistaEditProdutoScreenState extends State<LojistaEditProdutoScreen> {
     _ofertaController = TextEditingController(
       text: widget.produto['oferta']?.toString() ?? '',
     );
+    _isOfertaEspecial = widget.produto['is_oferta_especial'] == true;
   }
 
   @override
@@ -73,6 +75,7 @@ class _LojistaEditProdutoScreenState extends State<LojistaEditProdutoScreen> {
             'descricao': _descricaoController.text.trim(),
             'preco': preco,
             'oferta': oferta,
+            'is_oferta_especial': _isOfertaEspecial,
           });
 
       if (mounted) {
@@ -197,7 +200,22 @@ class _LojistaEditProdutoScreenState extends State<LojistaEditProdutoScreen> {
                         ),
                       ],
                     ),
-                    const SizedBox(height: 30),
+                    const SizedBox(height: 16),
+                    SwitchListTile(
+                      contentPadding: EdgeInsets.zero,
+                      title: const Text(
+                        'Oferta especial',
+                        style: TextStyle(fontWeight: FontWeight.w600),
+                      ),
+                      subtitle: Text(
+                        'Ativo = aparece na seção "Ofertas especiais" da vitrine',
+                        style: TextStyle(fontSize: 12, color: Colors.grey.shade600),
+                      ),
+                      value: _isOfertaEspecial,
+                      activeThumbColor: diPertinRoxo,
+                      onChanged: (v) => setState(() => _isOfertaEspecial = v),
+                    ),
+                    const SizedBox(height: 20),
 
                     // Botão SALVAR
                     ElevatedButton.icon(

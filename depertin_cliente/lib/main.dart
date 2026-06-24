@@ -46,6 +46,7 @@ import 'services/audit_log_app_service.dart';
 import 'package:url_launcher/url_launcher.dart';
 import 'screens/guards/app_guard.dart';
 import 'screens/cliente/vitrine_screen.dart';
+import 'screens/cliente/todas_categorias_screen.dart';
 import 'screens/cliente/meus_enderecos_screen.dart';
 import 'screens/cliente/search_screen.dart';
 import 'screens/comum/profile_screen.dart';
@@ -328,6 +329,7 @@ class _DiPertinAppState extends State<DiPertinApp> with WidgetsBindingObserver {
         // formulário/aviso de bloqueio conforme o documento do usuário.
         '/lojista-painel': (context) => const LojistaPainelRoteador(),
         '/entregador-cadastro': (context) => const EntregadorFormScreen(),
+        '/todas-categorias': (context) => const TodasCategoriasScreen(),
       },
     );
   }

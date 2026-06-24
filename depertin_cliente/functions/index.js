@@ -239,7 +239,31 @@ exports.processarEntregaConcluida = functions.firestore
             }
         }
 
-        // 3. Notificar lojista: "Pedido entregue"
+        // 3. Incrementar total_vendas em cada produto do pedido
+        const itens = depois.itens || [];
+        if (Array.isArray(itens) && itens.length > 0) {
+            const batch = db.batch();
+            let count = 0;
+            for (const item of itens) {
+                const prodId = String(item.id_produto || item.produto_id || "").trim();
+                if (!prodId) continue;
+                const qtd = Number.isFinite(Number(item.quantidade)) ? Math.max(1, Math.floor(Number(item.quantidade))) : 1;
+                batch.update(db.collection("produtos").doc(prodId), {
+                    total_vendas: admin.firestore.FieldValue.increment(qtd),
+                });
+                count++;
+            }
+            if (count > 0) {
+                try {
+                    await batch.commit();
+                    console.log(`[entrega] total_vendas atualizado para ${count} produtos do pedido ${pedidoId}`);
+                } catch (e) {
+                    console.error(`[entrega] Erro ao atualizar total_vendas pedido=${pedidoId}: ${e.message}`);
+                }
+            }
+        }
+
+        // 4. Notificar lojista: "Pedido entregue"
         if (lojaId) {
             try {
                 await notificationDispatcher.enviarPedidoEntregueParaLoja(db, lojaId, pedidoId, depois);
