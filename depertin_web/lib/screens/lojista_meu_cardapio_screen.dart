@@ -83,6 +83,11 @@ class _LojistaMeuCardapioScreenState extends State<LojistaMeuCardapioScreen> {
       text: d['estoque_qtd'] != null ? '${d['estoque_qtd']}' : '0',
     );
     final imgC = TextEditingController(text: _primeiraImagem(d['imagens']));
+    final ncmC =
+        TextEditingController(text: d['ncm']?.toString() ?? '');
+    final cstC = TextEditingController(
+      text: (d['cst_icms'] ?? d['csosn'] ?? '400').toString(),
+    );
     var ativo = d['ativo'] != false;
     var salvando = false;
     var tipo = (d['tipo_venda'] ?? 'pronta_entrega').toString();
@@ -506,6 +511,42 @@ class _LojistaMeuCardapioScreenState extends State<LojistaMeuCardapioScreen> {
                             ],
                           ),
                         ),
+                        const SizedBox(height: 20),
+                        _secForm('Informações fiscais (NF-e)'),
+                        const SizedBox(height: 10),
+                        Row(
+                          crossAxisAlignment: CrossAxisAlignment.start,
+                          children: [
+                            Expanded(
+                              child: TextField(
+                                controller: ncmC,
+                                decoration: _dec('NCM (8 dígitos)').copyWith(
+                                  helperText: 'Ex.: 64041900',
+                                ),
+                                keyboardType: TextInputType.number,
+                                inputFormatters: [
+                                  FilteringTextInputFormatter.digitsOnly,
+                                  LengthLimitingTextInputFormatter(8),
+                                ],
+                              ),
+                            ),
+                            const SizedBox(width: 12),
+                            Expanded(
+                              child: TextField(
+                                controller: cstC,
+                                decoration:
+                                    _dec('CST ICMS / CSOSN').copyWith(
+                                  helperText: 'Ex.: 400 (SN) ou 000',
+                                ),
+                                keyboardType: TextInputType.number,
+                                inputFormatters: [
+                                  FilteringTextInputFormatter.digitsOnly,
+                                  LengthLimitingTextInputFormatter(4),
+                                ],
+                              ),
+                            ),
+                          ],
+                        ),
                       ],
                     ),
                   ),
@@ -564,6 +605,10 @@ class _LojistaMeuCardapioScreenState extends State<LojistaMeuCardapioScreen> {
                                     'loja_id': uidLoja,
                                     'requer_veiculo_grande':
                                         requerVeiculoGrande,
+                                    'ncm': ncmC.text.trim(),
+                                    'cst_icms': cstC.text.trim().isNotEmpty
+                                        ? cstC.text.trim()
+                                        : '400',
                                     'updated_at': FieldValue.serverTimestamp(),
                                   };
                                   if (!isEdit) {

@@ -9,14 +9,17 @@ class CidadeSugestao {
   final String nome;
   final String ufSigla;
   final String ufNome;
+  final String codigoIbge;
 
   const CidadeSugestao({
     required this.nome,
     required this.ufSigla,
     required this.ufNome,
+    this.codigoIbge = '',
   });
 
   String get labelLinha => '$nome — $ufNome';
+  String get labelComCodigo => '$nome/$ufSigla (IBGE: $codigoIbge)';
 }
 
 Map<String, dynamic>? _ufDoJson(Map<String, dynamic> m) {
@@ -43,7 +46,12 @@ List<CidadeSugestao> _parseMunicipiosJson(String body) {
     final ufNome = ufMap['nome']?.toString().trim() ?? '';
     if (sigla.isEmpty) continue;
     out.add(
-      CidadeSugestao(nome: nome, ufSigla: sigla.toUpperCase(), ufNome: ufNome),
+      CidadeSugestao(
+        nome: nome,
+        ufSigla: sigla.toUpperCase(),
+        ufNome: ufNome,
+        codigoIbge: m['id']?.toString() ?? '',
+      ),
     );
   }
   return out;

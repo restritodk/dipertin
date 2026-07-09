@@ -1,0 +1,17 @@
+{
+    "payment_id": 166622371080,
+    "external_reference": "test_audit_gc_1782906312711_qkys",
+    "created_at": "2026-07-01T11:45:14.165Z",
+    "expires_at": "2026-07-01T11:50:12.711Z",
+    "status": "pending",
+    "status_detail": "pending_waiting_transfer",
+    "qr_code": "00020126360014br.gov.bcb.pix01146604099800016652040000530398654040.105802BR5914EBFDCAEGH205356009Sao Paulo62250521mpqrinter1666223710806304EDCD",
+    "qr_code_base64_length": 3152,
+    "raw_response_summary": {
+        "id": 166622371080,
+        "status": "pending",
+        "status_detail": "pending_waiting_transfer",
+        "date_of_expiration": "2026-07-01T07:50:12.711-04:00",
+        "external_reference": "test_audit_gc_1782906312711_qkys"
+    }
+}

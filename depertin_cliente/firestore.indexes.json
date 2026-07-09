@@ -1,27 +1,104 @@
 {
   "indexes": [
     {
+      "collectionGroup": "achados",
+      "queryScope": "COLLECTION",
+      "fields": [
+        { "fieldPath": "ativo", "order": "ASCENDING" },
+        { "fieldPath": "resolvido", "order": "ASCENDING" },
+        { "fieldPath": "data_criacao", "order": "DESCENDING" },
+        { "fieldPath": "__name__", "order": "DESCENDING" }
+      ]
+    },
+    {
       "collectionGroup": "avaliacoes_produto",
       "queryScope": "COLLECTION",
       "fields": [
         { "fieldPath": "produto_id", "order": "ASCENDING" },
-        { "fieldPath": "data", "order": "DESCENDING" }
+        { "fieldPath": "data", "order": "DESCENDING" },
+        { "fieldPath": "__name__", "order": "DESCENDING" }
       ]
     },
     {
-      "collectionGroup": "marketing_leads_lojistas",
+      "collectionGroup": "cupons",
       "queryScope": "COLLECTION",
       "fields": [
-        { "fieldPath": "status", "order": "ASCENDING" },
-        { "fieldPath": "atualizado_em", "order": "DESCENDING" }
+        { "fieldPath": "loja_id", "order": "ASCENDING" },
+        { "fieldPath": "codigo", "order": "ASCENDING" },
+        { "fieldPath": "__name__", "order": "ASCENDING" }
       ]
     },
     {
-      "collectionGroup": "marketing_leads_lojistas",
+      "collectionGroup": "cupons",
+      "queryScope": "COLLECTION",
+      "fields": [
+        { "fieldPath": "loja_id", "order": "ASCENDING" },
+        { "fieldPath": "escopo", "order": "ASCENDING" },
+        { "fieldPath": "__name__", "order": "ASCENDING" }
+      ]
+    },
+    {
+      "collectionGroup": "cupons",
+      "queryScope": "COLLECTION",
+      "fields": [
+        { "fieldPath": "loja_id", "order": "ASCENDING" },
+        { "fieldPath": "escopo", "order": "ASCENDING" },
+        { "fieldPath": "codigo", "order": "ASCENDING" },
+        { "fieldPath": "__name__", "order": "ASCENDING" }
+      ]
+    },
+    {
+      "collectionGroup": "encomendas",
+      "queryScope": "COLLECTION",
+      "fields": [
+        { "fieldPath": "cliente_id", "order": "ASCENDING" },
+        { "fieldPath": "atualizado_em", "order": "DESCENDING" },
+        { "fieldPath": "__name__", "order": "DESCENDING" }
+      ]
+    },
+    {
+      "collectionGroup": "encomendas",
+      "queryScope": "COLLECTION",
+      "fields": [
+        { "fieldPath": "loja_id", "order": "ASCENDING" },
+        { "fieldPath": "atualizado_em", "order": "DESCENDING" },
+        { "fieldPath": "__name__", "order": "DESCENDING" }
+      ]
+    },
+    {
+      "collectionGroup": "encomendas",
+      "queryScope": "COLLECTION",
+      "fields": [
+        { "fieldPath": "lojista_id", "order": "ASCENDING" },
+        { "fieldPath": "atualizado_em", "order": "DESCENDING" },
+        { "fieldPath": "__name__", "order": "DESCENDING" }
+      ]
+    },
+    {
+      "collectionGroup": "eventos",
+      "queryScope": "COLLECTION",
+      "fields": [
+        { "fieldPath": "ativo", "order": "ASCENDING" },
+        { "fieldPath": "data_criacao", "order": "DESCENDING" },
+        { "fieldPath": "__name__", "order": "DESCENDING" }
+      ]
+    },
+    {
+      "collectionGroup": "gestao_comercial_recebimentos",
+      "queryScope": "COLLECTION",
+      "fields": [
+        { "fieldPath": "loja_id", "order": "ASCENDING" },
+        { "fieldPath": "data_recebimento", "order": "DESCENDING" },
+        { "fieldPath": "__name__", "order": "DESCENDING" }
+      ]
+    },
+    {
+      "collectionGroup": "marketing_leads_entregadores",
       "queryScope": "COLLECTION",
       "fields": [
         { "fieldPath": "cidade", "order": "ASCENDING" },
-        { "fieldPath": "atualizado_em", "order": "DESCENDING" }
+        { "fieldPath": "atualizado_em", "order": "DESCENDING" },
+        { "fieldPath": "__name__", "order": "DESCENDING" }
       ]
     },
     {
@@ -29,15 +106,128 @@
       "queryScope": "COLLECTION",
       "fields": [
         { "fieldPath": "status", "order": "ASCENDING" },
-        { "fieldPath": "atualizado_em", "order": "DESCENDING" }
+        { "fieldPath": "atualizado_em", "order": "DESCENDING" },
+        { "fieldPath": "__name__", "order": "DESCENDING" }
       ]
     },
     {
-      "collectionGroup": "marketing_leads_entregadores",
+      "collectionGroup": "marketing_leads_lojistas",
       "queryScope": "COLLECTION",
       "fields": [
         { "fieldPath": "cidade", "order": "ASCENDING" },
-        { "fieldPath": "atualizado_em", "order": "DESCENDING" }
+        { "fieldPath": "atualizado_em", "order": "DESCENDING" },
+        { "fieldPath": "__name__", "order": "DESCENDING" }
+      ]
+    },
+    {
+      "collectionGroup": "marketing_leads_lojistas",
+      "queryScope": "COLLECTION",
+      "fields": [
+        { "fieldPath": "status", "order": "ASCENDING" },
+        { "fieldPath": "atualizado_em", "order": "DESCENDING" },
+        { "fieldPath": "__name__", "order": "DESCENDING" }
+      ]
+    },
+    {
+      "collectionGroup": "parcelas_cliente",
+      "queryScope": "COLLECTION",
+      "fields": [
+        { "fieldPath": "cliente_id", "order": "ASCENDING" },
+        { "fieldPath": "data_vencimento", "order": "ASCENDING" },
+        { "fieldPath": "__name__", "order": "ASCENDING" }
+      ]
+    },
+    {
+      "collectionGroup": "parcelas_cliente",
+      "queryScope": "COLLECTION",
+      "fields": [
+        { "fieldPath": "cliente_id", "order": "ASCENDING" },
+        { "fieldPath": "status", "order": "ASCENDING" }
+      ]
+    },
+    {
+      "collectionGroup": "password_reset_tokens",
+      "queryScope": "COLLECTION",
+      "fields": [
+        { "fieldPath": "email", "order": "ASCENDING" },
+        { "fieldPath": "status", "order": "ASCENDING" },
+        { "fieldPath": "created_at", "order": "DESCENDING" },
+        { "fieldPath": "__name__", "order": "DESCENDING" }
+      ]
+    },
+    {
+      "collectionGroup": "password_reset_tokens",
+      "queryScope": "COLLECTION",
+      "fields": [
+        { "fieldPath": "user_id", "order": "ASCENDING" },
+        { "fieldPath": "status", "order": "ASCENDING" },
+        { "fieldPath": "__name__", "order": "ASCENDING" }
+      ]
+    },
+    {
+      "collectionGroup": "pedidos",
+      "queryScope": "COLLECTION",
+      "fields": [
+        { "fieldPath": "cliente_id", "order": "ASCENDING" },
+        { "fieldPath": "criado_em", "order": "DESCENDING" },
+        { "fieldPath": "__name__", "order": "DESCENDING" }
+      ]
+    },
+    {
+      "collectionGroup": "pedidos",
+      "queryScope": "COLLECTION",
+      "fields": [
+        { "fieldPath": "entregador_id", "order": "ASCENDING" },
+        { "fieldPath": "entregador_credito_cancelamento_feito", "order": "ASCENDING" },
+        { "fieldPath": "entregador_credito_cancelamento_em", "order": "DESCENDING" },
+        { "fieldPath": "__name__", "order": "DESCENDING" }
+      ]
+    },
+    {
+      "collectionGroup": "pedidos",
+      "queryScope": "COLLECTION",
+      "fields": [
+        { "fieldPath": "entregador_id", "order": "ASCENDING" },
+        { "fieldPath": "status", "order": "ASCENDING" },
+        { "fieldPath": "__name__", "order": "ASCENDING" }
+      ]
+    },
+    {
+      "collectionGroup": "pedidos",
+      "queryScope": "COLLECTION",
+      "fields": [
+        { "fieldPath": "loja_id", "order": "ASCENDING" },
+        { "fieldPath": "cliente_id", "order": "ASCENDING" },
+        { "fieldPath": "data_pedido", "order": "DESCENDING" },
+        { "fieldPath": "__name__", "order": "DESCENDING" }
+      ]
+    },
+    {
+      "collectionGroup": "pedidos",
+      "queryScope": "COLLECTION",
+      "fields": [
+        { "fieldPath": "loja_id", "order": "ASCENDING" },
+        { "fieldPath": "data_pedido", "order": "ASCENDING" },
+        { "fieldPath": "__name__", "order": "ASCENDING" }
+      ]
+    },
+    {
+      "collectionGroup": "pedidos",
+      "queryScope": "COLLECTION",
+      "fields": [
+        { "fieldPath": "loja_id", "order": "ASCENDING" },
+        { "fieldPath": "data_pedido", "order": "DESCENDING" },
+        { "fieldPath": "__name__", "order": "DESCENDING" }
+      ]
+    },
+    {
+      "collectionGroup": "pedidos",
+      "queryScope": "COLLECTION",
+      "fields": [
+        { "fieldPath": "loja_id", "order": "ASCENDING" },
+        { "fieldPath": "status", "order": "ASCENDING" },
+        { "fieldPath": "data_pedido", "order": "ASCENDING" },
+        { "fieldPath": "__name__", "order": "ASCENDING" }
       ]
     },
     {
@@ -47,73 +237,44 @@
         { "fieldPath": "loja_id", "order": "ASCENDING" },
         { "fieldPath": "status", "order": "ASCENDING" },
         { "fieldPath": "origem", "order": "ASCENDING" },
-        { "fieldPath": "data_pedido", "order": "ASCENDING" }
+        { "fieldPath": "data_pedido", "order": "ASCENDING" },
+        { "fieldPath": "__name__", "order": "ASCENDING" }
       ]
     },
     {
       "collectionGroup": "pedidos",
       "queryScope": "COLLECTION",
       "fields": [
-        { "fieldPath": "loja_id", "order": "ASCENDING" },
-        { "fieldPath": "data_pedido", "order": "ASCENDING" }
-      ]
-    },
-    {
-      "collectionGroup": "pedidos",
-      "queryScope": "COLLECTION",
-      "fields": [
-        { "fieldPath": "loja_id", "order": "ASCENDING" },
         { "fieldPath": "status", "order": "ASCENDING" },
-        { "fieldPath": "data_pedido", "order": "ASCENDING" }
-      ]
-    },
-    {
-      "collectionGroup": "parcelas_cliente",
-      "queryScope": "COLLECTION",
-      "fields": [
-        { "fieldPath": "cliente_id", "order": "ASCENDING" },
-        { "fieldPath": "data_vencimento", "order": "ASCENDING" }
-      ]
-    },
-    {
-      "collectionGroup": "parcelas_cliente",
-      "queryScope": "COLLECTION",
-      "fields": [
-        { "fieldPath": "venda_credito_id", "order": "ASCENDING" }
+        { "fieldPath": "despacho_oferta_uid", "order": "ASCENDING" },
+        { "fieldPath": "__name__", "order": "ASCENDING" }
       ]
     },
     {
       "collectionGroup": "pedidos",
       "queryScope": "COLLECTION",
       "fields": [
-        { "fieldPath": "loja_id", "order": "ASCENDING" },
-        { "fieldPath": "cliente_id", "order": "ASCENDING" },
-        { "fieldPath": "data_pedido", "order": "DESCENDING" }
+        { "fieldPath": "status", "order": "ASCENDING" },
+        { "fieldPath": "pix_expira_em", "order": "ASCENDING" },
+        { "fieldPath": "__name__", "order": "ASCENDING" }
       ]
     },
     {
-      "collectionGroup": "achados",
+      "collectionGroup": "pedidos",
       "queryScope": "COLLECTION",
       "fields": [
-        { "fieldPath": "ativo", "order": "ASCENDING" },
-        { "fieldPath": "resolvido", "order": "ASCENDING" },
-        { "fieldPath": "data_criacao", "order": "DESCENDING" }
+        { "fieldPath": "status", "order": "ASCENDING" },
+        { "fieldPath": "updated_at", "order": "DESCENDING" },
+        { "fieldPath": "__name__", "order": "DESCENDING" }
       ]
     },
     {
-      "collectionGroup": "vagas",
+      "collectionGroup": "produtos",
       "queryScope": "COLLECTION",
       "fields": [
         { "fieldPath": "ativo", "order": "ASCENDING" },
-        { "fieldPath": "data_criacao", "order": "DESCENDING" }
-      ]
-    },
-    {
-      "collectionGroup": "eventos",
-      "queryScope": "COLLECTION",
-      "fields": [
-        { "fieldPath": "ativo", "order": "ASCENDING" },
-        { "fieldPath": "data_criacao", "order": "DESCENDING" }
+        { "fieldPath": "lojista_id", "order": "ASCENDING" },
+        { "fieldPath": "__name__", "order": "ASCENDING" }
       ]
     },
     {
@@ -121,69 +282,46 @@
       "queryScope": "COLLECTION",
       "fields": [
         { "fieldPath": "lojista_id", "order": "ASCENDING" },
-        { "fieldPath": "ativo", "order": "ASCENDING" }
-      ]
-    },
-    {
-      "collectionGroup": "cupons",
-      "queryScope": "COLLECTION",
-      "fields": [
-        { "fieldPath": "loja_id", "order": "ASCENDING" },
-        { "fieldPath": "escopo", "order": "ASCENDING" }
-      ]
-    },
-    {
-      "collectionGroup": "cupons",
-      "queryScope": "COLLECTION",
-      "fields": [
-        { "fieldPath": "loja_id", "order": "ASCENDING" },
-        { "fieldPath": "escopo", "order": "ASCENDING" },
-        { "fieldPath": "codigo", "order": "ASCENDING" }
-      ]
-    },
-    {
-      "collectionGroup": "produtos",
-      "queryScope": "COLLECTION",
-      "fields": [
         { "fieldPath": "ativo", "order": "ASCENDING" },
-        { "fieldPath": "lojista_id", "order": "ASCENDING" }
+        { "fieldPath": "__name__", "order": "ASCENDING" }
       ]
     },
     {
-      "collectionGroup": "pedidos",
+      "collectionGroup": "support_ratings",
       "queryScope": "COLLECTION",
       "fields": [
-        { "fieldPath": "entregador_id", "order": "ASCENDING" },
-        { "fieldPath": "status", "order": "ASCENDING" }
+        { "fieldPath": "ticket_id", "order": "ASCENDING" },
+        { "fieldPath": "user_id", "order": "ASCENDING" }
       ]
     },
     {
-      "collectionGroup": "pedidos",
-      "queryScope": "COLLECTION",
-      "fields": [
-        { "fieldPath": "entregador_id", "order": "ASCENDING" },
-        { "fieldPath": "entregador_credito_cancelamento_feito", "order": "ASCENDING" },
-        { "fieldPath": "entregador_credito_cancelamento_em", "order": "DESCENDING" }
-      ]
-    },
-    {
-      "collectionGroup": "pedidos",
+      "collectionGroup": "support_tickets",
       "queryScope": "COLLECTION",
       "fields": [
         { "fieldPath": "status", "order": "ASCENDING" },
-        { "fieldPath": "pix_expira_em", "order": "ASCENDING" }
+        { "fieldPath": "cidade", "order": "ASCENDING" },
+        { "fieldPath": "created_at", "order": "ASCENDING" }
       ]
     },
     {
-      "collectionGroup": "pedidos",
+      "collectionGroup": "support_tickets",
       "queryScope": "COLLECTION",
       "fields": [
         { "fieldPath": "status", "order": "ASCENDING" },
-        { "fieldPath": "despacho_oferta_uid", "order": "ASCENDING" }
+        { "fieldPath": "cidade", "order": "ASCENDING" },
+        { "fieldPath": "updated_at", "order": "DESCENDING" }
       ]
     },
     {
-      "collectionGroup": "pedidos",
+      "collectionGroup": "support_tickets",
+      "queryScope": "COLLECTION",
+      "fields": [
+        { "fieldPath": "status", "order": "ASCENDING" },
+        { "fieldPath": "created_at", "order": "ASCENDING" }
+      ]
+    },
+    {
+      "collectionGroup": "support_tickets",
       "queryScope": "COLLECTION",
       "fields": [
         { "fieldPath": "status", "order": "ASCENDING" },
@@ -191,19 +329,35 @@
       ]
     },
     {
-      "collectionGroup": "users",
+      "collectionGroup": "support_tickets",
       "queryScope": "COLLECTION",
       "fields": [
-        { "fieldPath": "role", "order": "ASCENDING" },
-        { "fieldPath": "is_online", "order": "ASCENDING" }
+        { "fieldPath": "user_id", "order": "ASCENDING" },
+        { "fieldPath": "created_at", "order": "DESCENDING" }
+      ]
+    },
+    {
+      "collectionGroup": "support_tickets",
+      "queryScope": "COLLECTION",
+      "fields": [
+        { "fieldPath": "user_id", "order": "ASCENDING" },
+        { "fieldPath": "status", "order": "ASCENDING" }
       ]
     },
     {
       "collectionGroup": "users",
       "queryScope": "COLLECTION",
       "fields": [
-        { "fieldPath": "role", "order": "ASCENDING" },
-        { "fieldPath": "status_loja", "order": "ASCENDING" }
+        { "fieldPath": "entregador_perfil_operacional", "order": "ASCENDING" },
+        { "fieldPath": "cidade", "order": "ASCENDING" }
+      ]
+    },
+    {
+      "collectionGroup": "users",
+      "queryScope": "COLLECTION",
+      "fields": [
+        { "fieldPath": "entregador_perfil_operacional", "order": "ASCENDING" },
+        { "fieldPath": "entregador_exclusao_perfil_em", "order": "ASCENDING" }
       ]
     },
     {
@@ -224,118 +378,53 @@
       ]
     },
     {
-      "collectionGroup": "password_reset_tokens",
+      "collectionGroup": "users",
       "queryScope": "COLLECTION",
       "fields": [
-        { "fieldPath": "email", "order": "ASCENDING" },
-        { "fieldPath": "status", "order": "ASCENDING" },
-        { "fieldPath": "created_at", "order": "DESCENDING" }
+        { "fieldPath": "role", "order": "ASCENDING" },
+        { "fieldPath": "is_online", "order": "ASCENDING" }
       ]
     },
     {
-      "collectionGroup": "password_reset_tokens",
+      "collectionGroup": "users",
       "queryScope": "COLLECTION",
       "fields": [
-        { "fieldPath": "user_id", "order": "ASCENDING" },
-        { "fieldPath": "status", "order": "ASCENDING" }
+        { "fieldPath": "role", "order": "ASCENDING" },
+        { "fieldPath": "status_loja", "order": "ASCENDING" }
       ]
     },
     {
-      "collectionGroup": "support_tickets",
+      "collectionGroup": "vagas",
       "queryScope": "COLLECTION",
       "fields": [
-        { "fieldPath": "user_id", "order": "ASCENDING" },
-        { "fieldPath": "created_at", "order": "DESCENDING" }
+        { "fieldPath": "ativo", "order": "ASCENDING" },
+        { "fieldPath": "data_criacao", "order": "DESCENDING" }
       ]
     },
     {
-      "collectionGroup": "support_tickets",
-      "queryScope": "COLLECTION",
-      "fields": [
-        { "fieldPath": "user_id", "order": "ASCENDING" },
-        { "fieldPath": "status", "order": "ASCENDING" }
-      ]
-    },
-    {
-      "collectionGroup": "support_tickets",
-      "queryScope": "COLLECTION",
-      "fields": [
-        { "fieldPath": "status", "order": "ASCENDING" },
-        { "fieldPath": "created_at", "order": "ASCENDING" }
-      ]
-    },
-    {
-      "collectionGroup": "support_tickets",
-      "queryScope": "COLLECTION",
-      "fields": [
-        { "fieldPath": "status", "order": "ASCENDING" },
-        { "fieldPath": "cidade", "order": "ASCENDING" },
-        { "fieldPath": "created_at", "order": "ASCENDING" }
-      ]
-    },
-    {
-      "collectionGroup": "support_tickets",
-      "queryScope": "COLLECTION",
-      "fields": [
-        { "fieldPath": "status", "order": "ASCENDING" },
-        { "fieldPath": "updated_at", "order": "DESCENDING" }
-      ]
-    },
-    {
-      "collectionGroup": "support_tickets",
-      "queryScope": "COLLECTION",
-      "fields": [
-        { "fieldPath": "status", "order": "ASCENDING" },
-        { "fieldPath": "cidade", "order": "ASCENDING" },
-        { "fieldPath": "updated_at", "order": "DESCENDING" }
-      ]
-    },
-    {
-      "collectionGroup": "support_ratings",
-      "queryScope": "COLLECTION",
-      "fields": [
-        { "fieldPath": "ticket_id", "order": "ASCENDING" },
-        { "fieldPath": "user_id", "order": "ASCENDING" }
-      ]
-    },
-    {
-      "collectionGroup": "encomendas",
-      "queryScope": "COLLECTION",
-      "fields": [
-        { "fieldPath": "cliente_id", "order": "ASCENDING" },
-        { "fieldPath": "atualizado_em", "order": "DESCENDING" }
-      ]
-    },
-    {
-      "collectionGroup": "encomendas",
+      "collectionGroup": "gestao_comercial_vendas",
       "queryScope": "COLLECTION",
       "fields": [
         { "fieldPath": "loja_id", "order": "ASCENDING" },
-        { "fieldPath": "atualizado_em", "order": "DESCENDING" }
+        { "fieldPath": "data_venda", "order": "DESCENDING" },
+        { "fieldPath": "__name__", "order": "DESCENDING" }
       ]
     },
     {
-      "collectionGroup": "encomendas",
+      "collectionGroup": "recebimentos_cliente",
       "queryScope": "COLLECTION",
       "fields": [
-        { "fieldPath": "lojista_id", "order": "ASCENDING" },
-        { "fieldPath": "atualizado_em", "order": "DESCENDING" }
+        { "fieldPath": "cliente_id", "order": "ASCENDING" },
+        { "fieldPath": "data_pagamento", "order": "DESCENDING" },
+        { "fieldPath": "__name__", "order": "DESCENDING" }
       ]
     },
     {
-      "collectionGroup": "users",
+      "collectionGroup": "planos_emissao_nfe",
       "queryScope": "COLLECTION",
       "fields": [
-        { "fieldPath": "entregador_perfil_operacional", "order": "ASCENDING" },
-        { "fieldPath": "entregador_exclusao_perfil_em", "order": "ASCENDING" }
-      ]
-    },
-    {
-      "collectionGroup": "users",
-      "queryScope": "COLLECTION",
-      "fields": [
-        { "fieldPath": "entregador_perfil_operacional", "order": "ASCENDING" },
-        { "fieldPath": "cidade", "order": "ASCENDING" }
+        { "fieldPath": "ativo", "order": "ASCENDING" },
+        { "fieldPath": "ordem", "order": "ASCENDING" }
       ]
     }
   ],
@@ -343,6 +432,7 @@
     {
       "collectionGroup": "documentos",
       "fieldPath": "status",
+      "ttl": false,
       "indexes": [
         {
           "order": "ASCENDING",

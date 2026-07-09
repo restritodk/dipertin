@@ -80,7 +80,7 @@ function agregarQuantidadesPorProduto(itens) {
 
     for (const item of itens) {
         if (!itemContaParaEstoque(item)) continue;
-        const id = String(item.id_produto || item.produto_id || "").trim();
+        const id = String(item.id_produto || item.produto_id || item.id || "").trim();
         if (!id) continue;
         const qtdRaw = item.quantidade;
         const qtd = Number.isFinite(Number(qtdRaw)) ? Math.max(1, Math.floor(Number(qtdRaw))) : 1;
@@ -232,6 +232,103 @@ async function restaurarEstoqueDoPedido(db, pedidoId, pedido) {
     return { ok: true, restaurado: true };
 }
 
+const STATUS_VENDA_GC_PAGA = new Set(["pago", "quitado", "finalizada"]);
+
+/**
+ * Baixa estoque a partir de `gestao_comercial_vendas` (PDV PIX e recebimentos sem pedido).
+ * Idempotente via `estoque_baixado` no doc da venda.
+ *
+ * @param {FirebaseFirestore.Firestore} db
+ * @param {string} vendaId
+ * @param {Record<string, unknown>} venda
+ */
+async function baixarEstoqueGestaoComercialVenda(db, vendaId, venda) {
+    if (venda.estoque_baixado === true) {
+        return { ok: true, skipped: "ja_baixado" };
+    }
+    const st = String(venda.status || "").trim().toLowerCase();
+    if (!STATUS_VENDA_GC_PAGA.has(st)) {
+        return { ok: true, skipped: "status_sem_baixa" };
+    }
+
+    const agg = agregarQuantidadesPorProduto(venda.itens);
+    const vendaRef = db.collection("gestao_comercial_vendas").doc(vendaId);
+    const lojaId = String(venda.loja_id || venda.lojaId || "").trim();
+
+    if (agg.size === 0) {
+        await vendaRef.set(
+            {
+                estoque_baixado: true,
+                estoque_baixado_em: admin.firestore.FieldValue.serverTimestamp(),
+                estoque_baixado_motivo: "sem_itens_pronta_entrega",
+            },
+            { merge: true },
+        );
+        return { ok: true, skipped: "sem_itens" };
+    }
+
+    const detalhe = {};
+
+    await db.runTransaction(async (tx) => {
+        const vendaSnap = await tx.get(vendaRef);
+        if (!vendaSnap.exists) return;
+        const atual = vendaSnap.data() || {};
+        if (atual.estoque_baixado === true) return;
+
+        for (const [produtoId, qtd] of agg.entries()) {
+            const prodRef = db.collection("produtos").doc(produtoId);
+            const prodSnap = await tx.get(prodRef);
+            if (!prodSnap.exists) {
+                detalhe[produtoId] = { ok: false, motivo: "produto_inexistente", qtd };
+                continue;
+            }
+            const prod = prodSnap.data() || {};
+            const lojaProd = String(prod.lojista_id || prod.loja_id || "").trim();
+            if (lojaId && lojaProd && lojaProd !== lojaId) {
+                detalhe[produtoId] = { ok: false, motivo: "loja_divergente", qtd };
+                continue;
+            }
+
+            const atualQtd = Number(prod.estoque_qtd);
+            const base = Number.isFinite(atualQtd) ? atualQtd : 0;
+            const novo = Math.max(0, base - qtd);
+            tx.update(prodRef, {
+                estoque_qtd: novo,
+                estoque_atualizado_em: admin.firestore.FieldValue.serverTimestamp(),
+            });
+            detalhe[produtoId] = { ok: true, antes: base, depois: novo, qtd };
+        }
+
+        tx.update(vendaRef, {
+            estoque_baixado: true,
+            estoque_baixado_em: admin.firestore.FieldValue.serverTimestamp(),
+            estoque_baixado_detalhe: detalhe,
+        });
+    });
+
+    console.log(`[estoque] baixa gestao_comercial venda=${vendaId} itens=${agg.size}`);
+    return { ok: true, baixado: true };
+}
+
+/**
+ * PDV dinheiro/cartão grava `pedidos/{vendaId}` — estoque baixa pelo trigger de pedidos.
+ */
+async function pedidoExisteParaVendaGestaoComercial(db, vendaId) {
+    const pedSnap = await db.collection("pedidos").doc(vendaId).get();
+    return pedSnap.exists;
+}
+
+async function pedidoJaBaixouEstoqueParaVenda(db, vendaId) {
+    const pedSnap = await db.collection("pedidos").doc(vendaId).get();
+    if (!pedSnap.exists) return false;
+    return pedSnap.data()?.estoque_baixado === true;
+}
+
+exports.STATUS_VENDA_GC_PAGA = STATUS_VENDA_GC_PAGA;
+exports.baixarEstoqueGestaoComercialVenda = baixarEstoqueGestaoComercialVenda;
+exports.pedidoExisteParaVendaGestaoComercial = pedidoExisteParaVendaGestaoComercial;
+exports.pedidoJaBaixouEstoqueParaVenda = pedidoJaBaixouEstoqueParaVenda;
+
 exports.STATUS_VENDA_CONFIRMADA = STATUS_VENDA_CONFIRMADA;
 exports.STATUS_CANCELADOS = STATUS_CANCELADOS;
 exports.itemContaParaEstoque = itemContaParaEstoque;
@@ -288,6 +385,46 @@ exports.sincronizarEstoquePedidoOnUpdate = functions.firestore
             }
         } catch (err) {
             console.error(`[estoque] erro onUpdate pedido=${pedidoId}:`, err.message || err);
+        }
+        return null;
+    });
+
+exports.sincronizarEstoqueGestaoComercialVendaOnUpdate = functions.firestore
+    .document("gestao_comercial_vendas/{vendaId}")
+    .onUpdate(async (change, context) => {
+        const antes = change.before.data() || {};
+        const depois = change.after.data() || {};
+        const stAntes = String(antes.status || "").trim().toLowerCase();
+        const stDepois = String(depois.status || "").trim().toLowerCase();
+        const vendaId = context.params.vendaId;
+        const db = admin.firestore();
+
+        try {
+            const eraPago = STATUS_VENDA_GC_PAGA.has(stAntes);
+            const agoraPago = STATUS_VENDA_GC_PAGA.has(stDepois);
+
+            if (!agoraPago || eraPago || depois.estoque_baixado === true) {
+                return null;
+            }
+
+            if (await pedidoExisteParaVendaGestaoComercial(db, vendaId)) {
+                await db.collection("gestao_comercial_vendas").doc(vendaId).set(
+                    {
+                        estoque_baixado: true,
+                        estoque_baixado_em: admin.firestore.FieldValue.serverTimestamp(),
+                        estoque_baixado_via: "pedidos",
+                    },
+                    { merge: true },
+                );
+                return null;
+            }
+
+            await baixarEstoqueGestaoComercialVenda(db, vendaId, depois);
+        } catch (err) {
+            console.error(
+                `[estoque] erro onUpdate gestao_comercial_vendas=${vendaId}:`,
+                err.message || err,
+            );
         }
         return null;
     });

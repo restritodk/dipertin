@@ -65,6 +65,7 @@ String sanearRotaPainelLojista(String route, int nivel) {
       route == '/negociacoes_encomenda' ||
       route == '/pdv' ||
       route == '/comercial_dashboard' ||
+      route == '/minha_loja' ||
       route == '/comercial_clientes' ||
       route == '/comercial_credito') {
     return PainelRoutes.normalize(route);
@@ -83,7 +84,7 @@ Stream<DocumentSnapshot<Map<String, dynamic>>> streamUsuarioPainel(
 }
 
 /// Fornece [uidLoja] (dono da loja) para queries do painel lojista.
-class LojistaUidLojaBuilder extends StatelessWidget {
+class LojistaUidLojaBuilder extends StatefulWidget {
   const LojistaUidLojaBuilder({
     super.key,
     required this.builder,
@@ -97,6 +98,32 @@ class LojistaUidLojaBuilder extends StatelessWidget {
   ) builder;
 
   @override
+  State<LojistaUidLojaBuilder> createState() => _LojistaUidLojaBuilderState();
+}
+
+class _LojistaUidLojaBuilderState extends State<LojistaUidLojaBuilder> {
+  Map<String, dynamic>? _fallbackDados;
+  bool _fallbackCarregando = false;
+
+  Future<void> _carregarFallback(String authUid) async {
+    if (_fallbackCarregando || _fallbackDados != null) return;
+    _fallbackCarregando = true;
+    try {
+      final doc = await FirebaseFirestore.instance
+          .collection('users')
+          .doc(authUid)
+          .get()
+          .timeout(const Duration(seconds: 8));
+      if (!mounted) return;
+      setState(() => _fallbackDados = doc.data());
+    } catch (_) {
+      if (mounted) setState(() => _fallbackDados = const {});
+    } finally {
+      _fallbackCarregando = false;
+    }
+  }
+
+  @override
   Widget build(BuildContext context) {
     final authUid = FirebaseAuth.instance.currentUser?.uid;
     if (authUid == null) {
@@ -107,16 +134,22 @@ class LojistaUidLojaBuilder extends StatelessWidget {
     return StreamBuilder<DocumentSnapshot<Map<String, dynamic>>>(
       stream: streamUsuarioPainel(authUid),
       builder: (context, snap) {
-        if (snap.connectionState == ConnectionState.waiting && !snap.hasData) {
+        Map<String, dynamic>? dados = snap.data?.data() ?? _fallbackDados;
+
+        if (dados == null &&
+            snap.connectionState == ConnectionState.waiting &&
+            !snap.hasData) {
+          _carregarFallback(authUid);
           return const Scaffold(
             body: Center(
               child: CircularProgressIndicator(color: PainelAdminTheme.roxo),
             ),
           );
         }
-        final d = snap.data?.data();
-        final uidLoja = uidLojaEfetivo(d, authUid);
-        return builder(context, authUid, uidLoja, d);
+
+        dados ??= const {};
+        final uidLoja = uidLojaEfetivo(dados.isEmpty ? null : dados, authUid);
+        return widget.builder(context, authUid, uidLoja, dados.isEmpty ? null : dados);
       },
     );
   }

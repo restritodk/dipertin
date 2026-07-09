@@ -1,0 +1,132 @@
+<!DOCTYPE html>
+<html lang="pt-BR">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
+<title>PIX Teste - Escaneie e Pague</title>
+<style>
+* { margin: 0; padding: 0; box-sizing: border-box; }
+body {
+  font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
+  background: #F5F4F8;
+  display: flex; justify-content: center; align-items: center; min-height: 100vh;
+}
+.card {
+  background: white; border-radius: 24px; padding: 32px; margin: 16px;
+  max-width: 420px; width: 100%; text-align: center;
+  box-shadow: 0 4px 24px rgba(106,27,154,0.12);
+}
+.header { margin-bottom: 24px; }
+.header h1 {
+  font-size: 22px; font-weight: 800; color: #1A1A2E; margin-bottom: 4px;
+}
+.header .sub {
+  font-size: 14px; color: #64748B;
+}
+.valor {
+  font-size: 40px; font-weight: 800; color: #6A1B9A; margin: 16px 0;
+}
+.qr-wrapper {
+  background: white; padding: 16px; border-radius: 16px;
+  border: 2px dashed #E2E8F0; margin: 16px 0; display: inline-block;
+}
+.qr-wrapper img { display: block; width: 280px; height: 280px; image-rendering: pixelated; }
+.copia-cola {
+  background: #F8F9FC; border-radius: 12px; padding: 12px; margin: 16px 0;
+  word-break: break-all; font-size: 11px; color: #64748B; font-family: monospace;
+  border: 1px solid #E2E8F0;
+}
+.btn-copiar {
+  background: #6A1B9A; color: white; border: none; border-radius: 12px;
+  padding: 14px 24px; font-size: 15px; font-weight: 600; cursor: pointer;
+  transition: all 0.2s; width: 100%;
+}
+.btn-copiar:hover { background: #4A148C; }
+.btn-copiar:active { transform: scale(0.97); }
+.info {
+  margin-top: 20px; font-size: 12px; color: #94A3B8;
+  background: #FFF8E1; padding: 12px; border-radius: 12px; border: 1px solid #FFE082;
+}
+.info strong { color: #FF8F00; }
+.expira { margin-top: 12px; font-size: 13px; color: #EF4444; font-weight: 600; }
+.status-row {
+  margin-top: 16px; display: flex; justify-content: center; gap: 24px;
+}
+.status-item { text-align: center; }
+.status-item .label { font-size: 11px; color: #94A3B8; }
+.status-item .value { font-size: 14px; font-weight: 700; color: #1A1A2E; }
+</style>
+</head>
+<body>
+
+<div class="card">
+  <div class="header">
+    <h1>PIX de Teste</h1>
+    <div class="sub">Auditoria Gestão Comercial</div>
+  </div>
+
+  <div class="valor">R$ 0,10</div>
+
+  <div class="qr-wrapper">
+    <img src="data:image/png;base64,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" alt="QR Code PIX">
+  </div>
+
+  <p style="font-size:13px; color:#64748B; margin-bottom:8px;">Escaneie com seu app bancário</p>
+
+  <div class="copia-cola" id="pixCode">00020126360014br.gov.bcb.pix01146604099800016652040000530398654040.105802BR5914EBFDCAEGH205356009Sao Paulo62250521mpqrinter1666223710806304EDCD</div>
+
+  <button class="btn-copiar" onclick="copiarPix()">📋 Copiar código PIX</button>
+
+  <div class="status-row">
+    <div class="status-item">
+      <div class="label">Payment ID</div>
+      <div class="value">166622371080</div>
+    </div>
+    <div class="status-item">
+      <div class="label">Valor</div>
+      <div class="value">R$ 0,10</div>
+    </div>
+    <div class="status-item">
+      <div class="label">Status</div>
+      <div class="value" style="color:#FF8F00;">Aguardando</div>
+    </div>
+  </div>
+
+  <div class="expira" id="timer">⏳ Expira em breve</div>
+
+  <div class="info">
+    <strong>⚠️ PIX real de teste</strong><br>
+    Esta é uma cobrança genuína no Mercado Pago.<br>
+    Após pagar, avise que consulto o status!
+  </div>
+</div>
+
+<script>
+function copiarPix() {
+  const el = document.getElementById('pixCode');
+  navigator.clipboard.writeText(el.textContent).then(() => {
+    const btn = document.querySelector('.btn-copiar');
+    btn.textContent = '✅ Copiado!';
+    setTimeout(() => { btn.textContent = '📋 Copiar código PIX'; }, 2000);
+  });
+}
+
+// Timer de expiração
+function atualizarTimer() {
+  const expira = new Date('2026-07-01T11:50:12.711Z');
+  const agora = new Date();
+  const diff = expira - agora;
+  if (diff <= 0) {
+    document.getElementById('timer').textContent = '⏰ PIX Expirado';
+    document.getElementById('timer').style.color = '#DC2626';
+    return;
+  }
+  const seg = Math.floor(diff / 1000);
+  document.getElementById('timer').textContent = `⏳ Expira em ${seg} segundos`;
+}
+setInterval(atualizarTimer, 1000);
+atualizarTimer();
+</script>
+
+</body>
+</html>

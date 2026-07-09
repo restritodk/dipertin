@@ -7,6 +7,7 @@ import 'package:depertin_web/widgets/comercial/comercial_pendencias_modal.dart';
 import 'package:depertin_web/widgets/comercial_cliente_form_modal.dart';
 import 'package:depertin_web/widgets/comercial_cliente_recebimento_modal.dart';
 import 'package:depertin_web/widgets/dipertin_painel_feedback.dart';
+import 'package:depertin_web/services/comercial_config_service.dart';
 import 'package:flutter/material.dart';
 
 /// Ações rápidas do Dashboard Comercial.
@@ -48,10 +49,14 @@ abstract final class ComercialDashboardAcoes {
     );
     if (cliente == null || !context.mounted) return false;
 
+    final config =
+        await ComercialConfigService.carregarJurosMultaConfig(lojaId);
+    if (!context.mounted) return false;
     await mostrarComercialClienteRecebimentoModal(
       context,
       lojaId: lojaId,
       cliente: cliente,
+      configJurosMulta: config,
     );
     return true;
   }

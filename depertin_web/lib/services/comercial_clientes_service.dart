@@ -335,6 +335,58 @@ abstract final class ComercialClientesService {
         .toList();
   }
 
+  /// Busca clientes por nome ou CPF (PDV — só após Enter; não usa telefone).
+  static Future<List<ComercialCliente>> buscarPorNomeOuCpf(
+    String lojaId,
+    String termo, {
+    int limite = 30,
+  }) async {
+    final busca = termo.trim();
+    if (busca.isEmpty) return [];
+
+    final cpfBusca = busca.replaceAll(RegExp(r'\D'), '');
+    final nomeBusca = _normalizarTextoBusca(busca);
+
+    final snap = await _col(lojaId).get();
+    final resultados = <ComercialCliente>[];
+
+    for (final doc in snap.docs) {
+      final c = ComercialCliente.fromDoc(doc.id, lojaId, safeWebDocData(doc));
+      if (c.status == 'bloqueado') continue;
+
+      final nome = _normalizarTextoBusca(c.nome);
+      final cpf = (c.cpf ?? '').replaceAll(RegExp(r'\D'), '');
+
+      final matchNome = nomeBusca.length >= 2 && nome.contains(nomeBusca);
+      final matchCpf =
+          cpfBusca.length >= 3 && cpf.isNotEmpty && cpf.contains(cpfBusca);
+
+      if (matchNome || matchCpf) {
+        resultados.add(c);
+        if (resultados.length >= limite) break;
+      }
+    }
+
+    resultados.sort((a, b) => a.nome.compareTo(b.nome));
+    return resultados;
+  }
+
+  static String _normalizarTextoBusca(String s) {
+    var t = s.toLowerCase().trim();
+    const mapa = {
+      'á': 'a', 'à': 'a', 'ã': 'a', 'â': 'a', 'ä': 'a',
+      'é': 'e', 'è': 'e', 'ê': 'e', 'ë': 'e',
+      'í': 'i', 'ì': 'i', 'î': 'i', 'ï': 'i',
+      'ó': 'o', 'ò': 'o', 'õ': 'o', 'ô': 'o', 'ö': 'o',
+      'ú': 'u', 'ù': 'u', 'û': 'u', 'ü': 'u',
+      'ç': 'c',
+    };
+    for (final e in mapa.entries) {
+      t = t.replaceAll(e.key, e.value);
+    }
+    return t;
+  }
+
   static ComercialClientesIndicadores calcularIndicadores(
     List<ComercialCliente> clientes,
   ) {
@@ -379,6 +431,19 @@ abstract final class ComercialClientesService {
         'status': bloquear ? 'bloqueado' : 'ativo',
         'updated_at': FieldValue.serverTimestamp(),
       });
+
+  /// Atualiza apenas o limite de crédito do cliente (merge no Firestore).
+  static Future<void> atualizarLimiteCredito(
+    String lojaId,
+    String clienteId,
+    double novoLimite,
+  ) {
+    return _col(lojaId).doc(clienteId).update({
+      'limite_credito': novoLimite,
+      'credito_habilitado': novoLimite > 0 || true,
+      'updated_at': FieldValue.serverTimestamp(),
+    });
+  }
 
   static Future<Map<String, _ResumoPedidoCliente>> _carregarResumosPedidos(
     String lojaId,

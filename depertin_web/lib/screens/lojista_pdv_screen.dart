@@ -1,9 +1,14 @@
+import 'dart:async';
+
 import 'package:cloud_firestore/cloud_firestore.dart';
 import 'package:firebase_auth/firebase_auth.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:google_fonts/google_fonts.dart';
 import 'package:intl/intl.dart';
+import 'package:qr_flutter/qr_flutter.dart';
+import '../navigation/painel_nav_controller.dart';
+import '../navigation/painel_navigation_scope.dart';
 import '../theme/painel_admin_theme.dart';
 import '../utils/firestore_web_safe.dart';
 import '../utils/lojista_painel_context.dart';
@@ -11,6 +16,7 @@ import '../utils/pedido_recibo_pdf.dart';
 import '../utils/codigo_pedido.dart';
 import '../services/comercial_clientes_service.dart';
 import '../services/comercial_credito_service.dart';
+import '../services/firebase_functions_config.dart';
 import '../models/comercial_cliente.dart';
 
 /// Modelo local para itens do carrinho no PDV
@@ -52,6 +58,8 @@ class LojistaPdvScreen extends StatefulWidget {
 class _LojistaPdvScreenState extends State<LojistaPdvScreen> {
   final TextEditingController _buscaController = TextEditingController();
   final FocusNode _buscaFocus = FocusNode();
+  final FocusNode _atalhosFocus = FocusNode();
+  PainelNavController? _navController;
   
   // Estado da venda
   final List<PdvItem> _carrinho = [];
@@ -72,12 +80,71 @@ class _LojistaPdvScreenState extends State<LojistaPdvScreen> {
   bool get _caixaAberto => _sessaoCaixa != null;
   DateTime _ultimaAtualizacao = DateTime.now();
   bool _processandoVenda = false;
+  bool _criandoCobrancaPix = false;
 
   @override
   void initState() {
     super.initState();
+    _buscaFocus.addListener(_onBuscaFocusChanged);
     _carregarDadosIniciais();
     _iniciarRelogio();
+    WidgetsBinding.instance.addPostFrameCallback((_) {
+      _vincularNavegacaoPainel();
+      _reativarAtalhosTeclado();
+    });
+  }
+
+  @override
+  void didChangeDependencies() {
+    super.didChangeDependencies();
+    _vincularNavegacaoPainel();
+  }
+
+  @override
+  void dispose() {
+    _navController?.removeListener(_onRotaPainelAlterada);
+    _buscaFocus.removeListener(_onBuscaFocusChanged);
+    _buscaFocus.dispose();
+    _atalhosFocus.dispose();
+    _buscaController.dispose();
+    super.dispose();
+  }
+
+  void _vincularNavegacaoPainel() {
+    final nav = PainelNavigationScope.maybeOf(context);
+    if (identical(nav, _navController)) return;
+    _navController?.removeListener(_onRotaPainelAlterada);
+    _navController = nav;
+    _navController?.addListener(_onRotaPainelAlterada);
+    if (_navController?.currentRoute == '/pdv') {
+      _reativarAtalhosTeclado();
+    }
+  }
+
+  void _onRotaPainelAlterada() {
+    if (_navController?.currentRoute == '/pdv') {
+      _reativarAtalhosTeclado();
+    }
+  }
+
+  void _onBuscaFocusChanged() {
+    if (!_buscaFocus.hasFocus) {
+      _reativarAtalhosTeclado();
+    }
+  }
+
+  /// CallbackShortcuts exige foco na subárvore do PDV; ao trocar de aba o foco fica no menu.
+  void _reativarAtalhosTeclado() {
+    WidgetsBinding.instance.addPostFrameCallback((_) {
+      if (!mounted) return;
+      if (_navController != null && _navController!.currentRoute != '/pdv') {
+        return;
+      }
+      if (_isInputFocused()) return;
+      if (!_atalhosFocus.hasFocus) {
+        _atalhosFocus.requestFocus();
+      }
+    });
   }
 
   void _iniciarRelogio() {
@@ -158,6 +225,7 @@ class _LojistaPdvScreenState extends State<LojistaPdvScreen> {
         _clienteSelecionado = resultado;
       });
     }
+    _reativarAtalhosTeclado();
   }
 
   // --- Lógica de Negócio ---
@@ -381,6 +449,7 @@ class _LojistaPdvScreenState extends State<LojistaPdvScreen> {
   }
 
   Future<void> _finalizarVenda() async {
+    try {
     if (_carrinho.isEmpty) return;
     if (!_caixaAberto) {
       ScaffoldMessenger.of(context).showSnackBar(
@@ -457,6 +526,140 @@ class _LojistaPdvScreenState extends State<LojistaPdvScreen> {
       troco = resultadoDinheiro.troco;
     }
 
+    // ─── FLUXO PIX ──────────────────────────────────────────────
+    bool pixConfirmado = false;
+    _DadosCobrancaPix? dadosCobranca;
+    _ResultadoPagamentoPix? resultadoPix;
+
+    if (formaPgto == 'PIX') {
+      if (_uidLoja == null) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          const SnackBar(content: Text('❌ Erro: loja não identificada.')),
+        );
+        return;
+      }
+
+      // Guarda anti-duplicidade: só criar uma cobrança por vez
+      if (_criandoCobrancaPix) return;
+      _criandoCobrancaPix = true;
+
+      setState(() => _processandoVenda = true);
+      try {
+        // 1. Criar cobrança PIX no backend
+        final vendaId = FirebaseFirestore.instance.collection('gestao_comercial_vendas').doc().id;
+        final result = await callFirebaseFunctionSafe('gestaoComercialCriarPagamentoPix', region: 'southamerica-east1', parameters: {
+          'lojaId': _uidLoja,
+          'vendaId': vendaId,
+          'valor': _totalVenda,
+          'itens': _carrinho.map((e) => {
+            'id': e.id,
+            'nome': e.nome,
+            'preco': e.preco,
+            'quantidade': e.quantidade,
+          }).toList(),
+          'clienteId': _clienteSelecionado?['id'] ?? null,
+          'clienteNome': _clienteSelecionado?['nome'] ?? null,
+          'operadorId': FirebaseAuth.instance.currentUser?.uid ?? '',
+          'origem': 'pdv_gestao_comercial',
+        });
+
+        // LOG TEMPORARIO — requisito #10
+        final pixCopiaECola = result['pixCopiaECola']?.toString() ?? '';
+        print('PIX COPIA E COLA RECEBIDO: $pixCopiaECola');
+        print('PIX startsWith 000201: ${pixCopiaECola.startsWith('000201')}');
+        print('PIX contains 6304 CRC: ${RegExp(r'6304[0-9A-Fa-f]{4}$').hasMatch(pixCopiaECola)}');
+
+        dadosCobranca = _DadosCobrancaPix(
+          cobrancaId: result['cobrancaId'],
+          paymentId: result['paymentId'],
+          qrCodeBase64: result['qrCodeBase64'],
+          pixCopiaECola: pixCopiaECola,
+          expiresAt: DateTime.parse(result['expiresAt']),
+          status: result['status'],
+          vendaId: vendaId,
+          valor: _totalVenda,
+        );
+
+        // 2. Abrir modal PIX premium
+        final pixResult = await showDialog<_ResultadoPagamentoPix>(
+          context: context,
+          barrierDismissible: false,
+          builder: (ctx) => _ModalPagamentoPix(
+            dadosCobranca: dadosCobranca!,
+            clienteNome: _clienteSelecionado?['nome'],
+            operadorNome: FirebaseAuth.instance.currentUser?.displayName ?? 'Operador',
+            uidLoja: _uidLoja!,
+          ),
+        );
+
+        if (pixResult == null) {
+          _criandoCobrancaPix = false;
+          setState(() => _processandoVenda = false);
+          return;
+        }
+
+        resultadoPix = pixResult;
+        pixConfirmado = pixResult.pago;
+        valorRecebido = pixResult.valorRecebido;
+
+        if (!pixConfirmado) {
+          _criandoCobrancaPix = false;
+          setState(() => _processandoVenda = false);
+          ScaffoldMessenger.of(context).showSnackBar(
+            const SnackBar(content: Text('❌ Pagamento PIX não confirmado.')),
+          );
+          return;
+        }
+
+        // 3. Mostrar modal de confirmação premium
+        final r = resultadoPix!;
+        final dc = dadosCobranca!;
+        await showDialog(
+          context: context,
+          barrierDismissible: false,
+          builder: (ctx) => _ModalConfirmacaoPix(
+            valorRecebido: r.valorRecebido,
+            clienteNome: _clienteSelecionado?['nome'] ?? 'Cliente PDV',
+            codigoVenda: r.codigoVenda,
+            formaPagamento: 'PIX',
+            dataHora: r.dataHora,
+            operadorNome: FirebaseAuth.instance.currentUser?.displayName ?? 'Operador',
+            gateway: 'Mercado Pago',
+            vendaId: dc.vendaId,
+            uidLoja: _uidLoja!,
+            dadosLoja: _dadosLoja,
+          ),
+        );
+
+        // 4. Limpar carrinho e finalizar
+        if (mounted) {
+          setState(() {
+            _carrinho.clear();
+            _descontoValor = 0;
+            _descontoPorcentagem = false;
+            _descontoMotivo = null;
+            _clienteSelecionado = null;
+            _observacaoVenda = null;
+            _processandoVenda = false;
+            _criandoCobrancaPix = false;
+          });
+          ScaffoldMessenger.of(context).showSnackBar(
+            const SnackBar(content: Text('✅ PIX recebido! Venda finalizada com sucesso!')),
+          );
+        }
+        return; // PIX finalizado — sai do fluxo padrão
+      } catch (e) {
+        _criandoCobrancaPix = false;
+        setState(() => _processandoVenda = false);
+        if (mounted) {
+          ScaffoldMessenger.of(context).showSnackBar(
+            SnackBar(content: Text('❌ Erro no pagamento PIX: $e')),
+          );
+        }
+        return;
+      }
+    }
+
     setState(() => _processandoVenda = true);
 
     try {
@@ -525,6 +728,43 @@ class _LojistaPdvScreenState extends State<LojistaPdvScreen> {
       // (baixarEstoquePedidoOnCreate) quando status = entregue.
       await batch.commit();
 
+      // Hook: replicar venda para o histórico (gestao_comercial_vendas)
+      if (_uidLoja != null) {
+        final isCredito = formaPgto == 'Crédito do cliente';
+        final valorEntrada =
+            (isCredito && configCredito != null) ? configCredito.entrada : 0.0;
+        await db.collection('gestao_comercial_vendas').doc(pedidoId).set({
+          'loja_id': _uidLoja,
+          'codigo_venda': codigo,
+          'cliente_id': _clienteSelecionado?['id'] ?? 'venda_balcao',
+          'cliente_nome': _clienteSelecionado?['nome'] ?? 'Cliente PDV',
+          'cliente_documento': _clienteSelecionado?['cpf'] ?? '',
+          'cliente_telefone': _clienteSelecionado?['telefone'] ?? '',
+          'cliente_email': _clienteSelecionado?['email'] ?? '',
+          'itens': _carrinho.map((e) => e.toMap()).toList(),
+          'quantidade_itens':
+              _carrinho.fold<int>(0, (s, e) => s + e.quantidade),
+          'forma_pagamento': formaPgto,
+          'valor_total': _totalVenda,
+          'valor_pago': isCredito ? valorEntrada : _totalVenda,
+          'valor_pendente':
+              isCredito ? (_totalVenda - valorEntrada) : 0.0,
+          'desconto_total': _valorDescontoCalculado,
+          'juros_total': 0.0,
+          'multa_total': 0.0,
+          'status': isCredito ? 'pendente' : 'pago',
+          'operador_id': FirebaseAuth.instance.currentUser?.uid,
+          'operador_nome':
+              FirebaseAuth.instance.currentUser?.displayName ?? '',
+          'caixa_id': _idSessaoCaixa,
+          if (isCredito && configCredito != null)
+            'parcelas': configCredito.parcelas,
+          'data_venda': FieldValue.serverTimestamp(),
+          'created_at': FieldValue.serverTimestamp(),
+          'updated_at': FieldValue.serverTimestamp(),
+        });
+      }
+
       if (mounted) {
         setState(() {
           _carrinho.clear();
@@ -576,6 +816,9 @@ class _LojistaPdvScreenState extends State<LojistaPdvScreen> {
         );
       }
     }
+    } finally {
+      _reativarAtalhosTeclado();
+    }
   }
 
   // --- Modais ---
@@ -599,6 +842,7 @@ class _LojistaPdvScreenState extends State<LojistaPdvScreen> {
         _descontoMotivo = resultado.motivo;
       });
     }
+    _reativarAtalhosTeclado();
   }
 
   Future<void> _abrirModalObservacao() async {
@@ -613,6 +857,7 @@ class _LojistaPdvScreenState extends State<LojistaPdvScreen> {
         _observacaoVenda = resultado.trim().isEmpty ? null : resultado.trim();
       });
     }
+    _reativarAtalhosTeclado();
   }
 
   // --- UI Principal ---
@@ -662,6 +907,7 @@ class _LojistaPdvScreenState extends State<LojistaPdvScreen> {
         },
       },
       child: Focus(
+        focusNode: _atalhosFocus,
         autofocus: true,
         child: Scaffold(
           backgroundColor: const Color(0xFFF8F9FC),
@@ -1852,6 +2098,1074 @@ class _PaymentMethodData {
   });
 }
 
+// ═══════════════════════════════════════════════════════════════════════════════
+// FLUXO PIX — Modelos, Modal PIX e Modal de Confirmação
+// ═══════════════════════════════════════════════════════════════════════════════
+
+class _DadosCobrancaPix {
+  final String cobrancaId;
+  final String paymentId;
+  final String qrCodeBase64;
+  final String pixCopiaECola;
+  final DateTime expiresAt;
+  final String status;
+  final String vendaId;
+  final double valor;
+
+  const _DadosCobrancaPix({
+    required this.cobrancaId,
+    required this.paymentId,
+    required this.qrCodeBase64,
+    required this.pixCopiaECola,
+    required this.expiresAt,
+    required this.status,
+    required this.vendaId,
+    required this.valor,
+  });
+}
+
+class _ResultadoPagamentoPix {
+  final bool pago;
+  final double valorRecebido;
+  final String codigoVenda;
+  final DateTime dataHora;
+
+  const _ResultadoPagamentoPix({
+    required this.pago,
+    required this.valorRecebido,
+    required this.codigoVenda,
+    required this.dataHora,
+  });
+}
+
+/// Widget que exibe o QR Code PIX gerado EXCLUSIVAMENTE a partir do pixCopiaECola.
+/// Nunca usa chavePix, CPF, telefone ou montagem manual de BR Code.
+class _PixQrCodeWidget extends StatelessWidget {
+  final String pixCopiaECola;
+  final double size;
+  final bool exibir;
+
+  const _PixQrCodeWidget({
+    required this.pixCopiaECola,
+    required this.size,
+    required this.exibir,
+  });
+
+  @override
+  Widget build(BuildContext context) {
+    if (!exibir) return const SizedBox.shrink();
+    final qrSize = size - 24;
+    return Container(
+      width: size,
+      height: size,
+      padding: const EdgeInsets.all(12),
+      decoration: BoxDecoration(
+        color: Colors.white,
+        borderRadius: BorderRadius.circular(16),
+        border: Border.all(color: Colors.grey.shade200),
+        boxShadow: [
+          BoxShadow(
+            color: Colors.black.withOpacity(0.06),
+            blurRadius: 12,
+            offset: const Offset(0, 2),
+          ),
+        ],
+      ),
+      child: pixCopiaECola.isNotEmpty
+          ? ClipRRect(
+              borderRadius: BorderRadius.circular(8),
+              child: QrImageView(
+                data: pixCopiaECola,
+                version: QrVersions.auto,
+                size: qrSize,
+                backgroundColor: Colors.white,
+                eyeStyle: const QrEyeStyle(
+                  eyeShape: QrEyeShape.square,
+                  color: Colors.black,
+                ),
+                dataModuleStyle: const QrDataModuleStyle(
+                  dataModuleShape: QrDataModuleShape.square,
+                  color: Colors.black,
+                ),
+                key: const ValueKey('pix_qrcode_from_copia_cola'),
+              ),
+            )
+          : const Center(child: Icon(Icons.qr_code_rounded, size: 80, color: Colors.grey)),
+    );
+  }
+}
+
+/// Modal premium de pagamento PIX
+class _ModalPagamentoPix extends StatefulWidget {
+  final _DadosCobrancaPix dadosCobranca;
+  final String? clienteNome;
+  final String operadorNome;
+  final String uidLoja;
+
+  const _ModalPagamentoPix({
+    required this.dadosCobranca,
+    this.clienteNome,
+    required this.operadorNome,
+    required this.uidLoja,
+  });
+
+  @override
+  State<_ModalPagamentoPix> createState() => _ModalPagamentoPixState();
+}
+
+class _ModalPagamentoPixState extends State<_ModalPagamentoPix> {
+  late Timer _countdownTimer;
+  late Duration _tempoRestante;
+
+  // ─── Armazenamento estatico (muda apenas via initState) ─────
+  late final String _pixCopiaECola;
+  late final double _valor;
+  late final DateTime _expiresAt;
+  late final String _cobrancaId;
+
+  // ─── Firestore listener para status em tempo real ─────────
+  StreamSubscription<DocumentSnapshot>? _cobrancaSubscription;
+  Timer? _pollBackendTimer;
+
+  // ─── Estados dinamicos (setState minimo) ───────────────────
+  bool _copiado = false;
+  bool _verificando = false;
+  bool _finalizado = false;
+  String _statusAtual = 'aguardando_pagamento';
+  String? _mensagemStatus;
+
+  // ─── Timer display usa ValueNotifier para rebuild isolado ──
+  late final ValueNotifier<String> _timerDisplay;
+
+  @override
+  void initState() {
+    super.initState();
+
+    // Congela dados da cobranca — nunca mais muda
+    _pixCopiaECola = widget.dadosCobranca.pixCopiaECola;
+    _valor = widget.dadosCobranca.valor;
+    _expiresAt = widget.dadosCobranca.expiresAt;
+    _cobrancaId = widget.dadosCobranca.cobrancaId;
+    _statusAtual = widget.dadosCobranca.status;
+    _tempoRestante = _expiresAt.difference(DateTime.now());
+
+    print('[PDV-PIX] Modal aberto: cobranca=$_cobrancaId, status=$_statusAtual');
+    print('[PDV-PIX] pixCopiaECola exibido: $_pixCopiaECola');
+    print('[PDV-PIX] startsWith 000201: ${_pixCopiaECola.startsWith('000201')}');
+    print('[PDV-PIX] endsWith 6304+CRC: ${RegExp(r'6304[0-9A-Fa-f]{4}$').hasMatch(_pixCopiaECola)}');
+
+    // Inicializa display do timer
+    _timerDisplay = ValueNotifier<String>(_formatarTempo(_tempoRestante));
+
+    // ─── FIRESTORE LISTENER: escuta mudancas de status em tempo real ───
+    _iniciarFirestoreListener();
+
+    // ─── POLLING BACKEND: confirma pagamento via MP a cada 3s ───
+    _iniciarPollingBackend();
+
+    // ─── Countdown timer — so atualiza _timerDisplay, nunca reconstroi QR Code ───
+    _countdownTimer = Timer.periodic(const Duration(seconds: 1), (_) {
+      if (!mounted) return;
+      final restante = _expiresAt.difference(DateTime.now());
+      if (restante.isNegative) {
+        // Tempo esgotou — se ainda esta aguardando, marca como expirado
+        if (!_finalizado && (_statusAtual == 'aguardando_pagamento' || _statusAtual == 'aguardando')) {
+          _countdownTimer.cancel();
+          _finalizado = true;
+          _timerDisplay.value = '00:00';
+          setState(() {
+            _tempoRestante = Duration.zero;
+            _statusAtual = 'expirado';
+          });
+          print('[PDV-PIX] Cobranca $_cobrancaId expirada pelo timer local (5min sem pagamento)');
+        }
+      } else {
+        _tempoRestante = restante;
+        _timerDisplay.value = _formatarTempo(restante);
+      }
+    });
+  }
+
+  /// Consulta o backend (MP + Firestore) automaticamente enquanto aguarda PIX.
+  void _iniciarPollingBackend() {
+    Future<void>.delayed(const Duration(seconds: 2), () {
+      if (!mounted || _finalizado) return;
+      _consultarStatusBackend(mostrarSnackSePendente: false);
+    });
+
+    _pollBackendTimer = Timer.periodic(const Duration(seconds: 3), (_) {
+      if (!mounted || _finalizado) return;
+      if (_statusAtual != 'aguardando_pagamento' && _statusAtual != 'aguardando') return;
+      _consultarStatusBackend(mostrarSnackSePendente: false);
+    });
+  }
+
+  void _aplicarStatusPago(Map<String, dynamic> result) {
+    final pagamento = result['pagamento'] as Map<String, dynamic>?;
+    final valorRecebido = (result['valorRecebido'] as num?)?.toDouble() ?? _valor;
+    final dataHora = pagamento?['dataHora'] != null
+        ? DateTime.tryParse(pagamento!['dataHora'] as String) ?? DateTime.now()
+        : DateTime.now();
+    final codigoVenda = pagamento?['codigoVenda'] as String? ?? '';
+
+    _finalizado = true;
+    _countdownTimer.cancel();
+    _pollBackendTimer?.cancel();
+    _cobrancaSubscription?.cancel();
+
+    Navigator.of(context).pop(_ResultadoPagamentoPix(
+      pago: true,
+      valorRecebido: valorRecebido,
+      codigoVenda: codigoVenda,
+      dataHora: dataHora,
+    ));
+  }
+
+  Future<void> _consultarStatusBackend({required bool mostrarSnackSePendente}) async {
+    if (_verificando || _finalizado) return;
+    _verificando = true;
+
+    try {
+      final result = await callFirebaseFunctionSafe(
+        'gestaoComercialConsultarStatusPix',
+        region: 'southamerica-east1',
+        parameters: {'cobrancaId': _cobrancaId},
+      );
+      if (!mounted || _finalizado) return;
+
+      final status = result['status'] as String? ?? 'aguardando_pagamento';
+      print('[PDV-PIX] Poll backend status: $status');
+
+      if (status == 'pago') {
+        _aplicarStatusPago(result);
+        return;
+      }
+
+      if (status == 'expirado' || status == 'cancelado' || status == 'recusado' || status == 'estornado') {
+        _finalizado = true;
+        _countdownTimer.cancel();
+        _pollBackendTimer?.cancel();
+        _cobrancaSubscription?.cancel();
+        setState(() {
+          _statusAtual = status;
+          _mensagemStatus = null;
+        });
+        return;
+      }
+
+      if (status != _statusAtual) {
+        setState(() {
+          _statusAtual = status;
+          _mensagemStatus = null;
+        });
+      }
+
+      if (mostrarSnackSePendente &&
+          (status == 'aguardando_pagamento' || status == 'aguardando')) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          const SnackBar(
+            content: Text('Pagamento ainda nao identificado. Aguarde alguns instantes.'),
+            duration: Duration(seconds: 3),
+          ),
+        );
+      }
+    } catch (e) {
+      print('[PDV-PIX] Erro poll backend: $e');
+      if (mounted && mostrarSnackSePendente) {
+        setState(() => _mensagemStatus = 'Erro ao verificar pagamento: $e');
+      }
+    } finally {
+      if (mounted) _verificando = false;
+    }
+  }
+
+  /// Inicia listener do Firestore para detectar mudancas de status
+  /// vindas do webhook ou da funcao checkPdvPixPaymentStatus.
+  void _iniciarFirestoreListener() {
+    _cobrancaSubscription = FirebaseFirestore.instance
+        .collection('gestao_comercial_cobrancas')
+        .doc(_cobrancaId)
+        .snapshots()
+        .listen((snapshot) {
+      if (!mounted || _finalizado) return;
+      if (!snapshot.exists) return;
+
+      final data = snapshot.data();
+      if (data == null) return;
+
+      final novoStatus = data['status'] as String? ?? 'aguardando_pagamento';
+      final statusAntigo = _statusAtual;
+
+      if (novoStatus != statusAntigo) {
+        print('[PDV-PIX] Status alterado via Firestore: $statusAntigo -> $novoStatus');
+
+        if (novoStatus == 'pago') {
+          // Pagamento confirmado pelo webhook/backend — fechar modal.
+          _aplicarStatusPago({
+            'valorRecebido': (data['valorRecebido'] as num?)?.toDouble() ?? _valor,
+            'pagamento': {
+              'codigoVenda': '',
+              'dataHora': DateTime.now().toIso8601String(),
+            },
+          });
+          return;
+        }
+
+        if (novoStatus == 'expirado' || novoStatus == 'cancelado' || novoStatus == 'recusado' || novoStatus == 'estornado') {
+          _finalizado = true;
+          _countdownTimer.cancel();
+          _pollBackendTimer?.cancel();
+          _cobrancaSubscription?.cancel();
+        }
+
+        setState(() {
+          _statusAtual = novoStatus;
+          _mensagemStatus = null;
+        });
+      }
+    }, onError: (error) {
+      print('[PDV-PIX] Erro no Firestore listener: $error');
+      setState(() {
+        _mensagemStatus = 'Erro ao monitorar pagamento: $error';
+      });
+    });
+  }
+
+  @override
+  void dispose() {
+    _countdownTimer.cancel();
+    _pollBackendTimer?.cancel();
+    _cobrancaSubscription?.cancel();
+    _timerDisplay.dispose();
+    super.dispose();
+  }
+
+  /// Botao "Verificar pagamento" — NUNCA cancela a cobranca.
+  /// Apenas consulta o backend e atualiza o status se o pagamento foi confirmado.
+  Future<void> _verificarStatus() async {
+    if (_verificando) return;
+    setState(() {
+      _mensagemStatus = null;
+    });
+
+    print('[PDV-PIX] Verificando status da cobranca $_cobrancaId (manual)...');
+    await _consultarStatusBackend(mostrarSnackSePendente: true);
+  }
+
+  /// Cancela cobranca PIX — so com confirmacao do operador.
+  Future<void> _cancelarCobranca() async {
+    final confirmado = await showDialog<bool>(
+      context: context,
+      builder: (ctx) => AlertDialog(
+        shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(16)),
+        title: const Text('Cancelar cobranca PIX?'),
+        content: const Text('O QR Code nao sera mais valido e o cliente nao podera pagar.'),
+        actions: [
+          TextButton(onPressed: () => Navigator.pop(ctx, false), child: const Text('Nao')),
+          FilledButton(
+            style: FilledButton.styleFrom(backgroundColor: Colors.red),
+            onPressed: () => Navigator.pop(ctx, true),
+            child: const Text('Sim, cancelar'),
+          ),
+        ],
+      ),
+    );
+
+    if (confirmado != true) return;
+    if (!mounted) return;
+
+    print('[PDV-PIX] Cancelando cobranca $_cobrancaId manualmente...');
+
+    try {
+      await FirebaseFirestore.instance
+          .collection('gestao_comercial_cobrancas')
+          .doc(_cobrancaId)
+          .update({'status': 'cancelado', 'cancelledAt': FieldValue.serverTimestamp(), 'updatedAt': FieldValue.serverTimestamp()});
+    } catch (_) {}
+
+    _finalizado = true;
+    _countdownTimer.cancel();
+    _cobrancaSubscription?.cancel();
+    if (mounted) {
+      Navigator.of(context).pop(_ResultadoPagamentoPix(
+        pago: false,
+        valorRecebido: 0,
+        codigoVenda: '',
+        dataHora: DateTime.now(),
+      ));
+    }
+  }
+
+  void _copiarCodigoPix() {
+    Clipboard.setData(ClipboardData(text: _pixCopiaECola));
+    setState(() => _copiado = true);
+    Future.delayed(const Duration(seconds: 3), () {
+      if (mounted) setState(() => _copiado = false);
+    });
+  }
+
+  String _formatarTempo(Duration d) {
+    if (d.isNegative) return '00:00';
+    final minutos = d.inMinutes.toString().padLeft(2, '0');
+    final segundos = (d.inSeconds % 60).toString().padLeft(2, '0');
+    return '$minutos:$segundos';
+  }
+
+  Color _corStatus(String status) {
+    switch (status) {
+      case 'aguardando_pagamento':
+      case 'aguardando':
+        return PainelAdminTheme.roxo;
+      case 'pago':
+        return const Color(0xFF22C55E);
+      case 'rejected':
+      case 'cancelled':
+      case 'cancelado':
+      case 'recusado':
+      case 'refunded':
+      case 'estornado':
+        return Colors.red;
+      case 'expirado':
+        return Colors.orange;
+      default:
+        return Colors.grey;
+    }
+  }
+
+  String _rotuloStatus(String status) {
+    switch (status) {
+      case 'aguardando_pagamento':
+      case 'aguardando':
+        return 'Aguardando pagamento';
+      case 'pago':
+        return 'Pagamento aprovado';
+      case 'rejected':
+      case 'recusado':
+        return 'Pagamento recusado';
+      case 'cancelled':
+      case 'cancelado':
+        return 'Cancelado';
+      case 'refunded':
+      case 'estornado':
+        return 'Estornado';
+      case 'expirado':
+        return 'PIX expirado';
+      default:
+        return status;
+    }
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    final f = NumberFormat.currency(locale: 'pt_BR', symbol: 'R\$');
+    final size = MediaQuery.of(context).size;
+    final isMobile = size.width < 600;
+    final qrSize = isMobile ? 200.0 : 260.0;
+
+    return Dialog(
+      shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(24)),
+      elevation: 16,
+      shadowColor: Colors.black38,
+      insetPadding: EdgeInsets.symmetric(
+        horizontal: isMobile ? 16 : 40,
+        vertical: 24,
+      ),
+      child: Container(
+        width: isMobile ? null : 480,
+        padding: EdgeInsets.all(isMobile ? 20 : 28),
+        decoration: BoxDecoration(
+          color: Colors.white,
+          borderRadius: BorderRadius.circular(24),
+        ),
+        child: Column(
+          mainAxisSize: MainAxisSize.min,
+          children: [
+            // ─── HEADER ─────────────────────────────────────
+            Row(
+              mainAxisAlignment: MainAxisAlignment.center,
+              children: [
+                Container(
+                  padding: const EdgeInsets.all(10),
+                  decoration: BoxDecoration(
+                    color: const Color(0xFF32BCAD).withOpacity(0.1),
+                    borderRadius: BorderRadius.circular(14),
+                  ),
+                  child: const Icon(Icons.pix_rounded, color: Color(0xFF32BCAD), size: 28),
+                ),
+                const SizedBox(width: 12),
+                Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  mainAxisSize: MainAxisSize.min,
+                  children: [
+                    Text(
+                      'Pagamento via PIX',
+                      style: GoogleFonts.plusJakartaSans(
+                        fontSize: 20,
+                        fontWeight: FontWeight.w700,
+                        color: const Color(0xFF1A1A2E),
+                      ),
+                    ),
+                    Text(
+                      _statusAtual == 'pago'
+                          ? 'Pagamento confirmado!'
+                          : 'Aguardando o cliente realizar o pagamento.',
+                      style: GoogleFonts.plusJakartaSans(
+                        fontSize: 13,
+                        color: const Color(0xFF64748B),
+                      ),
+                    ),
+                  ],
+                ),
+              ],
+            ),
+            SizedBox(height: isMobile ? 16 : 20),
+
+            // ─── CARD DE VALOR E STATUS ─────────────────────
+            Container(
+              width: double.infinity,
+              padding: const EdgeInsets.symmetric(vertical: 16, horizontal: 20),
+              decoration: BoxDecoration(
+                gradient: LinearGradient(
+                  colors: [
+                    PainelAdminTheme.roxo,
+                    PainelAdminTheme.roxo.withOpacity(0.85),
+                  ],
+                  begin: Alignment.topLeft,
+                  end: Alignment.bottomRight,
+                ),
+                borderRadius: BorderRadius.circular(16),
+                boxShadow: [
+                  BoxShadow(
+                    color: PainelAdminTheme.roxo.withOpacity(0.3),
+                    blurRadius: 12,
+                    offset: const Offset(0, 4),
+                  ),
+                ],
+              ),
+              child: Column(
+                children: [
+                  Text(
+                    'Total a pagar',
+                    style: GoogleFonts.plusJakartaSans(
+                      fontSize: 12,
+                      color: Colors.white70,
+                      fontWeight: FontWeight.w500,
+                    ),
+                  ),
+                  const SizedBox(height: 4),
+                  Text(
+                    f.format(_valor),
+                    style: GoogleFonts.plusJakartaSans(
+                      fontSize: 28,
+                      fontWeight: FontWeight.w800,
+                      color: Colors.white,
+                    ),
+                  ),
+                  const SizedBox(height: 8),
+                  Container(
+                    padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 4),
+                    decoration: BoxDecoration(
+                      color: Colors.white.withOpacity(0.2),
+                      borderRadius: BorderRadius.circular(20),
+                    ),
+                    child: Row(
+                      mainAxisSize: MainAxisSize.min,
+                      children: [
+                        Container(
+                          width: 8,
+                          height: 8,
+                          decoration: BoxDecoration(
+                            shape: BoxShape.circle,
+                            color: (_statusAtual == 'aguardando_pagamento' || _statusAtual == 'aguardando')
+                                ? Colors.yellow
+                                : _corStatus(_statusAtual),
+                          ),
+                        ),
+                        const SizedBox(width: 6),
+                        Text(
+                          _rotuloStatus(_statusAtual),
+                          style: GoogleFonts.plusJakartaSans(
+                            fontSize: 12,
+                            color: Colors.white,
+                            fontWeight: FontWeight.w600,
+                          ),
+                        ),
+                      ],
+                    ),
+                  ),
+                ],
+              ),
+            ),
+            SizedBox(height: isMobile ? 16 : 20),
+
+            // ─── QR CODE FIXO (widget isolado, nunca reconstroi) ────
+            // QR Code permanece visivel em todos os estados exceto 'pago'
+            if (_statusAtual != 'pago')
+              _PixQrCodeWidget(
+                pixCopiaECola: _pixCopiaECola,
+                size: qrSize,
+                exibir: true,
+              ),
+
+            if (_statusAtual == 'aguardando_pagamento' || _statusAtual == 'aguardando') ...[
+              const SizedBox(height: 12),
+
+              // ─── CODIGO COPIA E COLA ──
+              if (_pixCopiaECola.isNotEmpty) ...[
+                Container(
+                  width: double.infinity,
+                  padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 10),
+                  decoration: BoxDecoration(
+                    color: Colors.grey.shade50,
+                    borderRadius: BorderRadius.circular(10),
+                    border: Border.all(color: Colors.grey.shade200),
+                  ),
+                  child: Text(
+                    _pixCopiaECola,
+                    style: GoogleFonts.plusJakartaSans(
+                      fontSize: 11,
+                      color: const Color(0xFF1A1A2E),
+                      letterSpacing: 0.5,
+                    ),
+                    maxLines: 2,
+                    overflow: TextOverflow.ellipsis,
+                    textAlign: TextAlign.center,
+                  ),
+                ),
+                const SizedBox(height: 8),
+                SizedBox(
+                  width: double.infinity,
+                  height: 40,
+                  child: OutlinedButton.icon(
+                    onPressed: _copiarCodigoPix,
+                    icon: Icon(_copiado ? Icons.check_rounded : Icons.copy_rounded, size: 18),
+                    label: Text(_copiado ? 'Copiado!' : 'Copiar codigo PIX'),
+                    style: OutlinedButton.styleFrom(
+                      foregroundColor: PainelAdminTheme.roxo,
+                      side: BorderSide(color: PainelAdminTheme.roxo.withOpacity(0.3)),
+                      shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(10)),
+                    ),
+                  ),
+                ),
+                const SizedBox(height: 4),
+                Text(
+                  'Escaneie o QR Code ou copie o codigo para pagar.',
+                  style: GoogleFonts.plusJakartaSans(
+                    fontSize: 11,
+                    color: const Color(0xFF94A3B8),
+                  ),
+                  textAlign: TextAlign.center,
+                ),
+              ],
+            ],
+
+            if (_statusAtual == 'pago') ...[
+              Container(
+                width: qrSize,
+                height: qrSize,
+                decoration: BoxDecoration(
+                  color: const Color(0xFF22C55E).withOpacity(0.1),
+                  borderRadius: BorderRadius.circular(16),
+                ),
+                child: const Center(
+                  child: Icon(Icons.check_circle_rounded, color: Color(0xFF22C55E), size: 80),
+                ),
+              ),
+              const SizedBox(height: 12),
+              Text(
+                'Pagamento confirmado!',
+                style: GoogleFonts.plusJakartaSans(
+                  fontSize: 18,
+                  fontWeight: FontWeight.w700,
+                  color: const Color(0xFF22C55E),
+                ),
+              ),
+            ],
+
+            SizedBox(height: isMobile ? 12 : 16),
+
+            // ─── TEMPO RESTANTE (ValueNotifier — rebuild isolado) ──
+            if (_statusAtual == 'aguardando_pagamento' || _statusAtual == 'aguardando') ...[
+              ValueListenableBuilder<String>(
+                valueListenable: _timerDisplay,
+                builder: (context, display, _) {
+                  return Row(
+                    mainAxisAlignment: MainAxisAlignment.center,
+                    children: [
+                      const Icon(Icons.access_time_rounded, size: 16, color: Color(0xFF64748B)),
+                      const SizedBox(width: 6),
+                      Text(
+                        'Expira em $display',
+                        style: GoogleFonts.plusJakartaSans(
+                          fontSize: 13,
+                          color: _tempoRestante.inMinutes < 1 ? Colors.red : const Color(0xFF64748B),
+                          fontWeight: FontWeight.w600,
+                        ),
+                      ),
+                    ],
+                  );
+                },
+              ),
+              const SizedBox(height: 8),
+            ],
+
+            if (_statusAtual == 'expirado') ...[
+              Container(
+                padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 6),
+                decoration: BoxDecoration(
+                  color: Colors.orange.withOpacity(0.1),
+                  borderRadius: BorderRadius.circular(8),
+                ),
+                child: Text(
+                  'PIX expirado. O tempo para pagamento terminou.',
+                  style: GoogleFonts.plusJakartaSans(
+                    fontSize: 12,
+                    color: Colors.orange.shade800,
+                  ),
+                  textAlign: TextAlign.center,
+                ),
+              ),
+              const SizedBox(height: 12),
+            ],
+
+            if (_statusAtual == 'cancelado') ...[
+              Container(
+                padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 6),
+                decoration: BoxDecoration(
+                  color: Colors.red.withOpacity(0.08),
+                  borderRadius: BorderRadius.circular(8),
+                ),
+                child: Text(
+                  'Cobranca cancelada.',
+                  style: GoogleFonts.plusJakartaSans(
+                    fontSize: 12,
+                    color: Colors.red.shade700,
+                  ),
+                  textAlign: TextAlign.center,
+                ),
+              ),
+              const SizedBox(height: 12),
+            ],
+
+            // ─── MENSAGEM DE ERRO ───────────────────────────
+            if (_mensagemStatus != null) ...[
+              Container(
+                padding: const EdgeInsets.all(8),
+                decoration: BoxDecoration(
+                  color: Colors.red.withOpacity(0.08),
+                  borderRadius: BorderRadius.circular(8),
+                ),
+                child: Text(
+                  _mensagemStatus!,
+                  style: GoogleFonts.plusJakartaSans(
+                    fontSize: 12,
+                    color: Colors.red.shade700,
+                  ),
+                  textAlign: TextAlign.center,
+                ),
+              ),
+              const SizedBox(height: 8),
+            ],
+
+            // ─── RODAPE ──────────────────────────────────────
+            Row(
+              mainAxisAlignment: MainAxisAlignment.spaceBetween,
+              children: [
+                if (_statusAtual == 'aguardando_pagamento' || _statusAtual == 'aguardando')
+                  SizedBox(
+                    height: 40,
+                    child: TextButton(
+                      onPressed: _verificando ? null : _verificarStatus,
+                      child: _verificando
+                          ? const SizedBox(
+                              width: 16,
+                              height: 16,
+                              child: CircularProgressIndicator(strokeWidth: 2),
+                            )
+                          : Text(
+                              'Verificar pagamento',
+                              style: GoogleFonts.plusJakartaSans(
+                                fontSize: 13,
+                                color: PainelAdminTheme.roxo,
+                              ),
+                            ),
+                    ),
+                  )
+                else
+                  const Spacer(),
+                SizedBox(
+                  height: 40,
+                  child: (_statusAtual == 'aguardando_pagamento' || _statusAtual == 'aguardando')
+                      ? OutlinedButton(
+                          onPressed: _cancelarCobranca,
+                          style: OutlinedButton.styleFrom(
+                            foregroundColor: Colors.red.shade400,
+                            side: BorderSide(color: Colors.red.shade200),
+                            shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(10)),
+                          ),
+                          child: Text(
+                            'Cancelar cobranca',
+                            style: GoogleFonts.plusJakartaSans(fontSize: 13),
+                          ),
+                        )
+                      : FilledButton(
+                          onPressed: () {
+                            Navigator.of(context).pop(_ResultadoPagamentoPix(
+                              pago: false,
+                              valorRecebido: 0,
+                              codigoVenda: '',
+                              dataHora: DateTime.now(),
+                            ));
+                          },
+                          style: FilledButton.styleFrom(
+                            backgroundColor: PainelAdminTheme.roxo,
+                            shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(10)),
+                          ),
+                          child: Text(
+                            _statusAtual == 'pago' ? 'Continuar' : 'Fechar',
+                            style: GoogleFonts.plusJakartaSans(fontSize: 13),
+                          ),
+                        ),
+                ),
+              ],
+            ),
+          ],
+        ),
+      ),
+    );
+  }
+}
+
+/// Modal premium de confirmação de pagamento PIX
+class _ModalConfirmacaoPix extends StatelessWidget {
+  final double valorRecebido;
+  final String clienteNome;
+  final String codigoVenda;
+  final String formaPagamento;
+  final DateTime dataHora;
+  final String operadorNome;
+  final String gateway;
+  final String vendaId;
+  final String uidLoja;
+  final Map<String, dynamic>? dadosLoja;
+
+  const _ModalConfirmacaoPix({
+    required this.valorRecebido,
+    required this.clienteNome,
+    required this.codigoVenda,
+    required this.formaPagamento,
+    required this.dataHora,
+    required this.operadorNome,
+    required this.gateway,
+    required this.vendaId,
+    required this.uidLoja,
+    this.dadosLoja,
+  });
+
+  Future<void> _imprimirComprovante(BuildContext context) async {
+    try {
+      final db = FirebaseFirestore.instance;
+      final vendaSnap = await db.collection('gestao_comercial_vendas').doc(vendaId).get();
+      if (!vendaSnap.exists) return;
+      final vendaData = vendaSnap.data() ?? {};
+
+      // Montar dados compatíveis com PedidoReciboPdf
+      final pedidoDados = <String, dynamic>{
+        'codigo_pedido': codigoVenda,
+        'cliente_nome': clienteNome,
+        'forma_pagamento': 'PIX - $gateway',
+        'total': valorRecebido,
+        'valor_recebido': valorRecebido,
+        'itens': vendaData['itens'] as List<dynamic>? ?? [],
+        'data_pedido': Timestamp.fromDate(dataHora),
+        'loja_nome': dadosLoja?['nome_fantasia'] ?? dadosLoja?['nome'] ?? '',
+        'loja_endereco': dadosLoja?['endereco'] ?? '',
+        'loja_telefone': dadosLoja?['telefone'] ?? '',
+      };
+
+      await PedidoReciboPdf.imprimir(
+        pedidoId: vendaId,
+        codigoPedido: codigoVenda,
+        pedido: pedidoDados,
+        dadosLoja: dadosLoja,
+        nomeClienteFallback: clienteNome,
+      );
+    } catch (e) {
+      if (context.mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(content: Text('❌ Erro ao imprimir: $e')),
+        );
+      }
+    }
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    final f = NumberFormat.currency(locale: 'pt_BR', symbol: 'R\$');
+    final df = DateFormat('dd/MM/yyyy HH:mm', 'pt_BR');
+    final size = MediaQuery.of(context).size;
+    final isMobile = size.width < 600;
+
+    return Dialog(
+      shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(24)),
+      elevation: 16,
+      shadowColor: Colors.black38,
+      insetPadding: EdgeInsets.symmetric(
+        horizontal: isMobile ? 16 : 40,
+        vertical: 24,
+      ),
+      child: Container(
+        width: isMobile ? null : 420,
+        padding: EdgeInsets.all(isMobile ? 20 : 28),
+        decoration: BoxDecoration(
+          color: Colors.white,
+          borderRadius: BorderRadius.circular(24),
+        ),
+        child: Column(
+          mainAxisSize: MainAxisSize.min,
+          children: [
+            // ─── ÍCONE DE SUCESSO ─────────────────────────
+            Container(
+              width: 72,
+              height: 72,
+              decoration: BoxDecoration(
+                shape: BoxShape.circle,
+                color: const Color(0xFF22C55E).withOpacity(0.1),
+              ),
+              child: const Icon(Icons.check_circle_rounded, color: Color(0xFF22C55E), size: 48),
+            ),
+            const SizedBox(height: 16),
+
+            // ─── TÍTULO ──────────────────────────────────
+            Text(
+              'Pagamento recebido',
+              style: GoogleFonts.plusJakartaSans(
+                fontSize: 22,
+                fontWeight: FontWeight.w800,
+                color: const Color(0xFF1A1A2E),
+              ),
+            ),
+            const SizedBox(height: 4),
+            Text(
+              'O PIX foi confirmado com sucesso.',
+              style: GoogleFonts.plusJakartaSans(
+                fontSize: 14,
+                color: const Color(0xFF64748B),
+              ),
+            ),
+            const SizedBox(height: 20),
+
+            // ─── CARD DE RESUMO ──────────────────────────
+            Container(
+              width: double.infinity,
+              padding: const EdgeInsets.all(16),
+              decoration: BoxDecoration(
+                color: const Color(0xFFF8FAFC),
+                borderRadius: BorderRadius.circular(16),
+                border: Border.all(color: const Color(0xFFE2E8F0)),
+              ),
+              child: Column(
+                children: [
+                  _linhaResumo('Valor recebido', f.format(valorRecebido),
+                      cor: const Color(0xFF22C55E), bold: true, fontSize: 18),
+                  const Divider(height: 16),
+                  _linhaResumo('Cliente', clienteNome),
+                  if (codigoVenda.isNotEmpty)
+                    _linhaResumo('Código da venda', codigoVenda),
+                  _linhaResumo('Forma de pagamento', 'PIX'),
+                  _linhaResumo('Data e hora', df.format(dataHora)),
+                  _linhaResumo('Operador', operadorNome),
+                  _linhaResumo('Gateway', gateway),
+                ],
+              ),
+            ),
+            const SizedBox(height: 20),
+
+            // ─── BOTÕES ──────────────────────────────────
+            SizedBox(
+              width: double.infinity,
+              height: 44,
+              child: FilledButton.icon(
+                onPressed: () => _imprimirComprovante(context),
+                icon: const Icon(Icons.print_rounded, size: 18),
+                label: Text(
+                  'Imprimir comprovante',
+                  style: GoogleFonts.plusJakartaSans(fontSize: 14, fontWeight: FontWeight.w600),
+                ),
+                style: FilledButton.styleFrom(
+                  backgroundColor: PainelAdminTheme.roxo,
+                  shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
+                ),
+              ),
+            ),
+            const SizedBox(height: 8),
+            SizedBox(
+              width: double.infinity,
+              height: 44,
+              child: OutlinedButton.icon(
+                onPressed: () => Navigator.of(context).pop('nova_venda'),
+                icon: const Icon(Icons.add_rounded, size: 18),
+                label: Text(
+                  'Nova venda',
+                  style: GoogleFonts.plusJakartaSans(fontSize: 14, fontWeight: FontWeight.w600),
+                ),
+                style: OutlinedButton.styleFrom(
+                  foregroundColor: PainelAdminTheme.roxo,
+                  side: BorderSide(color: PainelAdminTheme.roxo.withOpacity(0.3)),
+                  shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
+                ),
+              ),
+            ),
+            const SizedBox(height: 8),
+            SizedBox(
+              width: double.infinity,
+              height: 44,
+              child: TextButton(
+                onPressed: () => Navigator.of(context).pop('ver_venda'),
+                child: Text(
+                  'Ver venda',
+                  style: GoogleFonts.plusJakartaSans(
+                    fontSize: 14,
+                    color: const Color(0xFF64748B),
+                    decoration: TextDecoration.underline,
+                  ),
+                ),
+              ),
+            ),
+          ],
+        ),
+      ),
+    );
+  }
+
+  Widget _linhaResumo(String label, String valor,
+      {Color? cor, bool bold = false, double fontSize = 13}) {
+    return Padding(
+      padding: const EdgeInsets.symmetric(vertical: 2),
+      child: Row(
+        mainAxisAlignment: MainAxisAlignment.spaceBetween,
+        children: [
+          Text(
+            label,
+            style: GoogleFonts.plusJakartaSans(
+              fontSize: 13,
+              color: const Color(0xFF64748B),
+            ),
+          ),
+          Text(
+            valor,
+            style: GoogleFonts.plusJakartaSans(
+              fontSize: fontSize,
+              fontWeight: bold ? FontWeight.w700 : FontWeight.w600,
+              color: cor ?? const Color(0xFF1A1A2E),
+            ),
+          ),
+        ],
+      ),
+    );
+  }
+}
+
 class _ModalSelecionarPagamento extends StatelessWidget {
   final double totalVenda;
   final Map<String, dynamic>? clienteCredito;
@@ -2699,9 +4013,14 @@ class _ModalSelecionarCliente extends StatefulWidget {
 
 class _ModalSelecionarClienteState extends State<_ModalSelecionarCliente> {
   bool _modoCriacao = false;
-  String _searchQuery = '';
+  bool _buscando = false;
+  String? _termoBuscado;
+  List<ComercialCliente> _resultadosComercial = const [];
+  List<Map<String, dynamic>> _resultadosUsers = const [];
   final _searchController = TextEditingController();
   final _searchFocus = FocusNode();
+
+  static const _limiteResultados = 30;
 
   // Campos para cadastro de novo cliente
   final _formKey = GlobalKey<FormState>();
@@ -2709,6 +4028,14 @@ class _ModalSelecionarClienteState extends State<_ModalSelecionarCliente> {
   String _novoTelefone = '';
   String _novoCpf = '';
   bool _salvandoNovo = false;
+
+  @override
+  void initState() {
+    super.initState();
+    WidgetsBinding.instance.addPostFrameCallback((_) {
+      if (mounted) _searchFocus.requestFocus();
+    });
+  }
 
   @override
   void dispose() {
@@ -2724,6 +4051,94 @@ class _ModalSelecionarClienteState extends State<_ModalSelecionarCliente> {
       return (parts[0][0] + parts[1][0]).toUpperCase();
     }
     return parts[0][0].toUpperCase();
+  }
+
+  Future<void> _executarBusca() async {
+    final termo = _searchController.text.trim();
+    if (termo.isEmpty) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(content: Text('Digite o nome ou CPF do cliente.')),
+      );
+      return;
+    }
+
+    final cpfBusca = termo.replaceAll(RegExp(r'\D'), '');
+    if (termo.length < 2 && cpfBusca.length < 3) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(
+          content: Text('Digite ao menos 2 letras do nome ou 3 dígitos do CPF.'),
+        ),
+      );
+      return;
+    }
+
+    setState(() {
+      _buscando = true;
+      _termoBuscado = termo;
+      _resultadosComercial = const [];
+      _resultadosUsers = const [];
+    });
+
+    try {
+      if (widget.lojaId != null && widget.lojaId!.isNotEmpty) {
+        final lista = await ComercialClientesService.buscarPorNomeOuCpf(
+          widget.lojaId!,
+          termo,
+          limite: _limiteResultados,
+        );
+        if (!mounted) return;
+        setState(() {
+          _resultadosComercial = lista;
+          _buscando = false;
+        });
+      } else {
+        final lista = await _buscarUsersPorNomeOuCpf(termo);
+        if (!mounted) return;
+        setState(() {
+          _resultadosUsers = lista;
+          _buscando = false;
+        });
+      }
+    } catch (e) {
+      if (!mounted) return;
+      setState(() => _buscando = false);
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(content: Text('Erro ao buscar cliente: $e')),
+      );
+    }
+  }
+
+  Future<List<Map<String, dynamic>>> _buscarUsersPorNomeOuCpf(String termo) async {
+    final cpfBusca = termo.replaceAll(RegExp(r'\D'), '');
+    final nomeBusca = termo.toLowerCase().trim();
+
+    final snap = await FirebaseFirestore.instance
+        .collection('users')
+        .where('role', isEqualTo: 'cliente')
+        .get();
+
+    final resultados = <Map<String, dynamic>>[];
+    for (final doc in snap.docs) {
+      final data = doc.data();
+      final nome =
+          (data['nome'] ?? data['nome_completo'] ?? '').toString().toLowerCase();
+      final cpf = (data['cpf'] ?? '').toString().replaceAll(RegExp(r'\D'), '');
+
+      final matchNome = nomeBusca.length >= 2 && nome.contains(nomeBusca);
+      final matchCpf =
+          cpfBusca.length >= 3 && cpf.isNotEmpty && cpf.contains(cpfBusca);
+
+      if (matchNome || matchCpf) {
+        resultados.add({
+          'id': doc.id,
+          'nome': data['nome'] ?? data['nome_completo'] ?? 'Cliente',
+          'telefone': data['telefone'] ?? data['fone'] ?? '',
+          'cpf': data['cpf'] ?? '',
+        });
+        if (resultados.length >= _limiteResultados) break;
+      }
+    }
+    return resultados;
   }
 
   Future<void> _salvarNovoCliente() async {
@@ -2809,7 +4224,7 @@ class _ModalSelecionarClienteState extends State<_ModalSelecionarCliente> {
                     ),
                   ),
                   Text(
-                    'Busque ou cadastre um novo cliente',
+                    'Digite nome ou CPF e pressione Enter',
                     style: GoogleFonts.plusJakartaSans(
                       fontSize: 12,
                       color: PainelAdminTheme.textoSecundario,
@@ -2832,11 +4247,17 @@ class _ModalSelecionarClienteState extends State<_ModalSelecionarCliente> {
           controller: _searchController,
           focusNode: _searchFocus,
           autofocus: true,
+          textInputAction: TextInputAction.search,
           style: GoogleFonts.plusJakartaSans(fontSize: 14, fontWeight: FontWeight.w600),
           decoration: InputDecoration(
-            hintText: 'Buscar por nome, telefone ou CPF...',
+            hintText: 'Nome ou CPF do cliente...',
             hintStyle: const TextStyle(color: Color(0xFF9CA3AF)),
             prefixIcon: const Icon(Icons.search_rounded, color: Color(0xFF9CA3AF)),
+            suffixIcon: IconButton(
+              tooltip: 'Buscar (Enter)',
+              onPressed: _buscando ? null : _executarBusca,
+              icon: const Icon(Icons.keyboard_return_rounded, color: PainelAdminTheme.roxo),
+            ),
             contentPadding: const EdgeInsets.symmetric(horizontal: 16, vertical: 12),
             border: OutlineInputBorder(
               borderRadius: BorderRadius.circular(14),
@@ -2851,32 +4272,14 @@ class _ModalSelecionarClienteState extends State<_ModalSelecionarCliente> {
               borderSide: const BorderSide(color: PainelAdminTheme.roxo, width: 2),
             ),
           ),
-          onChanged: (val) => setState(() => _searchQuery = val),
+          onSubmitted: (_) => _executarBusca(),
         ),
         const SizedBox(height: 16),
 
-        // Lista de Clientes (gestão comercial da loja ou fallback users)
         Flexible(
           child: Container(
             constraints: const BoxConstraints(maxHeight: 300),
-            child: widget.lojaId != null && widget.lojaId!.isNotEmpty
-                ? StreamBuilder<QuerySnapshot<Map<String, dynamic>>>(
-                    stream: FirebaseFirestore.instance
-                        .collection('users')
-                        .doc(widget.lojaId)
-                        .collection('clientes_comercial')
-                        .snapshots(),
-                    builder: (context, snapshot) =>
-                        _buildListaClientesComercial(snapshot),
-                  )
-                : StreamBuilder<QuerySnapshot<Map<String, dynamic>>>(
-                    stream: FirebaseFirestore.instance
-                        .collection('users')
-                        .where('role', isEqualTo: 'cliente')
-                        .snapshots(),
-                    builder: (context, snapshot) =>
-                        _buildListaClientesUsers(snapshot),
-                  ),
+            child: _buildAreaResultadosBusca(),
           ),
         ),
         const SizedBox(height: 16),
@@ -2902,10 +4305,8 @@ class _ModalSelecionarClienteState extends State<_ModalSelecionarCliente> {
     );
   }
 
-  Widget _buildListaClientesComercial(
-    AsyncSnapshot<QuerySnapshot<Map<String, dynamic>>> snapshot,
-  ) {
-    if (snapshot.connectionState == ConnectionState.waiting) {
+  Widget _buildAreaResultadosBusca() {
+    if (_buscando) {
       return const Center(
         child: Padding(
           padding: EdgeInsets.all(16),
@@ -2914,102 +4315,71 @@ class _ModalSelecionarClienteState extends State<_ModalSelecionarCliente> {
       );
     }
 
-    final docs = snapshot.data?.docs ?? [];
-    final query = _searchQuery.trim().toLowerCase();
-    final filtrados = docs.where((doc) {
-      final data = doc.data();
-      final nome = (data['nome'] ?? '').toString().toLowerCase();
-      final fone = (data['telefone'] ?? '').toString().toLowerCase();
-      final cpf = (data['cpf'] ?? '').toString().toLowerCase();
-      return nome.contains(query) || fone.contains(query) || cpf.contains(query);
-    }).toList();
+    if (_termoBuscado == null) {
+      return _emptyClientes(idle: true);
+    }
 
-    if (filtrados.isEmpty) return _emptyClientes();
-
-    return ListView.builder(
-      shrinkWrap: true,
-      physics: const BouncingScrollPhysics(),
-      itemCount: filtrados.length,
-      itemBuilder: (context, index) {
-        final doc = filtrados[index];
-        final c = ComercialCliente.fromDoc(
-          doc.id,
-          widget.lojaId!,
-          safeWebDocData(doc),
-        );
-        return _clienteTile(
-          nome: c.nome,
-          fone: c.telefone ?? '—',
-          cpf: c.cpf ?? '—',
-          onTap: () => Navigator.pop(context, c.toPdvMap()),
-          extra: c.creditoHabilitado
-              ? 'Crédito: ${NumberFormat.currency(locale: 'pt_BR', symbol: r'R\$').format(c.creditoDisponivel)}'
-              : null,
-        );
-      },
-    );
-  }
-
-  Widget _buildListaClientesUsers(
-    AsyncSnapshot<QuerySnapshot<Map<String, dynamic>>> snapshot,
-  ) {
-    if (snapshot.connectionState == ConnectionState.waiting) {
-      return const Center(
-        child: Padding(
-          padding: EdgeInsets.all(16),
-          child: CircularProgressIndicator(color: PainelAdminTheme.roxo),
-        ),
+    if (widget.lojaId != null && widget.lojaId!.isNotEmpty) {
+      if (_resultadosComercial.isEmpty) {
+        return _emptyClientes(idle: false);
+      }
+      return ListView.builder(
+        shrinkWrap: true,
+        physics: const BouncingScrollPhysics(),
+        itemCount: _resultadosComercial.length,
+        itemBuilder: (context, index) {
+          final c = _resultadosComercial[index];
+          return _clienteTile(
+            nome: c.nome,
+            fone: c.telefone ?? '—',
+            cpf: c.cpf ?? '—',
+            onTap: () => Navigator.pop(context, c.toPdvMap()),
+            extra: c.creditoHabilitado
+                ? 'Crédito: ${NumberFormat.currency(locale: 'pt_BR', symbol: r'R$').format(c.creditoDisponivel)}'
+                : null,
+          );
+        },
       );
     }
 
-    final docs = snapshot.data?.docs ?? [];
-    final query = _searchQuery.trim().toLowerCase();
-    final filtrados = docs.where((doc) {
-      final data = doc.data();
-      final nome = (data['nome'] ?? data['nome_completo'] ?? '').toString().toLowerCase();
-      final fone = (data['telefone'] ?? data['fone'] ?? '').toString().toLowerCase();
-      final cpf = (data['cpf'] ?? '').toString().toLowerCase();
-      return nome.contains(query) || fone.contains(query) || cpf.contains(query);
-    }).toList();
-
-    if (filtrados.isEmpty) return _emptyClientes();
+    if (_resultadosUsers.isEmpty) {
+      return _emptyClientes(idle: false);
+    }
 
     return ListView.builder(
       shrinkWrap: true,
       physics: const BouncingScrollPhysics(),
-      itemCount: filtrados.length,
+      itemCount: _resultadosUsers.length,
       itemBuilder: (context, index) {
-        final doc = filtrados[index];
-        final data = doc.data();
-        final nome = data['nome'] ?? data['nome_completo'] ?? 'Cliente sem nome';
-        final fone = data['telefone'] ?? data['fone'] ?? 'Sem telefone';
-        final cpf = data['cpf'] ?? 'Sem CPF';
+        final data = _resultadosUsers[index];
         return _clienteTile(
-          nome: nome.toString(),
-          fone: fone.toString(),
-          cpf: cpf.toString(),
-          onTap: () => Navigator.pop(context, {
-            'id': doc.id,
-            'nome': nome,
-            'telefone': fone,
-            'cpf': cpf,
-          }),
+          nome: data['nome']?.toString() ?? 'Cliente',
+          fone: data['telefone']?.toString() ?? '—',
+          cpf: data['cpf']?.toString() ?? '—',
+          onTap: () => Navigator.pop(context, data),
         );
       },
     );
   }
 
-  Widget _emptyClientes() {
+  Widget _emptyClientes({required bool idle}) {
     return Center(
       child: Padding(
         padding: const EdgeInsets.symmetric(vertical: 32),
         child: Column(
           mainAxisSize: MainAxisSize.min,
           children: [
-            Icon(Icons.people_outline_rounded, size: 48, color: Colors.grey.shade300),
+            Icon(
+              idle ? Icons.search_rounded : Icons.person_off_outlined,
+              size: 48,
+              color: Colors.grey.shade300,
+            ),
             const SizedBox(height: 12),
             Text(
-              _searchQuery.isEmpty ? 'Nenhum cliente cadastrado' : 'Nenhum cliente encontrado',
+              idle
+                  ? 'Digite o nome ou CPF e pressione Enter'
+                  : 'Nenhum cliente encontrado para "$_termoBuscado"',
+              textAlign: TextAlign.center,
               style: GoogleFonts.plusJakartaSans(
                 color: Colors.grey.shade400,
                 fontWeight: FontWeight.bold,

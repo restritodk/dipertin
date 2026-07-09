@@ -22,7 +22,8 @@
   var nav = document.querySelector("[data-nav]");
   var toggle = document.querySelector("[data-nav-toggle]");
   var header = document.querySelector("[data-header]");
-  var headerScrollTarget = header && (header.closest(".site-header") || header);
+  var headerScrollTarget = header;
+  var heroSection = document.querySelector(".hero");
 
   function setNavOpen(open) {
     if (!nav || !toggle) return;
@@ -67,9 +68,13 @@
   });
 
   if (headerScrollTarget) {
-    window.addEventListener("scroll", function () {
-      headerScrollTarget.style.boxShadow = window.scrollY > 10 ? "0 1px 16px rgba(0,0,0,.06)" : "none";
-    }, { passive: true });
+    function updateHeaderOnScroll() {
+      var scrolled = window.scrollY > 20;
+      headerScrollTarget.classList.toggle("site-header--scrolled", scrolled);
+      headerScrollTarget.classList.toggle("site-header--top", !scrolled && !!heroSection);
+    }
+    updateHeaderOnScroll();
+    window.addEventListener("scroll", updateHeaderOnScroll, { passive: true });
   }
 
   var yearEl = document.querySelector("[data-year]");
@@ -313,4 +318,131 @@
     }
   });
   }
+})();
+
+/* ═══ ONDE ATUAMOS — GSAP animations ═══ */
+(function () {
+  if (typeof gsap === "undefined") return;
+  gsap.registerPlugin(ScrollTrigger);
+
+  // Respeita prefers-reduced-motion
+  const prefersReducedMotion = window.matchMedia("(prefers-reduced-motion: reduce)").matches;
+
+  const section = document.getElementById("onde-atuamos");
+  if (!section) return;
+
+  const ponto = section.querySelector(".mapa-ponto");
+  const glow = section.querySelector(".mapa-glow");
+  const tooltip = section.querySelector(".mapa-tooltip");
+
+  if (prefersReducedMotion) {
+    if (ponto) gsap.set(ponto, { opacity: 1, attr: { r: 9 } });
+    if (glow) gsap.set(glow, { opacity: 0.4, attr: { r: 22 } });
+    return;
+  }
+
+  if (ponto) {
+    // Entrada suave do marcador (anima o raio, não scale — evita deslocamento)
+    gsap.fromTo(ponto,
+      { opacity: 0, attr: { r: 0 } },
+      {
+        opacity: 1, attr: { r: 9 }, duration: 0.6, ease: "back.out(2)",
+        scrollTrigger: {
+          trigger: section,
+          start: "top 80%",
+          toggleActions: "play none none none"
+        }
+      }
+    );
+
+    // Pulse contínuo do marcador (varia o raio em vez de scale)
+    gsap.to(ponto, {
+      attr: { r: 12 }, duration: 1.2, ease: "power1.inOut", yoyo: true, repeat: -1,
+      delay: 0.6
+    });
+  }
+
+  if (glow) {
+    // Glow respirando (varia o raio em vez de scale)
+    gsap.fromTo(glow,
+      { opacity: 0.2, attr: { r: 18 } },
+      {
+        opacity: 0.5, attr: { r: 30 }, duration: 1.8, ease: "sine.inOut", yoyo: true, repeat: -1
+      }
+    );
+  }
+
+  if (tooltip) {
+    // Tooltip fade in suave
+    gsap.fromTo(tooltip,
+      { opacity: 0, y: 6 },
+      {
+        opacity: 1, y: 0, duration: 0.5, ease: "power2.out",
+        scrollTrigger: {
+          trigger: section,
+          start: "top 80%",
+          end: "top 60%",
+          toggleActions: "play none none none"
+        },
+        delay: 0.4
+      }
+    );
+  }
+
+  // Partículas — flutuação muito suave
+  const particulas = section.querySelectorAll(".particula");
+  if (particulas.length) {
+    particulas.forEach(function (p, i) {
+      gsap.to(p, {
+        y: -3 + (i % 3), x: 1 - (i % 2) * 2,
+        opacity: parseFloat(p.getAttribute("opacity") || "0.1") + 0.04,
+        duration: 2.5 + (i * 0.3), ease: "sine.inOut", yoyo: true, repeat: -1,
+        delay: i * 0.15
+      });
+    });
+  }
+})();
+
+/* ═══ FAQ — Accordion independente ═══ */
+(function () {
+  var columns = document.querySelectorAll(".faq-column");
+  if (!columns.length) return;
+  var items = columns[0].querySelectorAll(".faq-premium__item");
+  if (!items.length) return;
+
+  // Combina itens de todas as colunas em um array único
+  var allItems = [];
+  columns.forEach(function (col) {
+    Array.prototype.forEach.call(col.querySelectorAll(".faq-premium__item"), function (it) {
+      allItems.push(it);
+    });
+  });
+
+  allItems.forEach(function (item) {
+    var btn = item.querySelector(".faq-premium__question");
+    if (!btn) return;
+
+    btn.addEventListener("click", function (e) {
+      e.preventDefault();
+
+      // Fecha todos os outros itens
+      allItems.forEach(function (other) {
+        if (other !== item) {
+          other.classList.remove("active");
+          var otherBtn = other.querySelector(".faq-premium__question");
+          if (otherBtn) otherBtn.setAttribute("aria-expanded", "false");
+        }
+      });
+
+      // Toggle no clicado
+      var isOpen = item.classList.contains("active");
+      if (isOpen) {
+        item.classList.remove("active");
+        btn.setAttribute("aria-expanded", "false");
+      } else {
+        item.classList.add("active");
+        btn.setAttribute("aria-expanded", "true");
+      }
+    });
+  });
 })();

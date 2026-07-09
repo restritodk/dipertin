@@ -297,6 +297,27 @@ service cloud.firestore {
       );
     }
 
+    // Módulo Fiscal — notas fiscais do lojista.
+    match /users/{userId}/notas_fiscais/{notaId} {
+      allow read: if signedIn() && (
+        isStaff()
+        || request.auth.uid == userId
+        || colaboradorLeDono(userId)
+      );
+      allow create, update: if signedIn() && (
+        isStaff()
+        || (
+          isLojistaRoleDoc(userData())
+          && lojistaLojaPodeOperar()
+          && userId == idLojaUsuarioLogado()
+        )
+        || colaboradorPainelNivel3EditaDono(userId)
+      );
+      allow delete: if signedIn() && (
+        isStaff()
+      );
+    }
+
     match /users/{userId}/vendas_credito/{vendaId} {
       allow read, create, update, delete: if signedIn() && (
         isStaff()
@@ -1154,6 +1175,86 @@ service cloud.firestore {
           && resource.data.get('loja_id', '') == idLojaUsuarioLogado());
     }
 
+    // Gestão Comercial — Configurações
+    match /gestao_comercial_configuracoes/{lojaId} {
+      allow read: if isStaff()
+        || (signedIn()
+          && isLojistaRoleDoc(userData())
+          && lojistaLojaPodeOperar()
+          && lojaId == idLojaUsuarioLogado());
+
+      allow create: if isStaff()
+        || (signedIn()
+          && isLojistaRoleDoc(userData())
+          && lojistaLojaPodeOperar()
+          && request.resource.data.get('loja_id', '') == idLojaUsuarioLogado());
+
+      allow update: if isStaff()
+        || (signedIn()
+          && isLojistaRoleDoc(userData())
+          && lojistaLojaPodeOperar()
+          && lojaId == idLojaUsuarioLogado()
+          && request.resource.data.get('loja_id', '') == lojaId);
+
+      allow delete: if isMaster();
+    }
+
+    // Gestão Comercial — Recebimentos
+    match /gestao_comercial_recebimentos/{id} {
+      allow read: if isStaff()
+        || (signedIn()
+          && isLojistaRoleDoc(userData())
+          && lojistaLojaPodeOperar()
+          && resource.data.get('loja_id', '') == idLojaUsuarioLogado());
+
+      allow create: if isStaff()
+        || (signedIn()
+          && isLojistaRoleDoc(userData())
+          && lojistaLojaPodeOperar()
+          && request.resource.data.get('loja_id', '') == idLojaUsuarioLogado());
+
+      allow update: if isStaff()
+        || (signedIn()
+          && isLojistaRoleDoc(userData())
+          && lojistaLojaPodeOperar()
+          && resource.data.get('loja_id', '') == idLojaUsuarioLogado()
+          && request.resource.data.get('loja_id', '') == resource.data.get('loja_id', ''));
+
+      allow delete: if isStaff()
+        || (signedIn()
+          && isLojistaRoleDoc(userData())
+          && lojistaLojaPodeOperar()
+          && resource.data.get('loja_id', '') == idLojaUsuarioLogado());
+    }
+
+    // Gestão Comercial — Histórico de Vendas
+    match /gestao_comercial_vendas/{id} {
+      allow read: if isStaff()
+        || (signedIn()
+          && isLojistaRoleDoc(userData())
+          && lojistaLojaPodeOperar()
+          && resource.data.get('loja_id', '') == idLojaUsuarioLogado());
+
+      allow create: if isStaff()
+        || (signedIn()
+          && isLojistaRoleDoc(userData())
+          && lojistaLojaPodeOperar()
+          && request.resource.data.get('loja_id', '') == idLojaUsuarioLogado());
+
+      allow update: if isStaff()
+        || (signedIn()
+          && isLojistaRoleDoc(userData())
+          && lojistaLojaPodeOperar()
+          && resource.data.get('loja_id', '') == idLojaUsuarioLogado()
+          && request.resource.data.get('loja_id', '') == resource.data.get('loja_id', ''));
+
+      allow delete: if isStaff()
+        || (signedIn()
+          && isLojistaRoleDoc(userData())
+          && lojistaLojaPodeOperar()
+          && resource.data.get('loja_id', '') == idLojaUsuarioLogado());
+    }
+
     // Sessões de caixa (PDV)
     match /sessoes_caixa/{sessaoId} {
       allow read: if isStaff()
@@ -1247,6 +1348,274 @@ service cloud.firestore {
       match /historico/{histId} {
         allow read, write: if isStaff();
       }
+    }
+
+    // Planos de assinatura — módulos vendidos avulsos no painel Gestão de Assinaturas
+    // Staff tem acesso total; lojistas podem ler os planos disponíveis para contratar.
+    match /modulos_planos/{id} {
+      allow read: if signedIn();
+      allow create, update, delete: if isStaff();
+    }
+
+    // Configurações de assinaturas — módulos, gateways, bancos e regras gerais
+    // Staff tem acesso total; demais autenticados podem ler.
+    match /assinaturas_modulos/{id} {
+      allow read: if signedIn();
+      allow create, update, delete: if isStaff();
+    }
+
+    match /assinaturas_gateways/{id} {
+      allow read: if signedIn();
+      allow create, update, delete: if isStaff();
+    }
+
+    match /assinaturas_bancos/{id} {
+      allow read: if signedIn();
+      allow create, update, delete: if isStaff();
+    }
+
+    match /assinaturas_configuracoes/{doc} {
+      allow read: if signedIn();
+      allow create, update: if isStaff();
+    }
+
+    // Configurações de cobranças automáticas (Gestão de Assinaturas → Configurações → Cobranças).
+    // Escrita via Cloud Function (Admin SDK).
+    match /billing_settings/{doc} {
+      allow read: if signedIn();
+      allow create, update: if isStaff();
+      allow delete: if false;
+    }
+
+    // Assinaturas contratadas por lojistas (Gestão de Assinaturas — Clientes)
+    match /assinaturas_clientes/{id} {
+      allow read: if isStaff()
+        || (signedIn()
+            && resource.data.get('store_id', '') == idLojaUsuarioLogado());
+      allow create: if signedIn()
+        && request.resource.data.get('store_id', '') == idLojaUsuarioLogado();
+      allow update: if isStaff()
+        || (signedIn()
+            && resource.data.get('store_id', '') == idLojaUsuarioLogado());
+      allow delete: if isStaff();
+    }
+
+    // Cobranças de assinaturas (Gestão de Assinaturas → Cobranças).
+    // Escrita EXCLUSIVA via Cloud Function (Admin SDK).
+    match /assinaturas_cobrancas/{id} {
+      allow read: if isStaff()
+        || (signedIn()
+            && resource.data.get('store_id', '') == idLojaUsuarioLogado());
+      allow write: if false;
+    }
+
+    // Contadores internos (numeração de faturas etc.) — só Admin SDK.
+    match /contadores/{id} {
+      allow read: if isStaff();
+      allow write: if false;
+    }
+
+    // Gestão Comercial — integrações de pagamento (credenciais sensíveis)
+    match /gestao_comercial_integracoes_pagamento/{lojaId} {
+      match /gateways/{gatewayId} {
+        allow read: if isStaff()
+          || (signedIn()
+            && isLojistaRoleDoc(userData())
+            && lojistaLojaPodeOperar()
+            && lojaId == idLojaUsuarioLogado());
+        allow create: if isStaff()
+          || (signedIn()
+            && isLojistaRoleDoc(userData())
+            && lojistaLojaPodeOperar()
+            && lojaId == idLojaUsuarioLogado());
+        allow update: if isStaff()
+          || (signedIn()
+            && isLojistaRoleDoc(userData())
+            && lojistaLojaPodeOperar()
+            && lojaId == idLojaUsuarioLogado());
+        allow delete: if isMaster()
+          || (signedIn()
+            && isLojistaRoleDoc(userData())
+            && lojistaLojaPodeOperar()
+            && lojaId == idLojaUsuarioLogado());
+      }
+    }
+
+    // Gestão Comercial — cobranças de pagamento
+    match /gestao_comercial_cobrancas/{cobrancaId} {
+      allow read: if isStaff()
+        || (signedIn()
+          && isLojistaRoleDoc(userData())
+          && lojistaLojaPodeOperar()
+          && resource.data.get('lojaId', '') == idLojaUsuarioLogado());
+      allow create: if isStaff()
+        || (signedIn()
+          && isLojistaRoleDoc(userData())
+          && lojistaLojaPodeOperar()
+          && request.resource.data.get('lojaId', '') == idLojaUsuarioLogado());
+      allow update: if isStaff()
+        || (signedIn()
+          && isLojistaRoleDoc(userData())
+          && lojistaLojaPodeOperar()
+          && resource.data.get('lojaId', '') == idLojaUsuarioLogado());
+      allow delete: if isMaster();
+    }
+
+    // Gestão Comercial — Templates de e-mail transacional
+    match /gestao_comercial_email_templates/{lojaId}/templates/{templateId} {
+      allow read: if isStaff()
+        || (signedIn()
+          && isLojistaRoleDoc(userData())
+          && lojistaLojaPodeOperar()
+          && lojaId == idLojaUsuarioLogado());
+
+      allow create, update: if isStaff()
+        || (signedIn()
+          && isLojistaRoleDoc(userData())
+          && lojistaLojaPodeOperar()
+          && lojaId == idLojaUsuarioLogado()
+          && request.resource.data.get('loja_id', '') == lojaId);
+
+      allow delete: if isStaff()
+        || (signedIn()
+          && isLojistaRoleDoc(userData())
+          && lojistaLojaPodeOperar()
+          && lojaId == idLojaUsuarioLogado());
+    }
+
+    // Gestão Comercial — Histórico de envios de e-mail
+    match /gestao_comercial_email_historico/{lojaId}/envios/{envioId} {
+      allow read: if isStaff()
+        || (signedIn()
+          && isLojistaRoleDoc(userData())
+          && lojistaLojaPodeOperar()
+          && lojaId == idLojaUsuarioLogado());
+
+      allow write: if false;
+    }
+
+    // Integrações fiscais — apenas admin/staff cadastra provedores globais
+    match /fiscal_integrations/{integrationId} {
+      allow read, write: if isStaff();
+    }
+
+    // Configuração fiscal da loja
+    match /store_fiscal_settings/{settingId} {
+      allow read: if isStaff()
+        || (signedIn()
+          && isLojistaRoleDoc(userData())
+          && lojistaLojaPodeOperar()
+          && resource.data.get('store_id', '') == idLojaUsuarioLogado());
+      allow create: if isStaff()
+        || (signedIn()
+          && isLojistaRoleDoc(userData())
+          && lojistaLojaPodeOperar()
+          && request.resource.data.get('store_id', '') == idLojaUsuarioLogado());
+      allow update: if isStaff()
+        || (signedIn()
+          && isLojistaRoleDoc(userData())
+          && lojistaLojaPodeOperar()
+          && resource.data.get('store_id', '') == idLojaUsuarioLogado());
+      allow delete: if isStaff();
+    }
+
+    // Documentos fiscais emitidos
+    match /fiscal_documents/{docId} {
+      allow read: if isStaff()
+        || (signedIn()
+          && isLojistaRoleDoc(userData())
+          && lojistaLojaPodeOperar()
+          && resource.data.get('store_id', '') == idLojaUsuarioLogado());
+      allow create: if signedIn()
+        && isLojistaRoleDoc(userData())
+        && lojistaLojaPodeOperar()
+        && request.resource.data.get('store_id', '') == idLojaUsuarioLogado();
+      allow update, delete: if isStaff();
+    }
+
+    // Planos de emissão NF-e
+    match /planos_emissao_nfe/{planoId} {
+      allow read, write: if isStaff();
+    }
+
+    // Integrações de NF-e dos lojistas
+    match /lojista_integracao/{integracaoId} {
+      allow read: if isStaff()
+        || (signedIn()
+          && isLojistaRoleDoc(userData())
+          && lojistaLojaPodeOperar()
+          && resource.data.get('store_id', '') == idLojaUsuarioLogado());
+      allow create: if isStaff();
+      allow update: if isStaff()
+        || (signedIn()
+          && isLojistaRoleDoc(userData())
+          && lojistaLojaPodeOperar()
+          && resource.data.get('store_id', '') == idLojaUsuarioLogado());
+      allow delete: if isStaff();
+    }
+
+    // Auditoria fiscal — log de todas as operações
+    match /fiscal_audit_logs/{logId} {
+      allow read: if isStaff();
+      allow write: if false; // só Admin SDK / Cloud Functions
+    }
+
+    // Logs técnicos de operações fiscais
+    match /fiscal_logs/{logId} {
+      allow read: if isStaff();
+      allow write: if false; // só Cloud Functions (Admin SDK)
+    }
+
+    // Webhooks fiscais recebidos
+    match /fiscal_webhooks/{webhookId} {
+      allow read: if isStaff();
+      allow write: if false; // só Cloud Functions
+    }
+
+    // Histórico de mudanças de status de documentos fiscais
+    match /fiscal_status_history/{historyId} {
+      allow read: if isStaff();
+      allow write: if false; // só Cloud Functions
+    }
+
+    // Token NUNCA é exposto ao frontend: credentials_encrypted está em
+    // fiscal_integrations (staff only) e as funções cloud fazem a descriptografia.
+
+    // Séries e numeração fiscal — separada por loja
+    match /fiscal_series/{serieId} {
+      allow read: if isStaff()
+        || (signedIn()
+          && isLojistaRoleDoc(userData())
+          && lojistaLojaPodeOperar()
+          && resource.data.get('store_id', '') == idLojaUsuarioLogado());
+      allow create: if isStaff();
+      allow update: if isStaff()
+        || (signedIn()
+          && isLojistaRoleDoc(userData())
+          && lojistaLojaPodeOperar()
+          && resource.data.get('store_id', '') == idLojaUsuarioLogado());
+      allow delete: if isStaff();
+    }
+
+    // Notas fiscais — coleção raiz usada pela tela Assinaturas Fiscal
+    // Campo loja: cliente_store_id (NotaFiscalModel)
+    match /notas_fiscais/{notaId} {
+      allow read: if isStaff()
+        || (signedIn()
+          && isLojistaRoleDoc(userData())
+          && lojistaLojaPodeOperar()
+          && resource.data.get('cliente_store_id', '') == idLojaUsuarioLogado());
+      allow create: if isStaff()
+        || (signedIn()
+          && isLojistaRoleDoc(userData())
+          && lojistaLojaPodeOperar()
+          && request.resource.data.get('cliente_store_id', '') == idLojaUsuarioLogado());
+      allow update: if isStaff()
+        || (signedIn()
+          && isLojistaRoleDoc(userData())
+          && lojistaLojaPodeOperar()
+          && resource.data.get('cliente_store_id', '') == idLojaUsuarioLogado());
+      allow delete: if isStaff();
     }
 
     match /{document=**} {

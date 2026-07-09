@@ -1,0 +1,161 @@
+<!DOCTYPE html>
+<html lang="pt-BR">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0, user-scalable=yes">
+    <title>PIX Corrigido - Gestão Comercial (Payments API)</title>
+    <style>
+        * { box-sizing: border-box; margin: 0; padding: 0; }
+        body {
+            font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
+            background: #F5F4F8; min-height: 100vh;
+            display: flex; align-items: center; justify-content: center; padding: 16px;
+        }
+        .card {
+            background: #fff; border-radius: 24px; padding: 40px 32px;
+            max-width: 480px; width: 100%;
+            box-shadow: 0 8px 40px rgba(0,0,0,0.08);
+            text-align: center;
+        }
+        .header { margin-bottom: 24px; }
+        .header h1 {
+            font-size: 22px; font-weight: 700; color: #1A1A2E; margin-bottom: 4px;
+        }
+        .header p { color: #64748B; font-size: 14px; }
+        .status-badge {
+            display: inline-block; background: #FFF8E1; color: #FF8F00;
+            padding: 4px 14px; border-radius: 20px; font-size: 13px; font-weight: 600;
+            margin-bottom: 16px;
+        }
+        .qr-wrapper {
+            background: #fff; border: 3px solid #6A1B9A; border-radius: 20px;
+            padding: 16px; margin-bottom: 20px; display: inline-block;
+        }
+        .qr-wrapper img { width: 280px; height: 280px; display: block; image-rendering: pixelated; }
+        .copy-area {
+            background: #F5F4F8; border-radius: 12px; padding: 12px 16px;
+            margin-bottom: 24px; word-break: break-all;
+            font-family: 'Courier New', monospace; font-size: 12px; color: #1A1A2E;
+            text-align: left; line-height: 1.5;
+        }
+        .btn-copy {
+            background: #6A1B9A; color: #fff; border: none; border-radius: 12px;
+            padding: 14px 24px; font-size: 16px; font-weight: 600; cursor: pointer;
+            width: 100%; transition: all 0.2s; margin-bottom: 12px;
+        }
+        .btn-copy:hover { background: #4A148C; }
+        .btn-copy:active { transform: scale(0.97); }
+        .btn-copy.copied { background: #22C55E; }
+        .info-grid {
+            display: grid; grid-template-columns: 1fr 1fr; gap: 8px;
+            margin-top: 16px; text-align: left;
+        }
+        .info-item { padding: 8px 12px; background: #F5F4F8; border-radius: 8px; }
+        .info-item .label { font-size: 11px; color: #64748B; text-transform: uppercase; letter-spacing: 0.5px; }
+        .info-item .value { font-size: 14px; font-weight: 600; color: #1A1A2E; margin-top: 2px; }
+        .info-item.full { grid-column: 1 / -1; }
+        .note {
+            margin-top: 20px; padding: 12px; background: #F3E5F5; border-radius: 12px;
+            font-size: 13px; color: #6A1B9A; text-align: left; line-height: 1.5;
+        }
+        .note strong { display: block; margin-bottom: 4px; }
+        .correction-badge {
+            display: inline-flex; align-items: center; gap: 6px;
+            background: #E8F5E9; color: #22C55E; padding: 6px 16px;
+            border-radius: 20px; font-size: 13px; font-weight: 600;
+            margin-top: 16px;
+        }
+    </style>
+</head>
+<body>
+    <div class="card">
+        <div class="header">
+            <h1>✅ PIX Corrigido</h1>
+            <p>Agora usando <strong>Payments API</strong> (igual ao marketplace)</p>
+        </div>
+
+        <div class="status-badge">Status: aguardando pagamento</div>
+
+        <div class="qr-wrapper">
+            <img id="qrImage" alt="QR Code PIX" />
+        </div>
+
+        <div style="margin-bottom:8px;font-size:13px;color:#64748B;">
+            Escaneie com seu banco ou copie o código abaixo
+        </div>
+
+        <div class="copy-area" id="pixCode">Carregando...</div>
+
+        <button class="btn-copy" id="copyBtn" onclick="copiarPix()">Copiar código PIX</button>
+
+        <div class="info-grid">
+            <div class="info-item">
+                <div class="label">Payment ID</div>
+                <div class="value" id="paymentId">---</div>
+            </div>
+            <div class="info-item">
+                <div class="label">Valor</div>
+                <div class="value" id="paymentValue">R$ 0,10</div>
+            </div>
+            <div class="info-item full">
+                <div class="label">External Reference</div>
+                <div class="value" id="externalRef">---</div>
+            </div>
+            <div class="info-item full">
+                <div class="label">Expira em</div>
+                <div class="value" id="expiresAt">---</div>
+            </div>
+        </div>
+
+        <div class="note">
+            <strong>🔧 O que mudou (correção)</strong>
+            • <strong>ANTES:</strong> Orders API (POST /v1/orders) — complexa, exigia POS, <code>qr_code_base64</code> vazio, validação rejeitava QR válido<br>
+            • <strong>AGORA:</strong> Payments API (POST /v1/payments) — igual ao marketplace DiPertin, QR com <code>qr_code_base64</code>, sem validação desnecessária
+        </div>
+
+        <div class="correction-badge">
+            ✓ Usando Payments API (corrigido)
+        </div>
+        
+        <div style="margin-top:20px; padding:12px; background:#FFF3E0; border-radius:12px; font-size:13px; color:#E65100; text-align:left; line-height:1.5;">
+            <strong>⚠️ Atenção: QR code PIX gerado com dados da conta MP da loja</strong><br>
+            O nome exibido no QR ("EBFDCAEGH20535") e a chave PIX (CNPJ) são definidos no cadastro
+            da conta Mercado Pago da loja. O código não controla esses dados — eles vêm direto do MP.
+            Para alterar o nome exibido, a loja deve atualizar os dados cadastrais no painel do Mercado Pago.
+        </div>
+    </div>
+
+    <script>
+        // Dados do PIX gerado pelo script corrigido
+        const PIX_DATA = {
+            qrCodeBase64: "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",
+            pixCopiaECola: "00020126360014br.gov.bcb.pix01146604099800016652040000530398654040.105802BR5914EBFDCAEGH205356009Sao Paulo62250521mpqrinter1666241803986304823B",
+            paymentId: 166624180398,
+            externalRef: "pdv_test_test_corr_1782906781375_mfpm_1782906781375",
+            expiresAt: "2026-07-01T11:58:01.375Z",
+            valor: 0.10
+        };
+
+        // Renderizar dados
+        document.getElementById('qrImage').src = 'data:image/png;base64,' + PIX_DATA.qrCodeBase64;
+        document.getElementById('pixCode').textContent = PIX_DATA.pixCopiaECola;
+        document.getElementById('paymentId').textContent = PIX_DATA.paymentId;
+        document.getElementById('externalRef').textContent = PIX_DATA.externalRef;
+        document.getElementById('expiresAt').textContent = new Date(PIX_DATA.expiresAt).toLocaleString('pt-BR');
+
+        function copiarPix() {
+            navigator.clipboard.writeText(PIX_DATA.pixCopiaECola).then(() => {
+                const btn = document.getElementById('copyBtn');
+                btn.textContent = '✓ Código copiado!';
+                btn.classList.add('copied');
+                setTimeout(() => {
+                    btn.textContent = 'Copiar código PIX';
+                    btn.classList.remove('copied');
+                }, 3000);
+            }).catch(() => {
+                alert('Não foi possível copiar. Selecione e copie manualmente.');
+            });
+        }
+    </script>
+</body>
+</html>

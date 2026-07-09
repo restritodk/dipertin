@@ -1,0 +1,410 @@
+<!DOCTYPE html>
+<html lang="pt-BR">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
+    <title>Pagamento Seguro - DiPertin</title>
+    <link rel="icon" type="image/png" href="/assets/logo.png" />
+    <link rel="apple-touch-icon" href="/assets/logo.png" />
+    <meta name="theme-color" content="#6A1B9A" />
+    <link rel="stylesheet" href="css/pagar.css?v=20260630v6">
+    <link rel="preconnect" href="https://fonts.googleapis.com">
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+    <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&family=Plus+Jakarta+Sans:wght@400;500;600;700;800&display=swap" rel="stylesheet">
+    <meta name="robots" content="noindex, nofollow">
+    <meta http-equiv="Cache-Control" content="no-cache, no-store, must-revalidate">
+    <meta http-equiv="Pragma" content="no-cache">
+    <meta http-equiv="Expires" content="0">
+</head>
+<body>
+    <!-- Elementos decorativos do fundo -->
+    <div class="bg-decor">
+        <div class="bg-circle bg-circle-1"></div>
+        <div class="bg-circle bg-circle-2"></div>
+        <div class="bg-circle bg-circle-3"></div>
+        <div class="bg-circle bg-circle-4"></div>
+    </div>
+
+    <div id="app">
+        <!-- ═══════════ TELA 1: CPF ═══════════ -->
+        <div id="tela-cpf" class="tela">
+            <div class="container">
+                <div class="card">
+                    <div class="card-header gradient-dipertin">
+                        <div class="header-logo-area">
+                            <img src="https://www.dipertin.com.br/assets/logo-tela-login.png" alt="DiPertin" class="dipertin-logo"
+                                 onerror="this.style.display='none'">
+                        </div>
+                        <div class="header-shield">
+                            <svg width="56" height="56" viewBox="0 0 56 56" fill="none">
+                                <rect x="10" y="16" width="36" height="28" rx="6" stroke="white" stroke-width="2" fill="none" opacity="0.9"/>
+                                <path d="M18 16V11a10 10 0 0 1 20 0v5" stroke="white" stroke-width="2" stroke-linecap="round" fill="none" opacity="0.9"/>
+                                <circle cx="28" cy="32" r="4" fill="white" opacity="0.9"/>
+                                <path d="M28 36v4m-8-5-3 3m16-3-6 6" stroke="white" stroke-width="2" stroke-linecap="round" opacity="0.9"/>
+                            </svg>
+                        </div>
+                        <h1>Pagamento Seguro</h1>
+                        <p class="subtitle">Confirme sua identidade para acessar sua cobrança</p>
+                    </div>
+                    <div class="card-body">
+                        <!-- Selo de segurança -->
+                        <div class="security-seal">
+                            <svg width="14" height="14" viewBox="0 0 14 14" fill="none">
+                                <path d="M7 1L1.5 3.5V6.5c0 3 2.2 5.8 5.5 6.5 3.3-.7 5.5-3.5 5.5-6.5V3.5L7 1z" fill="#FF8F00" opacity="0.2"/>
+                                <path d="M7 1L1.5 3.5V6.5c0 3 2.2 5.8 5.5 6.5 3.3-.7 5.5-3.5 5.5-6.5V3.5L7 1z" stroke="#FF8F00" stroke-width="0.8" fill="none" opacity="0.5"/>
+                                <path d="M5 7.5L6.5 9l3-4" stroke="#FF8F00" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"/>
+                            </svg>
+                            <span>Ambiente protegido por criptografia</span>
+                        </div>
+
+                        <!-- Campo CPF -->
+                        <div class="input-group">
+                            <label for="input-cpf">CPF do titular da cobrança</label>
+                            <div class="input-wrapper has-icon">
+                                <span class="input-icon">
+                                    <svg width="18" height="18" viewBox="0 0 18 18" fill="none">
+                                        <rect x="1.5" y="4" width="15" height="10" rx="2" stroke="#6A1B9A" stroke-width="1.2" fill="none" opacity="0.5"/>
+                                        <circle cx="9" cy="9" r="2.5" stroke="#6A1B9A" stroke-width="1.2" fill="none" opacity="0.5"/>
+                                        <path d="M4.5 14c0-2.5 2-4.5 4.5-4.5s4.5 2 4.5 4.5" stroke="#6A1B9A" stroke-width="1.2" fill="none" opacity="0.5"/>
+                                    </svg>
+                                </span>
+                                <input type="text" id="input-cpf" class="input-cpf"
+                                       placeholder="000.000.000-00" maxlength="14"
+                                       inputmode="numeric" autocomplete="off">
+                            </div>
+                            <span id="erro-cpf" class="error-msg" style="display:none;"></span>
+                        </div>
+
+                        <!-- Botão Continuar -->
+                        <button id="btn-continuar" class="btn btn-primary" disabled>
+                            <span class="btn-texto">Continuar</span>
+                            <span class="btn-loading" style="display:none;">
+                                <span class="spinner"></span> Validando CPF...
+                            </span>
+                        </button>
+
+                        <!-- Rodapé -->
+                        <div class="footer-secure">
+                            <svg width="10" height="10" viewBox="0 0 10 10" fill="none">
+                                <path d="M5 1L2 2v3c0 2 1.3 3.8 3 4.2 1.7-.4 3-2.2 3-4.2V2L5 1z" fill="#FF8F00" opacity="0.4"/>
+                            </svg>
+                            <span>Seus dados são protegidos e usados apenas para validar esta cobrança.</span>
+                        </div>
+                    </div>
+                </div>
+            </div>
+        </div>
+
+        <!-- ═══════════ TELA 2: Cobrança (premium) ═══════════ -->
+        <div id="tela-cobranca" class="tela" style="display:none;">
+            <div class="container-cobranca">
+                <div class="cobranca-card">
+                    <!-- ── HEADER PREMIUM ── -->
+                    <div class="cobranca-header">
+                        <div class="cobranca-header-bg">
+                            <div class="cobranca-orb cobranca-orb-1"></div>
+                            <div class="cobranca-orb cobranca-orb-2"></div>
+                            <div class="cobranca-orb cobranca-orb-3"></div>
+                        </div>
+                        <div class="cobranca-header-inner">
+                            <div class="cobranca-header-left">
+                                <div class="cobranca-brand">
+                                    <img src="https://www.dipertin.com.br/assets/logo-tela-login.png" alt="DiPertin" class="cobranca-brand-logo"
+                                         onerror="this.style.display='none'">
+                                </div>
+                                <div class="cobranca-store-wrap">
+                                    <img id="loja-logo" src="" alt="" class="cobranca-store-logo"
+                                         onerror="this.style.display='none'">
+                                    <div>
+                                        <h2 id="loja-nome-cob" class="cobranca-store-name"></h2>
+                                        <p id="cliente-nome-cob" class="cobranca-client-name"></p>
+                                        <p id="cpf-mask" class="cobranca-cpf-mask"></p>
+                                    </div>
+                                </div>
+                            </div>
+                            <div class="cobranca-header-right">
+                                <div class="cobranca-floating-card">
+                                    <span class="cobranca-float-label">Valor total em aberto</span>
+                                    <span class="cobranca-float-value" id="valor-total-texto">R$ 0,00</span>
+                                </div>
+                            </div>
+                        </div>
+                    </div>
+
+                    <!-- ── BODY: 2 COLUNAS ── -->
+                    <div class="cobranca-body">
+                        <!-- ESQUERDA: Lista parcelas (70%) -->
+                        <div class="cobranca-left">
+                            <div class="cobranca-section-title">
+                                <h3>Itens em atraso</h3>
+                                <span class="cobranca-badge" id="qtd-parcelas-badge">0 itens</span>
+                            </div>
+                            <div id="lista-parcelas" class="cobranca-lista"></div>
+                        </div>
+
+                        <!-- DIREITA: Resumo financeiro (30%) -->
+                        <div class="cobranca-right">
+                            <div class="cobranca-summary">
+                                <div class="cobranca-summary-head">
+                                    <svg width="20" height="20" viewBox="0 0 20 20" fill="none">
+                                        <path d="M4 3h12a1 1 0 0 1 1 1v12a1 1 0 0 1-1 1H4a1 1 0 0 1-1-1V4a1 1 0 0 1 1-1z" stroke="#6A1B9A" stroke-width="1.5" fill="none"/>
+                                        <path d="M7 7h6M7 10h6M7 13h4" stroke="#6A1B9A" stroke-width="1.5" stroke-linecap="round"/>
+                                    </svg>
+                                    <span>Resumo da seleção</span>
+                                </div>
+
+                                <div class="cobranca-summary-rows">
+                                    <div class="cobranca-summary-row">
+                                        <span>Total selecionado</span>
+                                        <span id="valor-selecionado-texto">R$ 0,00</span>
+                                    </div>
+                                    <div class="cobranca-summary-row cobranca-summary-row-muted">
+                                        <span>Taxas</span>
+                                        <span>R$ 0,00</span>
+                                    </div>
+                                </div>
+
+                                <div class="cobranca-summary-divider"></div>
+
+                                <div class="cobranca-summary-total-wrap">
+                                    <span class="cobranca-summary-total-label">Total a pagar</span>
+                                    <span class="cobranca-summary-total-value" id="valor-selecionado-texto-grande">R$ 0,00</span>
+                                </div>
+
+                                <button id="btn-efetuar-pagamento" class="cobranca-btn-pagar" disabled>
+                                    <svg width="18" height="18" viewBox="0 0 18 18" fill="none">
+                                        <rect x="3" y="5" width="12" height="10" rx="2" stroke="currentColor" stroke-width="1.5" fill="none"/>
+                                        <path d="M6 5V3.5a3 3 0 0 1 6 0V5" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" fill="none"/>
+                                        <circle cx="9" cy="10" r="1.5" fill="currentColor"/>
+                                    </svg>
+                                    <span>Efetuar pagamento</span>
+                                </button>
+
+                                <div class="cobranca-secure-badge">
+                                    <svg width="12" height="12" viewBox="0 0 12 12" fill="none">
+                                        <path d="M6 1L1.5 3v3.5c0 3 2 5.5 4.5 6 2.5-.5 4.5-3 4.5-6V3L6 1z" stroke="#94A3B8" stroke-width="1" fill="none"/>
+                                        <path d="M4.5 6.5L5.5 8l3-3.5" stroke="#94A3B8" stroke-width="1.2" stroke-linecap="round" stroke-linejoin="round"/>
+                                    </svg>
+                                    <span>Pagamento 100% seguro</span>
+                                </div>
+                            </div>
+                        </div>
+                    </div>
+
+                    <!-- ── CARD INFERIOR ── -->
+                    <div class="cobranca-bottom-card">
+                        <div class="cobranca-bottom-left">
+                            <div class="cobranca-bottom-icon">
+                                <svg width="24" height="24" viewBox="0 0 24 24" fill="none">
+                                    <rect x="3" y="4" width="18" height="18" rx="3" stroke="#6A1B9A" stroke-width="1.5" fill="none"/>
+                                    <line x1="8" y1="2" x2="8" y2="6" stroke="#6A1B9A" stroke-width="1.5" stroke-linecap="round"/>
+                                    <line x1="16" y1="2" x2="16" y2="6" stroke="#6A1B9A" stroke-width="1.5" stroke-linecap="round"/>
+                                    <line x1="3" y1="9" x2="21" y2="9" stroke="#6A1B9A" stroke-width="1.5"/>
+                                    <circle cx="12" cy="15" r="2" fill="#FF8F00" opacity="0.3"/>
+                                    <path d="M12 13v2l1 1" stroke="#6A1B9A" stroke-width="1.2" stroke-linecap="round"/>
+                                </svg>
+                            </div>
+                            <div>
+                                <h4 class="cobranca-bottom-title">Evite juros e negativas</h4>
+                                <p class="cobranca-bottom-desc">Mantenha seus pagamentos em dia e preserve seu crédito.</p>
+                            </div>
+                        </div>
+                        <div class="cobranca-bottom-right">
+                            <svg width="48" height="48" viewBox="0 0 48 48" fill="none">
+                                <rect x="4" y="8" width="40" height="32" rx="4" stroke="#D8B4FE" stroke-width="1.5" fill="none"/>
+                                <line x1="14" y1="18" x2="34" y2="18" stroke="#D8B4FE" stroke-width="1.5" stroke-linecap="round"/>
+                                <line x1="14" y1="24" x2="28" y2="24" stroke="#D8B4FE" stroke-width="1.5" stroke-linecap="round"/>
+                                <line x1="14" y1="30" x2="22" y2="30" stroke="#D8B4FE" stroke-width="1.5" stroke-linecap="round"/>
+                                <circle cx="36" cy="32" r="8" fill="#F3E8FF"/>
+                                <path d="M36 28v4l2.5 2" stroke="#6A1B9A" stroke-width="1.5" stroke-linecap="round"/>
+                            </svg>
+                        </div>
+                    </div>
+                </div>
+            </div>
+        </div>
+
+        <!-- ═══════════ TELA 3: Forma de pagamento ═══════════ -->
+        <div id="tela-forma-pgto" class="tela" style="display:none;">
+            <div class="container">
+                <div class="card card-method">
+                    <div class="card-header gradient-dipertin">
+                        <h2>Escolha a forma de pagamento</h2>
+                        <p class="subtitle" id="forma-valor-resumo"></p>
+                    </div>
+                    <div class="card-body">
+                        <div class="method-options">
+                            <button id="btn-forma-pix" class="method-btn">
+                                <span class="method-icon pix-icon">
+                                    <svg width="48" height="48" viewBox="0 0 48 48" fill="none">
+                                        <rect width="48" height="48" rx="14" fill="#6A1B9A"/>
+                                        <text x="24" y="30" text-anchor="middle" fill="white" font-size="18" font-weight="bold" font-family="Arial">PIX</text>
+                                    </svg>
+                                </span>
+                                <span class="method-info">
+                                    <strong>PIX</strong>
+                                    <span>Pagamento instantâneo, QR Code</span>
+                                </span>
+                                <span class="method-arrow">&rsaquo;</span>
+                            </button>
+                            <button id="btn-forma-cartao" class="method-btn">
+                                <span class="method-icon card-icon">
+                                    <svg width="48" height="48" viewBox="0 0 48 48" fill="none">
+                                        <rect width="48" height="48" rx="14" fill="#FF8F00"/>
+                                        <rect x="10" y="16" width="28" height="16" rx="2" stroke="white" stroke-width="1.5" fill="none"/>
+                                        <line x1="10" y1="23" x2="38" y2="23" stroke="white" stroke-width="1.5"/>
+                                        <rect x="16" y="28" width="6" height="4" rx="1" fill="white" opacity="0.6"/>
+                                    </svg>
+                                </span>
+                                <span class="method-info">
+                                    <strong>Cartão de crédito</strong>
+                                    <span>Pagamento com cartão</span>
+                                </span>
+                                <span class="method-arrow">&rsaquo;</span>
+                            </button>
+                        </div>
+                        <button id="btn-voltar-forma" class="btn btn-outline">Voltar</button>
+                    </div>
+                </div>
+            </div>
+        </div>
+
+        <!-- ═══════════ TELA 4: PIX ═══════════ -->
+        <div id="tela-pix" class="tela" style="display:none;">
+            <div class="container">
+                <div class="card">
+                    <div class="card-header gradient-dipertin">
+                        <h2>Pagamento via PIX</h2>
+                        <p class="subtitle">Escaneie o QR Code ou copie o código</p>
+                    </div>
+                    <div class="card-body">
+                        <div class="pix-value" id="pix-valor-texto">R$ 0,00</div>
+                        <div class="qrcode-area">
+                            <div id="qrcode-container" class="qrcode-box">
+                                <div class="qrcode-placeholder">
+                                    <span class="spinner-lg"></span>
+                                    <p>Gerando QR Code...</p>
+                                </div>
+                            </div>
+                        </div>
+                        <div class="copy-area">
+                            <label>Código copia e cola</label>
+                            <div class="copy-input">
+                                <textarea id="input-copia-cola" class="copy-textarea" readonly rows="3"></textarea>
+                                <button id="btn-copiar" class="btn btn-outline btn-sm">Copiar</button>
+                            </div>
+                        </div>
+                        <div class="pix-timer">
+                            <svg width="18" height="18" viewBox="0 0 18 18" fill="none">
+                                <circle cx="9" cy="9" r="8" stroke="#FF8F00" stroke-width="1.5" fill="none"/>
+                                <path d="M9 5v4l3 2" stroke="#FF8F00" stroke-width="1.5" stroke-linecap="round"/>
+                            </svg>
+                            <span>Expira em </span>
+                            <span id="pix-timer" class="timer-value">5:00</span>
+                        </div>
+                        <div class="pix-instruction">
+                            <p>Abra o app do seu banco, escolha PIX e escaneie o QR Code acima ou cole o código copia e cola.</p>
+                        </div>
+                        <div id="pix-status" class="payment-status" style="display:none;">
+                            <span class="status-spinner"></span>
+                            <span>Aguardando confirmação do pagamento...</span>
+                        </div>
+                        <button id="btn-voltar-pix" class="btn btn-outline">Cancelar</button>
+                    </div>
+                </div>
+            </div>
+        </div>
+
+        <!-- ═══════════ TELA 5: Cartão ═══════════ -->
+        <div id="tela-cartao" class="tela" style="display:none;">
+            <div class="container">
+                <div class="card">
+                    <div class="card-header gradient-dipertin">
+                        <h2>Pagamento com Cartão</h2>
+                        <p class="subtitle" id="cartao-valor-texto">R$ 0,00</p>
+                    </div>
+                    <div class="card-body">
+                        <form id="form-cartao" onsubmit="return false;">
+                            <div class="input-group">
+                                <label>Número do cartão</label>
+                                <div class="input-wrapper has-icon">
+                                    <span class="input-icon">
+                                        <svg width="18" height="18" viewBox="0 0 18 18" fill="none">
+                                            <rect x="1" y="3" width="16" height="12" rx="2" stroke="#6A1B9A" stroke-width="1.2" fill="none" opacity="0.5"/>
+                                            <line x1="1" y1="8" x2="17" y2="8" stroke="#6A1B9A" stroke-width="1.2" opacity="0.5"/>
+                                        </svg>
+                                    </span>
+                                    <input type="text" id="card-number" class="input-card"
+                                           placeholder="0000 0000 0000 0000" maxlength="19" inputmode="numeric">
+                                </div>
+                            </div>
+                            <div class="row-fields">
+                                <div class="input-group half">
+                                    <label>Validade</label>
+                                    <input type="text" id="card-expiry" placeholder="MM/AA" maxlength="5" inputmode="numeric">
+                                </div>
+                                <div class="input-group half">
+                                    <label>CVV</label>
+                                    <input type="text" id="card-cvv" placeholder="000" maxlength="4" inputmode="numeric">
+                                </div>
+                            </div>
+                            <div class="input-group">
+                                <label>Nome no cartão</label>
+                                <input type="text" id="card-name" placeholder="Como está impresso no cartão">
+                            </div>
+                            <div class="input-group">
+                                <label>Parcelas</label>
+                                <select id="card-installments">
+                                    <option value="1">À vista</option>
+                                    <option value="2">2x</option>
+                                    <option value="3">3x</option>
+                                    <option value="4">4x</option>
+                                    <option value="5">5x</option>
+                                    <option value="6">6x</option>
+                                </select>
+                            </div>
+                            <span id="erro-cartao" class="error-msg" style="display:none;"></span>
+                            <button type="submit" id="btn-pagar-cartao" class="btn btn-primary btn-lg">
+                                <span class="btn-texto">Pagar com cartão</span>
+                                <span class="btn-loading" style="display:none;">
+                                    <span class="spinner"></span> Processando...
+                                </span>
+                            </button>
+                        </form>
+                        <button id="btn-voltar-cartao" class="btn btn-outline">Voltar</button>
+                    </div>
+                </div>
+            </div>
+        </div>
+
+        <!-- ═══════════ TELA 6: Resultado ═══════════ -->
+        <div id="tela-resultado" class="tela" style="display:none;">
+            <div class="container">
+                <div class="card card-result">
+                    <div id="resultado-header" class="card-header">
+                        <div id="resultado-icone" class="result-icon"></div>
+                        <h2 id="resultado-titulo"></h2>
+                        <p id="resultado-msg" class="subtitle"></p>
+                    </div>
+                    <div class="card-body">
+                        <div id="resultado-detalhes" class="result-details"></div>
+                        <button id="btn-resultado-fechar" class="btn btn-primary">Fechar</button>
+                    </div>
+                </div>
+            </div>
+        </div>
+
+        <!-- Loading overlay -->
+        <div id="loading-overlay" class="loading-overlay" style="display:none;">
+            <div class="loading-box">
+                <span class="spinner-lg"></span>
+                <p id="loading-msg">Carregando...</p>
+            </div>
+        </div>
+    </div>
+
+    <script src="https://sdk.mercadopago.com/js/v2"></script>
+    <script src="https://cdn.jsdelivr.net/npm/qrcode@1.5.4/build/qrcode.min.js"></script>
+    <script src="js/pagar.js?v=20260630v11"></script>
+</body>
+</html>

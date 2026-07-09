@@ -4,7 +4,12 @@ import 'package:depertin_web/services/saques_solicitacoes_menu_contagem.dart';
 import 'package:depertin_web/utils/admin_perfil.dart';
 import 'package:depertin_web/utils/firestore_web_safe.dart';
 import 'package:depertin_web/utils/lojista_painel_context.dart';
+import 'package:depertin_web/models/cliente_assinatura_model.dart';
+import 'package:depertin_web/services/assinatura_gestao_comercial_service.dart';
+import 'package:depertin_web/services/assinatura_gestao_comercial_refresh.dart';
 import 'package:firebase_auth/firebase_auth.dart';
+import 'package:depertin_web/navigation/painel_navigation_scope.dart';
+import 'package:flutter/foundation.dart' show debugPrint, kDebugMode;
 import 'package:flutter/material.dart';
 
 /// Menu lateral do painel DiPertin — collapsible sidebar.
@@ -386,6 +391,11 @@ class _SidebarNovo extends StatelessWidget {
       itens.add(_SecaoLabel('Gestão', collapsed: compacto));
       itens.addAll([
         _GrupoAdminCity(
+          rotaAtual: rotaAtual,
+          collapsed: compacto,
+          onTapItem: onTapItem,
+        ),
+        _GrupoAssinaturas(
           rotaAtual: rotaAtual,
           collapsed: compacto,
           onTapItem: onTapItem,
@@ -2005,9 +2015,14 @@ class _GrupoGestaoComercial extends StatefulWidget {
 
 class _GrupoGestaoComercialState extends State<_GrupoGestaoComercial> {
   late bool _aberto;
+  late bool _abertoFinanceiro;
+  bool _temPlano = false;
+  bool _suspensoAdmin = false;
+  bool _carregandoPlano = true;
 
   static const _rotas = [
     '/comercial_dashboard',
+    '/minha_loja',
     '/pdv',
     '/comercial_clientes',
     '/comercial_credito',
@@ -2016,20 +2031,113 @@ class _GrupoGestaoComercialState extends State<_GrupoGestaoComercial> {
     '/comercial_historico',
     '/comercial_relatorios',
     '/comercial_configuracoes',
+    '/modulo_fiscal',
+  ];
+
+  static const _rotasFinanceiro = [
+    '/comercial_credito',
+    '/comercial_pendencias',
+    '/comercial_recebimentos',
+    '/comercial_historico',
+    '/comercial_relatorios',
   ];
 
   bool get _qualquerAtivo => _rotas.contains(widget.rotaAtual);
+  bool get _qualquerAtivoFinanceiro =>
+      _rotasFinanceiro.contains(widget.rotaAtual);
+
+  /// A rota `/comercial_dashboard` sempre existe (é a tela de upsell).
+  /// As demais rotas (submenus) só existem se tiver plano.
+  bool get _temSubmenus => _temPlano;
 
   @override
   void initState() {
     super.initState();
     _aberto = _qualquerAtivo;
+    _abertoFinanceiro = _qualquerAtivoFinanceiro;
+    AssinaturaGestaoComercialRefresh.instance.addListener(_onPlanoAtualizado);
+    _verificarPlano();
+  }
+
+  @override
+  void dispose() {
+    AssinaturaGestaoComercialRefresh.instance.removeListener(_onPlanoAtualizado);
+    super.dispose();
+  }
+
+  void _onPlanoAtualizado() {
+    _verificarPlano();
   }
 
   @override
   void didUpdateWidget(_GrupoGestaoComercial old) {
     super.didUpdateWidget(old);
     if (_qualquerAtivo && !_aberto) setState(() => _aberto = true);
+    if (_qualquerAtivoFinanceiro && !_abertoFinanceiro) {
+      setState(() => _abertoFinanceiro = true);
+    }
+    // Re-verifica se o uid mudou (ex.: recarregou o painel)
+    _verificarPlano();
+  }
+
+  Future<void> _verificarPlano() async {
+    final uid = FirebaseAuth.instance.currentUser?.uid;
+    if (uid == null) return;
+
+    try {
+      final subSnap = await FirebaseFirestore.instance
+          .collection('assinaturas_clientes')
+          .where('store_id', isEqualTo: uid)
+          .get();
+
+      if (subSnap.docs.isEmpty) {
+        if (mounted) {
+          setState(() {
+            _temPlano = false;
+            _suspensoAdmin = false;
+            _carregandoPlano = false;
+          });
+        }
+        return;
+      }
+
+      final ctx = await AssinaturaGestaoComercialService.carregarContexto();
+
+      bool tem = false;
+      bool suspensoAdmin = false;
+      for (final doc in subSnap.docs) {
+        final assinatura = ClienteAssinaturaModel.fromFirestore(doc);
+        if (!AssinaturaGestaoComercialService.assinaturaEhGestaoComercial(
+          assinatura,
+          ctx,
+        )) {
+          continue;
+        }
+        if (AssinaturaGestaoComercialService.assinaturaBloqueadaPeloAdmin(
+          assinatura,
+        )) {
+          suspensoAdmin = true;
+          continue;
+        }
+        if (AssinaturaGestaoComercialService.assinaturaTemAcessoGestao(
+          assinatura,
+        )) {
+          tem = true;
+          break;
+        }
+      }
+
+      if (mounted) {
+        setState(() {
+          _temPlano = tem;
+          _suspensoAdmin = suspensoAdmin;
+          _carregandoPlano = false;
+        });
+      }
+    } catch (e) {
+      if (kDebugMode) debugPrint('[Sidebar] erro verificar plano: $e');
+      if (mounted) setState(() { _temPlano = false; _carregandoPlano = false; });
+    }
   }
 
   @override
@@ -2041,10 +2149,42 @@ class _GrupoGestaoComercialState extends State<_GrupoGestaoComercial> {
         mainAxisSize: MainAxisSize.min,
         children: [
           _iconColapsado(
-            Icons.business_center_outlined,
+            Icons.dashboard_rounded,
             '/comercial_dashboard',
-            'Gestão Comercial',
+            'Dashboard Comercial',
           ),
+          _iconColapsado(
+            Icons.store_rounded,
+            '/minha_loja',
+            'Minha Loja',
+          ),
+          if (_temSubmenus) ...[
+            _iconColapsado(
+              Icons.point_of_sale_rounded,
+              '/pdv',
+              'Frente de Caixa (PDV)',
+            ),
+            _iconColapsado(
+              Icons.people_alt_rounded,
+              '/comercial_clientes',
+              'Clientes',
+            ),
+            _iconColapsado(
+              Icons.receipt_long_rounded,
+              '/modulo_fiscal',
+              'Módulo Fiscal',
+            ),
+            _iconColapsado(
+              Icons.account_balance_rounded,
+              '/comercial_credito',
+              'Financeiro',
+            ),
+            _iconColapsado(
+              Icons.settings_outlined,
+              '/comercial_configuracoes',
+              'Configurações Comerciais',
+            ),
+          ],
         ],
       );
     }
@@ -2152,57 +2292,255 @@ class _GrupoGestaoComercialState extends State<_GrupoGestaoComercial> {
                 ),
                 _subItem(
                   context,
-                  rota: '/pdv',
-                  icon: Icons.point_of_sale_rounded,
-                  label: 'Frente de Caixa (PDV)',
+                  rota: '/minha_loja',
+                  icon: Icons.store_rounded,
+                  label: 'Minha Loja',
                 ),
-                _subItem(
-                  context,
-                  rota: '/comercial_clientes',
-                  icon: Icons.people_alt_rounded,
-                  label: 'Clientes',
+                if (_temSubmenus) ...[
+                  _subItem(
+                    context,
+                    rota: '/pdv',
+                    icon: Icons.point_of_sale_rounded,
+                    label: 'PDV',
+                  ),
+                  _subItem(
+                    context,
+                    rota: '/comercial_clientes',
+                    icon: Icons.people_alt_rounded,
+                    label: 'Cadastro de Clientes',
+                  ),
+                  _subItem(
+                    context,
+                    rota: '/modulo_fiscal',
+                    icon: Icons.receipt_long_rounded,
+                    label: 'Módulo Fiscal',
+                  ),
+                  // ── sub-accordion Financeiro ──
+                  _buildFinanceiroSubAccordion(),
+                  _subItem(
+                    context,
+                    rota: '/comercial_configuracoes',
+                    icon: Icons.settings_outlined,
+                    label: 'Configurações Comerciais',
+                  ),
+                ],
+                if (!_temSubmenus && !_carregandoPlano && !_suspensoAdmin)
+                  _buildSemPlanoMensagem(),
+                if (_suspensoAdmin && !_carregandoPlano)
+                  _buildSuspensoAdminMensagem(),
+              ],
+            ),
+          ),
+          secondChild: const SizedBox.shrink(),
+        ),
+      ],
+    );
+  }
+
+  Widget _buildSemPlanoMensagem() {
+    return Padding(
+      padding: const EdgeInsets.fromLTRB(12, 8, 12, 4),
+      child: Container(
+        padding: const EdgeInsets.all(12),
+        decoration: BoxDecoration(
+          color: _TemaNav.ativoBg.withValues(alpha: 0.3),
+          borderRadius: BorderRadius.circular(10),
+          border: Border.all(
+            color: _TemaNav.accent.withValues(alpha: 0.2),
+          ),
+        ),
+        child: Row(
+          children: [
+            Icon(
+              Icons.lock_outline_rounded,
+              size: 16,
+              color: _TemaNav.accent.withValues(alpha: 0.7),
+            ),
+            const SizedBox(width: 8),
+            Expanded(
+              child: Text(
+                'Contrate um plano para desbloquear',
+                style: TextStyle(
+                  fontSize: 11,
+                  color: _TemaNav.textoMuted.withValues(alpha: 0.8),
+                  decoration: TextDecoration.none,
                 ),
+              ),
+            ),
+          ],
+        ),
+      ),
+    );
+  }
+
+  Widget _buildSuspensoAdminMensagem() {
+    return Padding(
+      padding: const EdgeInsets.fromLTRB(12, 8, 12, 4),
+      child: Material(
+        color: Colors.transparent,
+        child: InkWell(
+          borderRadius: BorderRadius.circular(10),
+          onTap: () => widget.onTapItem(
+            context,
+            '/comercial_dashboard',
+            widget.rotaAtual == '/comercial_dashboard',
+          ),
+          child: Container(
+            padding: const EdgeInsets.all(12),
+            decoration: BoxDecoration(
+              color: const Color(0xFFFEF2F2).withValues(alpha: 0.35),
+              borderRadius: BorderRadius.circular(10),
+              border: Border.all(
+                color: const Color(0xFFF04438).withValues(alpha: 0.25),
+              ),
+            ),
+            child: Row(
+              children: [
+                Icon(
+                  Icons.admin_panel_settings_outlined,
+                  size: 16,
+                  color: const Color(0xFFF04438).withValues(alpha: 0.85),
+                ),
+                const SizedBox(width: 8),
+                Expanded(
+                  child: Text(
+                    'Acesso suspenso pela equipe — toque para ver detalhes',
+                    style: TextStyle(
+                      fontSize: 11,
+                      color: _TemaNav.textoMuted.withValues(alpha: 0.9),
+                      decoration: TextDecoration.none,
+                    ),
+                  ),
+                ),
+              ],
+            ),
+          ),
+        ),
+      ),
+    );
+  }
+
+  Widget _buildFinanceiroSubAccordion() {
+    final ativoFinanceiro = _qualquerAtivoFinanceiro;
+
+    return Column(
+      mainAxisSize: MainAxisSize.min,
+      crossAxisAlignment: CrossAxisAlignment.stretch,
+      children: [
+        Padding(
+          padding: const EdgeInsets.only(bottom: 2),
+          child: Material(
+            color: Colors.transparent,
+            child: InkWell(
+              borderRadius: BorderRadius.circular(8),
+              onTap: () {
+                if (!_abertoFinanceiro) {
+                  setState(() => _abertoFinanceiro = true);
+                  widget.onTapItem(
+                    context,
+                    '/comercial_credito',
+                    widget.rotaAtual == '/comercial_credito',
+                  );
+                } else {
+                  setState(() => _abertoFinanceiro = !_abertoFinanceiro);
+                }
+              },
+              hoverColor: _TemaNav.hover,
+              focusColor: Colors.transparent,
+              highlightColor: Colors.transparent,
+              splashColor: _TemaNav.accent.withValues(alpha: 0.10),
+              child: Ink(
+                decoration: BoxDecoration(
+                  borderRadius: BorderRadius.circular(8),
+                  color: ativoFinanceiro ? _TemaNav.accentSoft : null,
+                ),
+                child: Padding(
+                  padding: const EdgeInsets.symmetric(
+                    vertical: 10,
+                    horizontal: 12,
+                  ),
+                  child: Row(
+                    children: [
+                      Icon(
+                        Icons.account_balance_rounded,
+                        size: 18,
+                        color: ativoFinanceiro
+                            ? _TemaNav.ativoCor
+                            : _TemaNav.textoMuted,
+                      ),
+                      const SizedBox(width: 10),
+                      Expanded(
+                        child: Text(
+                          'Financeiro',
+                          maxLines: 1,
+                          overflow: TextOverflow.ellipsis,
+                          style: TextStyle(
+                            fontSize: 13,
+                            fontWeight: ativoFinanceiro
+                                ? FontWeight.w600
+                                : FontWeight.w500,
+                            color: ativoFinanceiro
+                                ? _TemaNav.texto
+                                : _TemaNav.textoMuted,
+                          ),
+                        ),
+                      ),
+                      AnimatedRotation(
+                        turns: _abertoFinanceiro ? 0.5 : 0,
+                        duration: const Duration(milliseconds: 200),
+                        child: const Icon(
+                          Icons.expand_more_rounded,
+                          size: 16,
+                          color: _TemaNav.textoMuted,
+                        ),
+                      ),
+                    ],
+                  ),
+                ),
+              ),
+            ),
+          ),
+        ),
+        AnimatedCrossFade(
+          duration: const Duration(milliseconds: 200),
+          crossFadeState: _abertoFinanceiro
+              ? CrossFadeState.showFirst
+              : CrossFadeState.showSecond,
+          firstChild: Padding(
+            padding: const EdgeInsets.only(left: 16),
+            child: Column(
+              mainAxisSize: MainAxisSize.min,
+              children: [
                 _subItem(
                   context,
                   rota: '/comercial_credito',
                   icon: Icons.credit_card_rounded,
-                  label: 'Crédito de Clientes',
+                  label: 'Crédito de Cliente',
                   badge: 'Novo',
                 ),
                 _subItem(
                   context,
                   rota: '/comercial_pendencias',
                   icon: Icons.warning_amber_rounded,
-                  label: 'Pendências Financeiras',
-                  enabled: false,
+                  label: 'Pendência Financeira',
                 ),
                 _subItem(
                   context,
                   rota: '/comercial_recebimentos',
                   icon: Icons.payments_rounded,
                   label: 'Recebimentos',
-                  enabled: false,
                 ),
                 _subItem(
                   context,
                   rota: '/comercial_historico',
                   icon: Icons.history_rounded,
                   label: 'Histórico de Vendas',
-                  enabled: false,
                 ),
                 _subItem(
                   context,
                   rota: '/comercial_relatorios',
                   icon: Icons.analytics_rounded,
-                  label: 'Relatórios Comerciais',
-                  enabled: false,
-                ),
-                _subItem(
-                  context,
-                  rota: '/comercial_configuracoes',
-                  icon: Icons.settings_outlined,
-                  label: 'Configurações Comerciais',
-                  enabled: false,
+                  label: 'Relatório Comercial',
                 ),
               ],
             ),
@@ -2314,6 +2652,300 @@ class _GrupoGestaoComercialState extends State<_GrupoGestaoComercial> {
                           fontSize: 9,
                           fontWeight: FontWeight.bold,
                           color: _TemaNav.textoMuted.withOpacity(0.6),
+                        ),
+                      ),
+                    ),
+                  ),
+              ],
+            ),
+          ),
+        ),
+      ),
+    );
+  }
+}
+
+// ——— Grupo expansível: Gestão de Assinaturas ———
+
+class _GrupoAssinaturas extends StatefulWidget {
+  const _GrupoAssinaturas({
+    required this.rotaAtual,
+    required this.collapsed,
+    required this.onTapItem,
+  });
+
+  final String rotaAtual;
+  final bool collapsed;
+  final void Function(BuildContext, String, bool) onTapItem;
+
+  @override
+  State<_GrupoAssinaturas> createState() => _GrupoAssinaturasState();
+}
+
+class _GrupoAssinaturasState extends State<_GrupoAssinaturas> {
+  late bool _aberto;
+
+  static const _rotas = PainelRoutes.assinaturasRotas;
+
+  bool get _qualquerAtivo => _rotas.contains(widget.rotaAtual);
+
+  @override
+  void initState() {
+    super.initState();
+    _aberto = _qualquerAtivo;
+  }
+
+  @override
+  void didUpdateWidget(_GrupoAssinaturas old) {
+    super.didUpdateWidget(old);
+    if (_qualquerAtivo && !_aberto) setState(() => _aberto = true);
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    final ativo = _qualquerAtivo;
+
+    if (widget.collapsed) {
+      return Column(
+        mainAxisSize: MainAxisSize.min,
+        children: [
+          _iconColapsado(
+            Icons.card_membership_outlined,
+            '/assinaturas_dashboard',
+            'Assinaturas',
+          ),
+        ],
+      );
+    }
+
+    return Column(
+      mainAxisSize: MainAxisSize.min,
+      crossAxisAlignment: CrossAxisAlignment.stretch,
+      children: [
+        Padding(
+          padding: const EdgeInsets.only(bottom: 2),
+          child: Material(
+            color: Colors.transparent,
+            child: InkWell(
+              borderRadius: BorderRadius.circular(10),
+              onTap: () {
+                if (!_aberto) {
+                  setState(() => _aberto = true);
+                  widget.onTapItem(
+                    context,
+                    '/assinaturas_dashboard',
+                    ativo,
+                  );
+                } else {
+                  setState(() => _aberto = !_aberto);
+                }
+              },
+              hoverColor: _TemaNav.hover,
+              child: Ink(
+                decoration: BoxDecoration(
+                  borderRadius: BorderRadius.circular(10),
+                  color: ativo ? _TemaNav.ativoBg : null,
+                  border: Border.all(
+                    color: ativo
+                        ? _TemaNav.accent.withValues(alpha: 0.45)
+                        : Colors.transparent,
+                  ),
+                ),
+                child: Row(
+                  children: [
+                    Container(
+                      width: 3,
+                      height: 44,
+                      margin: const EdgeInsets.only(right: 10),
+                      decoration: BoxDecoration(
+                        color: ativo ? _TemaNav.accent : Colors.transparent,
+                        borderRadius: const BorderRadius.horizontal(
+                          right: Radius.circular(3),
+                        ),
+                      ),
+                    ),
+                    Icon(
+                      Icons.card_membership_outlined,
+                      size: 22,
+                      color: ativo ? _TemaNav.ativoCor : _TemaNav.textoMuted,
+                    ),
+                    const SizedBox(width: 12),
+                    Expanded(
+                      child: Text(
+                        'Gestão de Assinaturas',
+                        maxLines: 1,
+                        overflow: TextOverflow.ellipsis,
+                        style: TextStyle(
+                          fontSize: 14,
+                          fontWeight: ativo ? FontWeight.w600 : FontWeight.w500,
+                          color: ativo ? _TemaNav.texto : _TemaNav.textoMuted,
+                        ),
+                      ),
+                    ),
+                    Padding(
+                      padding: const EdgeInsets.only(right: 10),
+                      child: AnimatedRotation(
+                        turns: _aberto ? 0.5 : 0,
+                        duration: const Duration(milliseconds: 200),
+                        child: const Icon(
+                          Icons.expand_more_rounded,
+                          size: 18,
+                          color: _TemaNav.textoMuted,
+                        ),
+                      ),
+                    ),
+                  ],
+                ),
+              ),
+            ),
+          ),
+        ),
+        AnimatedCrossFade(
+          duration: const Duration(milliseconds: 200),
+          crossFadeState: _aberto
+              ? CrossFadeState.showFirst
+              : CrossFadeState.showSecond,
+          firstChild: Padding(
+            padding: const EdgeInsets.only(left: 20),
+            child: Column(
+              mainAxisSize: MainAxisSize.min,
+              children: [
+                _subItem(
+                  rota: '/assinaturas_dashboard',
+                  icon: Icons.dashboard_rounded,
+                  label: 'Dashboard de Assinaturas',
+                ),
+                _subItem(
+                  rota: '/assinaturas_clientes',
+                  icon: Icons.people_alt_rounded,
+                  label: 'Clientes e Assinaturas',
+                ),
+                _subItem(
+                  rota: '/assinaturas_planos',
+                  icon: Icons.widgets_outlined,
+                  label: 'Planos e Módulos',
+                ),
+                _subItem(
+                  rota: '/assinaturas_cobrancas',
+                  icon: Icons.receipt_long_outlined,
+                  label: 'Cobranças',
+                ),
+                _subItem(
+                  rota: '/assinaturas_inadimplencia',
+                  icon: Icons.warning_amber_rounded,
+                  label: 'Inadimplência',
+                ),
+                _subItem(
+                  rota: '/assinaturas_relatorios',
+                  icon: Icons.analytics_outlined,
+                  label: 'Relatórios Financeiros',
+                ),
+                _subItem(
+                  rota: '/assinaturas_fiscal',
+                  icon: Icons.receipt_rounded,
+                  label: 'Fiscal',
+                ),
+                _subItem(
+                  rota: '/assinaturas_configuracoes',
+                  icon: Icons.settings_rounded,
+                  label: 'Configurações',
+                ),
+              ],
+            ),
+          ),
+          secondChild: const SizedBox.shrink(),
+        ),
+      ],
+    );
+  }
+
+  Widget _iconColapsado(IconData icon, String rota, String tooltip) {
+    final ativo = widget.rotaAtual == rota;
+    return Tooltip(
+      message: tooltip,
+      child: Material(
+        color: Colors.transparent,
+        child: InkWell(
+          onTap: () => widget.onTapItem(context, rota, ativo),
+          child: Container(
+            width: 44,
+            height: 44,
+            alignment: Alignment.center,
+            child: Icon(
+              icon,
+              color: ativo ? _TemaNav.ativoCor : _TemaNav.textoMuted,
+              size: 22,
+            ),
+          ),
+        ),
+      ),
+    );
+  }
+
+  Widget _subItem({
+    required String rota,
+    required IconData icon,
+    required String label,
+    bool enabled = true,
+    String? badge,
+  }) {
+    final ativo = widget.rotaAtual == rota;
+    return Padding(
+      padding: const EdgeInsets.only(bottom: 2),
+      child: Material(
+        color: Colors.transparent,
+        child: InkWell(
+          borderRadius: BorderRadius.circular(8),
+          onTap: enabled ? () => widget.onTapItem(context, rota, ativo) : null,
+          hoverColor: enabled ? _TemaNav.hover : Colors.transparent,
+          child: Ink(
+            height: 38,
+            decoration: BoxDecoration(
+              borderRadius: BorderRadius.circular(8),
+              color: (enabled && ativo) ? _TemaNav.ativoBg : null,
+            ),
+            child: Row(
+              children: [
+                const SizedBox(width: 12),
+                Icon(
+                  icon,
+                  size: 18,
+                  color: (enabled && ativo)
+                      ? _TemaNav.ativoCor
+                      : _TemaNav.textoMuted,
+                ),
+                const SizedBox(width: 10),
+                Expanded(
+                  child: Text(
+                    label,
+                    maxLines: 1,
+                    overflow: TextOverflow.ellipsis,
+                    style: TextStyle(
+                      fontSize: 13,
+                      fontWeight:
+                          (enabled && ativo) ? FontWeight.w600 : FontWeight.w500,
+                      color: (enabled && ativo)
+                          ? _TemaNav.texto
+                          : _TemaNav.textoMuted,
+                    ),
+                  ),
+                ),
+                if (badge != null)
+                  Padding(
+                    padding: const EdgeInsets.only(right: 8),
+                    child: Container(
+                      padding: const EdgeInsets.symmetric(
+                          horizontal: 6, vertical: 2),
+                      decoration: BoxDecoration(
+                        color: _TemaNav.accent.withValues(alpha: 0.2),
+                        borderRadius: BorderRadius.circular(4),
+                      ),
+                      child: Text(
+                        badge,
+                        style: const TextStyle(
+                          fontSize: 10,
+                          fontWeight: FontWeight.w600,
+                          color: _TemaNav.accent,
                         ),
                       ),
                     ),
@@ -3068,29 +3700,122 @@ class _GrupoAdminCityState extends State<_GrupoAdminCity> {
 
 // ——— Seção Plano / Upgrade ———
 
-class _SeccaoPlano extends StatelessWidget {
+class _SeccaoPlano extends StatefulWidget {
   const _SeccaoPlano({required this.collapsed});
 
   final bool collapsed;
 
   @override
+  State<_SeccaoPlano> createState() => _SeccaoPlanoState();
+}
+
+class _SeccaoPlanoState extends State<_SeccaoPlano> {
+  ClienteAssinaturaModel? _assinatura;
+  bool _carregando = true;
+
+  @override
+  void initState() {
+    super.initState();
+    AssinaturaGestaoComercialRefresh.instance.addListener(_onPlanoAtualizado);
+    _carregarAssinatura();
+  }
+
+  @override
+  void dispose() {
+    AssinaturaGestaoComercialRefresh.instance.removeListener(_onPlanoAtualizado);
+    super.dispose();
+  }
+
+  void _onPlanoAtualizado() {
+    _carregarAssinatura();
+  }
+
+  Future<void> _carregarAssinatura() async {
+    final uid = FirebaseAuth.instance.currentUser?.uid;
+    if (uid == null) {
+      if (mounted) setState(() => _carregando = false);
+      return;
+    }
+
+    if (mounted) setState(() => _carregando = true);
+
+    try {
+      final subSnap = await FirebaseFirestore.instance
+          .collection('assinaturas_clientes')
+          .where('store_id', isEqualTo: uid)
+          .get();
+      final assinaturas =
+          subSnap.docs.map(ClienteAssinaturaModel.fromFirestore).toList();
+      final ctx = await AssinaturaGestaoComercialService.carregarContexto();
+      final ativa = AssinaturaGestaoComercialService.assinaturaAtivaGestao(
+        assinaturas,
+        ctx,
+      );
+      if (mounted) {
+        setState(() {
+          _assinatura = ativa;
+          _carregando = false;
+        });
+      }
+    } catch (e) {
+      if (kDebugMode) debugPrint('[Sidebar] erro carregar plano: $e');
+      if (mounted) setState(() => _carregando = false);
+    }
+  }
+
+  void _abrirPlanos(BuildContext context) {
+    context.navegarPainel('/comercial_dashboard');
+  }
+
+  @override
   Widget build(BuildContext context) {
-    if (collapsed) {
-      return const Padding(
-        padding: EdgeInsets.symmetric(vertical: 8.0),
+    if (widget.collapsed) {
+      final tooltip = _assinatura == null
+          ? 'Contratar plano Gestão Comercial'
+          : '${_assinatura!.planName}\nVence em ${_assinatura!.nextBillingDateExibir}';
+      return Padding(
+        padding: const EdgeInsets.symmetric(vertical: 8.0),
         child: Tooltip(
-          message: 'Plano Profissional\nVence em 30/07/2025',
-          child: Icon(Icons.workspace_premium_rounded, color: Color(0xFFF59E0B), size: 20),
+          message: tooltip,
+          child: Icon(
+            Icons.workspace_premium_rounded,
+            color: _assinatura == null
+                ? Colors.white38
+                : const Color(0xFFF59E0B),
+            size: 20,
+          ),
         ),
       );
     }
+
+    if (_carregando) {
+      return const Padding(
+        padding: EdgeInsets.fromLTRB(12, 12, 12, 8),
+        child: SizedBox(
+          height: 72,
+          child: Center(
+            child: SizedBox(
+              width: 18,
+              height: 18,
+              child: CircularProgressIndicator(strokeWidth: 2),
+            ),
+          ),
+        ),
+      );
+    }
+
+    final assinatura = _assinatura;
+    final nomePlano = assinatura?.planName.trim().isNotEmpty == true
+        ? assinatura!.planName
+        : 'Sem plano ativo';
+    final vencimento = assinatura?.nextBillingDateExibir ?? '—';
 
     return Padding(
       padding: const EdgeInsets.fromLTRB(12, 12, 12, 8),
       child: Container(
         padding: const EdgeInsets.all(12),
         decoration: BoxDecoration(
-          color: const Color(0xFF1E1B4B), // Roxo/Azul escuro premium
+          color: const Color(0xFF1E1B4B),
           borderRadius: BorderRadius.circular(12),
           border: Border.all(color: Colors.white10),
           gradient: const LinearGradient(
@@ -3104,7 +3829,13 @@ class _SeccaoPlano extends StatelessWidget {
           children: [
             Row(
               children: [
-                const Icon(Icons.workspace_premium_rounded, color: Color(0xFFF59E0B), size: 14),
+                Icon(
+                  Icons.workspace_premium_rounded,
+                  color: assinatura == null
+                      ? Colors.white38
+                      : const Color(0xFFF59E0B),
+                  size: 14,
+                ),
                 const SizedBox(width: 6),
                 const Text(
                   'Seu plano',
@@ -3119,9 +3850,11 @@ class _SeccaoPlano extends StatelessWidget {
               ],
             ),
             const SizedBox(height: 6),
-            const Text(
-              'Profissional',
-              style: TextStyle(
+            Text(
+              nomePlano,
+              maxLines: 2,
+              overflow: TextOverflow.ellipsis,
+              style: const TextStyle(
                 fontSize: 13,
                 fontWeight: FontWeight.bold,
                 color: Colors.white,
@@ -3129,9 +3862,9 @@ class _SeccaoPlano extends StatelessWidget {
               ),
             ),
             const SizedBox(height: 2),
-            const Text(
-              'Vence em 30/07/2025',
-              style: TextStyle(
+            Text(
+              assinatura == null ? 'Contrate para desbloquear' : 'Vence em $vencimento',
+              style: const TextStyle(
                 fontSize: 10,
                 color: Colors.white70,
                 fontWeight: FontWeight.w500,
@@ -3143,9 +3876,9 @@ class _SeccaoPlano extends StatelessWidget {
               width: double.infinity,
               height: 28,
               child: ElevatedButton(
-                onPressed: () {},
+                onPressed: () => _abrirPlanos(context),
                 style: ElevatedButton.styleFrom(
-                  backgroundColor: const Color(0xFF6A1B9A), // Roxo DiPertin
+                  backgroundColor: const Color(0xFF6A1B9A),
                   foregroundColor: Colors.white,
                   padding: EdgeInsets.zero,
                   elevation: 0,
@@ -3153,9 +3886,9 @@ class _SeccaoPlano extends StatelessWidget {
                     borderRadius: BorderRadius.circular(6),
                   ),
                 ),
-                child: const Text(
-                  'Ver planos',
-                  style: TextStyle(
+                child: Text(
+                  assinatura == null ? 'Ver planos' : 'Gerenciar plano',
+                  style: const TextStyle(
                     fontSize: 11,
                     fontWeight: FontWeight.bold,
                   ),

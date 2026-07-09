@@ -19,6 +19,7 @@ class ComercialCliente {
     this.bairro,
     this.cidade,
     this.estado,
+    this.codigoIbge,
     this.creditoHabilitado = false,
     this.limiteCredito = 0,
     this.creditoUtilizado = 0,
@@ -51,6 +52,7 @@ class ComercialCliente {
   final String? bairro;
   final String? cidade;
   final String? estado;
+  final String? codigoIbge;
   final bool creditoHabilitado;
   final double limiteCredito;
   final double creditoUtilizado;
@@ -107,6 +109,7 @@ class ComercialCliente {
     String? bairro,
     String? cidade,
     String? estado,
+    String? codigoIbge,
     bool? creditoHabilitado,
     double? limiteCredito,
     double? creditoUtilizado,
@@ -139,6 +142,7 @@ class ComercialCliente {
       bairro: bairro ?? this.bairro,
       cidade: cidade ?? this.cidade,
       estado: estado ?? this.estado,
+      codigoIbge: codigoIbge ?? this.codigoIbge,
       creditoHabilitado: creditoHabilitado ?? this.creditoHabilitado,
       limiteCredito: limiteCredito ?? this.limiteCredito,
       creditoUtilizado: creditoUtilizado ?? this.creditoUtilizado,
@@ -180,6 +184,7 @@ class ComercialCliente {
       bairro: d['bairro']?.toString(),
       cidade: d['cidade']?.toString(),
       estado: d['estado']?.toString(),
+      codigoIbge: d['codigo_ibge']?.toString(),
       creditoHabilitado: d['credito_habilitado'] == true,
       limiteCredito: _num(d['limite_credito']),
       creditoUtilizado: _num(d['credito_utilizado']),
@@ -216,6 +221,8 @@ class ComercialCliente {
       if (bairro != null && bairro!.trim().isNotEmpty) 'bairro': bairro!.trim(),
       if (cidade != null && cidade!.trim().isNotEmpty) 'cidade': cidade!.trim(),
       if (estado != null && estado!.trim().isNotEmpty) 'estado': estado!.trim(),
+      if (codigoIbge != null && codigoIbge!.trim().isNotEmpty)
+        'codigo_ibge': codigoIbge!.trim(),
       'credito_habilitado': creditoHabilitado,
       'limite_credito': limiteCredito,
       'credito_utilizado': creditoUtilizado,

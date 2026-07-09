@@ -1,0 +1,178 @@
+{
+  "payment_id": 165802708527,
+  "external_reference": "gc_confirm_gc_test_1782914033389_2pyt",
+  "cobranca_id": "gc_test_1782914033389_2pyt",
+  "valor": 0.1,
+  "status": "pending",
+  "status_detail": "pending_waiting_transfer",
+  "qr_code": "00020126580014br.gov.bcb.pix01363b5c147e-8ea4-4db3-978e-29a01f99becc52040000530398654040.105802BR5914EBFDCAEGH205356009Sao Paulo62250521mpqrinter1658027085276304547A",
+  "qr_code_base64": "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",
+  "ticket_url": "https://www.mercadopago.com.br/payments/165802708527/ticket?caller_id=3509522993&hash=d15953ef-7ce3-41d7-9f2f-81bd4726bb5f",
+  "date_of_expiration": "2026-07-02T09:53:55.310-04:00",
+  "date_created": "2026-07-01T09:53:55.512-04:00",
+  "live_mode": true,
+  "collector_id": 3307972251,
+  "emv_validacao": {
+    "ok": true,
+    "formato": "dinamico",
+    "dinamico": true,
+    "chaveTipo": "aleatoria",
+    "chaveValor": "3b5c147e-8ea4-4db3-978e-29a01f99becc",
+    "gui": "br.gov.bcb.pix"
+  },
+  "criado_em": "2026-07-01T13:53:54.659Z",
+  "post_response": {
+    "accounts_info": null,
+    "acquirer_reconciliation": [],
+    "additional_info": {
+      "tracking_id": "platform:v1-whitelabel,so:ALL,type:N/A,security:none"
+    },
+    "authorization_code": null,
+    "binary_mode": false,
+    "brand_id": null,
+    "build_version": "3.161.1-hotfix-1",
+    "call_for_authorize_id": null,
+    "callback_url": null,
+    "captured": true,
+    "card": {},
+    "charges_details": [],
+    "charges_execution_info": {
+      "internal_execution": {
+        "date": "2026-07-01T09:53:55.497-04:00",
+        "execution_id": "01KWEZABR05M81XJZBKVK2HR0C"
+      }
+    },
+    "collector_id": 3307972251,
+    "corporation_id": null,
+    "counter_currency": null,
+    "coupon_amount": 0,
+    "currency_id": "BRL",
+    "date_approved": null,
+    "date_created": "2026-07-01T09:53:55.512-04:00",
+    "date_last_updated": "2026-07-01T09:53:55.512-04:00",
+    "date_of_expiration": "2026-07-02T09:53:55.310-04:00",
+    "deduction_schema": null,
+    "description": "DiPertin GC - teste confirmacao 2026-07-01T13:53:53.389Z",
+    "differential_pricing_id": null,
+    "external_reference": "gc_confirm_gc_test_1782914033389_2pyt",
+    "fee_details": [],
+    "financing_group": null,
+    "id": 165802708527,
+    "installments": 1,
+    "integrator_id": null,
+    "issuer_id": "12501",
+    "live_mode": true,
+    "marketplace_owner": null,
+    "merchant_account_id": null,
+    "merchant_number": null,
+    "metadata": {},
+    "money_release_date": null,
+    "money_release_schema": null,
+    "money_release_status": "released",
+    "notification_url": null,
+    "operation_type": "regular_payment",
+    "order": {},
+    "payer": {
+      "email": null,
+      "entity_type": null,
+      "first_name": null,
+      "id": "3509522993",
+      "identification": {
+        "number": null,
+        "type": null
+      },
+      "last_name": null,
+      "operator_id": null,
+      "phone": {
+        "area_code": null,
+        "extension": null,
+        "number": null
+      },
+      "type": null
+    },
+    "payment_method": {
+      "id": "pix",
+      "issuer_id": "12501",
+      "type": "bank_transfer"
+    },
+    "payment_method_id": "pix",
+    "payment_type_id": "bank_transfer",
+    "platform_id": null,
+    "point_of_interaction": {
+      "application_data": {
+        "name": null,
+        "operating_system": null,
+        "version": null
+      },
+      "business_info": {
+        "branch": "Merchant Services",
+        "sub_unit": "default",
+        "unit": "online_payments"
+      },
+      "location": {
+        "source": null,
+        "state_id": null
+      },
+      "transaction_data": {
+        "bank_info": {
+          "collector": {
+            "account_alias": null,
+            "account_holder_name": "66.040.998 EVAIR PEREIRA DA SILVA",
+            "account_id": null,
+            "long_name": null,
+            "transfer_account_id": null
+          },
+          "is_same_bank_account_owner": null,
+          "origin_bank_id": null,
+          "origin_wallet_id": null,
+          "payer": {
+            "account_id": null,
+            "branch": null,
+            "external_account_id": null,
+            "id": null,
+            "identification": {},
+            "long_name": null
+          }
+        },
+        "bank_transfer_id": null,
+        "e2e_id": null,
+        "financial_institution": null,
+        "is_end_consumer": null,
+        "merchant_category_code": null,
+        "qr_code": "00020126580014br.gov.bcb.pix01363b5c147e-8ea4-4db3-978e-29a01f99becc52040000530398654040.105802BR5914EBFDCAEGH205356009Sao Paulo62250521mpqrinter1658027085276304547A",
+        "qr_code_base64": "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",
+        "ticket_url": "https://www.mercadopago.com.br/payments/165802708527/ticket?caller_id=3509522993&hash=d15953ef-7ce3-41d7-9f2f-81bd4726bb5f",
+        "transaction_id": null
+      },
+      "type": "OPENPLATFORM"
+    },
+    "pos_id": null,
+    "processing_mode": "aggregator",
+    "refunds": [],
+    "release_info": null,
+    "shipping_amount": 0,
+    "sponsor_id": null,
+    "statement_descriptor": null,
+    "status": "pending",
+    "status_detail": "pending_waiting_transfer",
+    "store_id": null,
+    "tags": null,
+    "taxes_amount": 0,
+    "tenant_context": "mp",
+    "transaction_amount": 0.1,
+    "transaction_amount_refunded": 0,
+    "transaction_details": {
+      "acquirer_reference": null,
+      "bank_transfer_id": null,
+      "external_resource_url": null,
+      "financial_institution": null,
+      "installment_amount": 0,
+      "net_received_amount": 0,
+      "overpaid_amount": 0,
+      "payable_deferral_period": null,
+      "payment_method_reference_id": null,
+      "total_paid_amount": 0.1,
+      "transaction_id": null
+    }
+  }
+}

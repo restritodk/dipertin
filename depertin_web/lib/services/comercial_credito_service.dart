@@ -231,6 +231,9 @@ abstract final class ComercialCreditoService {
     required String formaPagamento,
     String? observacao,
     String? lojaNome,
+    double valorMulta = 0,
+    double valorJuros = 0,
+    double valorDesconto = 0,
   }) async {
     valorPago = _roundMoney(valorPago);
     if (valorPago <= 0) throw ArgumentError('Informe um valor válido.');
@@ -293,6 +296,7 @@ abstract final class ComercialCreditoService {
         'updated_at': FieldValue.serverTimestamp(),
       });
 
+      // ── Legado: users/{lojaId}/recebimentos_cliente ──
       final recRef = _recebimentosCol(lojaId).doc();
       recebimentoId = recRef.id;
       tx.set(recRef, {
@@ -313,6 +317,34 @@ abstract final class ComercialCreditoService {
         'created_at': FieldValue.serverTimestamp(),
       });
 
+      // ── Nova coleção: gestao_comercial_recebimentos (atômico) ──
+      final novaRef = db.collection('gestao_comercial_recebimentos').doc();
+      tx.set(novaRef, {
+        'loja_id': lojaId,
+        'cliente_id': cliente.id,
+        'cliente_nome': cliente.nome,
+        'cliente_documento': cliente.cpf ?? '',
+        'pedido_id': pAtual.vendaId,
+        'parcela_id': parcela.id,
+        'valor_original': pAtual.valorParcela,
+        'valor_recebido': valorPago,
+        'valor_multa': valorMulta,
+        'valor_juros': valorJuros,
+        'valor_desconto': valorDesconto,
+        'forma_pagamento': formaPagamento,
+        'recebido_por_id': usuarioId,
+        'recebido_por_nome': lojaNome,
+        'data_recebimento': Timestamp.fromDate(agora),
+        'observacao': (observacao ?? '').trim(),
+        'comprovante_url': '',
+        'status': 'confirmado',
+        'estornado_em': null,
+        'estornado_por': null,
+        'motivo_estorno': null,
+        'created_at': FieldValue.serverTimestamp(),
+        'updated_at': FieldValue.serverTimestamp(),
+      });
+
       parcelaAtualizada = pAtual.copyWith(
         valorPago: novoPago,
         status: novoStatus,
@@ -320,6 +352,32 @@ abstract final class ComercialCreditoService {
     });
 
     await _atualizarStatusVendaSeQuitada(lojaId, vendaCreditoId);
+
+    // Atualizar gestao_comercial_vendas (histórico) após pagamento de parcela
+    if (parcela.vendaId.isNotEmpty) {
+      try {
+        final histRef =
+            db.collection('gestao_comercial_vendas').doc(parcela.vendaId);
+        final histSnap = await histRef.get();
+        if (histSnap.exists) {
+          final hData = histSnap.data() ?? {};
+          final curPago = _num(hData['valor_pago']);
+          final curPend = _num(hData['valor_pendente']);
+          final novoPend =
+              (curPend - valorPago).clamp(0, double.infinity).toDouble();
+          await histRef.update({
+            'valor_pago': _roundMoney(curPago + valorPago),
+            'valor_pendente': _roundMoney(novoPend),
+            'status': novoPend <= 0.009 ? 'pago' : 'parcial',
+            if (novoPend <= 0.009)
+              'data_pago_em': Timestamp.fromDate(agora),
+            'updated_at': FieldValue.serverTimestamp(),
+          });
+        }
+      } catch (_) {
+        // silencioso — registro histórico não crítico
+      }
+    }
 
     await _auditarFinanceiro(
       evento: 'comercial_recebimento_parcela',

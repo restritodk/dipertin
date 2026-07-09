@@ -1,5 +1,4 @@
 import 'package:depertin_web/models/comercial_dashboard_data.dart';
-import 'package:depertin_web/navigation/painel_navigation_scope.dart';
 import 'package:depertin_web/services/comercial_dashboard_service.dart';
 import 'package:depertin_web/theme/painel_admin_theme.dart';
 import 'package:depertin_web/utils/lojista_painel_context.dart';
@@ -95,7 +94,7 @@ class _LojistaComercialDashboardScreenState extends State<LojistaComercialDashbo
       final dados = await ComercialDashboardService.carregar(
         lojaId: lojaId,
         periodoGrafico: _periodoSelecionado,
-      );
+      ).timeout(const Duration(seconds: 20));
       if (!mounted) return;
       setState(() {
         _dados = dados;
@@ -115,10 +114,11 @@ class _LojistaComercialDashboardScreenState extends State<LojistaComercialDashbo
     await _carregar(lojaId);
   }
 
-  String _fmtPct(double v, {bool invertido = false}) =>
+  String _fmtPct(double v) =>
       ComercialDashboardService.formatarPercentual(v);
 
-  bool _pctPositivo(double v, {bool invertido = false}) => invertido ? v <= 0 : v >= 0;
+  bool _pctPositivo(double v, {bool invertido = false}) =>
+      invertido ? v <= 0 : v >= 0;
 
   // ==========================================
   // SEÇÃO: TOPO / HEADER

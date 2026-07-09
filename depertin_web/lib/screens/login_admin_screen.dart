@@ -1,4 +1,5 @@
 import 'dart:async';
+import 'dart:math' as math;
 
 import 'package:cloud_functions/cloud_functions.dart';
 import 'package:flutter/foundation.dart' show debugPrint, kDebugMode, kIsWeb;
@@ -83,9 +84,7 @@ String _mensagemErroGoogleFunctions(FirebaseFunctionsException e) {
 /// "não lojista" / sem e-mail / perfil — alinhado ao Admin SDK na Cloud Function.
 /// **Nunca** para `LOJISTA_NAO_APROVADO` (há `users/{uid}` de lojista).
 bool _deveApagarAuthPorCodigoRecusaPainel(String? code) {
-  return code == 'NOT_LOJISTA' ||
-      code == 'NO_EMAIL' ||
-      code == 'NO_PROFILE';
+  return code == 'NOT_LOJISTA' || code == 'NO_EMAIL' || code == 'NO_PROFILE';
 }
 
 Future<void> _tentarApagarUsuarioAuthAtualPosRecusaPainel() async {
@@ -116,7 +115,8 @@ class LoginAdminScreen extends StatefulWidget {
   State<LoginAdminScreen> createState() => _LoginAdminScreenState();
 }
 
-class _LoginAdminScreenState extends State<LoginAdminScreen> {
+class _LoginAdminScreenState extends State<LoginAdminScreen>
+    with SingleTickerProviderStateMixin {
   final _emailController = TextEditingController();
   final _senhaController = TextEditingController();
   final _emailFocusNode = FocusNode();
@@ -126,6 +126,12 @@ class _LoginAdminScreenState extends State<LoginAdminScreen> {
   bool _ocultarSenha = true;
   bool _entradaAnimada = false;
   bool _ctaHover = false;
+  bool _googleHover = false;
+  bool _forgotHover = false;
+  int _miniCardHover = -1;
+
+  late final AnimationController _glowController;
+  late final Animation<double> _glowPulse;
 
   String? _erroBanner;
   String? _erroEmail;
@@ -137,6 +143,13 @@ class _LoginAdminScreenState extends State<LoginAdminScreen> {
   @override
   void initState() {
     super.initState();
+    _glowController = AnimationController(
+      vsync: this,
+      duration: const Duration(milliseconds: 4200),
+    )..repeat(reverse: true);
+    _glowPulse = Tween<double>(begin: 0.35, end: 0.72).animate(
+      CurvedAnimation(parent: _glowController, curve: Curves.easeInOut),
+    );
     if (kDebugMode) {
       _emailController.text = 'master@teste.com';
       _senhaController.text = 'master';
@@ -183,7 +196,9 @@ class _LoginAdminScreenState extends State<LoginAdminScreen> {
           content: Text(banner, style: GoogleFonts.plusJakartaSans()),
           backgroundColor: _erroCor,
           behavior: SnackBarBehavior.floating,
-          shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
+          shape: RoundedRectangleBorder(
+            borderRadius: BorderRadius.circular(12),
+          ),
         ),
       );
     }
@@ -238,6 +253,7 @@ class _LoginAdminScreenState extends State<LoginAdminScreen> {
 
   @override
   void dispose() {
+    _glowController.dispose();
     _emailController.dispose();
     _senhaController.dispose();
     _emailFocusNode.dispose();
@@ -249,39 +265,88 @@ class _LoginAdminScreenState extends State<LoginAdminScreen> {
     Widget? prefix,
     Widget? suffix,
     String? errorText,
+    String? hintText,
+    bool dark = false,
   }) {
+    if (!dark) {
+      return InputDecoration(
+        labelText: label.isNotEmpty ? label : null,
+        hintText: hintText,
+        errorText: errorText,
+        labelStyle: GoogleFonts.plusJakartaSans(
+          color: PainelAdminTheme.textoSecundario,
+          fontSize: 14,
+        ),
+        floatingLabelStyle: GoogleFonts.plusJakartaSans(
+          color: PainelAdminTheme.roxo,
+          fontWeight: FontWeight.w600,
+          fontSize: 14,
+        ),
+        prefixIcon: prefix,
+        suffixIcon: suffix,
+        filled: true,
+        fillColor: const Color(0xFFF8F7FC),
+        contentPadding: const EdgeInsets.symmetric(
+          horizontal: 16,
+          vertical: 18,
+        ),
+        border: OutlineInputBorder(
+          borderRadius: BorderRadius.circular(14),
+          borderSide: const BorderSide(color: Color(0xFFE8E4F0)),
+        ),
+        enabledBorder: OutlineInputBorder(
+          borderRadius: BorderRadius.circular(14),
+          borderSide: const BorderSide(color: Color(0xFFE8E4F0)),
+        ),
+        focusedBorder: OutlineInputBorder(
+          borderRadius: BorderRadius.circular(14),
+          borderSide: const BorderSide(color: PainelAdminTheme.roxo, width: 2),
+        ),
+        errorBorder: OutlineInputBorder(
+          borderRadius: BorderRadius.circular(14),
+          borderSide: const BorderSide(color: Color(0xFFEF4444)),
+        ),
+      );
+    }
+
     return InputDecoration(
-      labelText: label,
+      hintText: hintText,
       errorText: errorText,
-      labelStyle: GoogleFonts.plusJakartaSans(
-        color: PainelAdminTheme.textoSecundario,
-        fontSize: 14,
+      hintStyle: GoogleFonts.plusJakartaSans(
+        color: _LoginPalette.textSecondary.withValues(alpha: 0.42),
+        fontSize: 15,
       ),
-      floatingLabelStyle: GoogleFonts.plusJakartaSans(
-        color: PainelAdminTheme.roxo,
-        fontWeight: FontWeight.w600,
-        fontSize: 14,
+      errorStyle: GoogleFonts.plusJakartaSans(
+        color: const Color(0xFFF87171),
+        fontSize: 12,
       ),
       prefixIcon: prefix,
       suffixIcon: suffix,
       filled: true,
-      fillColor: const Color(0xFFF8F7FC),
+      fillColor: _LoginPalette.inputBg,
       contentPadding: const EdgeInsets.symmetric(horizontal: 16, vertical: 18),
       border: OutlineInputBorder(
-        borderRadius: BorderRadius.circular(14),
-        borderSide: const BorderSide(color: Color(0xFFE8E4F0)),
+        borderRadius: BorderRadius.circular(12),
+        borderSide: BorderSide(color: _LoginPalette.inputBorder),
       ),
       enabledBorder: OutlineInputBorder(
-        borderRadius: BorderRadius.circular(14),
-        borderSide: const BorderSide(color: Color(0xFFE8E4F0)),
+        borderRadius: BorderRadius.circular(12),
+        borderSide: BorderSide(color: _LoginPalette.inputBorder),
       ),
       focusedBorder: OutlineInputBorder(
-        borderRadius: BorderRadius.circular(14),
-        borderSide: const BorderSide(color: PainelAdminTheme.roxo, width: 2),
+        borderRadius: BorderRadius.circular(12),
+        borderSide: const BorderSide(
+          color: _LoginPalette.purpleGlow,
+          width: 1.5,
+        ),
       ),
       errorBorder: OutlineInputBorder(
-        borderRadius: BorderRadius.circular(14),
+        borderRadius: BorderRadius.circular(12),
         borderSide: const BorderSide(color: Color(0xFFEF4444)),
+      ),
+      focusedErrorBorder: OutlineInputBorder(
+        borderRadius: BorderRadius.circular(12),
+        borderSide: const BorderSide(color: Color(0xFFEF4444), width: 1.5),
       ),
     );
   }
@@ -318,10 +383,38 @@ class _LoginAdminScreenState extends State<LoginAdminScreen> {
       );
 
       final uid = FirebaseAuth.instance.currentUser!.uid;
-      final docSnap = await FirebaseFirestore.instance
-          .collection('users')
-          .doc(uid)
-          .get();
+
+      // Busca o documento do usuário (sem forçar servidor — deixa o SDK decidir)
+      DocumentSnapshot<Map<String, dynamic>> docSnap;
+      try {
+        docSnap = await FirebaseFirestore.instance
+            .collection('users')
+            .doc(uid)
+            .get()
+            .timeout(
+              const Duration(seconds: 20),
+              onTimeout: () => throw TimeoutException(
+                'O Firestore não está respondendo.\n\n'
+                'Isso geralmente acontece quando o navegador não consegue se conectar '
+                'aos servidores do Firestore.\n\n'
+                '🔍 Para diagnosticar:\n'
+                '1. Abra o DevTools (F12) → aba "Network"\n'
+                '2. Recarregue a página e tente logar novamente\n'
+                '3. Veja se aparecem requisições para "firestore.googleapis.com"\n\n'
+                'Se não aparecer nenhuma requisição, pode ser:\n'
+                '• Firewall/antivírus bloqueando o domínio firestore.googleapis.com\n'
+                '• Extensão de navegador bloqueando Firebase\n'
+                '• Rede corporativa com restrições\n\n'
+                'Se aparecerem erros HTTP (403, 404, etc.), tire um print e me mostre.',
+              ),
+            );
+      } catch (e) {
+        if (kDebugMode) {
+          debugPrint('[LoginAdmin] Firestore error type: ${e.runtimeType}');
+          debugPrint('[LoginAdmin] Firestore error message: $e');
+        }
+        rethrow;
+      }
 
       if (!docSnap.exists) {
         _mostrarErro(
@@ -348,7 +441,8 @@ class _LoginAdminScreenState extends State<LoginAdminScreen> {
       } else if (e.code == 'network-request-failed') {
         mensagem = 'Sem conexão com a internet. Verifique sua rede.';
       } else if (e.code == 'too-many-requests') {
-        mensagem = 'Muitas tentativas. Aguarde alguns minutos e tente novamente.';
+        mensagem =
+            'Muitas tentativas. Aguarde alguns minutos e tente novamente.';
       } else if (e.code == 'user-disabled') {
         mensagem = 'Conta desativada. Entre em contato com o suporte.';
       }
@@ -358,9 +452,10 @@ class _LoginAdminScreenState extends State<LoginAdminScreen> {
         snackbarTambem: e.code == 'network-request-failed',
       );
       setState(() => _isLoading = false);
-    } catch (e) {
-      _mostrarErro('Erro interno: $e');
-      setState(() => _isLoading = false);
+    } catch (e, st) {
+      debugPrint('[LoginAdmin] Erro não tratado: $e\n$st');
+      _mostrarErro('Erro interno: ${_mensagemErroThrowableSegura(e)}');
+      if (mounted) setState(() => _isLoading = false);
     }
   }
 
@@ -410,8 +505,17 @@ class _LoginAdminScreenState extends State<LoginAdminScreen> {
 
     if (tipoUsuario == 'lojista') {
       await ContaBloqueioLojistaHelper.sincronizarLiberacaoSeExpirado(uid);
-      final docAtual =
-          await FirebaseFirestore.instance.collection('users').doc(uid).get();
+      // Usa cache (já carregamos do servidor na consulta anterior)
+      final docAtual = await FirebaseFirestore.instance
+          .collection('users')
+          .doc(uid)
+          .get()
+          .timeout(
+            const Duration(seconds: 10),
+            onTimeout: () => throw TimeoutException(
+              'Firestore não respondeu ao verificar bloqueio.',
+            ),
+          );
       final dadosAtual = safeWebDocData(docAtual);
       if (dadosAtual.isNotEmpty &&
           ContaBloqueioLojistaHelper.estaBloqueadoParaOperacoes(dadosAtual)) {
@@ -510,15 +614,15 @@ class _LoginAdminScreenState extends State<LoginAdminScreen> {
       return;
     }
 
-    final docSnap =
-        await FirebaseFirestore.instance.collection('users').doc(uid).get();
+    final docSnap = await FirebaseFirestore.instance
+        .collection('users')
+        .doc(uid)
+        .get();
     final dadosFirestore = safeWebDocData(docSnap);
 
     if (!docSnap.exists || dadosFirestore.isEmpty) {
       await _sairSessaoGooglePainel(apagarUsuarioAuth: true);
-      _mostrarErro(
-        'Sem documento em users/$uid no Firestore.',
-      );
+      _mostrarErro('Sem documento em users/$uid no Firestore.');
       if (mounted) setState(() => _isLoadingGoogle = false);
       return;
     }
@@ -556,9 +660,7 @@ class _LoginAdminScreenState extends State<LoginAdminScreen> {
       } else {
         await _sairSessaoGooglePainel(apagarUsuarioAuth: false);
         final hint = _mensagemErroGoogleFirebaseAuth(e);
-        _mostrarErro(
-          'Não foi possível entrar com Google.\n$hint',
-        );
+        _mostrarErro('Não foi possível entrar com Google.\n$hint');
       }
       setState(() => _isLoadingGoogle = false);
     } on FirebaseFunctionsException catch (e) {
@@ -907,261 +1009,384 @@ class _LoginAdminScreenState extends State<LoginAdminScreen> {
     _definirErrosFormulario(banner: mensagem);
   }
 
-  Widget _painelMarca({required bool wide}) {
-    const baseGradient = LinearGradient(
-      begin: Alignment.topLeft,
-      end: Alignment.bottomRight,
-      colors: [
-        PainelAdminTheme.roxoEscuro,
-        PainelAdminTheme.roxo,
-        PainelAdminTheme.roxoSidebarFim,
-      ],
-    );
-
-    final stack = ClipRect(
-      child: Stack(
-        clipBehavior: Clip.hardEdge,
+  Widget _areaBranding({required double maxWidth, bool compact = false}) {
+    return ConstrainedBox(
+      constraints: BoxConstraints(maxWidth: maxWidth),
+      child: Column(
+        mainAxisSize: MainAxisSize.min,
+        crossAxisAlignment: CrossAxisAlignment.start,
         children: [
-          const Positioned.fill(
-            child: DecoratedBox(decoration: BoxDecoration(gradient: baseGradient)),
-          ),
-          Positioned.fill(
-            child: DecoratedBox(
-              decoration: BoxDecoration(
-                gradient: RadialGradient(
-                  center: const Alignment(0.92, -0.72),
-                  radius: 1.05,
-                  colors: [
-                    PainelAdminTheme.laranja.withValues(alpha: 0.14),
-                    Colors.transparent,
-                  ],
-                ),
-              ),
-            ),
-          ),
-          Positioned.fill(
-            child: DecoratedBox(
-              decoration: BoxDecoration(
-                gradient: RadialGradient(
-                  center: const Alignment(-0.85, 0.85),
-                  radius: 0.95,
-                  colors: [
-                    Colors.white.withValues(alpha: 0.07),
-                    Colors.transparent,
-                  ],
-                ),
-              ),
-            ),
-          ),
-          Padding(
-            padding: EdgeInsets.symmetric(
-              horizontal: wide ? 56 : 20,
-              vertical: wide ? 48 : 18,
-            ),
-            child: wide
-                ? Column(
-                    crossAxisAlignment: CrossAxisAlignment.start,
-                    mainAxisAlignment: MainAxisAlignment.center,
-                    children: [
-                      _logoMarcaLogin(altura: 72),
-                      const SizedBox(height: 28),
-                      Text(
-                        'DiPertin',
-                        style: TextStyle(
-                          fontSize: 36,
-                          fontWeight: FontWeight.w800,
-                          color: Colors.white,
-                          letterSpacing: -0.8,
-                          height: 1.05,
-                        ),
-                      ),
-                      const SizedBox(height: 8),
-                      Text(
-                        'Painel administrativo',
-                        style: TextStyle(
-                          fontSize: 15,
-                          fontWeight: FontWeight.w500,
-                          color: Colors.white.withValues(alpha: 0.88),
-                          letterSpacing: 0.3,
-                        ),
-                      ),
-                      const SizedBox(height: 24),
-                      Text(
-                        'Gestão de lojas, entregadores, vitrine e operações — com segurança e clareza.',
-                        style: TextStyle(
-                          fontSize: 14,
-                          height: 1.55,
-                          color: Colors.white.withValues(alpha: 0.75),
-                        ),
-                      ),
-                      const SizedBox(height: 28),
-                      _chipsProofMarca(alinhamento: CrossAxisAlignment.start),
-                    ],
-                  )
-                : Row(
-                    children: [
-                      _logoMarcaLogin(altura: 48),
-                      const SizedBox(width: 14),
-                      Expanded(
-                        child: Column(
-                          crossAxisAlignment: CrossAxisAlignment.start,
-                          mainAxisSize: MainAxisSize.min,
-                          children: [
-                            Text(
-                              'DiPertin',
-                              style: TextStyle(
-                                fontSize: 20,
-                                fontWeight: FontWeight.w800,
-                                color: Colors.white,
-                                letterSpacing: -0.4,
-                                height: 1.1,
-                              ),
-                            ),
-                            Text(
-                              'Painel administrativo',
-                              style: TextStyle(
-                                fontSize: 13,
-                                fontWeight: FontWeight.w500,
-                                color: Colors.white.withValues(alpha: 0.88),
-                              ),
-                            ),
-                          ],
-                        ),
-                      ),
-                    ],
-                  ),
-          ),
-          Positioned(
-            left: 0,
-            right: 0,
-            bottom: 0,
-            height: 4,
-            child: IgnorePointer(
-              child: DecoratedBox(
-                decoration: BoxDecoration(
-                  gradient: LinearGradient(
-                    colors: [
-                      PainelAdminTheme.laranja.withValues(alpha: 0),
-                      PainelAdminTheme.laranja.withValues(alpha: 0.85),
-                      PainelAdminTheme.laranjaSuave.withValues(alpha: 0.65),
-                      PainelAdminTheme.laranja.withValues(alpha: 0),
-                    ],
-                    stops: const [0.0, 0.35, 0.65, 1.0],
-                  ),
-                ),
-              ),
-            ),
-          ),
+          _cabecalhoMarca(compact: compact),
+          SizedBox(height: compact ? 32 : 48),
+          _tituloInstitucional(compact: compact),
+          SizedBox(height: compact ? 18 : 24),
+          _descricaoInstitucional(compact: compact),
+          SizedBox(height: compact ? 28 : 40),
+          _miniCardsBeneficios(),
         ],
       ),
     );
-    if (wide) return stack;
-    return SizedBox(width: double.infinity, child: stack);
   }
 
+  Widget _cabecalhoMarca({bool compact = false}) {
+    return Row(
+      crossAxisAlignment: CrossAxisAlignment.center,
+      children: [
+        _logoMarcaLogin(altura: compact ? 60 : 92),
+        SizedBox(width: compact ? 12 : 16),
+        Column(
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            Text(
+              'DiPertin',
+              style: GoogleFonts.plusJakartaSans(
+                fontSize: compact ? 24 : 28,
+                fontWeight: FontWeight.w800,
+                color: _LoginPalette.textPrimary,
+                letterSpacing: -0.5,
+                height: 1.1,
+              ),
+            ),
+            const SizedBox(height: 4),
+            Text(
+              'PAINEL ADMINISTRATIVO',
+              style: GoogleFonts.plusJakartaSans(
+                fontSize: 11,
+                fontWeight: FontWeight.w600,
+                letterSpacing: 2.2,
+                color: _LoginPalette.orangeBright,
+              ),
+            ),
+          ],
+        ),
+      ],
+    );
+  }
+
+  static const _logoLoginAsset = 'assets/logo-tela-login.png';
+
   Widget _logoMarcaLogin({required double altura}) {
-    return Container(
-      padding: EdgeInsets.all(altura > 60 ? 14 : 10),
-      decoration: BoxDecoration(
-        color: Colors.white.withValues(alpha: 0.12),
-        borderRadius: BorderRadius.circular(altura > 60 ? 20 : 16),
-        border: Border.all(color: Colors.white.withValues(alpha: 0.2)),
-      ),
+    return SizedBox(
+      width: altura,
+      height: altura,
       child: Image.asset(
-        'assets/logo.png',
-        height: altura,
-        errorBuilder: (c, e, s) => Icon(
-          Icons.admin_panel_settings_rounded,
-          size: altura * 0.85,
-          color: Colors.white,
+        _logoLoginAsset,
+        fit: BoxFit.contain,
+        gaplessPlayback: true,
+        errorBuilder: (c, e, s) {
+          if (kDebugMode) {
+            debugPrint('[login] falha ao carregar $_logoLoginAsset: $e');
+          }
+          return Icon(
+            Icons.apartment_rounded,
+            size: altura * 0.55,
+            color: _LoginPalette.purpleGlow,
+          );
+        },
+      ),
+    );
+  }
+
+  Widget _tituloInstitucional({bool compact = false}) {
+    final serif = GoogleFonts.playfairDisplay(
+      fontSize: compact ? 38 : 52,
+      fontWeight: FontWeight.w500,
+      height: 1.15,
+      letterSpacing: -0.5,
+    );
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.start,
+      mainAxisSize: MainAxisSize.min,
+      children: [
+        Text(
+          'Gestão inteligente,',
+          style: serif.copyWith(color: _LoginPalette.textPrimary),
+        ),
+        Text(
+          'entregas que conectam.',
+          style: serif.copyWith(color: _LoginPalette.orangeBright),
+        ),
+      ],
+    );
+  }
+
+  Widget _descricaoInstitucional({bool compact = false}) {
+    return ConstrainedBox(
+      constraints: const BoxConstraints(maxWidth: 420),
+      child: Text(
+        'Um painel completo para administradores e lojistas\ncom segurança e clareza.',
+        style: GoogleFonts.plusJakartaSans(
+          fontSize: compact ? 14 : 16,
+          height: 1.8,
+          color: _LoginPalette.textSecondary,
         ),
       ),
     );
   }
 
-  Widget _chipsProofMarca({required CrossAxisAlignment alinhamento}) {
-    const itens = [
-      (Icons.storefront_rounded, 'Lojas verificadas'),
-      (Icons.receipt_long_rounded, 'Pedidos em tempo real'),
-      (Icons.account_balance_wallet_rounded, 'Carteira e operações'),
-    ];
+  Widget _miniCardsBeneficios() {
+    return LayoutBuilder(
+      builder: (context, constraints) {
+        const gap = 14.0;
+        const cardH = 116.0;
 
-    return Wrap(
-      spacing: 10,
-      runSpacing: 10,
-      alignment: WrapAlignment.start,
-      crossAxisAlignment: WrapCrossAlignment.center,
-      children: [
-        for (final item in itens)
-          Container(
-            padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 9),
-            decoration: BoxDecoration(
-              color: Colors.white.withValues(alpha: 0.1),
-              borderRadius: BorderRadius.circular(12),
-              border: Border.all(color: Colors.white.withValues(alpha: 0.18)),
-            ),
+        Widget card(int index, IconData icon, String titulo, String texto) {
+          return _miniBeneficioCard(
+            index: index,
+            icon: icon,
+            titulo: titulo,
+            texto: texto,
+          );
+        }
+
+        if (constraints.maxWidth >= 360) {
+          return SizedBox(
+            height: cardH,
             child: Row(
-              mainAxisSize: MainAxisSize.min,
+              crossAxisAlignment: CrossAxisAlignment.stretch,
               children: [
-                Icon(item.$1, size: 16, color: PainelAdminTheme.laranjaSuave),
-                const SizedBox(width: 8),
-                Text(
-                  item.$2,
-                  style: TextStyle(
-                    fontSize: 12.5,
-                    fontWeight: FontWeight.w600,
-                    color: Colors.white.withValues(alpha: 0.92),
+                Expanded(
+                  child: card(
+                    0,
+                    Icons.shield_outlined,
+                    'Seguro',
+                    'Seus dados protegidos',
+                  ),
+                ),
+                const SizedBox(width: gap),
+                Expanded(
+                  child: card(
+                    1,
+                    Icons.bar_chart_rounded,
+                    'Intuitivo',
+                    'Experiência simplificada',
+                  ),
+                ),
+                const SizedBox(width: gap),
+                Expanded(
+                  child: card(
+                    2,
+                    Icons.bolt_rounded,
+                    'Eficiente',
+                    'Gestão rápida e completa',
                   ),
                 ),
               ],
             ),
+          );
+        }
+
+        return Column(
+          crossAxisAlignment: CrossAxisAlignment.stretch,
+          children: [
+            SizedBox(
+              height: cardH,
+              child: card(
+                0,
+                Icons.shield_outlined,
+                'Seguro',
+                'Seus dados protegidos',
+              ),
+            ),
+            const SizedBox(height: 12),
+            SizedBox(
+              height: cardH,
+              child: card(
+                1,
+                Icons.bar_chart_rounded,
+                'Intuitivo',
+                'Experiência simplificada',
+              ),
+            ),
+            const SizedBox(height: 12),
+            SizedBox(
+              height: cardH,
+              child: card(
+                2,
+                Icons.bolt_rounded,
+                'Eficiente',
+                'Gestão rápida e completa',
+              ),
+            ),
+          ],
+        );
+      },
+    );
+  }
+
+  Widget _miniBeneficioCard({
+    required int index,
+    required IconData icon,
+    required String titulo,
+    required String texto,
+  }) {
+    final hover = _miniCardHover == index;
+    return MouseRegion(
+      onEnter: (_) => setState(() => _miniCardHover = index),
+      onExit: (_) => setState(() => _miniCardHover = -1),
+      child: AnimatedContainer(
+        duration: const Duration(milliseconds: 220),
+        width: double.infinity,
+        height: double.infinity,
+        transform: Matrix4.translationValues(0, hover ? -2 : 0, 0),
+        padding: const EdgeInsets.all(15),
+        decoration: BoxDecoration(
+          color: _LoginPalette.miniCardBg,
+          borderRadius: BorderRadius.circular(16),
+          border: Border.all(
+            color: hover
+                ? _LoginPalette.purpleGlow.withValues(alpha: 0.55)
+                : _LoginPalette.borderPurple,
           ),
+          boxShadow: hover
+              ? [
+                  BoxShadow(
+                    color: _LoginPalette.purpleGlow.withValues(alpha: 0.18),
+                    blurRadius: 16,
+                    offset: const Offset(0, 6),
+                  ),
+                ]
+              : null,
+        ),
+        child: Column(
+          crossAxisAlignment: CrossAxisAlignment.start,
+          mainAxisSize: MainAxisSize.min,
+          children: [
+            Container(
+              width: 30,
+              height: 30,
+              decoration: BoxDecoration(
+                shape: BoxShape.circle,
+                color: _LoginPalette.bgDeep,
+                border: Border.all(
+                  color: _LoginPalette.purpleGlow.withValues(alpha: 0.35),
+                ),
+                boxShadow: [
+                  BoxShadow(
+                    color: _LoginPalette.purpleGlow.withValues(alpha: 0.2),
+                    blurRadius: 8,
+                  ),
+                ],
+              ),
+              child: Icon(icon, size: 15, color: _LoginPalette.purplePrimary),
+            ),
+            const SizedBox(height: 10),
+            Text(
+              titulo,
+              style: GoogleFonts.plusJakartaSans(
+                fontSize: 13.5,
+                fontWeight: FontWeight.w600,
+                height: 1.2,
+                color: _LoginPalette.textPrimary,
+              ),
+            ),
+            const SizedBox(height: 4),
+            Text(
+              texto,
+              maxLines: 2,
+              overflow: TextOverflow.ellipsis,
+              style: GoogleFonts.plusJakartaSans(
+                fontSize: 11.5,
+                height: 1.35,
+                color: _LoginPalette.textSecondary,
+              ),
+            ),
+          ],
+        ),
+      ),
+    );
+  }
+
+  Widget _logoMobileCompacto() {
+    return Row(
+      mainAxisAlignment: MainAxisAlignment.center,
+      children: [
+        _logoMarcaLogin(altura: 40),
+        const SizedBox(width: 12),
+        Column(
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            Text(
+              'DiPertin',
+              style: GoogleFonts.plusJakartaSans(
+                fontSize: 20,
+                fontWeight: FontWeight.w800,
+                color: _LoginPalette.textPrimary,
+              ),
+            ),
+            Text(
+              'PAINEL ADMINISTRATIVO',
+              style: GoogleFonts.plusJakartaSans(
+                fontSize: 9,
+                fontWeight: FontWeight.w600,
+                letterSpacing: 1.8,
+                color: _LoginPalette.orangeBright,
+              ),
+            ),
+          ],
+        ),
       ],
     );
   }
 
-  Widget _fundoPainelLogin({required Widget child}) {
-    return DecoratedBox(
+  Widget _iconeCadeadoFlutuante() {
+    return Container(
+      width: 58,
+      height: 58,
       decoration: BoxDecoration(
-        color: PainelAdminTheme.fundoCanvas,
-        gradient: RadialGradient(
-          center: const Alignment(0.85, -0.35),
-          radius: 1.1,
-          colors: [
-            PainelAdminTheme.roxo.withValues(alpha: 0.06),
-            PainelAdminTheme.fundoCanvas,
-          ],
+        gradient: const LinearGradient(
+          begin: Alignment.topLeft,
+          end: Alignment.bottomRight,
+          colors: [_LoginPalette.purpleDark, Color(0xFF1A0A38)],
         ),
+        borderRadius: BorderRadius.circular(18),
+        border: Border.all(
+          color: _LoginPalette.purpleGlow.withValues(alpha: 0.65),
+          width: 1.5,
+        ),
+        boxShadow: [
+          BoxShadow(
+            color: _LoginPalette.purpleGlow.withValues(alpha: 0.5),
+            blurRadius: 32,
+            spreadRadius: 1,
+          ),
+        ],
       ),
-      child: child,
+      child: const Icon(
+        Icons.lock_outline_rounded,
+        color: Colors.white,
+        size: 26,
+      ),
     );
   }
 
   Widget _seloAcessoRestrito() {
     return Center(
       child: Container(
-        padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 8),
+        padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 7),
         decoration: BoxDecoration(
-          color: const Color(0xFFF3F1F8),
+          color: _LoginPalette.purplePrimary.withValues(alpha: 0.12),
           borderRadius: BorderRadius.circular(999),
-          border: Border.all(color: const Color(0xFFE4DFEE)),
+          border: Border.all(
+            color: _LoginPalette.purpleGlow.withValues(alpha: 0.28),
+          ),
         ),
         child: Row(
           mainAxisSize: MainAxisSize.min,
           children: [
             Icon(
-              Icons.shield_outlined,
-              size: 16,
-              color: PainelAdminTheme.roxo.withValues(alpha: 0.8),
+              Icons.lock_outline_rounded,
+              size: 13,
+              color: _LoginPalette.purpleGlow.withValues(alpha: 0.9),
             ),
-            const SizedBox(width: 8),
+            const SizedBox(width: 7),
             Text(
-              'Acesso restrito · Administradores e lojistas',
+              'ACESSO RESTRITO',
               style: GoogleFonts.plusJakartaSans(
-                fontSize: 11.5,
+                fontSize: 10.5,
                 fontWeight: FontWeight.w700,
-                letterSpacing: 0.2,
-                color: PainelAdminTheme.textoSecundario,
+                letterSpacing: 1.4,
+                color: _LoginPalette.purpleGlow,
               ),
             ),
           ],
@@ -1177,14 +1402,20 @@ class _LoginAdminScreenState extends State<LoginAdminScreen> {
       width: double.infinity,
       padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 12),
       decoration: BoxDecoration(
-        color: _erroCor.withValues(alpha: 0.08),
+        color: const Color(0xFFEF4444).withValues(alpha: 0.12),
         borderRadius: BorderRadius.circular(12),
-        border: Border.all(color: _erroCor.withValues(alpha: 0.28)),
+        border: Border.all(
+          color: const Color(0xFFEF4444).withValues(alpha: 0.35),
+        ),
       ),
       child: Row(
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
-          const Icon(Icons.error_outline_rounded, size: 20, color: _erroCor),
+          const Icon(
+            Icons.error_outline_rounded,
+            size: 20,
+            color: Color(0xFFF87171),
+          ),
           const SizedBox(width: 10),
           Expanded(
             child: Text(
@@ -1193,7 +1424,7 @@ class _LoginAdminScreenState extends State<LoginAdminScreen> {
                 fontSize: 13,
                 height: 1.4,
                 fontWeight: FontWeight.w600,
-                color: const Color(0xFF991B1B),
+                color: const Color(0xFFFECACA),
               ),
             ),
           ),
@@ -1202,95 +1433,83 @@ class _LoginAdminScreenState extends State<LoginAdminScreen> {
     );
   }
 
-  Widget _cartaoLogin({required bool wide}) {
-    final sombras = wide
-        ? <BoxShadow>[
-            BoxShadow(
-              color: PainelAdminTheme.roxo.withValues(alpha: 0.08),
-              blurRadius: 40,
-              offset: const Offset(0, 18),
-              spreadRadius: -8,
-            ),
-            BoxShadow(
-              color: Colors.black.withValues(alpha: 0.06),
-              blurRadius: 24,
-              offset: const Offset(0, 8),
-            ),
-          ]
-        : <BoxShadow>[
-            BoxShadow(
-              color: PainelAdminTheme.roxo.withValues(alpha: 0.05),
-              blurRadius: 16,
-              offset: const Offset(0, 6),
-            ),
-            BoxShadow(
-              color: Colors.black.withValues(alpha: 0.04),
-              blurRadius: 10,
-              offset: const Offset(0, 3),
-            ),
-          ];
+  Widget _labelCampo(String texto) {
+    return Text(
+      texto,
+      style: GoogleFonts.plusJakartaSans(
+        fontSize: 13,
+        fontWeight: FontWeight.w600,
+        color: _LoginPalette.textPrimary.withValues(alpha: 0.92),
+      ),
+    );
+  }
 
-    final card = Container(
-      constraints: const BoxConstraints(maxWidth: 440),
-      margin: EdgeInsets.symmetric(
-        horizontal: wide ? 24 : 20,
-        vertical: wide ? 32 : 20,
-      ),
-      padding: EdgeInsets.symmetric(
-        horizontal: wide ? 36 : 28,
-        vertical: wide ? 36 : 28,
-      ),
-      decoration: BoxDecoration(
-        color: Colors.white,
-        borderRadius: BorderRadius.circular(24),
-        border: Border.all(color: const Color(0xFFE8E4F0)),
-        boxShadow: sombras,
-      ),
-      child: Column(
-        crossAxisAlignment: CrossAxisAlignment.stretch,
-        mainAxisSize: MainAxisSize.min,
-        children: [
-          _seloAcessoRestrito(),
-          const SizedBox(height: 22),
-          Text(
-            'Acesso ao painel',
-            textAlign: TextAlign.center,
-            style: TextStyle(
-              fontSize: wide ? 26 : 24,
-              fontWeight: FontWeight.w800,
-              color: _ink,
-              letterSpacing: -0.5,
-              height: 1.15,
-            ),
+  Widget _cartaoLogin({
+    required bool wide,
+    required bool tablet,
+    required bool mobile,
+  }) {
+    final cardWidth = wide ? 590.0 : (tablet ? 520.0 : double.infinity);
+    final horizontalPad = wide ? 48.0 : (mobile ? 24.0 : 32.0);
+    final cardRadius = mobile ? 24.0 : 30.0;
+    final titleSize = wide ? 42.0 : (tablet ? 36.0 : 32.0);
+
+    final cardBody = Column(
+      crossAxisAlignment: CrossAxisAlignment.stretch,
+      mainAxisSize: MainAxisSize.min,
+      children: [
+        const SizedBox(height: 22),
+        _seloAcessoRestrito(),
+        const SizedBox(height: 22),
+        Text(
+          'Acesso ao painel',
+          textAlign: TextAlign.center,
+          style: GoogleFonts.playfairDisplay(
+            fontSize: titleSize,
+            fontWeight: FontWeight.w500,
+            color: _LoginPalette.textPrimary,
+            height: 1.15,
+            letterSpacing: -0.3,
           ),
-          const SizedBox(height: 8),
-          Text(
-            'Entre com e-mail e senha ou continue com Google.',
-            textAlign: TextAlign.center,
-            style: GoogleFonts.plusJakartaSans(
-              fontSize: 14,
-              height: 1.45,
-              color: PainelAdminTheme.textoSecundario,
-            ),
+        ),
+        const SizedBox(height: 10),
+        Text(
+          'Entre com e-mail e senha ou continue com Google.',
+          textAlign: TextAlign.center,
+          style: GoogleFonts.plusJakartaSans(
+            fontSize: 16,
+            height: 1.5,
+            color: _LoginPalette.textSecondary,
           ),
-          if (_bannerErroLogin() != null) ...[
-            const SizedBox(height: 18),
-            _bannerErroLogin()!,
-          ],
-          const SizedBox(height: 28),
-          TextField(
+        ),
+        if (_bannerErroLogin() != null) ...[
+          const SizedBox(height: 18),
+          _bannerErroLogin()!,
+        ],
+        const SizedBox(height: 22),
+        _labelCampo('E-mail'),
+        const SizedBox(height: 8),
+        SizedBox(
+          height: 58,
+          child: TextField(
             controller: _emailController,
             focusNode: _emailFocusNode,
             textInputAction: TextInputAction.next,
             keyboardType: TextInputType.emailAddress,
             autofillHints: const [AutofillHints.email],
-            style: GoogleFonts.plusJakartaSans(fontSize: 15),
+            style: GoogleFonts.plusJakartaSans(
+              fontSize: 15,
+              color: _LoginPalette.textInput,
+            ),
+            cursorColor: _LoginPalette.purpleGlow,
             decoration: _fieldDecoration(
-              label: 'E-mail',
+              label: '',
+              dark: true,
+              hintText: 'seu@email.com',
               errorText: _erroEmail,
-              prefix: const Icon(
+              prefix: Icon(
                 Icons.mail_outline_rounded,
-                color: PainelAdminTheme.roxo,
+                color: _LoginPalette.purpleGlow.withValues(alpha: 0.85),
                 size: 22,
               ),
             ),
@@ -1298,19 +1517,29 @@ class _LoginAdminScreenState extends State<LoginAdminScreen> {
               if (!_isLoading && !_isLoadingGoogle) _fazerLogin();
             },
           ),
-          const SizedBox(height: 18),
-          TextField(
+        ),
+        const SizedBox(height: 20),
+        _labelCampo('Senha'),
+        const SizedBox(height: 8),
+        SizedBox(
+          height: 58,
+          child: TextField(
             controller: _senhaController,
             obscureText: _ocultarSenha,
             textInputAction: TextInputAction.done,
             autofillHints: const [AutofillHints.password],
-            style: GoogleFonts.plusJakartaSans(fontSize: 15),
+            style: GoogleFonts.plusJakartaSans(
+              fontSize: 15,
+              color: _LoginPalette.textInput,
+            ),
+            cursorColor: _LoginPalette.purpleGlow,
             decoration: _fieldDecoration(
-              label: 'Senha',
+              label: '',
+              dark: true,
               errorText: _erroSenha,
-              prefix: const Icon(
+              prefix: Icon(
                 Icons.lock_outline_rounded,
-                color: PainelAdminTheme.roxo,
+                color: _LoginPalette.purpleGlow.withValues(alpha: 0.85),
                 size: 22,
               ),
               suffix: IconButton(
@@ -1319,7 +1548,8 @@ class _LoginAdminScreenState extends State<LoginAdminScreen> {
                   _ocultarSenha
                       ? Icons.visibility_off_outlined
                       : Icons.visibility_outlined,
-                  color: PainelAdminTheme.textoSecundario,
+                  color: _LoginPalette.textSecondary,
+                  size: 22,
                 ),
                 onPressed: () => setState(() => _ocultarSenha = !_ocultarSenha),
               ),
@@ -1328,14 +1558,21 @@ class _LoginAdminScreenState extends State<LoginAdminScreen> {
               if (!_isLoading && !_isLoadingGoogle) _fazerLogin();
             },
           ),
-          const SizedBox(height: 12),
-          Align(
-            alignment: Alignment.centerRight,
+        ),
+        const SizedBox(height: 8),
+        Align(
+          alignment: Alignment.centerRight,
+          child: MouseRegion(
+            onEnter: (_) => setState(() => _forgotHover = true),
+            onExit: (_) => setState(() => _forgotHover = false),
             child: TextButton(
-              onPressed:
-                  (_isLoading || _isLoadingGoogle) ? null : _enviarRecuperacaoSenha,
+              onPressed: (_isLoading || _isLoadingGoogle)
+                  ? null
+                  : _enviarRecuperacaoSenha,
               style: TextButton.styleFrom(
-                foregroundColor: PainelAdminTheme.roxo,
+                foregroundColor: _forgotHover
+                    ? _LoginPalette.orangeBright
+                    : _LoginPalette.purpleGlow,
                 padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
               ),
               child: Text(
@@ -1347,155 +1584,396 @@ class _LoginAdminScreenState extends State<LoginAdminScreen> {
               ),
             ),
           ),
-          const SizedBox(height: 18),
-          MouseRegion(
-            onEnter: (_) => setState(() => _ctaHover = true),
-            onExit: (_) => setState(() => _ctaHover = false),
-            child: AnimatedScale(
-              scale: _ctaHover && !_isLoading && !_isLoadingGoogle ? 1.01 : 1,
-              duration: const Duration(milliseconds: 140),
-              curve: Curves.easeOut,
-              child: AnimatedContainer(
-                duration: const Duration(milliseconds: 140),
-                decoration: BoxDecoration(
-                  borderRadius: BorderRadius.circular(14),
-                  boxShadow: _ctaHover && !_isLoading && !_isLoadingGoogle
-                      ? [
-                          BoxShadow(
-                            color: PainelAdminTheme.laranja.withValues(alpha: 0.35),
-                            blurRadius: 18,
-                            offset: const Offset(0, 8),
-                          ),
-                        ]
-                      : null,
-                ),
-                child: FilledButton(
-                  onPressed: (_isLoading || _isLoadingGoogle) ? null : _fazerLogin,
-                  style: FilledButton.styleFrom(
-                    backgroundColor: PainelAdminTheme.laranja,
-                    foregroundColor: Colors.white,
-                    disabledBackgroundColor:
-                        PainelAdminTheme.laranja.withValues(alpha: 0.5),
-                    padding: const EdgeInsets.symmetric(vertical: 16),
-                    minimumSize: const Size(double.infinity, 52),
-                    shape: RoundedRectangleBorder(
-                      borderRadius: BorderRadius.circular(14),
-                    ),
-                    elevation: 0,
-                  ),
-                  child: _isLoading
-                      ? const SizedBox(
-                          width: 24,
-                          height: 24,
-                          child: CircularProgressIndicator(
-                            color: Colors.white,
-                            strokeWidth: 2.5,
-                          ),
-                        )
-                      : Text(
-                          'Entrar no painel',
-                          style: GoogleFonts.plusJakartaSans(
-                            fontSize: 16,
-                            fontWeight: FontWeight.w700,
-                          ),
-                        ),
-                ),
-              ),
+        ),
+        const SizedBox(height: 16),
+        MouseRegion(
+          onEnter: (_) => setState(() => _ctaHover = true),
+          onExit: (_) => setState(() => _ctaHover = false),
+          child: AnimatedContainer(
+            duration: const Duration(milliseconds: 220),
+            height: 62,
+            transform: Matrix4.translationValues(
+              0,
+              _ctaHover && !_isLoading && !_isLoadingGoogle ? -2 : 0,
+              0,
             ),
-          ),
-          const SizedBox(height: 22),
-          Row(
-            children: [
-              Expanded(
-                child: Divider(
-                  color: PainelAdminTheme.textoSecundario.withValues(alpha: 0.25),
-                  thickness: 1,
-                ),
-              ),
-              Padding(
-                padding: const EdgeInsets.symmetric(horizontal: 12),
-                child: Text(
-                  'ou',
-                  style: GoogleFonts.plusJakartaSans(
-                    fontSize: 12,
-                    fontWeight: FontWeight.w600,
-                    color: PainelAdminTheme.textoSecundario,
-                    letterSpacing: 0.8,
-                  ),
-                ),
-              ),
-              Expanded(
-                child: Divider(
-                  color: PainelAdminTheme.textoSecundario.withValues(alpha: 0.25),
-                  thickness: 1,
-                ),
-              ),
-            ],
-          ),
-          const SizedBox(height: 18),
-          OutlinedButton(
-            onPressed: (_isLoading || _isLoadingGoogle) ? null : _loginComGoogle,
-            style: OutlinedButton.styleFrom(
-              foregroundColor: const Color(0xFF1F1F1F),
-              side: const BorderSide(color: Color(0xFFDADCE0)),
-              backgroundColor: Colors.white,
-              padding: const EdgeInsets.symmetric(vertical: 14, horizontal: 16),
-              minimumSize: const Size(double.infinity, 50),
-              shape: RoundedRectangleBorder(
-                borderRadius: BorderRadius.circular(14),
-              ),
-            ),
-            child: _isLoadingGoogle
-                ? SizedBox(
-                    height: 22,
-                    width: 22,
-                    child: CircularProgressIndicator(
-                      strokeWidth: 2.5,
-                      color: PainelAdminTheme.roxo,
-                    ),
-                  )
-                : Row(
-                    mainAxisAlignment: MainAxisAlignment.center,
-                    children: [
-                      const _IconeGooglePainel(size: 20),
-                      const SizedBox(width: 12),
-                      Text(
-                        'Continuar com Google',
-                        style: GoogleFonts.plusJakartaSans(
-                          fontSize: 15,
-                          fontWeight: FontWeight.w600,
+            decoration: BoxDecoration(
+              borderRadius: BorderRadius.circular(12),
+              gradient: _LoginPalette.horizontalAccent,
+              boxShadow: _ctaHover && !_isLoading && !_isLoadingGoogle
+                  ? [
+                      BoxShadow(
+                        color: _LoginPalette.purpleGlow.withValues(alpha: 0.45),
+                        blurRadius: 28,
+                        offset: const Offset(0, 12),
+                      ),
+                      BoxShadow(
+                        color: _LoginPalette.orangePrimary.withValues(
+                          alpha: 0.28,
                         ),
+                        blurRadius: 20,
+                        offset: const Offset(0, 8),
+                      ),
+                    ]
+                  : [
+                      BoxShadow(
+                        color: _LoginPalette.purplePrimary.withValues(
+                          alpha: 0.35,
+                        ),
+                        blurRadius: 18,
+                        offset: const Offset(0, 8),
+                      ),
+                      BoxShadow(
+                        color: _LoginPalette.orangePrimary.withValues(
+                          alpha: 0.15,
+                        ),
+                        blurRadius: 14,
+                        offset: const Offset(0, 6),
                       ),
                     ],
-                  ),
-          ),
-          if (kIsWeb)
-            Padding(
-              padding: const EdgeInsets.only(top: 12),
-              child: Text(
-                'O acesso é liberado quando o e-mail do Google for o mesmo do '
-                'lojista aprovado no DiPertin.',
-                textAlign: TextAlign.center,
-                style: GoogleFonts.plusJakartaSans(
-                  fontSize: 12.5,
-                  height: 1.4,
-                  color: PainelAdminTheme.textoSecundario,
+            ),
+            child: Material(
+              color: Colors.transparent,
+              child: InkWell(
+                onTap: (_isLoading || _isLoadingGoogle) ? null : _fazerLogin,
+                borderRadius: BorderRadius.circular(12),
+                child: Padding(
+                  padding: const EdgeInsets.symmetric(horizontal: 20),
+                  child: _isLoading
+                      ? const Center(
+                          child: SizedBox(
+                            width: 24,
+                            height: 24,
+                            child: CircularProgressIndicator(
+                              color: Colors.white,
+                              strokeWidth: 2.5,
+                            ),
+                          ),
+                        )
+                      : Row(
+                          mainAxisAlignment: MainAxisAlignment.center,
+                          children: [
+                            Text(
+                              'Entrar no painel',
+                              style: GoogleFonts.plusJakartaSans(
+                                fontSize: 16,
+                                fontWeight: FontWeight.w700,
+                                color: Colors.white,
+                              ),
+                            ),
+                            const Spacer(),
+                            const Icon(
+                              Icons.arrow_forward_rounded,
+                              color: Colors.white,
+                              size: 22,
+                            ),
+                          ],
+                        ),
                 ),
               ),
             ),
+          ),
+        ),
+        const SizedBox(height: 24),
+        Row(
+          children: [
+            Expanded(
+              child: Divider(
+                color: Colors.white.withValues(alpha: 0.12),
+                thickness: 1,
+              ),
+            ),
+            Padding(
+              padding: const EdgeInsets.symmetric(horizontal: 14),
+              child: Text(
+                'ou',
+                style: GoogleFonts.plusJakartaSans(
+                  fontSize: 13,
+                  fontWeight: FontWeight.w500,
+                  color: _LoginPalette.textSecondary,
+                ),
+              ),
+            ),
+            Expanded(
+              child: Divider(
+                color: Colors.white.withValues(alpha: 0.12),
+                thickness: 1,
+              ),
+            ),
+          ],
+        ),
+        const SizedBox(height: 20),
+        MouseRegion(
+          onEnter: (_) => setState(() => _googleHover = true),
+          onExit: (_) => setState(() => _googleHover = false),
+          child: AnimatedContainer(
+            duration: const Duration(milliseconds: 220),
+            height: 60,
+            decoration: BoxDecoration(
+              borderRadius: BorderRadius.circular(12),
+              gradient: _LoginPalette.borderGradient,
+            ),
+            padding: const EdgeInsets.all(1),
+            child: AnimatedContainer(
+              duration: const Duration(milliseconds: 220),
+              decoration: BoxDecoration(
+                color: _googleHover
+                    ? const Color(0xFF151025).withValues(alpha: 0.95)
+                    : _LoginPalette.cardBg.withValues(alpha: 0.88),
+                borderRadius: BorderRadius.circular(11),
+                boxShadow: _googleHover
+                    ? [
+                        BoxShadow(
+                          color: _LoginPalette.purpleGlow.withValues(
+                            alpha: 0.12,
+                          ),
+                          blurRadius: 16,
+                        ),
+                      ]
+                    : null,
+              ),
+              child: Material(
+                color: Colors.transparent,
+                child: InkWell(
+                  onTap: (_isLoading || _isLoadingGoogle)
+                      ? null
+                      : _loginComGoogle,
+                  borderRadius: BorderRadius.circular(11),
+                  child: _isLoadingGoogle
+                      ? Center(
+                          child: SizedBox(
+                            height: 22,
+                            width: 22,
+                            child: CircularProgressIndicator(
+                              strokeWidth: 2.5,
+                              color: _LoginPalette.purpleGlow,
+                            ),
+                          ),
+                        )
+                      : Row(
+                          mainAxisAlignment: MainAxisAlignment.center,
+                          children: [
+                            const _IconeGooglePainel(size: 20),
+                            const SizedBox(width: 12),
+                            Text(
+                              'Continuar com Google',
+                              style: GoogleFonts.plusJakartaSans(
+                                fontSize: 15,
+                                fontWeight: FontWeight.w600,
+                                color: _LoginPalette.textPrimary,
+                              ),
+                            ),
+                          ],
+                        ),
+                ),
+              ),
+            ),
+          ),
+        ),
+        if (kIsWeb) ...[
+          const SizedBox(height: 24),
+          ConstrainedBox(
+            constraints: const BoxConstraints(maxWidth: 420),
+            child: Row(
+              mainAxisAlignment: MainAxisAlignment.center,
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                Padding(
+                  padding: const EdgeInsets.only(top: 2),
+                  child: Icon(
+                    Icons.lock_outline_rounded,
+                    size: 14,
+                    color: _LoginPalette.textFooter.withValues(alpha: 0.85),
+                  ),
+                ),
+                const SizedBox(width: 8),
+                Flexible(
+                  child: Text(
+                    'O acesso é liberado quando o e-mail do Google for o mesmo do '
+                    'lojista aprovado no DiPertin.',
+                    textAlign: TextAlign.center,
+                    style: GoogleFonts.plusJakartaSans(
+                      fontSize: 14,
+                      height: 1.45,
+                      color: _LoginPalette.textFooter,
+                    ),
+                  ),
+                ),
+              ],
+            ),
+          ),
         ],
+        const SizedBox(height: 8),
+      ],
+    );
+
+    final innerCard = Container(
+      width: cardWidth,
+      constraints: BoxConstraints(maxWidth: cardWidth),
+      padding: EdgeInsets.fromLTRB(
+        horizontalPad,
+        36,
+        horizontalPad,
+        horizontalPad,
+      ),
+      decoration: BoxDecoration(
+        color: _LoginPalette.cardBg.withValues(alpha: 0.88),
+        borderRadius: BorderRadius.circular(cardRadius - 1),
+      ),
+      child: SingleChildScrollView(
+        physics: const ClampingScrollPhysics(),
+        child: cardBody,
       ),
     );
 
-    return AnimatedOpacity(
-      opacity: _entradaAnimada ? 1 : 0,
-      duration: const Duration(milliseconds: 280),
-      curve: Curves.easeOut,
-      child: AnimatedSlide(
-        offset: _entradaAnimada ? Offset.zero : const Offset(0, 0.03),
-        duration: const Duration(milliseconds: 320),
-        curve: Curves.easeOutCubic,
-        child: card,
+    final card = Container(
+      width: cardWidth,
+      constraints: BoxConstraints(maxWidth: cardWidth),
+      decoration: BoxDecoration(
+        borderRadius: BorderRadius.circular(cardRadius),
+        gradient: _LoginPalette.borderGradient,
+        boxShadow: [
+          BoxShadow(
+            color: _LoginPalette.purplePrimary.withValues(alpha: 0.2),
+            blurRadius: 70,
+            spreadRadius: -10,
+            offset: const Offset(0, 28),
+          ),
+          BoxShadow(
+            color: _LoginPalette.orangePrimary.withValues(alpha: 0.08),
+            blurRadius: 48,
+            offset: const Offset(12, 24),
+          ),
+          BoxShadow(
+            color: Colors.black.withValues(alpha: 0.55),
+            blurRadius: 48,
+            offset: const Offset(0, 20),
+          ),
+        ],
+      ),
+      padding: const EdgeInsets.all(1),
+      child: innerCard,
+    );
+
+    final cardComIcone = Stack(
+      clipBehavior: Clip.none,
+      alignment: Alignment.topCenter,
+      children: [
+        card,
+        Positioned(top: -28, child: _iconeCadeadoFlutuante()),
+      ],
+    );
+
+    return LayoutBuilder(
+      builder: (context, constraints) {
+        final maxCardHeight = constraints.maxHeight.isFinite
+            ? constraints.maxHeight
+            : double.infinity;
+
+        return Padding(
+          padding: const EdgeInsets.only(top: 30),
+          child: AnimatedOpacity(
+            opacity: _entradaAnimada ? 1 : 0,
+            duration: const Duration(milliseconds: 420),
+            curve: Curves.easeOut,
+            child: AnimatedSlide(
+              offset: _entradaAnimada ? Offset.zero : const Offset(0, 0.025),
+              duration: const Duration(milliseconds: 480),
+              curve: Curves.easeOutCubic,
+              child: ConstrainedBox(
+                constraints: BoxConstraints(maxHeight: maxCardHeight),
+                child: cardComIcone,
+              ),
+            ),
+          ),
+        );
+      },
+    );
+  }
+
+  static const double _layoutMaxWidth = 1440;
+
+  double _paddingHorizontalLogin(double screenWidth) {
+    if (screenWidth < 600) return 18;
+    if (screenWidth < 860) return 32;
+    if (screenWidth < 1100) return 48;
+    if (screenWidth < 1360) return 64;
+    return 84;
+  }
+
+  double _gapColunasLogin(double screenWidth) {
+    if (screenWidth < 1100) return 56;
+    if (screenWidth < 1360) return 72;
+    return 88;
+  }
+
+  Widget _conteudoLoginLayout({
+    required double screenWidth,
+    required double screenHeight,
+    required bool wide,
+    required bool tablet,
+    required bool mobile,
+  }) {
+    final hPad = _paddingHorizontalLogin(screenWidth);
+    final gap = _gapColunasLogin(screenWidth);
+    final areaUtil = math.min(screenWidth, _layoutMaxWidth) - hPad * 2;
+
+    Widget corpo;
+    if (mobile) {
+      corpo = Column(
+        mainAxisSize: MainAxisSize.min,
+        children: [
+          _logoMobileCompacto(),
+          const SizedBox(height: 24),
+          _cartaoLogin(wide: false, tablet: false, mobile: true),
+        ],
+      );
+    } else {
+      var cardW = wide
+          ? math.min(590.0, areaUtil * 0.46)
+          : math.min(520.0, areaUtil * 0.52);
+      var brandW = math.min(600.0, areaUtil - gap - cardW);
+      if (brandW + gap + cardW > areaUtil) {
+        cardW = math.max(wide ? 460.0 : 420.0, areaUtil - gap - 320);
+        brandW = math.max(320.0, areaUtil - gap - cardW);
+      }
+      final compactBrand = brandW < 520 || tablet;
+
+      corpo = Row(
+        mainAxisAlignment: MainAxisAlignment.center,
+        crossAxisAlignment: CrossAxisAlignment.center,
+        children: [
+          SizedBox(
+            width: brandW,
+            child: _areaBranding(maxWidth: brandW, compact: compactBrand),
+          ),
+          SizedBox(width: gap),
+          SizedBox(
+            width: cardW,
+            child: Padding(
+              padding: const EdgeInsets.symmetric(vertical: 36),
+              child: _cartaoLogin(wide: wide, tablet: tablet, mobile: false),
+            ),
+          ),
+        ],
+      );
+    }
+
+    final conteudo = Center(
+      child: ConstrainedBox(
+        constraints: const BoxConstraints(maxWidth: _layoutMaxWidth),
+        child: Padding(
+          padding: EdgeInsets.symmetric(horizontal: hPad, vertical: 24),
+          child: corpo,
+        ),
+      ),
+    );
+
+    return SingleChildScrollView(
+      padding: EdgeInsets.only(bottom: mobile ? 28 : 24),
+      child: ConstrainedBox(
+        constraints: BoxConstraints(minHeight: screenHeight - 48),
+        child: Center(child: conteudo),
       ),
     );
   }
@@ -1503,56 +1981,253 @@ class _LoginAdminScreenState extends State<LoginAdminScreen> {
   @override
   Widget build(BuildContext context) {
     return Scaffold(
-      backgroundColor: PainelAdminTheme.fundoCanvas,
-      body: LayoutBuilder(
-        builder: (context, constraints) {
-          final wide = constraints.maxWidth >= 960;
-
-          if (wide) {
-            return Row(
-              crossAxisAlignment: CrossAxisAlignment.stretch,
-              children: [
-                Expanded(
-                  flex: 46,
-                  child: _painelMarca(wide: true),
-                ),
-                Expanded(
-                  flex: 54,
-                  child: _fundoPainelLogin(
-                    child: Align(
-                      alignment: Alignment.center,
-                      child: SingleChildScrollView(
-                        padding: const EdgeInsets.only(bottom: 24),
-                        child: _cartaoLogin(wide: true),
-                      ),
-                    ),
-                  ),
-                ),
-              ],
-            );
-          }
-
-          // Um único scroll: evita SliverFillRemaining(hasScrollBody: false), que cortava
-          // o final do cartão (selo "Acesso Restrito") quando a altura restante era curta.
-          return CustomScrollView(
-            slivers: [
-              SliverToBoxAdapter(child: _painelMarca(wide: false)),
-              SliverToBoxAdapter(
-                child: _fundoPainelLogin(
-                  child: Align(
-                    alignment: Alignment.topCenter,
-                    child: Padding(
-                      padding: const EdgeInsets.only(bottom: 32),
-                      child: _cartaoLogin(wide: false),
-                    ),
-                  ),
+      backgroundColor: _LoginPalette.bg,
+      body: AnimatedBuilder(
+        animation: _glowPulse,
+        builder: (context, child) {
+          return Stack(
+            fit: StackFit.expand,
+            children: [
+              CustomPaint(
+                painter: _LoginDarkBackgroundPainter(
+                  glowIntensity: _glowPulse.value,
                 ),
               ),
+              child!,
             ],
           );
         },
+        child: SafeArea(
+          child: LayoutBuilder(
+            builder: (context, constraints) {
+              final w = constraints.maxWidth;
+              final h = constraints.maxHeight;
+              final mobile = w < 860;
+              final tablet = w >= 860 && w < 1100;
+              final wide = w >= 1100;
+
+              return _conteudoLoginLayout(
+                screenWidth: w,
+                screenHeight: h,
+                wide: wide,
+                tablet: tablet,
+                mobile: mobile,
+              );
+            },
+          ),
+        ),
       ),
     );
+  }
+}
+
+// ─── PALETA E PAINTERS — LOGIN DARK PREMIUM ───
+
+abstract final class _LoginPalette {
+  static const bg = Color(0xFF070711);
+  static const bgDeep = Color(0xFF0B0A1D);
+  static const cardBg = Color(0xFF0D0B1C);
+  static const purplePrimary = Color(0xFFA42CFF);
+  static const purpleDark = Color(0xFF37106E);
+  static const purpleMid = Color(0xFFD22CFF);
+  static const purpleGlow = Color(0xFFC04BFF);
+  static const orangePrimary = Color(0xFFFF7A1A);
+  static const orangeBright = Color(0xFFFF9A3D);
+  static const pinkTransition = Color(0xFFFF5C78);
+  static const textPrimary = Color(0xFFF8F7FF);
+  static const textInput = Color(0xFFD7D3E3);
+  static const textSecondary = Color(0xFFB5B1C4);
+  static const textFooter = Color(0xFFA9A5B7);
+  static const inputBg = Color(0xFF100D20);
+  static const inputBorder = Color(0x52A42CFF); // rgba(164,44,255,0.32)
+  static const miniCardBg = Color(0x8C0B0A1D);
+  static const borderPurple = Color(0x47B162FF);
+
+  static const accentGradient = [
+    purplePrimary,
+    purpleMid,
+    pinkTransition,
+    orangePrimary,
+  ];
+
+  static LinearGradient get horizontalAccent =>
+      const LinearGradient(colors: accentGradient);
+
+  static LinearGradient get borderGradient => LinearGradient(
+    begin: Alignment.centerLeft,
+    end: Alignment.centerRight,
+    colors: [
+      purpleGlow.withValues(alpha: 0.55),
+      pinkTransition.withValues(alpha: 0.45),
+      orangePrimary.withValues(alpha: 0.5),
+    ],
+  );
+}
+
+class _LoginDarkBackgroundPainter extends CustomPainter {
+  _LoginDarkBackgroundPainter({required this.glowIntensity});
+
+  final double glowIntensity;
+
+  @override
+  void paint(Canvas canvas, Size size) {
+    final w = size.width;
+    final h = size.height;
+    final rect = Rect.fromLTWH(0, 0, w, h);
+
+    canvas.drawRect(
+      rect,
+      Paint()
+        ..shader = const LinearGradient(
+          begin: Alignment.topLeft,
+          end: Alignment.bottomRight,
+          colors: [_LoginPalette.bg, _LoginPalette.bgDeep],
+        ).createShader(rect),
+    );
+
+    // Glow roxo — logo (esquerda)
+    canvas.drawRect(
+      rect,
+      Paint()
+        ..shader = RadialGradient(
+          center: const Alignment(-0.55, -0.15),
+          radius: 0.7,
+          colors: [
+            _LoginPalette.purplePrimary.withValues(alpha: 0.22 * glowIntensity),
+            Colors.transparent,
+          ],
+        ).createShader(rect),
+    );
+
+    // Glow roxo + laranja — card (direita)
+    canvas.drawRect(
+      rect,
+      Paint()
+        ..shader = RadialGradient(
+          center: const Alignment(0.88, 0.08),
+          radius: 0.72,
+          colors: [
+            _LoginPalette.purpleGlow.withValues(alpha: 0.16 * glowIntensity),
+            _LoginPalette.orangePrimary.withValues(alpha: 0.06 * glowIntensity),
+            Colors.transparent,
+          ],
+          stops: const [0.0, 0.45, 1.0],
+        ).createShader(rect),
+    );
+
+    // Glow laranja sutil — inferior direita
+    canvas.drawRect(
+      rect,
+      Paint()
+        ..shader = RadialGradient(
+          center: const Alignment(0.95, 0.92),
+          radius: 0.55,
+          colors: [
+            _LoginPalette.orangePrimary.withValues(alpha: 0.1 * glowIntensity),
+            Colors.transparent,
+          ],
+        ).createShader(rect),
+    );
+
+    // Arco com gradiente roxo → rosa → laranja
+    final arcRect = Rect.fromLTWH(-w * 0.12, -h * 0.1, w * 1.12, h * 1.08);
+    final arcShader = const LinearGradient(
+      begin: Alignment.topLeft,
+      end: Alignment.bottomCenter,
+      colors: [
+        _LoginPalette.purpleGlow,
+        _LoginPalette.pinkTransition,
+        _LoginPalette.orangeBright,
+      ],
+    ).createShader(arcRect);
+
+    final arcPaint = Paint()
+      ..style = PaintingStyle.stroke
+      ..strokeWidth = 1.6
+      ..shader = arcShader;
+    canvas.drawArc(arcRect, -2.68, 2.15, false, arcPaint);
+
+    final arcGlow = Paint()
+      ..style = PaintingStyle.stroke
+      ..strokeWidth = 7
+      ..maskFilter = const MaskFilter.blur(BlurStyle.normal, 14)
+      ..color = _LoginPalette.purpleGlow.withValues(alpha: 0.1 * glowIntensity);
+    canvas.drawArc(arcRect, -2.68, 2.15, false, arcGlow);
+
+    _desenharMalhaDigital(canvas, w, h, glowIntensity);
+
+    final dotPaint = Paint()..style = PaintingStyle.fill;
+    const particles = [
+      (Offset(0.08, 0.12), 0.08),
+      (Offset(0.22, 0.08), 0.06),
+      (Offset(0.55, 0.06), 0.07),
+      (Offset(0.78, 0.18), 0.09),
+      (Offset(0.92, 0.35), 0.05),
+      (Offset(0.65, 0.72), 0.06),
+      (Offset(0.35, 0.88), 0.05),
+    ];
+    for (final (p, a) in particles) {
+      dotPaint.color = Colors.white.withValues(alpha: a * glowIntensity);
+      canvas.drawCircle(Offset(w * p.dx, h * p.dy), 1.4, dotPaint);
+    }
+  }
+
+  void _desenharMalhaDigital(Canvas canvas, double w, double h, double glow) {
+    final baseY = h * 1.02;
+    const cols = 14;
+    const rows = 6;
+    final points = <Offset>[];
+
+    Color corMalha(double t) {
+      if (t <= 0.45) {
+        return Color.lerp(
+          _LoginPalette.purplePrimary,
+          _LoginPalette.pinkTransition,
+          t / 0.45,
+        )!;
+      }
+      return Color.lerp(
+        _LoginPalette.pinkTransition,
+        _LoginPalette.orangePrimary,
+        (t - 0.45) / 0.55,
+      )!;
+    }
+
+    for (var row = 0; row < rows; row++) {
+      for (var col = 0; col < cols; col++) {
+        final t = col / (cols - 1);
+        final depth = row / (rows - 1);
+        final x = w * (0.0 + t * 0.48);
+        final y = baseY - (1 - depth) * h * 0.11 - depth * depth * h * 0.04;
+        final scale = 0.4 + depth * 0.7;
+        final cor = corMalha(t);
+
+        final paintDot = Paint()
+          ..color = cor.withValues(alpha: 0.22 * glow)
+          ..style = PaintingStyle.fill;
+        final paintLine = Paint()
+          ..color = cor.withValues(alpha: 0.07 * glow)
+          ..strokeWidth = 0.6
+          ..style = PaintingStyle.stroke;
+
+        points.add(Offset(x, y));
+        canvas.drawCircle(Offset(x, y), 1.0 * scale, paintDot);
+        if (col > 0) {
+          canvas.drawLine(points[points.length - 2], Offset(x, y), paintLine);
+        }
+        if (row > 0) {
+          final idxAbove = (row - 1) * cols + col;
+          if (idxAbove < points.length - cols) {
+            canvas.drawLine(points[idxAbove], Offset(x, y), paintLine);
+          }
+        }
+      }
+    }
+  }
+
+  @override
+  bool shouldRepaint(covariant _LoginDarkBackgroundPainter oldDelegate) {
+    return oldDelegate.glowIntensity != glowIntensity;
   }
 }
 
@@ -1602,10 +2277,7 @@ class _GoogleLogoPainter extends CustomPainter {
     final bar = Paint()
       ..color = const Color(0xFF4285F4)
       ..style = PaintingStyle.fill;
-    canvas.drawRect(
-      Rect.fromLTWH(w * 0.48, h * 0.44, w * 0.44, h * 0.14),
-      bar,
-    );
+    canvas.drawRect(Rect.fromLTWH(w * 0.48, h * 0.44, w * 0.44, h * 0.14), bar);
   }
 
   @override
@@ -1672,16 +2344,25 @@ class _RecuperacaoSenhaDialogState extends State<_RecuperacaoSenhaDialog> {
       setState(() => _erro = 'Informe um e-mail válido.');
       return;
     }
-    setState(() { _loading = true; _erro = null; });
+    setState(() {
+      _loading = true;
+      _erro = null;
+    });
     try {
       final data = await callFirebaseFunctionSafe(
         'recuperacaoSenhaSolicitar',
         parameters: {'email': email},
       );
       _tokenId = (data['tokenId'] ?? '').toString();
-      if (mounted) setState(() { _step = _RecStep.otp; _loading = false; });
+      if (mounted)
+        setState(() {
+          _step = _RecStep.otp;
+          _loading = false;
+        });
     } on FirebaseFunctionsException catch (e) {
-      debugPrint('[RecSenha] FirebaseFunctionsException: ${e.code} / ${e.message}');
+      debugPrint(
+        '[RecSenha] FirebaseFunctionsException: ${e.code} / ${e.message}',
+      );
       if (mounted) {
         setState(() {
           _loading = false;
@@ -1717,7 +2398,10 @@ class _RecuperacaoSenhaDialogState extends State<_RecuperacaoSenhaDialog> {
       setState(() => _erro = 'O código deve ter 4 dígitos.');
       return;
     }
-    setState(() { _loading = true; _erro = null; });
+    setState(() {
+      _loading = true;
+      _erro = null;
+    });
     try {
       final data = await callFirebaseFunctionSafe(
         'recuperacaoSenhaVerificarOtp',
@@ -1728,9 +2412,15 @@ class _RecuperacaoSenhaDialogState extends State<_RecuperacaoSenhaDialog> {
         },
       );
       _sessionId = (data['sessionId'] ?? '').toString();
-      if (mounted) setState(() { _step = _RecStep.novaSenha; _loading = false; });
+      if (mounted)
+        setState(() {
+          _step = _RecStep.novaSenha;
+          _loading = false;
+        });
     } on FirebaseFunctionsException catch (e) {
-      debugPrint('[RecSenha] FirebaseFunctionsException verificarOtp: ${e.code} / ${e.message}');
+      debugPrint(
+        '[RecSenha] FirebaseFunctionsException verificarOtp: ${e.code} / ${e.message}',
+      );
       if (mounted) {
         setState(() {
           _loading = false;
@@ -1738,7 +2428,9 @@ class _RecuperacaoSenhaDialogState extends State<_RecuperacaoSenhaDialog> {
         });
       }
     } on CallableHttpException catch (e) {
-      debugPrint('[RecSenha] CallableHttpException verificarOtp: ${e.code} / ${e.message}');
+      debugPrint(
+        '[RecSenha] CallableHttpException verificarOtp: ${e.code} / ${e.message}',
+      );
       if (mounted) {
         setState(() {
           _loading = false;
@@ -1750,7 +2442,10 @@ class _RecuperacaoSenhaDialogState extends State<_RecuperacaoSenhaDialog> {
       if (mounted) {
         setState(() {
           _loading = false;
-          _erro = _extrairMensagemErro(e, 'Erro ao verificar código. Tente novamente.');
+          _erro = _extrairMensagemErro(
+            e,
+            'Erro ao verificar código. Tente novamente.',
+          );
         });
       }
     }
@@ -1763,7 +2458,8 @@ class _RecuperacaoSenhaDialogState extends State<_RecuperacaoSenhaDialog> {
       setState(() => _erro = 'A senha deve ter pelo menos 8 caracteres.');
       return;
     }
-    if (!RegExp(r'[A-Za-z]').hasMatch(senha) || !RegExp(r'\d').hasMatch(senha)) {
+    if (!RegExp(r'[A-Za-z]').hasMatch(senha) ||
+        !RegExp(r'\d').hasMatch(senha)) {
       setState(() => _erro = 'A senha deve conter letras e números.');
       return;
     }
@@ -1771,15 +2467,24 @@ class _RecuperacaoSenhaDialogState extends State<_RecuperacaoSenhaDialog> {
       setState(() => _erro = 'As senhas não coincidem.');
       return;
     }
-    setState(() { _loading = true; _erro = null; });
+    setState(() {
+      _loading = true;
+      _erro = null;
+    });
     try {
       await callFirebaseFunctionSafe(
         'recuperacaoSenhaDefinirNovaSenha',
         parameters: {'sessionId': _sessionId, 'newPassword': senha},
       );
-      if (mounted) setState(() { _step = _RecStep.concluido; _loading = false; });
+      if (mounted)
+        setState(() {
+          _step = _RecStep.concluido;
+          _loading = false;
+        });
     } on FirebaseFunctionsException catch (e) {
-      debugPrint('[RecSenha] FirebaseFunctionsException definirNovaSenha: ${e.code} / ${e.message}');
+      debugPrint(
+        '[RecSenha] FirebaseFunctionsException definirNovaSenha: ${e.code} / ${e.message}',
+      );
       if (mounted) {
         setState(() {
           _loading = false;
@@ -1787,7 +2492,9 @@ class _RecuperacaoSenhaDialogState extends State<_RecuperacaoSenhaDialog> {
         });
       }
     } on CallableHttpException catch (e) {
-      debugPrint('[RecSenha] CallableHttpException definirNovaSenha: ${e.code} / ${e.message}');
+      debugPrint(
+        '[RecSenha] CallableHttpException definirNovaSenha: ${e.code} / ${e.message}',
+      );
       if (mounted) {
         setState(() {
           _loading = false;
@@ -1799,7 +2506,10 @@ class _RecuperacaoSenhaDialogState extends State<_RecuperacaoSenhaDialog> {
       if (mounted) {
         setState(() {
           _loading = false;
-          _erro = _extrairMensagemErro(e, 'Erro ao alterar a senha. Tente novamente.');
+          _erro = _extrairMensagemErro(
+            e,
+            'Erro ao alterar a senha. Tente novamente.',
+          );
         });
       }
     }
@@ -1826,7 +2536,10 @@ class _RecuperacaoSenhaDialogState extends State<_RecuperacaoSenhaDialog> {
               if (_erro != null) ...[
                 const SizedBox(height: 12),
                 Container(
-                  padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 10),
+                  padding: const EdgeInsets.symmetric(
+                    horizontal: 14,
+                    vertical: 10,
+                  ),
                   decoration: BoxDecoration(
                     color: const Color(0xFFFEF2F2),
                     borderRadius: BorderRadius.circular(10),
@@ -1834,7 +2547,11 @@ class _RecuperacaoSenhaDialogState extends State<_RecuperacaoSenhaDialog> {
                   ),
                   child: Row(
                     children: [
-                      const Icon(Icons.error_outline, color: Color(0xFFDC2626), size: 18),
+                      const Icon(
+                        Icons.error_outline,
+                        color: Color(0xFFDC2626),
+                        size: 18,
+                      ),
                       const SizedBox(width: 8),
                       Expanded(
                         child: Text(
@@ -1879,7 +2596,8 @@ class _RecuperacaoSenhaDialogState extends State<_RecuperacaoSenhaDialog> {
       case _RecStep.concluido:
         icon = Icons.check_circle_rounded;
         titulo = 'Senha alterada!';
-        subtitulo = 'Sua senha foi redefinida com sucesso. Faça login com a nova senha.';
+        subtitulo =
+            'Sua senha foi redefinida com sucesso. Faça login com a nova senha.';
         break;
     }
     return Column(
@@ -1947,9 +2665,16 @@ class _RecuperacaoSenhaDialogState extends State<_RecuperacaoSenhaDialog> {
                 onPressed: _loading ? null : () => Navigator.pop(context),
                 style: OutlinedButton.styleFrom(
                   padding: const EdgeInsets.symmetric(vertical: 14),
-                  shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
+                  shape: RoundedRectangleBorder(
+                    borderRadius: BorderRadius.circular(12),
+                  ),
                 ),
-                child: Text('Cancelar', style: GoogleFonts.plusJakartaSans(fontWeight: FontWeight.w600)),
+                child: Text(
+                  'Cancelar',
+                  style: GoogleFonts.plusJakartaSans(
+                    fontWeight: FontWeight.w600,
+                  ),
+                ),
               ),
             ),
             const SizedBox(width: 12),
@@ -1959,11 +2684,25 @@ class _RecuperacaoSenhaDialogState extends State<_RecuperacaoSenhaDialog> {
                 style: FilledButton.styleFrom(
                   backgroundColor: PainelAdminTheme.roxo,
                   padding: const EdgeInsets.symmetric(vertical: 14),
-                  shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
+                  shape: RoundedRectangleBorder(
+                    borderRadius: BorderRadius.circular(12),
+                  ),
                 ),
                 child: _loading
-                    ? const SizedBox(width: 20, height: 20, child: CircularProgressIndicator(strokeWidth: 2, color: Colors.white))
-                    : Text('Enviar código', style: GoogleFonts.plusJakartaSans(fontWeight: FontWeight.w600)),
+                    ? const SizedBox(
+                        width: 20,
+                        height: 20,
+                        child: CircularProgressIndicator(
+                          strokeWidth: 2,
+                          color: Colors.white,
+                        ),
+                      )
+                    : Text(
+                        'Enviar código',
+                        style: GoogleFonts.plusJakartaSans(
+                          fontWeight: FontWeight.w600,
+                        ),
+                      ),
               ),
             ),
           ],
@@ -1985,12 +2724,19 @@ class _RecuperacaoSenhaDialogState extends State<_RecuperacaoSenhaDialog> {
           ),
           child: Row(
             children: [
-              const Icon(Icons.info_outline, color: Color(0xFF0284C7), size: 16),
+              const Icon(
+                Icons.info_outline,
+                color: Color(0xFF0284C7),
+                size: 16,
+              ),
               const SizedBox(width: 8),
               Expanded(
                 child: Text(
                   'Verifique também a pasta de spam.',
-                  style: GoogleFonts.plusJakartaSans(fontSize: 12, color: const Color(0xFF0369A1)),
+                  style: GoogleFonts.plusJakartaSans(
+                    fontSize: 12,
+                    color: const Color(0xFF0369A1),
+                  ),
                 ),
               ),
             ],
@@ -2008,7 +2754,11 @@ class _RecuperacaoSenhaDialogState extends State<_RecuperacaoSenhaDialog> {
             prefixIcon: const Icon(Icons.pin_rounded, size: 20),
             border: OutlineInputBorder(borderRadius: BorderRadius.circular(12)),
           ),
-          style: GoogleFonts.plusJakartaSans(fontSize: 22, fontWeight: FontWeight.w700, letterSpacing: 8),
+          style: GoogleFonts.plusJakartaSans(
+            fontSize: 22,
+            fontWeight: FontWeight.w700,
+            letterSpacing: 8,
+          ),
           enabled: !_loading,
         ),
         const SizedBox(height: 18),
@@ -2019,15 +2769,22 @@ class _RecuperacaoSenhaDialogState extends State<_RecuperacaoSenhaDialog> {
                 onPressed: _loading
                     ? null
                     : () => setState(() {
-                          _step = _RecStep.email;
-                          _erro = null;
-                          _otpCtrl.clear();
-                        }),
+                        _step = _RecStep.email;
+                        _erro = null;
+                        _otpCtrl.clear();
+                      }),
                 style: OutlinedButton.styleFrom(
                   padding: const EdgeInsets.symmetric(vertical: 14),
-                  shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
+                  shape: RoundedRectangleBorder(
+                    borderRadius: BorderRadius.circular(12),
+                  ),
                 ),
-                child: Text('Voltar', style: GoogleFonts.plusJakartaSans(fontWeight: FontWeight.w600)),
+                child: Text(
+                  'Voltar',
+                  style: GoogleFonts.plusJakartaSans(
+                    fontWeight: FontWeight.w600,
+                  ),
+                ),
               ),
             ),
             const SizedBox(width: 12),
@@ -2037,11 +2794,25 @@ class _RecuperacaoSenhaDialogState extends State<_RecuperacaoSenhaDialog> {
                 style: FilledButton.styleFrom(
                   backgroundColor: PainelAdminTheme.roxo,
                   padding: const EdgeInsets.symmetric(vertical: 14),
-                  shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
+                  shape: RoundedRectangleBorder(
+                    borderRadius: BorderRadius.circular(12),
+                  ),
                 ),
                 child: _loading
-                    ? const SizedBox(width: 20, height: 20, child: CircularProgressIndicator(strokeWidth: 2, color: Colors.white))
-                    : Text('Verificar', style: GoogleFonts.plusJakartaSans(fontWeight: FontWeight.w600)),
+                    ? const SizedBox(
+                        width: 20,
+                        height: 20,
+                        child: CircularProgressIndicator(
+                          strokeWidth: 2,
+                          color: Colors.white,
+                        ),
+                      )
+                    : Text(
+                        'Verificar',
+                        style: GoogleFonts.plusJakartaSans(
+                          fontWeight: FontWeight.w600,
+                        ),
+                      ),
               ),
             ),
           ],
@@ -2061,7 +2832,10 @@ class _RecuperacaoSenhaDialogState extends State<_RecuperacaoSenhaDialog> {
             labelText: 'Nova senha',
             prefixIcon: const Icon(Icons.lock_outline, size: 20),
             suffixIcon: IconButton(
-              icon: Icon(_senhaVisivel ? Icons.visibility_off : Icons.visibility, size: 20),
+              icon: Icon(
+                _senhaVisivel ? Icons.visibility_off : Icons.visibility,
+                size: 20,
+              ),
               onPressed: () => setState(() => _senhaVisivel = !_senhaVisivel),
             ),
             border: OutlineInputBorder(borderRadius: BorderRadius.circular(12)),
@@ -2086,7 +2860,10 @@ class _RecuperacaoSenhaDialogState extends State<_RecuperacaoSenhaDialog> {
           alignment: Alignment.centerLeft,
           child: Text(
             'Mínimo 8 caracteres, com letras e números.',
-            style: GoogleFonts.plusJakartaSans(fontSize: 11.5, color: const Color(0xFF9CA3AF)),
+            style: GoogleFonts.plusJakartaSans(
+              fontSize: 11.5,
+              color: const Color(0xFF9CA3AF),
+            ),
           ),
         ),
         const SizedBox(height: 18),
@@ -2097,9 +2874,16 @@ class _RecuperacaoSenhaDialogState extends State<_RecuperacaoSenhaDialog> {
                 onPressed: _loading ? null : () => Navigator.pop(context),
                 style: OutlinedButton.styleFrom(
                   padding: const EdgeInsets.symmetric(vertical: 14),
-                  shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
+                  shape: RoundedRectangleBorder(
+                    borderRadius: BorderRadius.circular(12),
+                  ),
                 ),
-                child: Text('Cancelar', style: GoogleFonts.plusJakartaSans(fontWeight: FontWeight.w600)),
+                child: Text(
+                  'Cancelar',
+                  style: GoogleFonts.plusJakartaSans(
+                    fontWeight: FontWeight.w600,
+                  ),
+                ),
               ),
             ),
             const SizedBox(width: 12),
@@ -2109,11 +2893,25 @@ class _RecuperacaoSenhaDialogState extends State<_RecuperacaoSenhaDialog> {
                 style: FilledButton.styleFrom(
                   backgroundColor: PainelAdminTheme.roxo,
                   padding: const EdgeInsets.symmetric(vertical: 14),
-                  shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
+                  shape: RoundedRectangleBorder(
+                    borderRadius: BorderRadius.circular(12),
+                  ),
                 ),
                 child: _loading
-                    ? const SizedBox(width: 20, height: 20, child: CircularProgressIndicator(strokeWidth: 2, color: Colors.white))
-                    : Text('Alterar senha', style: GoogleFonts.plusJakartaSans(fontWeight: FontWeight.w600)),
+                    ? const SizedBox(
+                        width: 20,
+                        height: 20,
+                        child: CircularProgressIndicator(
+                          strokeWidth: 2,
+                          color: Colors.white,
+                        ),
+                      )
+                    : Text(
+                        'Alterar senha',
+                        style: GoogleFonts.plusJakartaSans(
+                          fontWeight: FontWeight.w600,
+                        ),
+                      ),
               ),
             ),
           ],
@@ -2134,9 +2932,14 @@ class _RecuperacaoSenhaDialogState extends State<_RecuperacaoSenhaDialog> {
             style: FilledButton.styleFrom(
               backgroundColor: const Color(0xFF059669),
               padding: const EdgeInsets.symmetric(vertical: 14),
-              shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
+              shape: RoundedRectangleBorder(
+                borderRadius: BorderRadius.circular(12),
+              ),
             ),
-            child: Text('Voltar ao login', style: GoogleFonts.plusJakartaSans(fontWeight: FontWeight.w600)),
+            child: Text(
+              'Voltar ao login',
+              style: GoogleFonts.plusJakartaSans(fontWeight: FontWeight.w600),
+            ),
           ),
         ),
       ],

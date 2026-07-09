@@ -38,6 +38,7 @@ abstract final class PainelRoutes {
     '/carteira_relatorio',
     '/carteira_configuracao',
     '/comercial_dashboard',
+    '/minha_loja',
     '/comercial_clientes',
     '/comercial_credito',
     '/comercial_pendencias',
@@ -45,12 +46,23 @@ abstract final class PainelRoutes {
     '/comercial_historico',
     '/comercial_relatorios',
     '/comercial_configuracoes',
+    '/assinaturas_dashboard',
+    '/assinaturas_clientes',
+    '/assinaturas_planos',
+    '/assinaturas_cobrancas',
+    '/assinaturas_inadimplencia',
+    '/assinaturas_relatorios',
+    '/assinaturas_fiscal',
+    '/assinaturas_configuracoes',
+    '/modulo_fiscal',
+    '/admin_fiscal',
   ];
 
   static bool isShellRoute(String route) => ordem.contains(route);
 
   static String normalize(String route) {
     if (route == '/centro_operacoes') return '/centro_operacoes_crm';
+    if (route == '/assinaturas') return '/assinaturas_dashboard';
     if (ordem.contains(route)) return route;
     return '/dashboard';
   }
@@ -67,6 +79,50 @@ abstract final class PainelRoutes {
 
   static bool ehRotaCentroOperacoes(String route) =>
       centroOperacoesRotas.contains(route) || route == '/centro_operacoes';
+
+  /// Rotas filhas do accordion Gestão de Assinaturas.
+  static const List<String> assinaturasRotas = [
+    '/assinaturas_dashboard',
+    '/assinaturas_clientes',
+    '/assinaturas_planos',
+    '/assinaturas_cobrancas',
+    '/assinaturas_inadimplencia',
+    '/assinaturas_relatorios',
+    '/assinaturas_fiscal',
+    '/assinaturas_configuracoes',
+  ];
+
+  static bool ehRotaAssinaturas(String route) =>
+      assinaturasRotas.contains(route) || route == '/assinaturas';
+
+  /// Rotas filhas do submenu Financeiro (dentro de Gestão Comercial).
+  static const List<String> comercialFinanceiroRotas = [
+    '/comercial_credito',
+    '/comercial_pendencias',
+    '/comercial_recebimentos',
+    '/comercial_historico',
+    '/comercial_relatorios',
+  ];
+
+  static bool ehRotaComercialFinanceiro(String route) =>
+      comercialFinanceiroRotas.contains(route);
+
+  /// Rotas do módulo Gestão Comercial (lojista) — exigem gate de assinatura.
+  static const List<String> gestaoComercialRotas = [
+    '/pdv',
+    '/comercial_dashboard',
+    '/minha_loja',
+    '/comercial_clientes',
+    '/comercial_credito',
+    '/comercial_pendencias',
+    '/comercial_recebimentos',
+    '/comercial_historico',
+    '/comercial_relatorios',
+    '/comercial_configuracoes',
+  ];
+
+  static bool ehRotaGestaoComercial(String route) =>
+      gestaoComercialRotas.contains(route);
 
   static int indexOf(String route) {
     final r = normalize(route);

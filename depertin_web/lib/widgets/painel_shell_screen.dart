@@ -42,9 +42,27 @@ import '../screens/lojista_minha_carteira_screen.dart';
 import '../screens/lojista_carteira_financeiro_screen.dart';
 import '../screens/lojista_carteira_relatorio_screen.dart';
 import '../screens/lojista_carteira_configuracao_screen.dart';
+import '../screens/comercial_upsell_screen.dart';
 import '../screens/lojista_comercial_dashboard_screen.dart';
+import '../widgets/gestao_comercial_access_gate.dart';
 import '../screens/lojista_comercial_clientes_screen.dart';
 import '../screens/lojista_comercial_credito_screen.dart';
+import '../screens/comercial_pendencias_screen.dart';
+import '../screens/comercial_recebimentos_screen.dart';
+import '../screens/comercial_historico_vendas_screen.dart';
+import '../screens/comercial_configuracoes_screen.dart';
+import '../screens/comercial_relatorio_screen.dart';
+import '../screens/assinaturas_dashboard_screen.dart';
+import '../screens/assinaturas_planos_screen.dart';
+import '../screens/assinaturas_cobrancas_screen.dart';
+import '../screens/assinaturas_clientes_screen.dart';
+import '../screens/assinaturas_configuracoes_screen.dart';
+import '../screens/assinaturas_fiscal_screen.dart';
+import '../screens/assinaturas_inadimplencia_screen.dart';
+import '../screens/assinaturas_relatorios_screen.dart';
+import '../screens/lojista_minha_loja_screen.dart';
+import '../screens/lojista_modulo_fiscal_screen.dart';
+import '../screens/admin_fiscal_screen.dart';
 import '../utils/admin_perfil.dart';
 import '../utils/conta_bloqueio_lojista.dart';
 import '../utils/lojista_painel_context.dart';
@@ -179,7 +197,10 @@ class _PainelShellScreenState extends State<PainelShellScreen> {
         _tabs[i] = const ConteudoLegalScreen();
         break;
       case 27:
-        _tabs[i] = const LojistaPdvScreen();
+        _tabs[i] = GestaoComercialAccessGate(
+          semPlano: const ComercialUpsellScreen(),
+          child: const LojistaPdvScreen(),
+        );
         break;
       case 28:
         _tabs[i] = const LojistaPedidosTabelaScreen();
@@ -206,13 +227,88 @@ class _PainelShellScreenState extends State<PainelShellScreen> {
         _tabs[i] = const LojistaCarteiraConfiguracaoScreen();
         break;
       case 36:
-        _tabs[i] = const LojistaComercialDashboardScreen();
+        _tabs[i] = GestaoComercialAccessGate(
+          semPlano: const ComercialUpsellScreen(),
+          child: const LojistaComercialDashboardScreen(),
+        );
         break;
       case 37:
-        _tabs[i] = const LojistaComercialClientesScreen();
+        _tabs[i] = GestaoComercialAccessGate(
+          semPlano: const ComercialUpsellScreen(),
+          child: const LojistaMinhaLojaScreen(),
+        );
         break;
       case 38:
-        _tabs[i] = const LojistaComercialCreditoScreen();
+        _tabs[i] = GestaoComercialAccessGate(
+          semPlano: const ComercialUpsellScreen(),
+          child: const LojistaComercialClientesScreen(),
+        );
+        break;
+      case 39:
+        _tabs[i] = GestaoComercialAccessGate(
+          semPlano: const ComercialUpsellScreen(),
+          child: const LojistaComercialCreditoScreen(),
+        );
+        break;
+      case 40:
+        _tabs[i] = GestaoComercialAccessGate(
+          semPlano: const ComercialUpsellScreen(),
+          child: const ComercialPendenciasScreen(),
+        );
+        break;
+      case 41:
+        _tabs[i] = GestaoComercialAccessGate(
+          semPlano: const ComercialUpsellScreen(),
+          child: const ComercialRecebimentosScreen(),
+        );
+        break;
+      case 42:
+        _tabs[i] = GestaoComercialAccessGate(
+          semPlano: const ComercialUpsellScreen(),
+          child: const ComercialHistoricoVendasScreen(),
+        );
+        break;
+      case 43:
+        _tabs[i] = GestaoComercialAccessGate(
+          semPlano: const ComercialUpsellScreen(),
+          child: const ComercialRelatorioScreen(),
+        );
+        break;
+      case 44:
+        _tabs[i] = GestaoComercialAccessGate(
+          semPlano: const ComercialUpsellScreen(),
+          child: const ComercialConfiguracoesScreen(),
+        );
+        break;
+      case 45:
+        _tabs[i] = const AssinaturasDashboardScreen();
+        break;
+      case 46:
+        _tabs[i] = const AssinaturasClientesScreen();
+        break;
+      case 47:
+        _tabs[i] = const AssinaturasPlanosScreen();
+        break;
+      case 48:
+        _tabs[i] = const AssinaturasCobrancasScreen();
+        break;
+      case 49:
+        _tabs[i] = const AssinaturasInadimplenciaScreen();
+        break;
+      case 50:
+        _tabs[i] = const AssinaturasRelatoriosScreen();
+        break;
+      case 51:
+        _tabs[i] = const AssinaturasFiscalScreen();
+        break;
+      case 52:
+        _tabs[i] = const AssinaturasConfiguracoesScreen();
+        break;
+      case 53:
+        _tabs[i] = const LojistaModuloFiscalScreen();
+        break;
+      case 54:
+        _tabs[i] = const AdminFiscalScreen();
         break;
       default:
         _tabs[i] = Scaffold(

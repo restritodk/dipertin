@@ -1,11 +1,15 @@
 import 'package:depertin_web/models/comercial_cliente.dart';
 import 'package:depertin_web/navigation/painel_navigation_scope.dart';
 import 'package:depertin_web/services/comercial_clientes_service.dart';
+import 'package:depertin_web/services/comercial_config_service.dart';
 import 'package:depertin_web/theme/painel_admin_theme.dart';
 import 'package:depertin_web/utils/lojista_painel_context.dart';
 import 'package:depertin_web/widgets/comercial_cliente_form_modal.dart';
 import 'package:depertin_web/widgets/comercial_cliente_perfil_modal.dart';
 import 'package:depertin_web/widgets/comercial_cliente_recebimento_modal.dart';
+import 'package:depertin_web/widgets/comercial_credito_modal.dart';
+import 'package:depertin_web/widgets/comercial_historico_financeiro_modal.dart';
+import 'package:depertin_web/widgets/dipertin_confirmacao_premium_modal.dart';
 import 'package:depertin_web/widgets/dipertin_painel_feedback.dart';
 import 'package:flutter/material.dart';
 import 'package:google_fonts/google_fonts.dart';
@@ -129,7 +133,7 @@ class _LojistaComercialClientesScreenState
       cliente: c,
       onEditar: () => _novoCliente(lojaId, editar: c),
       onNovaVenda: () => _novaVendaPdv(c),
-      onAdicionarCredito: () => _acaoEmBreve('Adicionar crédito — em breve.'),
+      onAdicionarCredito: () => _abrirModalCredito(c, lojaId),
       onRegistrarRecebimento: () => _abrirRecebimento(c, lojaId),
     );
   }
@@ -139,33 +143,72 @@ class _LojistaComercialClientesScreenState
     context.navegarPainel('/pdv');
   }
 
-  void _abrirRecebimento(ComercialCliente c, String lojaId) {
-    mostrarComercialClienteRecebimentoModal(
+  Future<void> _abrirRecebimento(ComercialCliente c, String lojaId) async {
+    final config =
+        await ComercialConfigService.carregarJurosMultaConfig(lojaId);
+    if (!mounted) return;
+    await mostrarComercialClienteRecebimentoModal(
       context,
       lojaId: lojaId,
       cliente: c,
+      configJurosMulta: config,
+    );
+  }
+
+  Future<void> _bloquearDesbloquearCliente(
+      String lojaId, ComercialCliente c) async {
+    final bloquear = c.status != 'bloqueado';
+    final acao = bloquear
+        ? AcaoClienteComercial.bloquear
+        : AcaoClienteComercial.desbloquear;
+
+    final confirmou = await mostrarConfirmacaoCliente(
+      context,
+      acao: acao,
+      nomeCliente: c.nome,
+    );
+    if (!confirmou) return;
+
+    await ComercialClientesService.bloquear(
+      lojaId,
+      c.id,
+      bloquear: bloquear,
+    );
+
+    if (!mounted) return;
+    await mostrarSucessoCliente(
+      context,
+      acao: acao,
+      nomeCliente: c.nome,
     );
   }
 
   Future<void> _confirmarExclusao(String lojaId, ComercialCliente c) async {
-    final ok = await DiPertinPainelFeedback.confirmar(
+    final confirmou = await mostrarConfirmacaoCliente(
       context,
-      titulo: 'Excluir cliente',
-      mensagem: 'Remover "${c.nome}" da base comercial? Esta ação não pode ser desfeita.',
-      botaoConfirmar: 'Excluir',
-      botaoCancelar: 'Cancelar',
-      destrutivo: true,
-      icone: Icons.delete_outline_rounded,
+      acao: AcaoClienteComercial.excluir,
+      nomeCliente: c.nome,
     );
-    if (!ok) return;
+    if (!confirmou) return;
     await ComercialClientesService.excluir(lojaId, c.id);
-    if (mounted) {
-      DiPertinPainelFeedback.sucesso(context, 'Cliente excluído com sucesso.');
-    }
+    if (!mounted) return;
+    await mostrarSucessoCliente(
+      context,
+      acao: AcaoClienteComercial.excluir,
+      nomeCliente: c.nome,
+    );
   }
 
   void _acaoEmBreve(String msg) {
     DiPertinPainelFeedback.info(context, msg);
+  }
+
+  Future<void> _abrirModalCredito(ComercialCliente c, String lojaId) async {
+    await mostrarComercialCreditoModal(context, lojaId: lojaId, cliente: c);
+  }
+
+  Future<void> _abrirHistoricoFinanceiro(ComercialCliente c, String lojaId) async {
+    await mostrarHistoricoFinanceiroModal(context, lojaId: lojaId, cliente: c);
   }
 
   Future<void> _carregarResumosPedidos(String lojaId) async {
@@ -719,33 +762,29 @@ class _LojistaComercialClientesScreenState
               lojaId: lojaId,
               onPerfil: (c) => _abrirPerfil(c, lojaId),
               onNovaVenda: _novaVendaPdv,
-              onMenu: _menuAcao,
+              onMenu: (a, l, c) => _menuAcao(a, l, c),
             ),
         ],
       ),
     );
   }
 
-  void _menuAcao(String acao, String lojaId, ComercialCliente c) {
+  Future<void> _menuAcao(String acao, String lojaId, ComercialCliente c) async {
     switch (acao) {
       case 'perfil':
         _abrirPerfil(c, lojaId);
       case 'editar':
         _novoCliente(lojaId, editar: c);
       case 'credito':
-        _acaoEmBreve('Adicionar crédito — em breve.');
+        _abrirModalCredito(c, lojaId);
       case 'recebimento':
         _abrirRecebimento(c, lojaId);
       case 'historico':
-        _acaoEmBreve('Histórico financeiro — em breve.');
-      case 'bloquear':
-        ComercialClientesService.bloquear(
-          lojaId,
-          c.id,
-          bloquear: c.status != 'bloqueado',
-        );
-      case 'excluir':
-        _confirmarExclusao(lojaId, c);
+        _abrirHistoricoFinanceiro(c, lojaId);
+    case 'bloquear':
+        await _bloquearDesbloquearCliente(lojaId, c);
+    case 'excluir':
+        await _confirmarExclusao(lojaId, c);
     }
   }
 

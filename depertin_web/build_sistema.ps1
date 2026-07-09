@@ -5,6 +5,10 @@
 # Depois envie TODO o conteúdo de build\web\ para o FTP:
 #   pasta remota: .../dipertin.com.br/sistema/  (ou public_html/sistema/)
 #
+# Gestão Comercial / E-mail transacional — antes do go-live:
+#   docs/GESTAO_COMERCIAL_CHECKLIST_PRODUCAO.md
+#   (GC_EMAIL_CONFIG_SECRET em depertin_cliente/functions/.env + redeploy functions)
+#
 # Não suba a pasta build inteira — só os arquivos DENTRO de build\web\
 
 $ErrorActionPreference = "Stop"
@@ -22,3 +26,7 @@ if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
 Write-Host ""
 Write-Host "Pronto. Saída em: $PSScriptRoot\build\web\" -ForegroundColor Green
 Write-Host "Envie esses arquivos para a pasta 'sistema' no servidor (substituindo os antigos)." -ForegroundColor Yellow
+Write-Host ""
+Write-Host "Lembrete Gestão Comercial (e-mail transacional):" -ForegroundColor Magenta
+Write-Host "  docs/GESTAO_COMERCIAL_CHECKLIST_PRODUCAO.md" -ForegroundColor Magenta
+Write-Host "  GC_EMAIL_CONFIG_SECRET + redeploy functions antes de produção." -ForegroundColor Magenta

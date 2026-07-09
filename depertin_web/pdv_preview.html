@@ -1,0 +1,690 @@
+<!DOCTYPE html>
+<html lang="pt-BR">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>PDV DiPertin — Preview</title>
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800&family=JetBrains+Mono:wght@400;500&display=swap" rel="stylesheet">
+  <style>
+    * { margin: 0; padding: 0; box-sizing: border-box; }
+    body {
+      font-family: 'Inter', -apple-system, sans-serif;
+      background: #F8F9FC;
+      min-height: 100vh;
+      display: flex;
+      flex-direction: column;
+      overflow: hidden;
+    }
+
+    /* ═══════════════ HEADER ═══════════════ */
+    .pdv-header {
+      height: 72px;
+      background: #fff;
+      border-bottom: 1px solid #F0F0F0;
+      padding: 0 24px;
+      display: flex;
+      align-items: center;
+      flex-shrink: 0;
+    }
+    .pdv-logo {
+      width: 40px; height: 40px;
+      background: linear-gradient(135deg, #6A1B9A, #FF8F00);
+      border-radius: 10px;
+      display: flex; align-items: center; justify-content: center;
+      color: #fff; font-weight: 800; font-size: 16px;
+    }
+    .pdv-header-info { margin-left: 16px; }
+    .pdv-loja-nome {
+      font-size: 18px; font-weight: 700;
+      background: linear-gradient(135deg, #6A1B9A, #8E24AA);
+      -webkit-background-clip: text; -webkit-text-fill-color: transparent;
+    }
+    .pdv-header-meta { display: flex; align-items: center; gap: 12px; margin-top: 2px; }
+    .pdv-header-meta span { font-size: 13px; color: #718096; }
+    .caixa-badge {
+      padding: 2px 10px; border-radius: 4px;
+      font-size: 10px; font-weight: 700;
+    }
+    .caixa-badge.aberto { background: #E8F5E9; color: #2E7D32; }
+    .caixa-badge.fechado { background: #FEF2F2; color: #C62828; }
+
+    .pdv-header-actions { margin-left: auto; display: flex; align-items: center; gap: 12px; }
+    .pdv-btn {
+      display: flex; align-items: center; gap: 6px;
+      padding: 8px 16px; border-radius: 8px;
+      border: 1px solid #E0DEE8;
+      background: #fff; cursor: pointer;
+      font-family: 'Inter', sans-serif; font-size: 13px; font-weight: 600; color: #1A1A2E;
+      transition: all 0.2s;
+    }
+    .pdv-btn:hover { border-color: #6A1B9A; box-shadow: 0 2px 8px rgba(106,27,154,0.1); }
+    .pdv-btn .icon { font-size: 18px; }
+    .pdv-btn.caixa { color: #2E7D32; border-color: #2E7D32; }
+    .pdv-divider { width: 1px; height: 32px; background: #E0DEE8; margin: 0 8px; }
+    .pdv-status-online { display: flex; align-items: center; gap: 8px; }
+    .pdv-dot { width: 8px; height: 8px; border-radius: 50%; background: #22C55E; }
+    .pdv-status-online span { font-weight: 600; font-size: 13px; }
+    .pdv-clock { font-family: 'JetBrains Mono', monospace; font-size: 12px; color: #718096; }
+
+    /* ═══════════════ MAIN ═══════════════ */
+    .pdv-body {
+      display: flex; flex: 1; overflow: hidden;
+    }
+
+    /* ── Catálogo ── */
+    .pdv-catalogo {
+      flex: 7; display: flex; flex-direction: column;
+      padding: 16px 20px; gap: 12px; overflow: hidden;
+    }
+
+    /* Busca + Filtros */
+    .pdv-toolbar { display: flex; gap: 12px; align-items: center; flex-shrink: 0; }
+    .pdv-search {
+      flex: 1; position: relative;
+    }
+    .pdv-search input {
+      width: 100%; height: 44px;
+      border: 1px solid #E0DEE8; border-radius: 10px;
+      padding: 0 16px 0 44px;
+      font-family: 'Inter', sans-serif; font-size: 14px;
+      background: #fff;
+      outline: none; transition: border-color 0.2s;
+    }
+    .pdv-search input:focus { border-color: #6A1B9A; box-shadow: 0 0 0 3px rgba(106,27,154,0.08); }
+    .pdv-search .search-icon {
+      position: absolute; left: 14px; top: 50%; transform: translateY(-50%);
+      color: #A0AEC0; font-size: 18px;
+    }
+    .pdv-search input::placeholder { color: #A0AEC0; }
+    .pdv-search .shortcut-badge {
+      position: absolute; right: 12px; top: 50%; transform: translateY(-50%);
+      background: #EDF2F7; padding: 2px 8px; border-radius: 4px;
+      font-size: 11px; font-weight: 600; color: #718096;
+    }
+    .pdv-btn-cliente {
+      display: flex; align-items: center; gap: 6px;
+      height: 44px; padding: 0 20px;
+      border: 1px solid #E0DEE8; border-radius: 10px;
+      background: #fff; cursor: pointer; white-space: nowrap;
+      font-family: 'Inter', sans-serif; font-size: 13px; font-weight: 600; color: #1A1A2E;
+      transition: all 0.2s;
+    }
+    .pdv-btn-cliente:hover { border-color: #6A1B9A; }
+    .pdv-btn-cliente .icon { font-size: 18px; }
+    .pdv-btn-cliente .badge-f3 {
+      background: #EDF2F7; padding: 2px 6px; border-radius: 4px;
+      font-size: 10px; font-weight: 700; color: #718096; margin-left: 8px;
+    }
+
+    /* Categorias */
+    .pdv-categorias {
+      display: flex; gap: 8px; overflow-x: auto; flex-shrink: 0;
+      padding-bottom: 4px;
+    }
+    .pdv-categoria {
+      padding: 8px 18px; border-radius: 20px;
+      border: 1px solid #E0DEE8; background: #fff;
+      font-size: 13px; font-weight: 500; color: #4A5568;
+      cursor: pointer; white-space: nowrap;
+      transition: all 0.2s;
+    }
+    .pdv-categoria:hover { border-color: #6A1B9A; color: #6A1B9A; }
+    .pdv-categoria.ativa {
+      background: linear-gradient(135deg, #6A1B9A, #8E24AA);
+      color: #fff; border-color: transparent;
+      font-weight: 600;
+    }
+
+    /* Grid de Produtos */
+    .pdv-grid {
+      display: grid;
+      grid-template-columns: repeat(auto-fill, minmax(160px, 1fr));
+      gap: 12px;
+      overflow-y: auto;
+      padding-right: 4px;
+      flex: 1;
+    }
+    .pdv-grid::-webkit-scrollbar { width: 6px; }
+    .pdv-grid::-webkit-scrollbar-track { background: transparent; }
+    .pdv-grid::-webkit-scrollbar-thumb { background: #E0DEE8; border-radius: 3px; }
+
+    .pdv-produto-card {
+      background: #fff;
+      border: 1px solid #EDF2F7;
+      border-radius: 12px;
+      overflow: hidden;
+      cursor: pointer;
+      transition: all 0.2s;
+    }
+    .pdv-produto-card:hover {
+      border-color: #6A1B9A;
+      box-shadow: 0 8px 24px rgba(106,27,154,0.1);
+      transform: translateY(-2px);
+    }
+    .pdv-produto-img {
+      height: 120px;
+      background: linear-gradient(135deg, #F5F4F8, #EDEAF3);
+      display: flex; align-items: center; justify-content: center;
+      color: #B8B0C8; font-size: 32px;
+    }
+    .pdv-produto-info { padding: 12px; }
+    .pdv-produto-nome { font-size: 13px; font-weight: 600; color: #1A1A2E; margin-bottom: 4px; line-height: 1.3; }
+    .pdv-produto-preco { font-size: 16px; font-weight: 800; color: #6A1B9A; }
+
+    /* ── Checkout Panel ── */
+    .pdv-checkout {
+      width: 420px;
+      background: #fff;
+      border-left: 1px solid #F0F0F0;
+      display: flex; flex-direction: column;
+      box-shadow: -10px 0 20px rgba(0,0,0,0.02);
+    }
+    .pdv-checkout-header {
+      padding: 16px 20px;
+      border-bottom: 1px solid #F0F0F0;
+    }
+    .pdv-checkout-header h2 { font-size: 15px; font-weight: 700; color: #1A1A2E; }
+    .pdv-checkout-header .sub {
+      font-size: 12px; color: #718096; margin-top: 2px;
+    }
+
+    .pdv-carrinho-items {
+      flex: 1; overflow-y: auto; padding: 12px 16px;
+    }
+    .pdv-carrinho-items::-webkit-scrollbar { width: 4px; }
+    .pdv-carrinho-items::-webkit-scrollbar-thumb { background: #E0DEE8; border-radius: 2px; }
+
+    .pdv-carrinho-vazio {
+      display: flex; flex-direction: column; align-items: center;
+      justify-content: center; height: 100%; color: #A0AEC0;
+    }
+    .pdv-carrinho-vazio .icon { font-size: 48px; margin-bottom: 12px; opacity: 0.3; }
+    .pdv-carrinho-vazio p { font-size: 14px; font-weight: 500; }
+
+    .pdv-item {
+      display: flex; align-items: center; gap: 12px;
+      padding: 10px 0; border-bottom: 1px solid #F7F7FC;
+    }
+    .pdv-item-info { flex: 1; }
+    .pdv-item-nome { font-size: 13px; font-weight: 600; color: #1A1A2E; }
+    .pdv-item-preco { font-size: 12px; color: #6A1B9A; font-weight: 600; margin-top: 2px; }
+    .pdv-item-qtd {
+      display: flex; align-items: center; gap: 6px;
+    }
+    .pdv-item-qtd button {
+      width: 28px; height: 28px; border-radius: 6px;
+      border: 1px solid #E0DEE8; background: #fff;
+      cursor: pointer; font-weight: 700; font-size: 14px;
+      display: flex; align-items: center; justify-content: center;
+      transition: all 0.15s;
+    }
+    .pdv-item-qtd button:hover { border-color: #6A1B9A; color: #6A1B9A; }
+    .pdv-item-qtd span { font-size: 14px; font-weight: 700; min-width: 24px; text-align: center; }
+    .pdv-item-remove {
+      width: 28px; height: 28px; border: none; background: none;
+      cursor: pointer; color: #FC8181; font-size: 18px;
+      border-radius: 6px; display: flex; align-items: center; justify-content: center;
+    }
+    .pdv-item-remove:hover { background: #FFF5F5; }
+
+    .pdv-item-preview {
+      display: flex; align-items: center; gap: 12px;
+      padding: 8px 0; border-bottom: 1px solid #F0F0F0;
+    }
+    .pdv-item-preview-img {
+      width: 44px; height: 44px; border-radius: 8px;
+      background: linear-gradient(135deg, #F5F4F8, #EDEAF3);
+      display: flex; align-items: center; justify-content: center;
+      color: #B8B0C8; font-size: 20px; flex-shrink: 0;
+    }
+    .pdv-item-preview-info { flex: 1; }
+    .pdv-item-preview-info .nome { font-size: 13px; font-weight: 600; color: #1A1A2E; }
+    .pdv-item-preview-info .preco { font-size: 12px; color: #6A1B9A; font-weight: 600; margin-top: 1px; }
+    .pdv-item-preview-qtd {
+      display: flex; align-items: center; gap: 6px;
+    }
+    .pdv-item-preview-qtd button {
+      width: 26px; height: 26px; border-radius: 6px;
+      border: 1px solid #E0DEE8; background: #fff;
+      cursor: pointer; font-weight: 700; font-size: 13px;
+      display: flex; align-items: center; justify-content: center;
+      transition: all 0.15s;
+    }
+    .pdv-item-preview-qtd button:hover { border-color: #6A1B9A; color: #6A1B9A; }
+    .pdv-item-preview-qtd span { font-size: 14px; font-weight: 700; min-width: 20px; text-align: center; }
+    .pdv-item-preview-remove {
+      width: 26px; height: 26px; border: none; background: none;
+      cursor: pointer; color: #FC8181; font-size: 16px;
+      border-radius: 6px; display: flex; align-items: center; justify-content: center;
+    }
+    .pdv-item-preview-remove:hover { background: #FFF5F5; }
+
+    /* Cliente selecionado */
+    .pdv-cliente-tag {
+      display: flex; align-items: center; gap: 8px;
+      padding: 8px 12px; margin: 0 16px 8px;
+      background: #F0EDF7; border-radius: 8px;
+    }
+    .pdv-cliente-tag .icon { font-size: 18px; }
+    .pdv-cliente-tag .nome { font-size: 13px; font-weight: 600; color: #6A1B9A; flex: 1; }
+    .pdv-cliente-tag .remove {
+      cursor: pointer; width: 20px; height: 20px;
+      border-radius: 50%; border: none; background: rgba(106,27,154,0.12);
+      color: #6A1B9A; font-size: 12px; font-weight: 700;
+      display: flex; align-items: center; justify-content: center;
+    }
+    .pdv-cliente-tag .remove:hover { background: rgba(106,27,154,0.2); }
+
+    /* Totais */
+    .pdv-totais {
+      padding: 16px 20px;
+      border-top: 1px solid #F0F0F0;
+      background: #FAFAFE;
+    }
+    .pdv-total-row {
+      display: flex; justify-content: space-between; align-items: center;
+      padding: 4px 0;
+    }
+    .pdv-total-row .label { font-size: 13px; color: #718096; }
+    .pdv-total-row .value { font-size: 13px; font-weight: 600; color: #1A1A2E; }
+    .pdv-total-row.grande { margin-top: 6px; padding-top: 10px; border-top: 1px solid #E0DEE8; }
+    .pdv-total-row.grande .label { font-size: 16px; font-weight: 700; color: #1A1A2E; }
+    .pdv-total-row.grande .value { font-size: 24px; font-weight: 800; color: #6A1B9A; }
+
+    /* Métodos de pagamento */
+    .pdv-pagamento {
+      padding: 12px 20px;
+      border-top: 1px solid #F0F0F0;
+    }
+    .pdv-pagamento label { font-size: 12px; font-weight: 600; color: #718096; text-transform: uppercase; letter-spacing: 0.5px; display: block; margin-bottom: 8px; }
+    .pdv-pagamento-opcoes { display: grid; grid-template-columns: 1fr 1fr; gap: 8px; }
+    .pdv-pag-opcao {
+      display: flex; align-items: center; gap: 8px;
+      padding: 10px 14px; border-radius: 8px;
+      border: 1px solid #E0DEE8; background: #fff;
+      cursor: pointer; font-family: 'Inter', sans-serif; font-size: 13px; font-weight: 500;
+      transition: all 0.2s;
+    }
+    .pdv-pag-opcao:hover { border-color: #6A1B9A; }
+    .pdv-pag-opcao.ativa {
+      border-color: #6A1B9A; background: #F0EDF7;
+    }
+    .pdv-pag-opcao .icon { font-size: 20px; }
+
+    .pdv-btn-finalizar {
+      margin: 12px 20px 16px;
+      height: 48px; border: none; border-radius: 12px;
+      background: linear-gradient(135deg, #6A1B9A, #8E24AA, #FF8F00);
+      color: #fff; font-family: 'Inter', sans-serif;
+      font-size: 15px; font-weight: 700; cursor: pointer;
+      display: flex; align-items: center; justify-content: center; gap: 8px;
+      transition: all 0.2s;
+    }
+    .pdv-btn-finalizar:hover { transform: translateY(-1px); box-shadow: 0 8px 24px rgba(106,27,154,0.3); }
+    .pdv-btn-finalizar:disabled { opacity: 0.5; cursor: not-allowed; }
+
+    /* Footer — Atalhos */
+    .pdv-footer {
+      height: 48px;
+      background: #1A1A2E;
+      display: flex; align-items: center; padding: 0 24px; gap: 20px;
+      flex-shrink: 0; overflow-x: auto;
+    }
+    .pdv-shortcut {
+      display: flex; align-items: center; gap: 6px; white-space: nowrap;
+    }
+    .pdv-shortcut .key {
+      padding: 2px 8px; border-radius: 4px;
+      background: rgba(255,255,255,0.1);
+      color: #A0AEC0; font-family: 'JetBrains Mono', monospace;
+      font-size: 11px; font-weight: 700;
+    }
+    .pdv-shortcut .desc { color: #718096; font-size: 12px; }
+    .pdv-shortcut .desc strong { color: #CBD5E0; }
+
+    .pdv-footer-divider { width: 1px; height: 20px; background: rgba(255,255,255,0.08); }
+  </style>
+</head>
+<body>
+
+  <!-- ════════ HEADER ════════ -->
+  <header class="pdv-header">
+    <div class="pdv-logo">D</div>
+    <div class="pdv-header-info">
+      <div class="pdv-loja-nome">Olá, Empresa Exemplo! 👋</div>
+      <div class="pdv-header-meta">
+        <span>Ponto de Venda DiPertin • Terminal 01</span>
+        <span class="caixa-badge aberto">🟢 Caixa Aberto</span>
+        <span>Valor inicial: <strong>R$ 50,00</strong></span>
+      </div>
+    </div>
+
+    <div class="pdv-header-actions">
+      <button class="pdv-btn caixa">
+        <span class="icon">📟</span> Fechar Caixa
+      </button>
+      <button class="pdv-btn">
+        <span class="icon">📂</span> Abrir Gaveta
+      </button>
+      <div class="pdv-divider"></div>
+      <div class="pdv-status-online">
+        <div class="pdv-dot"></div>
+        <span>Online</span>
+      </div>
+      <div class="pdv-clock">01/07/2026 20:35:22</div>
+    </div>
+  </header>
+
+  <!-- ════════ BODY ════════ -->
+  <div class="pdv-body">
+
+    <!-- ── CATÁLOGO ── -->
+    <div class="pdv-catalogo">
+
+      <!-- Busca + Cliente -->
+      <div class="pdv-toolbar">
+        <div class="pdv-search">
+          <span class="search-icon">🔍</span>
+          <input type="text" placeholder="Buscar produto por nome ou código..." value="Pizza">
+          <span class="shortcut-badge">F2</span>
+        </div>
+        <button class="pdv-btn-cliente">
+          <span class="icon">👤</span>
+          Selecionar Cliente
+          <span class="badge-f3">F3</span>
+        </button>
+        <button class="pdv-btn-cliente">
+          <span class="icon">🏷️</span>
+          Desconto
+          <span class="badge-f3">F4</span>
+        </button>
+        <button class="pdv-btn-cliente">
+          <span class="icon">💬</span>
+          Obs
+          <span class="badge-f3">F6</span>
+        </button>
+        <button class="pdv-btn-cliente">
+          <span class="icon">🔢</span>
+          Calc
+          <span class="badge-f3">F7</span>
+        </button>
+      </div>
+
+      <!-- Categorias -->
+      <div class="pdv-categorias">
+        <span class="pdv-categoria ativa">Todos</span>
+        <span class="pdv-categoria">Pizzas</span>
+        <span class="pdv-categoria">Bebidas</span>
+        <span class="pdv-categoria">Sobremesas</span>
+        <span class="pdv-categoria">Porções</span>
+        <span class="pdv-categoria">Lanches</span>
+        <span class="pdv-categoria">Promoções</span>
+      </div>
+
+      <!-- Grid Produtos -->
+      <div class="pdv-grid">
+        <div class="pdv-produto-card" onclick="adicionarAoCarrinho('Pizza Margherita', 42.90)">
+          <div class="pdv-produto-img">🍕</div>
+          <div class="pdv-produto-info">
+            <div class="pdv-produto-nome">Pizza Margherita</div>
+            <div class="pdv-produto-preco">R$ 42,90</div>
+          </div>
+        </div>
+        <div class="pdv-produto-card" onclick="adicionarAoCarrinho('Pizza Calabresa', 45.90)">
+          <div class="pdv-produto-img">🍕</div>
+          <div class="pdv-produto-info">
+            <div class="pdv-produto-nome">Pizza Calabresa</div>
+            <div class="pdv-produto-preco">R$ 45,90</div>
+          </div>
+        </div>
+        <div class="pdv-produto-card" onclick="adicionarAoCarrinho('Coca-Cola 2L', 12.90)">
+          <div class="pdv-produto-img">🥤</div>
+          <div class="pdv-produto-info">
+            <div class="pdv-produto-nome">Coca-Cola 2L</div>
+            <div class="pdv-produto-preco">R$ 12,90</div>
+          </div>
+        </div>
+        <div class="pdv-produto-card" onclick="adicionarAoCarrinho('Pizza Portuguesa', 44.90)">
+          <div class="pdv-produto-img">🍕</div>
+          <div class="pdv-produto-info">
+            <div class="pdv-produto-nome">Pizza Portuguesa</div>
+            <div class="pdv-produto-preco">R$ 44,90</div>
+          </div>
+        </div>
+        <div class="pdv-produto-card" onclick="adicionarAoCarrinho('Suco Natural 500ml', 9.90)">
+          <div class="pdv-produto-img">🧃</div>
+          <div class="pdv-produto-info">
+            <div class="pdv-produto-nome">Suco Natural 500ml</div>
+            <div class="pdv-produto-preco">R$ 9,90</div>
+          </div>
+        </div>
+        <div class="pdv-produto-card" onclick="adicionarAoCarrinho('Pizza Frango Cheddar', 47.90)">
+          <div class="pdv-produto-img">🍕</div>
+          <div class="pdv-produto-info">
+            <div class="pdv-produto-nome">Pizza Frango c/ Cheddar</div>
+            <div class="pdv-produto-preco">R$ 47,90</div>
+          </div>
+        </div>
+        <div class="pdv-produto-card" onclick="adicionarAoCarrinho('Batata Frita c/ Cheddar', 29.90)">
+          <div class="pdv-produto-img">🍟</div>
+          <div class="pdv-produto-info">
+            <div class="pdv-produto-nome">Batata Frita c/ Cheddar</div>
+            <div class="pdv-produto-preco">R$ 29,90</div>
+          </div>
+        </div>
+        <div class="pdv-produto-card" onclick="adicionarAoCarrinho('Pizza Doce Brigadeiro', 38.90)">
+          <div class="pdv-produto-img">🍕</div>
+          <div class="pdv-produto-info">
+            <div class="pdv-produto-nome">Pizza Doce Brigadeiro</div>
+            <div class="pdv-produto-preco">R$ 38,90</div>
+          </div>
+        </div>
+        <div class="pdv-produto-card" onclick="adicionarAoCarrinho('Água Mineral 500ml', 4.50)">
+          <div class="pdv-produto-img">💧</div>
+          <div class="pdv-produto-info">
+            <div class="pdv-produto-nome">Água Mineral 500ml</div>
+            <div class="pdv-produto-preco">R$ 4,50</div>
+          </div>
+        </div>
+        <div class="pdv-produto-card" onclick="adicionarAoCarrinho('Pizza Pepperoni', 43.90)">
+          <div class="pdv-produto-img">🍕</div>
+          <div class="pdv-produto-info">
+            <div class="pdv-produto-nome">Pizza Pepperoni</div>
+            <div class="pdv-produto-preco">R$ 43,90</div>
+          </div>
+        </div>
+        <div class="pdv-produto-card" onclick="adicionarAoCarrinho('Esfiha de Carne (un)', 6.90)">
+          <div class="pdv-produto-img">🥟</div>
+          <div class="pdv-produto-info">
+            <div class="pdv-produto-nome">Esfiha de Carne (un)</div>
+            <div class="pdv-produto-preco">R$ 6,90</div>
+          </div>
+        </div>
+        <div class="pdv-produto-card" onclick="adicionarAoCarrinho('Pastel de Queijo', 8.90)">
+          <div class="pdv-produto-img">🥟</div>
+          <div class="pdv-produto-info">
+            <div class="pdv-produto-nome">Pastel de Queijo</div>
+            <div class="pdv-produto-preco">R$ 8,90</div>
+          </div>
+        </div>
+      </div>
+    </div>
+
+    <!-- ── CHECKOUT ── -->
+    <div class="pdv-checkout">
+      <div class="pdv-checkout-header">
+        <h2>🛒 Carrinho</h2>
+        <div class="sub">3 itens • Total: R$ 101,70</div>
+      </div>
+
+      <!-- Cliente selecionado -->
+      <div class="pdv-cliente-tag">
+        <span class="icon">👤</span>
+        <span class="nome">João Silva • Limite: R$ 500,00</span>
+        <button class="remove">✕</button>
+      </div>
+
+      <!-- Itens do Carrinho -->
+      <div class="pdv-carrinho-items">
+        <div class="pdv-item-preview">
+          <div class="pdv-item-preview-img">🍕</div>
+          <div class="pdv-item-preview-info">
+            <div class="nome">Pizza Margherita</div>
+            <div class="preco">R$ 42,90</div>
+          </div>
+          <div class="pdv-item-preview-qtd">
+            <button onclick="alterarQtd(this, -1)">−</button>
+            <span>2</span>
+            <button onclick="alterarQtd(this, 1)">+</button>
+          </div>
+          <button class="pdv-item-preview-remove" onclick="removerItem(this)">✕</button>
+        </div>
+
+        <div class="pdv-item-preview">
+          <div class="pdv-item-preview-img">🥤</div>
+          <div class="pdv-item-preview-info">
+            <div class="nome">Coca-Cola 2L</div>
+            <div class="preco">R$ 12,90</div>
+          </div>
+          <div class="pdv-item-preview-qtd">
+            <button onclick="alterarQtd(this, -1)">−</button>
+            <span>1</span>
+            <button onclick="alterarQtd(this, 1)">+</button>
+          </div>
+          <button class="pdv-item-preview-remove" onclick="removerItem(this)">✕</button>
+        </div>
+
+        <div class="pdv-item-preview">
+          <div class="pdv-item-preview-img">🧃</div>
+          <div class="pdv-item-preview-info">
+            <div class="nome">Suco Natural 500ml</div>
+            <div class="preco">R$ 9,90</div>
+          </div>
+          <div class="pdv-item-preview-qtd">
+            <button onclick="alterarQtd(this, -1)">−</button>
+            <span>3</span>
+            <button onclick="alterarQtd(this, 1)">+</button>
+          </div>
+          <button class="pdv-item-preview-remove" onclick="removerItem(this)">✕</button>
+        </div>
+      </div>
+
+      <!-- Totais -->
+      <div class="pdv-totais">
+        <div class="pdv-total-row">
+          <span class="label">Subtotal</span>
+          <span class="value">R$ 122,40</span>
+        </div>
+        <div class="pdv-total-row">
+          <span class="label">Desconto</span>
+          <span class="value" style="color:#E53E3E;">— R$ 10,00</span>
+        </div>
+        <div class="pdv-total-row">
+          <span class="label">Troco</span>
+          <span class="value" style="color:#2E7D32;">R$ 18,30</span>
+        </div>
+        <div class="pdv-total-row grande">
+          <span class="label">Total</span>
+          <span class="value">R$ 112,40</span>
+        </div>
+      </div>
+
+      <!-- Métodos de Pagamento -->
+      <div class="pdv-pagamento">
+        <label>Forma de Pagamento</label>
+        <div class="pdv-pagamento-opcoes">
+          <div class="pdv-pag-opcao ativa">
+            <span class="icon">💵</span> Dinheiro
+          </div>
+          <div class="pdv-pag-opcao">
+            <span class="icon">💳</span> Cartão
+          </div>
+          <div class="pdv-pag-opcao">
+            <span class="icon" style="color:#6A1B9A;">🔷</span> PIX
+          </div>
+          <div class="pdv-pag-opcao">
+            <span class="icon">📒</span> Crediário
+          </div>
+        </div>
+      </div>
+
+      <!-- Finalizar -->
+      <button class="pdv-btn-finalizar">
+        <span>✅</span> Finalizar Venda — R$ 112,40 <span style="font-size:11px;opacity:0.7;">F5</span>
+      </button>
+    </div>
+  </div>
+
+  <!-- ════════ FOOTER — Atalhos ════════ -->
+  <footer class="pdv-footer">
+    <div class="pdv-shortcut"><span class="key">F2</span><span class="desc">Buscar <strong>produto</strong></span></div>
+    <div class="pdv-shortcut"><span class="key">F3</span><span class="desc">Selecionar <strong>cliente</strong></span></div>
+    <div class="pdv-shortcut"><span class="key">F4</span><span class="desc">Aplicar <strong>desconto</strong></span></div>
+    <div class="pdv-footer-divider"></div>
+    <div class="pdv-shortcut"><span class="key">F5</span><span class="desc"><strong>Finalizar</strong> venda</span></div>
+    <div class="pdv-shortcut"><span class="key">F6</span><span class="desc">Adicionar <strong>observação</strong></span></div>
+    <div class="pdv-shortcut"><span class="key">F7</span><span class="desc"><strong>Calculadora</strong></span></div>
+    <div class="pdv-footer-divider"></div>
+    <div class="pdv-shortcut"><span class="key">ESC</span><span class="desc">Fechar painéis</span></div>
+    <div class="pdv-shortcut"><span class="key">↑↓</span><span class="desc">Navegar produtos</span></div>
+    <div class="pdv-shortcut"><span class="key">Enter</span><span class="desc">Adicionar ao carrinho</span></div>
+  </footer>
+
+  <script>
+    // Carrinho interativo simples para preview
+    const carrinho = [
+      { nome: 'Pizza Margherita', preco: 42.90, qtd: 2 },
+      { nome: 'Coca-Cola 2L', preco: 12.90, qtd: 1 },
+      { nome: 'Suco Natural 500ml', preco: 9.90, qtd: 3 },
+    ];
+
+    function adicionarAoCarrinho(nome, preco) {
+      const existente = carrinho.find(i => i.nome === nome);
+      if (existente) {
+        existente.qtd++;
+      } else {
+        carrinho.push({ nome, preco, qtd: 1 });
+      }
+      atualizarUI();
+      // Feedback visual
+      const el = event.currentTarget;
+      el.style.transform = 'scale(0.95)';
+      setTimeout(() => el.style.transform = '', 150);
+    }
+
+    function alterarQtd(btn, delta) {
+      const span = btn.parentElement.querySelector('span');
+      let qtd = parseInt(span.textContent) + delta;
+      if (qtd < 1) qtd = 1;
+      span.textContent = qtd;
+      
+      // Atualiza no carrinho
+      const itemEl = btn.closest('.pdv-item-preview');
+      const nome = itemEl.querySelector('.nome').textContent;
+      const item = carrinho.find(i => i.nome === nome);
+      if (item) { item.qtd = qtd; }
+      atualizarUI();
+    }
+
+    function removerItem(btn) {
+      const itemEl = btn.closest('.pdv-item-preview');
+      const nome = itemEl.querySelector('.nome').textContent;
+      const idx = carrinho.findIndex(i => i.nome === nome);
+      if (idx >= 0) { carrinho.splice(idx, 1); }
+      itemEl.remove();
+      atualizarUI();
+    }
+
+    function atualizarUI() {
+      const total = carrinho.reduce((s, i) => s + i.preco * i.qtd, 0);
+      const qtdTotal = carrinho.reduce((s, i) => s + i.qtd, 0);
+      document.querySelector('.pdv-checkout-header .sub').textContent =
+        `${qtdTotal} itens • Total: R$ ${total.toFixed(2).replace('.', ',')}`;
+      document.querySelector('.pdv-total-row:last-child .value').textContent =
+        `R$ ${total.toFixed(2).replace('.', ',')}`;
+    }
+  </script>
+</body>
+</html>

@@ -142,6 +142,7 @@ class ComercialParcelaCliente {
     required this.status,
     this.createdAt,
     this.updatedAt,
+    this.renegociadoCodigo,
   });
 
   final String id;
@@ -158,6 +159,7 @@ class ComercialParcelaCliente {
   final String status;
   final DateTime? createdAt;
   final DateTime? updatedAt;
+  final String? renegociadoCodigo;
 
   double get valorEmAberto =>
       (valorParcela - valorPago).clamp(0, double.infinity);
@@ -216,6 +218,7 @@ class ComercialParcelaCliente {
       status: status,
       createdAt: _ts(d['created_at']),
       updatedAt: _ts(d['updated_at']),
+      renegociadoCodigo: d['renegociado_codigo']?.toString(),
     );
   }
 

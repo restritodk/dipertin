@@ -410,6 +410,8 @@ abstract final class PainelAdminTheme {
   static const Color laranja = DiPertinTheme.secondaryLaranja;
   static const Color laranjaSuave = DiPertinTheme.secondaryLaranjaSuave;
   static const Color fundoCanvas = DiPertinTheme.backgroundFundo;
+  static const Color surfaceCard = DiPertinTheme.surfaceCard;
+  static const Color textPrimary = DiPertinTheme.textPrimary;
   static const Color textoSecundario = DiPertinTheme.textSecondary;
   static const Color dashboardBorder = DiPertinTheme.borderDefault;
   static const Color dashboardInk = DiPertinTheme.textPrimary;

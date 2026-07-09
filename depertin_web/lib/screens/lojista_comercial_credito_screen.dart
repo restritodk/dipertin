@@ -4,15 +4,17 @@ import 'package:depertin_web/models/comercial_cliente.dart';
 import 'package:depertin_web/models/comercial_credito.dart';
 import 'package:depertin_web/models/comercial_dashboard_data.dart';
 import 'package:depertin_web/services/comercial_clientes_service.dart';
+import 'package:depertin_web/services/comercial_config_service.dart';
 import 'package:depertin_web/services/comercial_credito_service.dart';
 import 'package:depertin_web/theme/painel_admin_theme.dart';
 import 'package:depertin_web/utils/lojista_painel_context.dart';
 import 'package:depertin_web/widgets/comercial/comercial_conceder_credito_modal.dart';
 import 'package:depertin_web/widgets/comercial/comercial_exportar_modal.dart';
 import 'package:depertin_web/widgets/comercial/comercial_dashboard_acoes.dart';
+import 'package:depertin_web/widgets/comercial_bloquear_credito_modal.dart';
 import 'package:depertin_web/widgets/comercial_cliente_perfil_modal.dart';
 import 'package:depertin_web/widgets/comercial_cliente_recebimento_modal.dart';
-import 'package:depertin_web/widgets/dipertin_painel_feedback.dart';
+import 'package:depertin_web/widgets/comercial_remover_credito_modal.dart';
 import 'package:flutter/material.dart';
 import 'package:google_fonts/google_fonts.dart';
 import 'package:intl/intl.dart';
@@ -1046,6 +1048,25 @@ class _LojistaComercialCreditoScreenState
                     'CPF: $cpf',
                     style: GoogleFonts.plusJakartaSans(fontSize: 11, color: _muted),
                   ),
+                if (c.status == 'bloqueado')
+                  Padding(
+                    padding: const EdgeInsets.only(top: 4),
+                    child: Row(
+                      mainAxisSize: MainAxisSize.min,
+                      children: [
+                        Icon(Icons.lock_rounded, size: 10, color: _vermelho),
+                        const SizedBox(width: 4),
+                        Text(
+                          'Crédito bloqueado',
+                          style: GoogleFonts.plusJakartaSans(
+                            fontSize: 10,
+                            fontWeight: FontWeight.w700,
+                            color: _vermelho,
+                          ),
+                        ),
+                      ],
+                    ),
+                  ),
               ],
             ),
           ),
@@ -1115,15 +1136,18 @@ class _LojistaComercialCreditoScreenState
             padding: EdgeInsets.zero,
             constraints: const BoxConstraints(minWidth: 28, minHeight: 28),
             onSelected: (v) => _menuMaisOpcoes(lojaId, c, v),
-            itemBuilder: (_) => const [
-              PopupMenuItem(value: 'ver', child: Text('Visualizar cliente')),
-              PopupMenuItem(value: 'receber', child: Text('Receber pagamento')),
-              PopupMenuItem(value: 'credito', child: Text('Adicionar crédito')),
-              PopupMenuItem(value: 'historico', child: Text('Histórico financeiro')),
-              PopupMenuItem(value: 'parcelas', child: Text('Parcelas')),
-              PopupMenuDivider(),
-              PopupMenuItem(value: 'bloquear', child: Text('Bloquear crédito')),
-              PopupMenuItem(value: 'remover', child: Text('Remover crédito')),
+            itemBuilder: (_) => [
+              const PopupMenuItem(value: 'ver', child: Text('Visualizar cliente')),
+              const PopupMenuItem(value: 'receber', child: Text('Receber pagamento')),
+              const PopupMenuItem(value: 'credito', child: Text('Adicionar crédito')),
+              const PopupMenuItem(value: 'historico', child: Text('Histórico financeiro')),
+              const PopupMenuItem(value: 'parcelas', child: Text('Parcelas')),
+              const PopupMenuDivider(),
+              PopupMenuItem(
+                value: 'bloquear',
+                child: Text(c.status == 'bloqueado' ? 'Desbloquear crédito' : 'Bloquear crédito'),
+              ),
+              const PopupMenuItem(value: 'remover', child: Text('Remover crédito')),
             ],
           ),
         ],
@@ -1490,19 +1514,90 @@ class _LojistaComercialCreditoScreenState
 
     final hoje = DateTime.now();
     final hojeIni = DateTime(hoje.year, hoje.month, hoje.day);
-    final parcelasHoje = _parcelas.where((p) {
-      if (p.valorEmAberto <= 0) return false;
-      final v = DateTime(
-        p.dataVencimento.year,
-        p.dataVencimento.month,
-        p.dataVencimento.day,
-      );
+    final tresDias = DateTime(hoje.year, hoje.month, hoje.day - 3);
+    final seteDias = DateTime(hoje.year, hoje.month, hoje.day + 7);
+    final mesPassadoIni = DateTime(hoje.year, hoje.month - 1, 1);
+    final mesPassadoFim = DateTime(hoje.year, hoje.month, 1);
+
+    // ── Alertas críticos ──
+    final vencendoHoje = _parcelas.where((p) {
+      if (p.valorEmAberto <= 0.009) return false;
+      final v = DateTime(p.dataVencimento.year,
+          p.dataVencimento.month, p.dataVencimento.day);
       return v == hojeIni;
-    }).length;
+    }).toList();
+
+    final vencendoHojeValor = vencendoHoje.fold<double>(
+        0, (s, p) => s + p.valorEmAberto);
 
     final atraso30 = _clientesAtraso30Dias(atrasoMap);
+
+    // Cliente com maior valor em atraso
+    String maiorDevedor = '—';
+    double maiorValorAtraso = 0;
+    for (final entry in atrasoMap.entries) {
+      if (entry.value > maiorValorAtraso) {
+        maiorValorAtraso = entry.value;
+        for (final c in comCredito) {
+          if (c.id == entry.key) {
+            maiorDevedor = c.nome;
+            break;
+          }
+        }
+      }
+    }
+
+    // Clientes usando >80% do limite
+    final clientesNoLimite = comCredito
+        .where((c) =>
+            c.limiteCredito > 0 &&
+            c.creditoUtilizado / c.limiteCredito >= 0.8)
+        .length;
+
+    // Clientes usando 70-80% do limite (risco moderado)
+    final clientesRiscoMedio = comCredito
+        .where((c) =>
+            c.limiteCredito > 0 &&
+            c.creditoUtilizado / c.limiteCredito >= 0.7 &&
+            c.creditoUtilizado / c.limiteCredito < 0.8)
+        .length;
+
+    // Parcelas que venceram nos últimos 3 dias
+    final atrasoRecente = _parcelas.where((p) {
+      if (p.valorEmAberto <= 0.009) return false;
+      final v = DateTime(p.dataVencimento.year,
+          p.dataVencimento.month, p.dataVencimento.day);
+      return v.isBefore(hojeIni) && !v.isBefore(tresDias);
+    }).fold<double>(0, (s, p) => s + p.valorEmAberto);
+
+    // Parcelas vencendo nos próximos 7 dias
+    final vencendoSemana = _parcelas.where((p) {
+      if (p.valorEmAberto <= 0.009) return false;
+      final v = DateTime(p.dataVencimento.year,
+          p.dataVencimento.month, p.dataVencimento.day);
+      return !v.isBefore(hojeIni) && !v.isAfter(seteDias);
+    }).toList();
+    final vencendoSemanaValor = vencendoSemana
+        .fold<double>(0, (s, p) => s + p.valorEmAberto);
+    final vencendoSemanaQtd = vencendoSemana.length;
+
+    // Recebimentos de hoje
+    final recebHoje = _recebimentos.where((r) {
+      final d = DateTime(r.dataPagamento.year,
+          r.dataPagamento.month, r.dataPagamento.day);
+      return d == hojeIni;
+    }).fold<double>(0, (s, r) => s + r.valorPago);
+
+    // Recebimentos do mês passado
+    final recebMesPassado = _recebimentos
+        .where((r) =>
+            !r.dataPagamento.isBefore(mesPassadoIni) &&
+            r.dataPagamento.isBefore(mesPassadoFim))
+        .fold<double>(0, (s, r) => s + r.valorPago);
+
     final recebMes = _recebimentosNoMes();
     final novosMes = _novosClientesCreditoMes(comCredito);
+    final diffReceb = recebMes - recebMesPassado;
 
     return Column(
       crossAxisAlignment: CrossAxisAlignment.stretch,
@@ -1512,22 +1607,103 @@ class _LojistaComercialCreditoScreenState
           icone: Icons.notifications_active_outlined,
           corTitulo: _vermelho,
           child: Column(
+            crossAxisAlignment: CrossAxisAlignment.stretch,
             children: [
-              _alertaItem(
-                Icons.schedule_rounded,
-                '$parcelasHoje parcelas vencem hoje',
-                _vermelho,
-              ),
-              _alertaItem(
-                Icons.person_off_outlined,
-                '$atraso30 clientes com atraso acima de 30 dias',
-                _vermelho,
-              ),
-              _alertaItem(
-                Icons.attach_money_rounded,
-                '${_moeda.format(resumo.valorEmAtraso)} em pendências',
-                PainelAdminTheme.roxo,
-              ),
+              // ── Seção: Crítico ──
+              if (resumo.valorEmAtraso > 0 || vencendoHoje.isNotEmpty || atraso30 > 0) ...[
+                _alertaSecao('Crítico', _vermelho),
+                if (maiorValorAtraso > 0)
+                  _alertaItem(
+                    Icons.person_off_outlined,
+                    '$maiorDevedor é o maior devedor (${_moeda.format(maiorValorAtraso)})',
+                    _vermelho,
+                  ),
+                if (atraso30 > 0)
+                  _alertaItem(
+                    Icons.timer_off_outlined,
+                    '$atraso30 cliente(s) com atraso acima de 30 dias',
+                    _vermelho,
+                  ),
+                if (vencendoHoje.isNotEmpty)
+                  _alertaItem(
+                    Icons.schedule_rounded,
+                    '${vencendoHoje.length} parcela(s) vencem hoje (${_moeda.format(vencendoHojeValor)})',
+                    _vermelho,
+                  ),
+                if (resumo.valorEmAtraso > 0)
+                  _alertaItem(
+                    Icons.warning_amber_rounded,
+                    '${_moeda.format(resumo.valorEmAtraso)} em valor total em atraso',
+                    _vermelho,
+                  ),
+                if (clientesNoLimite > 0)
+                  _alertaItem(
+                    Icons.trending_up_rounded,
+                    '$clientesNoLimite cliente(s) com >80% do limite utilizado',
+                    _vermelho,
+                  ),
+              ],
+
+              // ── Seção: Atenção ──
+              if (vencendoSemana.isNotEmpty || atrasoRecente > 0 || clientesRiscoMedio > 0) ...[
+                const SizedBox(height: 6),
+                _alertaSecao('Atenção', PainelAdminTheme.laranja),
+                if (vencendoSemanaQtd > 0)
+                  _alertaItem(
+                    Icons.date_range_rounded,
+                    '$vencendoSemanaQtd parcela(s) vencem nos próximos 7 dias (${_moeda.format(vencendoSemanaValor)})',
+                    PainelAdminTheme.laranja,
+                  ),
+                if (atrasoRecente > 0)
+                  _alertaItem(
+                    Icons.access_time_rounded,
+                    '${_moeda.format(atrasoRecente)} em parcelas vencidas nos últimos 3 dias',
+                    PainelAdminTheme.laranja,
+                  ),
+                if (clientesRiscoMedio > 0)
+                  _alertaItem(
+                    Icons.monitor_heart_outlined,
+                    '$clientesRiscoMedio cliente(s) entre 70-80% do limite',
+                    PainelAdminTheme.laranja,
+                  ),
+              ],
+
+              // ── Seção: Informativo ──
+              ...[
+                const SizedBox(height: 6),
+                _alertaSecao('Informativo', PainelAdminTheme.roxo),
+                _alertaItem(
+                  Icons.payments_rounded,
+                  recebHoje > 0
+                      ? 'Recebido hoje: ${_moeda.format(recebHoje)}'
+                      : 'Nenhum recebimento hoje',
+                  PainelAdminTheme.roxo,
+                ),
+                _alertaItem(
+                  Icons.calendar_month_rounded,
+                  'Recebimentos do mês: ${_moeda.format(recebMes)}',
+                  PainelAdminTheme.roxo,
+                ),
+                if (diffReceb != 0)
+                  _alertaItem(
+                    diffReceb > 0
+                        ? Icons.arrow_upward_rounded
+                        : Icons.arrow_downward_rounded,
+                    'Comparado ao mês passado: ${diffReceb > 0 ? '+' : ''}${_moeda.format(diffReceb)}',
+                    diffReceb >= 0 ? _verde : _vermelho,
+                  ),
+                if (novosMes > 0)
+                  _alertaItem(
+                    Icons.person_add_rounded,
+                    '$novosMes novo(s) cliente(s) no crédito este mês',
+                    PainelAdminTheme.roxo,
+                  ),
+                _alertaItem(
+                  Icons.groups_outlined,
+                  '${comCredito.length} cliente(s) ativos no crediário',
+                  PainelAdminTheme.roxo,
+                ),
+              ],
             ],
           ),
         ),
@@ -1655,6 +1831,34 @@ class _LojistaComercialCreditoScreenState
     );
   }
 
+  Widget _alertaSecao(String label, Color cor) {
+    return Padding(
+      padding: const EdgeInsets.only(bottom: 8),
+      child: Row(
+        children: [
+          Container(
+            width: 3,
+            height: 14,
+            decoration: BoxDecoration(
+              color: cor,
+              borderRadius: BorderRadius.circular(2),
+            ),
+          ),
+          const SizedBox(width: 8),
+          Text(
+            label.toUpperCase(),
+            style: GoogleFonts.plusJakartaSans(
+              fontSize: 10,
+              fontWeight: FontWeight.w800,
+              letterSpacing: 0.8,
+              color: cor,
+            ),
+          ),
+        ],
+      ),
+    );
+  }
+
   Widget _alertaItem(IconData icon, String texto, Color cor) {
     return Padding(
       padding: const EdgeInsets.only(bottom: 10),
@@ -1763,11 +1967,15 @@ class _LojistaComercialCreditoScreenState
     );
   }
 
-  void _receber(String lojaId, ComercialCliente c) {
-    mostrarComercialClienteRecebimentoModal(
+  Future<void> _receber(String lojaId, ComercialCliente c) async {
+    final config =
+        await ComercialConfigService.carregarJurosMultaConfig(lojaId);
+    if (!mounted) return;
+    await mostrarComercialClienteRecebimentoModal(
       context,
       lojaId: lojaId,
       cliente: c,
+      configJurosMulta: config,
     );
   }
 
@@ -1802,22 +2010,20 @@ class _LojistaComercialCreditoScreenState
         _syncMenuComAba(1);
         break;
       case 'bloquear':
-        await ComercialClientesService.bloquear(lojaId, c.id, bloquear: true);
-        if (mounted) {
-          DiPertinPainelFeedback.sucesso(context, 'Crédito bloqueado para ${c.nome}.');
-        }
+        await mostrarBloquearCreditoModal(
+          context,
+          lojaId: lojaId,
+          cliente: c,
+        );
+        if (mounted) _setStateSeguro(() {});
         break;
       case 'remover':
-        await ComercialClientesService.salvar(
+        await mostrarRemoverCreditoModal(
+          context,
           lojaId: lojaId,
-          cliente: c.copyWith(
-            creditoHabilitado: false,
-            limiteCredito: 0,
-          ),
+          cliente: c,
         );
-        if (mounted) {
-          DiPertinPainelFeedback.sucesso(context, 'Crédito removido de ${c.nome}.');
-        }
+        if (mounted) _setStateSeguro(() {});
         break;
     }
   }

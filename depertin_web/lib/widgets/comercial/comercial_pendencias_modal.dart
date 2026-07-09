@@ -1,5 +1,6 @@
 import 'package:depertin_web/models/comercial_cliente.dart';
 import 'package:depertin_web/services/comercial_clientes_service.dart';
+import 'package:depertin_web/services/comercial_config_service.dart';
 import 'package:depertin_web/theme/painel_admin_theme.dart';
 import 'package:depertin_web/widgets/comercial/comercial_modal_ui.dart';
 import 'package:depertin_web/widgets/comercial_cliente_recebimento_modal.dart';
@@ -83,10 +84,14 @@ class _PendenciasBodyState extends State<_PendenciasBody> {
   }
 
   Future<void> _abrirRecebimento(ComercialCliente cliente) async {
+    final config =
+        await ComercialConfigService.carregarJurosMultaConfig(widget.lojaId);
+    if (!mounted) return;
     await mostrarComercialClienteRecebimentoModal(
       context,
       lojaId: widget.lojaId,
       cliente: cliente,
+      configJurosMulta: config,
     );
     if (!mounted) return;
     await _carregar();

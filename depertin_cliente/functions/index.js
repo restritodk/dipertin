@@ -834,6 +834,7 @@ exports.lojistaConfirmarRetiradaBalcao =
 const estoquePedido = require("./estoque_pedido");
 exports.baixarEstoquePedidoOnCreate = estoquePedido.baixarEstoquePedidoOnCreate;
 exports.sincronizarEstoquePedidoOnUpdate = estoquePedido.sincronizarEstoquePedidoOnUpdate;
+exports.sincronizarEstoqueGestaoComercialVendaOnUpdate = estoquePedido.sincronizarEstoqueGestaoComercialVendaOnUpdate;
 
 // Compra por encomenda — negociação e pedido de entrada (avisos via alerta_* no users; sem FCM aqui).
 const encomendasNegociacao = require("./encomendas_negociacao");
@@ -887,6 +888,96 @@ exports.cancelarPedidosPixExpirados = mercadopago.cancelarPedidosPixExpirados;
 exports.cancelarPedidoPixExpirado = mercadopago.cancelarPedidoPixExpirado;
 exports.processarEstornoPainel = mercadopago.processarEstornoPainel;
 exports.lojistaCancelarPedidoComEstorno = mercadopago.lojistaCancelarPedidoComEstorno;
+
+// Gestão Comercial — webhook Mercado Pago (multiloja)
+const mercadopagoGestao = require("./mercado_pago_gestao_comercial");
+exports.webhookMercadoPagoGestaoComercial = mercadopagoGestao.webhookMercadoPagoGestaoComercial;
+exports.testarConexaoMercadoPago = mercadopagoGestao.testarConexaoMercadoPago;
+exports.createPdvPixPayment = mercadopagoGestao.createPdvPixPayment;
+exports.checkPdvPixPaymentStatus = mercadopagoGestao.checkPdvPixPaymentStatus;
+
+// Gestão Comercial — Funções Gen2 em southamerica-east1
+const gestaoComercial = require("./gestao_comercial_functions");
+exports.gestaoComercialCriarPagamentoPix = gestaoComercial.gestaoComercialCriarPagamentoPix;
+exports.gestaoComercialConsultarStatusPix = gestaoComercial.gestaoComercialConsultarStatusPix;
+exports.gestaoComercialTestarConexaoMercadoPago = gestaoComercial.gestaoComercialTestarConexaoMercadoPago;
+exports.gestaoComercialTestarConexaoGateway = gestaoComercial.gestaoComercialTestarConexaoGateway;
+exports.gestaoComercialWebhookMercadoPago = gestaoComercial.gestaoComercialWebhookMercadoPago;
+exports.gestaoComercialAbrirCaixa = gestaoComercial.gestaoComercialAbrirCaixa;
+exports.gestaoComercialFecharCaixa = gestaoComercial.gestaoComercialFecharCaixa;
+exports.gestaoComercialReceberPagamento = gestaoComercial.gestaoComercialReceberPagamento;
+exports.gestaoComercialConcederCredito = gestaoComercial.gestaoComercialConcederCredito;
+exports.gestaoComercialConsultarPendencias = gestaoComercial.gestaoComercialConsultarPendencias;
+exports.gestaoComercialHistoricoVendas = gestaoComercial.gestaoComercialHistoricoVendas;
+exports.gestaoComercialRelatorio = gestaoComercial.gestaoComercialRelatorio;
+exports.gestaoComercialFinanceiroCliente = gestaoComercial.gestaoComercialFinanceiroCliente;
+exports.gestaoComercialConsultarParcelas = gestaoComercial.gestaoComercialConsultarParcelas;
+exports.gestaoComercialWhatsAppTestarConexao = gestaoComercial.gestaoComercialWhatsAppTestarConexao;
+exports.gestaoComercialWhatsAppEnviar = gestaoComercial.gestaoComercialWhatsAppEnviar;
+exports.gestaoComercialWhatsAppEncryptTokenOnWrite = gestaoComercial.gestaoComercialWhatsAppEncryptTokenOnWrite;
+exports.gestaoComercialSmsTestarConexao = gestaoComercial.gestaoComercialSmsTestarConexao;
+exports.gestaoComercialSmsEnviar = gestaoComercial.gestaoComercialSmsEnviar;
+exports.gestaoComercialSmsEncryptTokenOnWrite = gestaoComercial.gestaoComercialSmsEncryptTokenOnWrite;
+exports.gestaoComercialApiExternaTestarConexao = gestaoComercial.gestaoComercialApiExternaTestarConexao;
+exports.gestaoComercialApiExternaEnviar = gestaoComercial.gestaoComercialApiExternaEnviar;
+exports.gestaoComercialApiExternaEncryptTokenOnWrite = gestaoComercial.gestaoComercialApiExternaEncryptTokenOnWrite;
+exports.gestaoComercialAutomacaoProcessar = gestaoComercial.gestaoComercialAutomacaoProcessar;
+exports.gestaoComercialAutomacaoProcessarLoja = gestaoComercial.gestaoComercialAutomacaoProcessarLoja;
+exports.gestaoComercialEnviarComunicacao = gestaoComercial.gestaoComercialEnviarComunicacao;
+
+// Token de pagamento (link de cobrança)
+exports.gestaoComercialConsultarCobrancaPorToken = gestaoComercial.gestaoComercialConsultarCobrancaPorToken;
+exports.gestaoComercialValidarCpfToken = gestaoComercial.gestaoComercialValidarCpfToken;
+exports.gestaoComercialProcessarPagamentoToken = gestaoComercial.gestaoComercialProcessarPagamentoToken;
+exports.gestaoComercialConfirmarPagamentoMpToken = gestaoComercial.gestaoComercialConfirmarPagamentoMpToken;
+exports.gestaoComercialConsultarStatusPagamentoToken = gestaoComercial.gestaoComercialConsultarStatusPagamentoToken;
+
+const gestaoComercialEmail = require("./gestao_comercial_email");
+exports.gestaoComercialEmailSalvarConfig = gestaoComercialEmail.gestaoComercialEmailSalvarConfig;
+exports.gestaoComercialEmailTestarSmtp = gestaoComercialEmail.gestaoComercialEmailTestarSmtp;
+exports.gestaoComercialEmailTestarApi = gestaoComercialEmail.gestaoComercialEmailTestarApi;
+exports.gestaoComercialEmailEnviarTeste = gestaoComercialEmail.gestaoComercialEmailEnviarTeste;
+exports.gestaoComercialEmailSalvarTemplate = gestaoComercialEmail.gestaoComercialEmailSalvarTemplate;
+exports.gestaoComercialEmailEnviarTemplateTeste = gestaoComercialEmail.gestaoComercialEmailEnviarTemplateTeste;
+exports.gestaoComercialEmailListarHistorico = gestaoComercialEmail.gestaoComercialEmailListarHistorico;
+exports.gestaoComercialEmailInicializarTemplates = gestaoComercialEmail.gestaoComercialEmailInicializarTemplates;
+
+// ═══════════════════════════════════════════════════
+// Assinatura de Planos — Pagamento (PIX + Cartão)
+// ═══════════════════════════════════════════════════
+const assinaturaPagamento = require("./assinatura_pagamento");
+exports.assinarPlanoCriarPagamentoPix = assinaturaPagamento.assinarPlanoCriarPagamentoPix;
+exports.assinarPlanoProcessarCartao = assinaturaPagamento.assinarPlanoProcessarCartao;
+exports.assinarPlanoConsultarStatusPix = assinaturaPagamento.assinarPlanoConsultarStatusPix;
+exports.assinarPlanoRenovarPix = assinaturaPagamento.assinarPlanoRenovarPix;
+exports.assinarPlanoRenovarConsultarStatusPix = assinaturaPagamento.assinarPlanoRenovarConsultarStatusPix;
+exports.assinarPlanoRenovarCartao = assinaturaPagamento.assinarPlanoRenovarCartao;
+exports.assinaturaVerificarSuspensaoScheduled = assinaturaPagamento.assinaturaVerificarSuspensaoScheduled;
+
+// Assinaturas — cancelamento admin
+const assinaturaAdmin = require("./assinatura_admin");
+exports.adminCancelarPlanoAssinatura = assinaturaAdmin.adminCancelarPlanoAssinatura;
+
+// Assinaturas — cobranças (Gestão de Assinaturas → Cobranças)
+const assinaturaCobrancas = require("./assinatura_cobrancas");
+exports.adminGerarCobrancasAssinaturas = assinaturaCobrancas.adminGerarCobrancasAssinaturas;
+exports.adminCriarCobrancaAvulsa = assinaturaCobrancas.adminCriarCobrancaAvulsa;
+exports.adminAtualizarCobranca = assinaturaCobrancas.adminAtualizarCobranca;
+exports.assinaturaEnviarReciboEmail = assinaturaCobrancas.assinaturaEnviarReciboEmail;
+exports.assinaturaEnviarCobrancaEmail = assinaturaCobrancas.assinaturaEnviarCobrancaEmail;
+
+// Assinaturas — billing settings / cobranças automáticas
+exports.adminSalvarBillingSettings = assinaturaCobrancas.adminSalvarBillingSettings;
+exports.adminGerarCobrancasPorConfig = assinaturaCobrancas.adminGerarCobrancasPorConfig;
+exports.assinaturaCobrancaAutoScheduled = assinaturaCobrancas.assinaturaCobrancaAutoScheduled;
+exports.adminEnviarEmailPagamentoConfirmado = assinaturaCobrancas.adminEnviarEmailPagamentoConfirmado;
+exports.adminEnviarEmailCobrancaAtraso = assinaturaCobrancas.adminEnviarEmailCobrancaAtraso;
+exports.assinaturaCobrancaAtrasoScheduled = assinaturaCobrancas.assinaturaCobrancaAtrasoScheduled;
+
+// Assinaturas — contador automático (atualiza assinaturas_ativas nos planos)
+const assinaturaContador = require("./assinatura_contador_trigger");
+exports.atualizarContadorAssinaturasOnWrite = assinaturaContador.atualizarContadorAssinaturasOnWrite;
+exports.adminRecalcularContadoresAssinaturas = assinaturaContador.adminRecalcularContadoresAssinaturas;
 
 function motivoRecusaIndicaOperacionalJs(motivo) {
     const s = String(motivo || "").toLowerCase();
@@ -1628,3 +1719,65 @@ exports.desativarPublicacoesVencidas = functions.pubsub
         console.log(`[publicacoes] Desativadas automaticamente: ${totalDesativados}`);
         return null;
     });
+
+// ==========================================
+// Renegociação de Dívida — Callable (Admin SDK)
+// ==========================================
+const renegociacaoDivida = require("./renegociacao_divida");
+exports.renegociarDividaCallable = renegociacaoDivida.renegociarDividaCallable;
+exports.reverterRenegociacaoCallable = renegociacaoDivida.reverterRenegociacaoCallable;
+
+// Pagamento de Crediário — Callable (Admin SDK)
+const pagamentoCrediario = require("./pagamento_crediario");
+exports.efetuarPagamentoCrediario = pagamentoCrediario.efetuarPagamentoCrediario;
+exports.gerarCobrancaPixCrediario = pagamentoCrediario.gerarCobrancaPixCrediario;
+exports.consultarCobrancaPixCrediario = pagamentoCrediario.consultarCobrancaPixCrediario;
+exports.processarPagamentoCartaoCrediario = pagamentoCrediario.processarPagamentoCartaoCrediario;
+
+// ═══════════════════════════════════════════════════
+// Fiscal NF-e — Webhook + Proxy (provedores com autenticacao complexa)
+// ═══════════════════════════════════════════════════
+const fiscalWebhook = require("./fiscal_webhook");
+exports.fiscalWebhookNFe = fiscalWebhook.fiscalWebhookNFe;
+
+const fiscalProxy = require("./fiscal_proxy");
+exports.proxyWebmaniaEmitirNota = fiscalProxy.proxyWebmaniaEmitirNota;
+exports.proxyWebmaniaCancelarNota = fiscalProxy.proxyWebmaniaCancelarNota;
+exports.proxyWebmaniaCartaCorrecao = fiscalProxy.proxyWebmaniaCartaCorrecao;
+exports.proxyWebmaniaInutilizar = fiscalProxy.proxyWebmaniaInutilizar;
+exports.proxyWebmaniaTestarConexao = fiscalProxy.proxyWebmaniaTestarConexao;
+
+// ═══════════════════════════════════════════════════
+// Fiscal NF-e — Proxy Focus NFe (backend seguro)
+// ═══════════════════════════════════════════════════
+const fiscalNFeProxy = require("./fiscal_nfe_proxy");
+exports.fiscalEmitirNFe = fiscalNFeProxy.fiscalEmitirNFe;
+exports.fiscalCancelarNFe = fiscalNFeProxy.fiscalCancelarNFe;
+exports.fiscalConsultarNFe = fiscalNFeProxy.fiscalConsultarNFe;
+exports.fiscalCartaCorrecaoNFe = fiscalNFeProxy.fiscalCartaCorrecaoNFe;
+exports.fiscalInutilizarNFe = fiscalNFeProxy.fiscalInutilizarNFe;
+exports.fiscalDeletarDocumento = fiscalNFeProxy.fiscalDeletarDocumento;
+exports.fiscalTestarConexaoFocus = fiscalNFeProxy.fiscalTestarConexaoFocus;
+exports.fiscalListarNotas = fiscalNFeProxy.fiscalListarNotas;
+exports.fiscalBaixarXml = fiscalNFeProxy.fiscalBaixarXml;
+exports.fiscalBaixarDanfe = fiscalNFeProxy.fiscalBaixarDanfe;
+
+// ═══════════════════════════════════════════════════
+// Fiscal Pós-Emissão — consulta automática, Storage, histórico
+// ═══════════════════════════════════════════════════
+const fiscalPosEmissao = require("./fiscal_pos_emissao");
+exports.fiscalConsultarEAtualizarStatus = fiscalPosEmissao.fiscalConsultarEAtualizarStatus;
+
+// ═══════════════════════════════════════════════════
+// Fiscal — Sincronização automática de integrações
+// Propaga alterações em fiscal_integrations para
+// store_fiscal_settings (desnormalização)
+// ═══════════════════════════════════════════════════
+const fiscalIntegrationSync = require("./fiscal_integration_sync");
+exports.onFiscalIntegrationWrite = fiscalIntegrationSync.onFiscalIntegrationWrite;
+
+// ═══════════════════════════════════════════════════
+// Rotina Mensal Fiscal — reset limite + alertas certificado
+// ═══════════════════════════════════════════════════
+const fiscalRotina = require("./fiscal_monthly_reset");
+exports.fiscalRotinaMensalReset = fiscalRotina.fiscalRotinaMensalReset;
