@@ -6,92 +6,211 @@
     <title>Pagamento Seguro - DiPertin</title>
     <link rel="icon" type="image/png" href="/assets/logo.png" />
     <link rel="apple-touch-icon" href="/assets/logo.png" />
-    <meta name="theme-color" content="#6A1B9A" />
-    <link rel="stylesheet" href="css/pagar.css?v=20260630v6">
+    <meta name="theme-color" content="#1A093E" />
+    <link rel="stylesheet" href="css/pagar.css?v=20260721v1">
     <link rel="preconnect" href="https://fonts.googleapis.com">
     <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
-    <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&family=Plus+Jakarta+Sans:wght@400;500;600;700;800&display=swap" rel="stylesheet">
+    <link href="https://fonts.googleapis.com/css2?family=Plus+Jakarta+Sans:wght@400;500;600;700;800&display=swap" rel="stylesheet">
     <meta name="robots" content="noindex, nofollow">
     <meta http-equiv="Cache-Control" content="no-cache, no-store, must-revalidate">
     <meta http-equiv="Pragma" content="no-cache">
     <meta http-equiv="Expires" content="0">
 </head>
 <body>
-    <!-- Elementos decorativos do fundo -->
-    <div class="bg-decor">
+    <!-- Fundo premium fintech (decorativo) -->
+    <div class="bg-decor" aria-hidden="true">
+        <div class="bg-aurora"></div>
         <div class="bg-circle bg-circle-1"></div>
         <div class="bg-circle bg-circle-2"></div>
         <div class="bg-circle bg-circle-3"></div>
         <div class="bg-circle bg-circle-4"></div>
+        <div class="bg-shield-watermark">
+            <svg viewBox="0 0 200 240" fill="none">
+                <path d="M100 12L28 44v56c0 52 32 96 72 108 40-12 72-56 72-108V44L100 12z" stroke="currentColor" stroke-width="2"/>
+                <rect x="72" y="98" width="56" height="44" rx="8" stroke="currentColor" stroke-width="2"/>
+                <path d="M84 98V86a16 16 0 0 1 32 0v12" stroke="currentColor" stroke-width="2" stroke-linecap="round"/>
+                <circle cx="100" cy="120" r="5" fill="currentColor"/>
+            </svg>
+        </div>
+        <div class="bg-curve bg-curve-1"></div>
+        <div class="bg-curve bg-curve-2"></div>
+        <div class="bg-dots"></div>
     </div>
 
     <div id="app">
-        <!-- ═══════════ TELA 1: CPF ═══════════ -->
-        <div id="tela-cpf" class="tela">
-            <div class="container">
-                <div class="card">
-                    <div class="card-header gradient-dipertin">
-                        <div class="header-logo-area">
-                            <img src="https://www.dipertin.com.br/assets/logo-tela-login.png" alt="DiPertin" class="dipertin-logo"
-                                 onerror="this.style.display='none'">
-                        </div>
-                        <div class="header-shield">
-                            <svg width="56" height="56" viewBox="0 0 56 56" fill="none">
-                                <rect x="10" y="16" width="36" height="28" rx="6" stroke="white" stroke-width="2" fill="none" opacity="0.9"/>
-                                <path d="M18 16V11a10 10 0 0 1 20 0v5" stroke="white" stroke-width="2" stroke-linecap="round" fill="none" opacity="0.9"/>
-                                <circle cx="28" cy="32" r="4" fill="white" opacity="0.9"/>
-                                <path d="M28 36v4m-8-5-3 3m16-3-6 6" stroke="white" stroke-width="2" stroke-linecap="round" opacity="0.9"/>
-                            </svg>
-                        </div>
-                        <h1>Pagamento Seguro</h1>
-                        <p class="subtitle">Confirme sua identidade para acessar sua cobrança</p>
+        <!-- ═══════════ TELA 1: CPF (validação) ═══════════ -->
+        <div id="tela-cpf" class="tela tela-auth">
+            <div class="auth-shell">
+                <!-- Cabeçalho -->
+                <header class="auth-hero">
+                    <div class="auth-shield-icon" aria-hidden="true">
+                        <svg width="52" height="52" viewBox="0 0 52 52" fill="none">
+                            <defs>
+                                <linearGradient id="shieldGrad" x1="8" y1="4" x2="44" y2="48" gradientUnits="userSpaceOnUse">
+                                    <stop stop-color="#8B5CF6"/>
+                                    <stop offset="1" stop-color="#FB923C"/>
+                                </linearGradient>
+                            </defs>
+                            <path d="M26 4L8 12v12c0 14 8 26 18 30 10-4 18-16 18-30V12L26 4z" fill="url(#shieldGrad)" opacity="0.22"/>
+                            <path d="M26 4L8 12v12c0 14 8 26 18 30 10-4 18-16 18-30V12L26 4z" stroke="url(#shieldGrad)" stroke-width="2"/>
+                            <rect x="18" y="22" width="16" height="13" rx="3" stroke="#FFFFFF" stroke-width="1.8"/>
+                            <path d="M21.5 22v-3.5a4.5 4.5 0 0 1 9 0V22" stroke="#FFFFFF" stroke-width="1.8" stroke-linecap="round"/>
+                            <circle cx="26" cy="28.5" r="1.6" fill="#FB923C"/>
+                        </svg>
                     </div>
-                    <div class="card-body">
-                        <!-- Selo de segurança -->
-                        <div class="security-seal">
-                            <svg width="14" height="14" viewBox="0 0 14 14" fill="none">
-                                <path d="M7 1L1.5 3.5V6.5c0 3 2.2 5.8 5.5 6.5 3.3-.7 5.5-3.5 5.5-6.5V3.5L7 1z" fill="#FF8F00" opacity="0.2"/>
-                                <path d="M7 1L1.5 3.5V6.5c0 3 2.2 5.8 5.5 6.5 3.3-.7 5.5-3.5 5.5-6.5V3.5L7 1z" stroke="#FF8F00" stroke-width="0.8" fill="none" opacity="0.5"/>
-                                <path d="M5 7.5L6.5 9l3-4" stroke="#FF8F00" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"/>
+                    <div class="auth-badge">
+                        <svg width="12" height="12" viewBox="0 0 12 12" fill="none" aria-hidden="true">
+                            <rect x="3.5" y="5" width="5" height="4.5" rx="1" stroke="currentColor" stroke-width="1.2"/>
+                            <path d="M4.5 5V3.8a1.5 1.5 0 0 1 3 0V5" stroke="currentColor" stroke-width="1.2" stroke-linecap="round"/>
+                        </svg>
+                        <span>Ambiente 100% seguro</span>
+                    </div>
+                    <h1 class="auth-title">Pagamento <span class="auth-title-accent">Seguro</span></h1>
+                    <p class="auth-subtitle">
+                        Confirme sua identidade para acessar sua cobrança.<br>
+                        Seus dados estão protegidos e criptografados.
+                    </p>
+                </header>
+
+                <!-- Barra de confiança (glass) -->
+                <div class="trust-bar" role="list">
+                    <div class="trust-item" role="listitem">
+                        <span class="trust-icon" aria-hidden="true">
+                            <svg width="20" height="20" viewBox="0 0 20 20" fill="none">
+                                <path d="M10 2L3.5 5v4.5c0 4.2 2.8 8 6.5 9 3.7-1 6.5-4.8 6.5-9V5L10 2z" stroke="currentColor" stroke-width="1.4"/>
+                                <path d="M7.5 10l1.8 1.8L13 8" stroke="currentColor" stroke-width="1.4" stroke-linecap="round" stroke-linejoin="round"/>
                             </svg>
-                            <span>Ambiente protegido por criptografia</span>
+                        </span>
+                        <div class="trust-text">
+                            <strong>Seus dados protegidos</strong>
+                            <span>Criptografia avançada</span>
                         </div>
-
-                        <!-- Campo CPF -->
-                        <div class="input-group">
-                            <label for="input-cpf">CPF do titular da cobrança</label>
-                            <div class="input-wrapper has-icon">
-                                <span class="input-icon">
-                                    <svg width="18" height="18" viewBox="0 0 18 18" fill="none">
-                                        <rect x="1.5" y="4" width="15" height="10" rx="2" stroke="#6A1B9A" stroke-width="1.2" fill="none" opacity="0.5"/>
-                                        <circle cx="9" cy="9" r="2.5" stroke="#6A1B9A" stroke-width="1.2" fill="none" opacity="0.5"/>
-                                        <path d="M4.5 14c0-2.5 2-4.5 4.5-4.5s4.5 2 4.5 4.5" stroke="#6A1B9A" stroke-width="1.2" fill="none" opacity="0.5"/>
-                                    </svg>
-                                </span>
-                                <input type="text" id="input-cpf" class="input-cpf"
-                                       placeholder="000.000.000-00" maxlength="14"
-                                       inputmode="numeric" autocomplete="off">
-                            </div>
-                            <span id="erro-cpf" class="error-msg" style="display:none;"></span>
-                        </div>
-
-                        <!-- Botão Continuar -->
-                        <button id="btn-continuar" class="btn btn-primary" disabled>
-                            <span class="btn-texto">Continuar</span>
-                            <span class="btn-loading" style="display:none;">
-                                <span class="spinner"></span> Validando CPF...
-                            </span>
-                        </button>
-
-                        <!-- Rodapé -->
-                        <div class="footer-secure">
-                            <svg width="10" height="10" viewBox="0 0 10 10" fill="none">
-                                <path d="M5 1L2 2v3c0 2 1.3 3.8 3 4.2 1.7-.4 3-2.2 3-4.2V2L5 1z" fill="#FF8F00" opacity="0.4"/>
+                    </div>
+                    <div class="trust-divider" aria-hidden="true"></div>
+                    <div class="trust-item" role="listitem">
+                        <span class="trust-icon" aria-hidden="true">
+                            <svg width="20" height="20" viewBox="0 0 20 20" fill="none">
+                                <rect x="5" y="9" width="10" height="8" rx="2" stroke="currentColor" stroke-width="1.4"/>
+                                <path d="M7 9V6.5a3 3 0 0 1 6 0V9" stroke="currentColor" stroke-width="1.4" stroke-linecap="round"/>
+                                <circle cx="10" cy="13" r="1.2" fill="currentColor"/>
                             </svg>
-                            <span>Seus dados são protegidos e usados apenas para validar esta cobrança.</span>
+                        </span>
+                        <div class="trust-text">
+                            <strong>Ambiente verificado</strong>
+                            <span>Conexão 100% segura (SSL)</span>
+                        </div>
+                    </div>
+                    <div class="trust-divider" aria-hidden="true"></div>
+                    <div class="trust-item" role="listitem">
+                        <span class="trust-icon" aria-hidden="true">
+                            <svg width="20" height="20" viewBox="0 0 20 20" fill="none">
+                                <circle cx="10" cy="10" r="7.5" stroke="currentColor" stroke-width="1.4"/>
+                                <path d="M10 6.5v4l2.5 1.5" stroke="currentColor" stroke-width="1.4" stroke-linecap="round"/>
+                                <path d="M6 14.5c1.2-1.4 2.5-2 4-2s2.8.6 4 2" stroke="currentColor" stroke-width="1.2" stroke-linecap="round"/>
+                            </svg>
+                        </span>
+                        <div class="trust-text">
+                            <strong>Privacidade garantida</strong>
+                            <span>Não compartilhamos seus dados</span>
                         </div>
                     </div>
                 </div>
+
+                <!-- Card do formulário (lógica intacta) -->
+                <div class="container auth-container">
+                    <div class="card card-auth">
+                        <div class="card-body">
+                            <div class="security-seal">
+                                <svg width="14" height="14" viewBox="0 0 14 14" fill="none" aria-hidden="true">
+                                    <path d="M7 1L1.5 3.5V6.5c0 3 2.2 5.8 5.5 6.5 3.3-.7 5.5-3.5 5.5-6.5V3.5L7 1z" fill="#6D28D9" opacity="0.15"/>
+                                    <path d="M7 1L1.5 3.5V6.5c0 3 2.2 5.8 5.5 6.5 3.3-.7 5.5-3.5 5.5-6.5V3.5L7 1z" stroke="#6D28D9" stroke-width="0.9" fill="none"/>
+                                    <path d="M5 7.5L6.5 9l3-4" stroke="#6D28D9" stroke-width="1.4" stroke-linecap="round" stroke-linejoin="round"/>
+                                </svg>
+                                <span>Ambiente protegido por criptografia de ponta a ponta</span>
+                            </div>
+
+                            <div class="input-group">
+                                <label for="input-cpf">CPF do titular da cobrança</label>
+                                <div class="input-wrapper has-icon">
+                                    <span class="input-icon">
+                                        <svg width="18" height="18" viewBox="0 0 18 18" fill="none" aria-hidden="true">
+                                            <circle cx="9" cy="6" r="3" stroke="#6D28D9" stroke-width="1.3" fill="none" opacity="0.55"/>
+                                            <path d="M3.5 15c0-3 2.5-5 5.5-5s5.5 2 5.5 5" stroke="#6D28D9" stroke-width="1.3" fill="none" opacity="0.55" stroke-linecap="round"/>
+                                        </svg>
+                                    </span>
+                                    <input type="text" id="input-cpf" class="input-cpf"
+                                           placeholder="000.000.000-00" maxlength="14"
+                                           inputmode="numeric" autocomplete="off">
+                                </div>
+                                <span id="erro-cpf" class="error-msg" style="display:none;"></span>
+                            </div>
+
+                            <button id="btn-continuar" class="btn btn-primary btn-auth" disabled>
+                                <span class="btn-texto">
+                                    Continuar
+                                    <svg class="btn-arrow" width="18" height="18" viewBox="0 0 18 18" fill="none" aria-hidden="true">
+                                        <path d="M4 9h10M10 5l4 4-4 4" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"/>
+                                    </svg>
+                                </span>
+                                <span class="btn-loading" style="display:none;">
+                                    <span class="spinner"></span> Validando CPF...
+                                </span>
+                            </button>
+
+                            <div class="footer-secure">
+                                <svg width="12" height="12" viewBox="0 0 12 12" fill="none" aria-hidden="true">
+                                    <rect x="3.5" y="5" width="5" height="4.5" rx="1" stroke="#94A3B8" stroke-width="1.1"/>
+                                    <path d="M4.5 5V3.8a1.5 1.5 0 0 1 3 0V5" stroke="#94A3B8" stroke-width="1.1" stroke-linecap="round"/>
+                                </svg>
+                                <span>Seus dados são protegidos e usados apenas para validar esta cobrança</span>
+                            </div>
+                        </div>
+                    </div>
+                </div>
+
+                <!-- Faixa inferior de confiança -->
+                <footer class="auth-footer">
+                    <div class="auth-footer-item">
+                        <svg width="18" height="18" viewBox="0 0 18 18" fill="none" aria-hidden="true">
+                            <path d="M9 2L3 5v4c0 3.5 2.4 6.8 6 7.5 3.6-.7 6-4 6-7.5V5L9 2z" stroke="currentColor" stroke-width="1.3"/>
+                            <path d="M6.5 9l1.8 1.8L12 7" stroke="currentColor" stroke-width="1.3" stroke-linecap="round" stroke-linejoin="round"/>
+                        </svg>
+                        <div>
+                            <strong>Conexão segura</strong>
+                            <span>SSL 256 bits</span>
+                        </div>
+                    </div>
+                    <div class="auth-footer-divider" aria-hidden="true"></div>
+                    <div class="auth-footer-item">
+                        <svg width="18" height="18" viewBox="0 0 18 18" fill="none" aria-hidden="true">
+                            <rect x="3" y="3" width="12" height="12" rx="2.5" stroke="currentColor" stroke-width="1.3"/>
+                            <path d="M6 9h6M9 6v6" stroke="currentColor" stroke-width="1.3" stroke-linecap="round"/>
+                        </svg>
+                        <div>
+                            <strong>Conformidade PCI DSS</strong>
+                            <span>Dados protegidos</span>
+                        </div>
+                    </div>
+                    <div class="auth-footer-divider" aria-hidden="true"></div>
+                    <div class="auth-footer-item">
+                        <svg width="18" height="18" viewBox="0 0 18 18" fill="none" aria-hidden="true">
+                            <rect x="5" y="8" width="8" height="6.5" rx="1.5" stroke="currentColor" stroke-width="1.3"/>
+                            <path d="M6.5 8V6a2.5 2.5 0 0 1 5 0v2" stroke="currentColor" stroke-width="1.3" stroke-linecap="round"/>
+                        </svg>
+                        <div>
+                            <strong>Privacidade garantida</strong>
+                            <span>Lei Geral de Proteção de Dados</span>
+                        </div>
+                    </div>
+                    <div class="auth-footer-divider" aria-hidden="true"></div>
+                    <div class="auth-footer-item">
+                        <span class="auth-flag" aria-hidden="true">BR</span>
+                        <div>
+                            <strong>Empresa 100% brasileira</strong>
+                            <span>Atendimento em português</span>
+                        </div>
+                    </div>
+                </footer>
             </div>
         </div>
 

@@ -365,22 +365,39 @@
     <div class="acoes-perigo">
       <h3>Limpeza TOTAL do marketplace</h3>
       <p>
-        Apaga <strong>tudo</strong>: pedidos, encomendas, produtos, lojas, cupons,
-        avaliações, saques, estornos, fiscal, suporte, leads, notificações, CPF index
-        e <strong>todos os usuários</strong> (cliente, lojista, entregador, staff).
+        Apaga <strong>tudo</strong>: pedidos, produtos, lojas, cupons, avaliações, saques,
+        <strong>Gestão Comercial</strong>, <strong>planos SaaS</strong> (<code>modulos_planos</code>),
+        <strong>clientes de assinatura</strong>, cobranças, Fiscal NF-e operacional, suporte, leads
+        e <strong>todos os usuários</strong> (exceto master).
         Mantém apenas <strong id="keep-email-2">master@teste.com</strong> com senha
         <code>master</code>.
       </p>
       <div class="alerta">
         <strong>Irreversível.</strong> Preservadas só config: gateways MP, planos de taxa,
-        tabela de fretes, categorias, cidades e conteúdo legal. Banners, comunicados e utilidades
-        também são apagados.
+        fretes, categorias, cidades, conteúdo legal, catálogo de módulos de assinatura e
+        integrações fiscais (provedor). Dados de negócio GC/Assinaturas/NF-e são apagados.
       </div>
 
       <div class="toolbar" style="margin-top:12px;padding:0">
         <button class="btn-secondary" id="btn-contagem">Ver o que será apagado</button>
         <button class="btn-secondary" id="btn-dry-run">Simular (dry-run)</button>
         <button class="btn-danger" id="btn-wipe-total">APAGAR MARKETPLACE INTEIRO</button>
+      </div>
+
+      <div id="confirm-wipe-box" class="alerta" style="display:none;margin-top:14px">
+        <strong>Confirmação obrigatória</strong>
+        <p style="margin:8px 0 10px;font-size:13px">
+          Digite exatamente (maiúsculas, sem espaços a mais):
+          <br><code id="confirm-frase">SIM APAGAR MARKETPLACE INTEIRO</code>
+        </p>
+        <input type="text" id="confirm-wipe-input" autocomplete="off" spellcheck="false"
+          placeholder="Cole ou digite a frase aqui"
+          style="width:100%;padding:12px 14px;border:2px solid var(--perigo);border-radius:10px;font-size:14px;margin-bottom:10px" />
+        <div class="toolbar" style="margin:0;padding:0">
+          <button class="btn-danger" id="btn-wipe-confirmar">Confirmar e apagar de verdade</button>
+          <button class="btn-secondary" id="btn-wipe-cancelar">Cancelar</button>
+        </div>
+        <p id="confirm-wipe-erro" style="display:none;color:var(--perigo);font-size:13px;margin:10px 0 0;font-weight:600"></p>
       </div>
 
       <div class="grid-colecoes" id="grid-colecoes"></div>
@@ -837,16 +854,34 @@
         'comunicados', 'servicos_destaque', 'telefones_premium', 'eventos', 'vagas', 'achados',
         'avaliacoes', 'avaliacoes_produto', 'saques_solicitacoes', 'estornos',
         'receitas_app', 'despesas_app', 'fiscal', 'notificacoes_usuario',
-        'support_tickets', 'marketing_leads_lojistas', 'centro_ops_agenda',
+        'support_tickets', 'marketing_leads_lojistas', 'marketing_leads_entregadores',
+        'centro_ops_agenda',
+        // Gestão Comercial
+        'gestao_comercial_configuracoes', 'gestao_comercial_vendas',
+        'gestao_comercial_recebimentos', 'gestao_comercial_cobrancas',
+        'sessoes_caixa', 'gestao_comercial_integracoes_pagamento',
+        'gestao_comercial_email_templates', 'gestao_comercial_email_historico',
+        // Assinaturas (planos + clientes ativos)
+        'modulos_planos', 'assinaturas_clientes', 'assinaturas_cobrancas', 'contadores',
+        // Fiscal NF-e
+        'store_fiscal_settings', 'fiscal_documents', 'fiscal_certificates',
+        'fiscal_emission_operations', 'lojista_integracao', 'fiscal_series',
+        'notas_fiscais', 'fiscal_audit_logs', 'fiscal_logs', 'fiscal_webhooks',
+        'fiscal_status_history', 'wallet_transaction_logs',
         'users_total', 'auth_total',
       ];
-      ordem.forEach((k) => {
-        if (c[k] === undefined) return;
+      const vistos = new Set();
+      const appendCard = (k) => {
+        if (c[k] === undefined || vistos.has(k)) return;
+        vistos.add(k);
         const div = document.createElement('div');
         div.className = 'col-item';
         div.innerHTML = `<div class="q">${c[k]}</div><div class="n">${k}</div>`;
         grid.appendChild(div);
-      });
+      };
+      ordem.forEach(appendCard);
+      // Qualquer coleção nova na API que ainda não esteja na lista ordenada
+      Object.keys(c).sort().forEach(appendCard);
       $('preservadas').textContent =
         'Preservadas: ' + (data.colecoesPreservadas || []).join(', ');
     }
@@ -875,22 +910,52 @@
       }
     });
 
+    const FRASE_CONFIRMA = 'SIM APAGAR MARKETPLACE INTEIRO';
+
+    function esconderConfirmWipe() {
+      $('confirm-wipe-box').style.display = 'none';
+      $('confirm-wipe-input').value = '';
+      $('confirm-wipe-erro').style.display = 'none';
+      $('confirm-wipe-erro').textContent = '';
+    }
+
     $('btn-wipe-total').addEventListener('click', async () => {
       if (!servidorOk && !(await pingServidor())) return;
-      const txt = prompt(
-        'ATENÇÃO: apagar TODO o marketplace?\n\nPedidos, produtos, cupons, lojas, usuários — TUDO.\n\nDigite exatamente:\nSIM APAGAR MARKETPLACE INTEIRO'
+      $('confirm-wipe-box').style.display = 'block';
+      $('confirm-wipe-erro').style.display = 'none';
+      $('confirm-wipe-input').value = '';
+      $('confirm-wipe-input').focus();
+      status(
+        'Digite a frase de confirmação no campo abaixo e clique em "Confirmar e apagar de verdade".',
+        'info'
       );
-      if (txt !== 'SIM APAGAR MARKETPLACE INTEIRO') {
-        status('Limpeza cancelada.', 'info');
+      $('confirm-wipe-box').scrollIntoView({ behavior: 'smooth', block: 'center' });
+    });
+
+    $('btn-wipe-cancelar').addEventListener('click', () => {
+      esconderConfirmWipe();
+      status('Limpeza cancelada.', 'info');
+    });
+
+    $('btn-wipe-confirmar').addEventListener('click', async () => {
+      if (!servidorOk && !(await pingServidor())) return;
+      const txt = ($('confirm-wipe-input').value || '').trim();
+      if (txt !== FRASE_CONFIRMA) {
+        $('confirm-wipe-erro').style.display = 'block';
+        $('confirm-wipe-erro').textContent =
+          'Frase incorreta. Tem que ser exatamente: ' + FRASE_CONFIRMA;
+        status('Confirmação inválida — nada foi apagado.', 'erro');
         return;
       }
+      esconderConfirmWipe();
       status('Exclusão iniciada — acompanhe etapa por etapa abaixo.', 'info');
       $('btn-wipe-total').disabled = true;
       $('btn-dry-run').disabled = true;
+      $('btn-wipe-confirmar').disabled = true;
       try {
         const result = await consumirWipeStream({
           dryRun: false,
-          confirmacao: 'SIM APAGAR MARKETPLACE INTEIRO',
+          confirmacao: FRASE_CONFIRMA,
         });
         status(
           `Limpeza concluída! Login: ${result.keepEmail} / senha: ${result.senha || 'master'}`,
@@ -900,10 +965,16 @@
         await carregarContagem();
       } catch (e) {
         status('Erro: ' + e.message, 'erro');
+        appendLog('ERRO: ' + e.message);
       } finally {
         $('btn-wipe-total').disabled = false;
         $('btn-dry-run').disabled = false;
+        $('btn-wipe-confirmar').disabled = false;
       }
+    });
+
+    $('confirm-wipe-input').addEventListener('keydown', (ev) => {
+      if (ev.key === 'Enter') $('btn-wipe-confirmar').click();
     });
 
     (async () => {

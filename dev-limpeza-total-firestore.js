@@ -1,6 +1,8 @@
 /**
  * ⚠️ DEV ONLY — Limpeza total do marketplace Firestore + Auth.
- * Preserva apenas master@teste.com (e config de sistema: gateways, fretes, planos).
+ * Preserva apenas master@teste.com e config de infra (gateways MP, fretes,
+ * planos_taxas, catálogo de módulos/assinatura, cidades, etc.).
+ * Apaga dados de negócio: GC, assinaturas (planos vendidos + clientes), Fiscal NF-e.
  */
 
 const BATCH = 400;
@@ -35,7 +37,7 @@ const COLECOES_RAIZ = [
   'password_reset_rate_email',
   'password_reset_rate_ip',
   'password_recovery_sessions',
-  // Conteúdo operacional / marketing / utilidades (antes preservado)
+  // Conteúdo operacional / marketing / utilidades
   'banners',
   'comunicados',
   'servicos_destaque',
@@ -44,9 +46,39 @@ const COLECOES_RAIZ = [
   'vagas',
   'achados',
   'centro_ops_agenda',
+  // Gestão Comercial (dados por loja)
+  'gestao_comercial_configuracoes',
+  'gestao_comercial_recebimentos',
+  'gestao_comercial_vendas',
+  'gestao_comercial_cobrancas',
+  'sessoes_caixa',
+  'gestao_comercial_integracoes_pagamento',
+  'gestao_comercial_email_templates',
+  'gestao_comercial_email_historico',
+  // Assinaturas (planos vendidos + clientes + cobranças)
+  'modulos_planos',
+  'assinaturas_clientes',
+  'assinaturas_cobrancas',
+  'contadores',
+  // Fiscal NF-e (dados operacionais; integrações/catálogo preservados)
+  'store_fiscal_settings',
+  'fiscal_documents',
+  'fiscal_certificates',
+  'fiscal_emission_operations',
+  'lojista_integracao',
+  'fiscal_audit_logs',
+  'fiscal_logs',
+  'fiscal_webhooks',
+  'fiscal_status_history',
+  'fiscal_series',
+  'notas_fiscais',
+  'wallet_transaction_logs',
 ];
 
-/** Mantidas (config infra — sem dados de negócio). */
+/**
+ * Mantidas (config infra — sem dados de negócio de lojista/cliente).
+ * NÃO inclui modulos_planos (planos SaaS de teste) nem assinaturas_clientes.
+ */
 const COLECOES_PRESERVADAS = [
   'gateways_pagamento',
   'planos_taxas',
@@ -57,7 +89,23 @@ const COLECOES_PRESERVADAS = [
   'cidades',
   'cidades_atendidas',
   'conteudo_legal',
+  // Catálogo/config do módulo Assinaturas (não os clientes)
+  'assinaturas_modulos',
+  'assinaturas_gateways',
+  'assinaturas_bancos',
+  'assinaturas_configuracoes',
+  'billing_settings',
+  // Provedores fiscais + catálogo de cotas (sem lojas vinculadas)
+  'fiscal_integrations',
+  'planos_emissao_nfe',
 ];
+
+/** Coleções raiz com subcoleção que precisa apagar antes do doc pai. */
+const COLECOES_COM_SUB = {
+  gestao_comercial_integracoes_pagamento: 'gateways',
+  gestao_comercial_email_templates: 'templates',
+  gestao_comercial_email_historico: 'envios',
+};
 
 async function deleteQueryLoop(queryRef, label, dryRun, onLog) {
   const fs = queryRef.firestore;
@@ -185,14 +233,48 @@ async function deleteFiscalAll(db, dryRun, onLog) {
   return rootSnap.size;
 }
 
+async function deleteColecaoComSub(db, collectionName, subName, dryRun, onLog) {
+  let total = 0;
+  // eslint-disable-next-line no-constant-condition
+  while (true) {
+    const snap = await db.collection(collectionName).limit(50).get();
+    if (snap.empty) break;
+    for (const doc of snap.docs) {
+      await deleteSubcollection(db, doc.ref, subName, dryRun, onLog);
+      if (!dryRun) await doc.ref.delete();
+      total += 1;
+    }
+    onLog?.(`${collectionName}: ${total} doc(s) processado(s)`);
+    if (dryRun) break;
+  }
+  return total;
+}
+
 async function wipeUserSubcollections(db, uid, dryRun, onLog) {
   const base = `users/${uid}`;
-  await deleteQueryLoop(
-    db.collection(`${base}/enderecos`),
-    `${base}/enderecos`,
-    dryRun,
-    onLog,
-  );
+  const subsSimples = [
+    'enderecos',
+    'documentos',
+    'chaves_pix',
+    'tokens_fcm',
+    'bloqueios_auditoria',
+    'favoritos',
+    'clientes_comercial',
+    'vendas_credito',
+    'parcelas_cliente',
+    'recebimentos_cliente',
+    'notas_fiscais',
+    'wallet_reservas',
+  ];
+
+  for (const sub of subsSimples) {
+    await deleteQueryLoop(
+      db.collection(`${base}/${sub}`),
+      `${base}/${sub}`,
+      dryRun,
+      onLog,
+    );
+  }
 
   const veSnap = await db.collection(`${base}/veiculos`).get();
   for (const vdoc of veSnap.docs) {
@@ -204,31 +286,6 @@ async function wipeUserSubcollections(db, uid, dryRun, onLog) {
     );
     if (!dryRun) await vdoc.ref.delete();
   }
-
-  await deleteQueryLoop(
-    db.collection(`${base}/documentos`),
-    `${base}/documentos`,
-    dryRun,
-    onLog,
-  );
-  await deleteQueryLoop(
-    db.collection(`${base}/chaves_pix`),
-    `${base}/chaves_pix`,
-    dryRun,
-    onLog,
-  );
-  await deleteQueryLoop(
-    db.collection(`${base}/tokens_fcm`),
-    `${base}/tokens_fcm`,
-    dryRun,
-    onLog,
-  );
-  await deleteQueryLoop(
-    db.collection(`${base}/bloqueios_auditoria`),
-    `${base}/bloqueios_auditoria`,
-    dryRun,
-    onLog,
-  );
 }
 
 async function contarColecao(db, name) {
@@ -242,17 +299,27 @@ async function contarColecao(db, name) {
 }
 
 async function contarLimpeza(db, auth) {
+  const skipContagemSimples = new Set([
+    'pedidos',
+    'encomendas',
+    'marketing_leads_lojistas',
+    'marketing_leads_entregadores',
+    'support_tickets',
+    'suporte',
+    ...Object.keys(COLECOES_COM_SUB),
+  ]);
   const contagens = {};
   for (const c of COLECOES_RAIZ) {
-    if (c === 'pedidos' || c === 'encomendas') continue;
-    if (c === 'marketing_leads_lojistas' || c === 'marketing_leads_entregadores') continue;
-    if (c === 'support_tickets' || c === 'suporte') continue;
+    if (skipContagemSimples.has(c)) continue;
     contagens[c] = await contarColecao(db, c);
   }
   contagens.pedidos = await contarColecao(db, 'pedidos');
   contagens.encomendas = await contarColecao(db, 'encomendas');
   contagens.fiscal = await contarColecao(db, 'fiscal');
   contagens.notificacoes_usuario = await contarColecao(db, 'notificacoes_usuario');
+  for (const nome of Object.keys(COLECOES_COM_SUB)) {
+    contagens[nome] = await contarColecao(db, nome);
+  }
 
   const usersSnap = await db.collection('users').get();
   contagens.users_total = usersSnap.size;
@@ -444,6 +511,21 @@ async function executarLimpezaTotal({
     count: resultado.etapas.fiscal,
   });
 
+  progress('gc_aninhado', 'Apagando GC (templates / integrações / histórico)…', 'running');
+  for (const [nome, sub] of Object.entries(COLECOES_COM_SUB)) {
+    progress(`col_${nome}`, `Apagando ${nome} (+ ${sub})…`, 'running');
+    try {
+      const n = await deleteColecaoComSub(db, nome, sub, dryRun, log);
+      resultado.etapas[nome] = n;
+      progress(`col_${nome}`, `${nome}: ${n} doc(s)`, 'done', { count: n });
+    } catch (e) {
+      resultado.etapas[nome] = { erro: e.message };
+      log(`Aviso ${nome}: ${e.message}`);
+      progress(`col_${nome}`, `Erro em ${nome}: ${e.message}`, 'error');
+    }
+  }
+  progress('gc_aninhado', 'GC aninhado removido', 'done');
+
   const simples = COLECOES_RAIZ.filter(
     (c) =>
       ![
@@ -453,6 +535,7 @@ async function executarLimpezaTotal({
         'marketing_leads_entregadores',
         'support_tickets',
         'suporte',
+        ...Object.keys(COLECOES_COM_SUB),
       ].includes(c),
   );
 
@@ -542,9 +625,10 @@ const ETAPAS_UI = [
   { id: 'marketing', label: 'Leads marketing' },
   { id: 'suporte', label: 'Tickets suporte' },
   { id: 'notificacoes', label: 'Notificações in-app' },
-  { id: 'fiscal', label: 'Dados fiscais' },
-  { id: 'colecoes', label: 'Coleções marketplace' },
-  { id: 'users', label: 'Usuários Firestore' },
+  { id: 'fiscal', label: 'Fiscal entregador' },
+  { id: 'gc_aninhado', label: 'Gestão Comercial (aninhado)' },
+  { id: 'colecoes', label: 'Coleções (GC / Assinaturas / Fiscal / marketplace)' },
+  { id: 'users', label: 'Usuários Firestore (+ sub GC)' },
   { id: 'master', label: 'Garantir master@teste.com' },
   { id: 'auth', label: 'Contas Firebase Auth' },
   { id: 'concluido', label: 'Concluído' },
@@ -553,6 +637,7 @@ const ETAPAS_UI = [
 module.exports = {
   COLECOES_RAIZ,
   COLECOES_PRESERVADAS,
+  COLECOES_COM_SUB,
   ETAPAS_UI,
   contarLimpeza,
   executarLimpezaTotal,

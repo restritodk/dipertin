@@ -1,4 +1,7 @@
+import 'dart:math' as math;
+
 import 'package:cloud_firestore/cloud_firestore.dart';
+import 'package:flutter/gestures.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:google_fonts/google_fonts.dart';
@@ -209,22 +212,21 @@ class _LeadsBasePanelState extends State<LeadsBasePanel> {
   Widget _pipeline(
     List<QueryDocumentSnapshot<Map<String, dynamic>>> docs,
   ) {
+    final statuses = cfg.statusOrdem;
     final porStatus = <String, List<QueryDocumentSnapshot<Map<String, dynamic>>>>{
-      for (final s in cfg.statusOrdem) s: [],
+      for (final s in statuses) s: [],
     };
     for (final d in docs) {
-      final s = (d.data()['status'] ?? cfg.statusOrdem.first).toString();
-      (porStatus[s] ?? porStatus[cfg.statusOrdem.first]!).add(d);
+      final s = (d.data()['status'] ?? statuses.first).toString();
+      (porStatus[s] ?? porStatus[statuses.first]!).add(d);
     }
-    return SingleChildScrollView(
-      scrollDirection: Axis.horizontal,
-      padding: const EdgeInsets.only(bottom: 20),
-      child: Row(
-        crossAxisAlignment: CrossAxisAlignment.stretch,
-        children: [
-          for (final s in cfg.statusOrdem) _coluna(s, porStatus[s]!),
-        ],
-      ),
+
+    // Estado do scroll isolado: evita setState no painel (que piscava a tela).
+    return _KanbanPipelineBoard(
+      key: ValueKey<String>('kanban_${cfg.colecao}'),
+      statuses: statuses,
+      porStatus: porStatus,
+      colunaBuilder: _coluna,
     );
   }
 
@@ -336,7 +338,11 @@ class _LeadsBasePanelState extends State<LeadsBasePanel> {
     MarketingLeadStatusInfo info,
   ) {
     final m = doc.data();
-    final nome = (m[cfg.chaveTitulo] ?? m['nome'] ?? '—').toString();
+    final nome = (m[cfg.chaveTitulo] ??
+            m['nome'] ??
+            m['nome_fantasia'] ??
+            '—')
+        .toString();
     final contatoChave = cfg.chaveWhatsapp;
     final contato =
         contatoChave == null ? '' : (m[contatoChave] ?? '').toString().trim();
@@ -788,7 +794,11 @@ class _LeadsBasePanelState extends State<LeadsBasePanel> {
     final m = doc.data();
     final status = (m['status'] ?? cfg.statusOrdem.first).toString();
     final info = cfg.statusInfo(status);
-    final nome = (m[cfg.chaveTitulo] ?? m['nome'] ?? '—').toString();
+    final nome = (m[cfg.chaveTitulo] ??
+            m['nome'] ??
+            m['nome_fantasia'] ??
+            '—')
+        .toString();
 
     final linhas = <String>[];
     for (final campo in cfg.campos) {
@@ -1150,12 +1160,19 @@ class _LeadFormDialogState extends State<_LeadFormDialog> {
   @override
   void initState() {
     super.initState();
+    final dados = widget.dados;
     for (final c in cfg.campos) {
-      _ctrls[c.chave] =
-          TextEditingController(text: (widget.dados?[c.chave] ?? '').toString());
+      var texto = (dados?[c.chave] ?? '').toString();
+      // Compat: leads de lojistas antigos usavam nome_fantasia / whatsapp.
+      if (texto.isEmpty && c.chave == 'nome') {
+        texto = (dados?['nome_fantasia'] ?? '').toString();
+      }
+      if (texto.isEmpty && c.chave == 'telefone') {
+        texto = (dados?['whatsapp'] ?? '').toString();
+      }
+      _ctrls[c.chave] = TextEditingController(text: texto);
     }
-    _status =
-        (widget.dados?['status'] ?? cfg.statusOrdem.first).toString();
+    _status = (dados?['status'] ?? cfg.statusOrdem.first).toString();
   }
 
   @override
@@ -1624,6 +1641,293 @@ class _LeadHistoricoDialogState extends State<_LeadHistoricoDialog> {
               ),
             ),
           ],
+        ),
+      ),
+    );
+  }
+}
+
+/// Board Kanban com scroll próprio — não dispara setState no painel pai.
+class _KanbanPipelineBoard extends StatefulWidget {
+  const _KanbanPipelineBoard({
+    super.key,
+    required this.statuses,
+    required this.porStatus,
+    required this.colunaBuilder,
+  });
+
+  static const double colunaPasso = 286 + 14;
+  static const double paddingFim = 64;
+  static const double navBreakpoint = 900;
+
+  final List<String> statuses;
+  final Map<String, List<QueryDocumentSnapshot<Map<String, dynamic>>>> porStatus;
+  final Widget Function(
+    String status,
+    List<QueryDocumentSnapshot<Map<String, dynamic>>> docs,
+  ) colunaBuilder;
+
+  @override
+  State<_KanbanPipelineBoard> createState() => _KanbanPipelineBoardState();
+}
+
+class _KanbanPipelineBoardState extends State<_KanbanPipelineBoard> {
+  final ScrollController _scrollCtrl = ScrollController();
+  final ValueNotifier<bool> _podeEsquerda = ValueNotifier<bool>(false);
+  final ValueNotifier<bool> _podeDireita = ValueNotifier<bool>(false);
+
+  @override
+  void initState() {
+    super.initState();
+    _scrollCtrl.addListener(_sincronizarBotoes);
+    WidgetsBinding.instance.addPostFrameCallback((_) => _sincronizarBotoes());
+  }
+
+  @override
+  void didUpdateWidget(covariant _KanbanPipelineBoard oldWidget) {
+    super.didUpdateWidget(oldWidget);
+    WidgetsBinding.instance.addPostFrameCallback((_) => _sincronizarBotoes());
+  }
+
+  @override
+  void dispose() {
+    _scrollCtrl.removeListener(_sincronizarBotoes);
+    _scrollCtrl.dispose();
+    _podeEsquerda.dispose();
+    _podeDireita.dispose();
+    super.dispose();
+  }
+
+  void _sincronizarBotoes() {
+    if (!mounted || !_scrollCtrl.hasClients) return;
+    final pos = _scrollCtrl.position;
+    if (!pos.hasContentDimensions) return;
+    final max = pos.maxScrollExtent;
+    final pixels = pos.pixels;
+    _podeEsquerda.value = max > 0 && pixels > 1.5;
+    _podeDireita.value = max > 0 && pixels < max - 1.5;
+  }
+
+  Future<void> _scrollPorColuna(int direcao) async {
+    if (!_scrollCtrl.hasClients) return;
+    final pos = _scrollCtrl.position;
+    if (!pos.hasContentDimensions) return;
+    final max = pos.maxScrollExtent;
+    if (max <= 0) return;
+
+    final passo = math.max(
+      _KanbanPipelineBoard.colunaPasso,
+      pos.viewportDimension * 0.55,
+    );
+    var alvo = pos.pixels + (direcao * passo);
+    if (direcao > 0 && max - alvo < _KanbanPipelineBoard.colunaPasso * 0.35) {
+      alvo = max;
+    } else if (direcao < 0 &&
+        alvo < _KanbanPipelineBoard.colunaPasso * 0.35) {
+      alvo = 0;
+    }
+    alvo = alvo.clamp(0.0, max);
+
+    final reduzirMotion = MediaQuery.of(context).disableAnimations;
+    try {
+      await _scrollCtrl.animateTo(
+        alvo,
+        duration: reduzirMotion
+            ? Duration.zero
+            : const Duration(milliseconds: 320),
+        curve: Curves.easeOutCubic,
+      );
+    } catch (_) {
+      _scrollCtrl.jumpTo(alvo);
+    }
+    _sincronizarBotoes();
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    final desktopNav =
+        MediaQuery.sizeOf(context).width >= _KanbanPipelineBoard.navBreakpoint;
+
+    return LayoutBuilder(
+      builder: (context, constraints) {
+        final conteudoW = widget.statuses.length *
+                _KanbanPipelineBoard.colunaPasso +
+            _KanbanPipelineBoard.paddingFim;
+        final temOverflow = conteudoW > constraints.maxWidth + 1;
+        final mostrarBotoes = desktopNav && temOverflow;
+
+        return Stack(
+          clipBehavior: Clip.hardEdge,
+          children: [
+            Positioned.fill(
+              child: ScrollConfiguration(
+                behavior: const _KanbanScrollBehavior(),
+                child: NotificationListener<ScrollNotification>(
+                  onNotification: (n) {
+                    if (n is ScrollUpdateNotification ||
+                        n is ScrollEndNotification ||
+                        n is ScrollMetricsNotification) {
+                      _sincronizarBotoes();
+                    }
+                    return false;
+                  },
+                  child: ListView.builder(
+                    controller: _scrollCtrl,
+                    scrollDirection: Axis.horizontal,
+                    primary: false,
+                    physics: const ClampingScrollPhysics(),
+                    padding: const EdgeInsets.only(
+                      bottom: 20,
+                      right: _KanbanPipelineBoard.paddingFim,
+                    ),
+                    itemCount: widget.statuses.length,
+                    itemBuilder: (context, index) {
+                      final s = widget.statuses[index];
+                      return SizedBox(
+                        height: constraints.maxHeight - 20,
+                        child: widget.colunaBuilder(
+                          s,
+                          widget.porStatus[s] ?? const [],
+                        ),
+                      );
+                    },
+                  ),
+                ),
+              ),
+            ),
+            if (mostrarBotoes) ...[
+              Positioned(
+                left: 6,
+                top: 0,
+                bottom: 20,
+                child: Center(
+                  child: ValueListenableBuilder<bool>(
+                    valueListenable: _podeEsquerda,
+                    builder: (context, visivel, _) {
+                      return _KanbanNavBotao(
+                        visivel: visivel,
+                        icon: Icons.chevron_left_rounded,
+                        tooltip: 'Colunas anteriores',
+                        onTap: () => _scrollPorColuna(-1),
+                      );
+                    },
+                  ),
+                ),
+              ),
+              Positioned(
+                right: 6,
+                top: 0,
+                bottom: 20,
+                child: Center(
+                  child: ValueListenableBuilder<bool>(
+                    valueListenable: _podeDireita,
+                    builder: (context, visivel, _) {
+                      return _KanbanNavBotao(
+                        visivel: visivel,
+                        icon: Icons.chevron_right_rounded,
+                        tooltip: 'Próximas colunas',
+                        onTap: () => _scrollPorColuna(1),
+                      );
+                    },
+                  ),
+                ),
+              ),
+            ],
+          ],
+        );
+      },
+    );
+  }
+}
+
+/// Scroll do Kanban: mouse/trackpad/touch; scrollbar nativa oculta.
+class _KanbanScrollBehavior extends MaterialScrollBehavior {
+  const _KanbanScrollBehavior();
+
+  @override
+  Set<PointerDeviceKind> get dragDevices => {
+        PointerDeviceKind.touch,
+        PointerDeviceKind.mouse,
+        PointerDeviceKind.trackpad,
+        PointerDeviceKind.stylus,
+      };
+
+  @override
+  Widget buildScrollbar(
+    BuildContext context,
+    Widget child,
+    ScrollableDetails details,
+  ) {
+    return child;
+  }
+}
+
+/// Botão circular flutuante de navegação horizontal do funil.
+class _KanbanNavBotao extends StatefulWidget {
+  const _KanbanNavBotao({
+    required this.visivel,
+    required this.icon,
+    required this.tooltip,
+    required this.onTap,
+  });
+
+  final bool visivel;
+  final IconData icon;
+  final String tooltip;
+  final VoidCallback onTap;
+
+  @override
+  State<_KanbanNavBotao> createState() => _KanbanNavBotaoState();
+}
+
+class _KanbanNavBotaoState extends State<_KanbanNavBotao> {
+  bool _hover = false;
+
+  @override
+  Widget build(BuildContext context) {
+    return AnimatedOpacity(
+      opacity: widget.visivel ? 1 : 0,
+      duration: const Duration(milliseconds: 180),
+      curve: Curves.easeOut,
+      child: IgnorePointer(
+        ignoring: !widget.visivel,
+        child: Tooltip(
+          message: widget.tooltip,
+          waitDuration: const Duration(milliseconds: 400),
+          child: MouseRegion(
+            cursor: SystemMouseCursors.click,
+            onEnter: (_) => setState(() => _hover = true),
+            onExit: (_) => setState(() => _hover = false),
+            child: AnimatedScale(
+              scale: _hover && widget.visivel ? 1.07 : 1,
+              duration: const Duration(milliseconds: 150),
+              curve: Curves.easeOut,
+              child: Material(
+                color: Colors.white,
+                shape: const CircleBorder(),
+                elevation: _hover ? 8 : 4,
+                shadowColor: Colors.black26,
+                child: InkWell(
+                  customBorder: const CircleBorder(),
+                  onTap: widget.onTap,
+                  child: Container(
+                    width: 48,
+                    height: 48,
+                    alignment: Alignment.center,
+                    decoration: BoxDecoration(
+                      shape: BoxShape.circle,
+                      border: Border.all(color: const Color(0xFFE2E8F0)),
+                    ),
+                    child: Icon(
+                      widget.icon,
+                      color: PainelAdminTheme.roxo,
+                      size: 30,
+                    ),
+                  ),
+                ),
+              ),
+            ),
+          ),
         ),
       ),
     );

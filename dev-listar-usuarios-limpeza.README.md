@@ -16,19 +16,22 @@ Apaga **todo o marketplace** e deixa só **`master@teste.com`** (senha `master`,
 | Catálogo | `produtos`, `lojas_public` |
 | Promoções | `cupons` |
 | Avaliações | `avaliacoes`, `avaliacoes_produto` |
-| Financeiro | `saques_solicitacoes`, `estornos`, `receitas_app`, `despesas_app`, `fiscal/**` |
+| Financeiro | `saques_solicitacoes`, `estornos`, `receitas_app`, `despesas_app`, `fiscal/**` (entregador) |
 | Suporte | `support_tickets`, `support_ratings`, `suporte` |
 | Marketing | `marketing_leads_lojistas/entregadores` (+ histórico) |
 | Notificações | `notificacoes_campanhas`, `notificacoes_usuario/**` |
 | Cadastro | `users_cpf_index`, tickets/rate-limit Comtele/SMS |
 | Auditoria | `audit_logs`, `audit_exclusoes_clientes` |
-| Usuários | **Todos** Auth + Firestore exceto master |
+| **Gestão Comercial** | configs, vendas, recebimentos, cobranças, sessões caixa, e-mail templates/histórico, integrações pagamento (+ gateways) |
+| **Assinaturas** | `modulos_planos` (planos SaaS), `assinaturas_clientes`, `assinaturas_cobrancas`, `contadores` |
+| **Fiscal NF-e** | settings loja, documentos, certificados, operações, `lojista_integracao`, séries, logs/webhooks, `notas_fiscais` |
+| Usuários | **Todos** Auth + Firestore exceto master (inclui sub `clientes_comercial`, `vendas_credito`, `parcelas_*`, `favoritos`, `wallet_reservas`, …) |
 
 ### Preservado (config infra)
-`gateways_pagamento`, `planos_taxas`, `tabela_fretes`, `configuracoes`, `categorias`, `cidades`, `conteudo_legal`.
+`gateways_pagamento`, `planos_taxas`, `tabela_fretes`, `configuracoes`, `categorias`, `cidades`, `conteudo_legal`, catálogo Assinaturas (`assinaturas_modulos`, gateways/bancos/config, `billing_settings`), `fiscal_integrations`, `planos_emissao_nfe`.
 
-### Também apagado (v2)
-`banners`, `comunicados`, `servicos_destaque`, `telefones_premium`, `eventos`, `vagas`, `achados`, `centro_ops_agenda` — zera vitrine CRM e livro caixa (destaques/banners).
+### Também apagado (v2+)
+`banners`, `comunicados`, `servicos_destaque`, `telefones_premium`, `eventos`, `vagas`, `achados`, `centro_ops_agenda` — zera vitrine CRM.
 
 ## Pré-requisitos
 

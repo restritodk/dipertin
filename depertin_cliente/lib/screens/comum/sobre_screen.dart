@@ -12,8 +12,8 @@ const Color _diPertinRoxo = Color(0xFF6A1B9A);
 const Color _diPertinLaranja = Color(0xFFFF8F00);
 const Color _fundoTela = Color(0xFFF5F4F8);
 
-/// Texto exibido em Sobre — alinhar com [pubspec.yaml] version (1.2.8).
-const String _versaoFallback = '1.2.8';
+/// Texto exibido em Sobre — alinhar com [pubspec.yaml] version (1.2.9).
+const String _versaoFallback = '1.2.9';
 
 /// Informações do aplicativo DiPertin (versão, descrição).
 class SobreScreen extends StatefulWidget {
@@ -138,7 +138,7 @@ class _SobreScreenState extends State<SobreScreen> {
                   _linhaInfo(
                     icon: Icons.badge_rounded,
                     titulo: 'CNPJ',
-                    valor: '66.040.998/0001-66',
+                    valor: '67.924.733/0001-93',
                   ),
                   const Divider(height: 22, color: Color(0xFFEDEAF2)),
                   _linhaInfo(
