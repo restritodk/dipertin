@@ -25,6 +25,23 @@ const COLLECTION_WALLETS = "users";
 const COLLECTION_RESERVAS = "wallet_reservas";
 
 /**
+ * Valida se o caller é o próprio usuário ou staff.
+ * Substitui a checagem frágil `request.auth.uid !== "admin"`.
+ */
+async function assertehPermissaoWallet(db, callerUid, targetUid) {
+  if (callerUid === targetUid) return;
+  const snap = await db.collection("users").doc(callerUid).get();
+  if (!snap.exists) {
+    throw new HttpsError("permission-denied", "Sem permissão.");
+  }
+  const data = snap.data();
+  const role = String(data.role || data.tipoUsuario || "").trim().toLowerCase();
+  if (!["master", "master_city", "superadmin", "super_admin"].includes(role)) {
+    throw new HttpsError("permission-denied", "Apenas staff pode gerenciar carteira de terceiros.");
+  }
+}
+
+/**
  * ETAPA 1: RESERVAR saldo (não debita, apenas bloqueia)
  * 
  * Chamada ANTES de processar PIX/Cartão
@@ -40,11 +57,8 @@ exports.walletReservarSaldo = onCall(async (request) => {
     throw new HttpsError("invalid-argument", "Dados inválidos para reserva.");
   }
 
-  if (uid !== request.auth.uid && request.auth.uid !== "admin") {
-    throw new HttpsError("permission-denied", "Sem permissão.");
-  }
-
   const db = admin.firestore();
+  await assertehPermissaoWallet(db, request.auth.uid, uid);
   const userRef = db.collection(COLLECTION_WALLETS).doc(uid);
 
   return db.runTransaction(async (transaction) => {
@@ -119,11 +133,8 @@ exports.walletConfirmarDebito = onCall(async (request) => {
     throw new HttpsError("invalid-argument", "Dados inválidos para confirmação.");
   }
 
-  if (uid !== request.auth.uid && request.auth.uid !== "admin") {
-    throw new HttpsError("permission-denied", "Sem permissão.");
-  }
-
   const db = admin.firestore();
+  await assertehPermissaoWallet(db, request.auth.uid, uid);
   const userRef = db.collection(COLLECTION_WALLETS).doc(uid);
   const reservaRef = userRef.collection(COLLECTION_RESERVAS).doc(reservaId);
 
@@ -195,11 +206,8 @@ exports.walletCancelarReserva = onCall(async (request) => {
     throw new HttpsError("invalid-argument", "Dados inválidos para cancelamento.");
   }
 
-  if (uid !== request.auth.uid && request.auth.uid !== "admin") {
-    throw new HttpsError("permission-denied", "Sem permissão.");
-  }
-
   const db = admin.firestore();
+  await assertehPermissaoWallet(db, request.auth.uid, uid);
   const userRef = db.collection(COLLECTION_WALLETS).doc(uid);
   const reservaRef = userRef.collection(COLLECTION_RESERVAS).doc(reservaId);
 

@@ -1,3 +1,4 @@
+import 'dart:async';
 import 'dart:convert';
 import 'dart:math' as math;
 
@@ -20,7 +21,11 @@ import '../models/cliente_assinatura_model.dart';
 import '../models/billing_settings_model.dart';
 import '../services/billing_settings_service.dart';
 import '../services/firebase_functions_config.dart';
+import 'package:http/http.dart' as http;
+
+import '../services/cidades_brasil_service.dart';
 import '../widgets/fiscal/fiscal_teste_conexao_modal.dart';
+import '../widgets/ibge_municipio_picker_modal.dart';
 import '../widgets/premium_dialogs.dart';
 
 // ============================================================
@@ -654,7 +659,12 @@ class _AssinaturasConfiguracoesScreenState
       builder: (_) => _EditarIntegracaoDialog(integracao: model),
     );
     if (result == true && mounted) {
-      _exibirSnack('Integração "${model.providerName}" atualizada com sucesso!');
+      PremiumResultDialog.mostrarSucesso(
+        context,
+        titulo: 'Integração atualizada',
+        mensagem:
+            'A integração "${model.providerName}" foi atualizada com sucesso.',
+      );
     }
   }
 
@@ -672,7 +682,13 @@ class _AssinaturasConfiguracoesScreenState
     );
     if (!confirmou || !mounted) return;
     await FiscalIntegrationsService.removerIntegracao(model.id);
-    if (mounted) _exibirSnack('Integração "${model.nomeExibicao}" excluída.');
+    if (mounted) {
+      PremiumResultDialog.mostrarSucesso(
+        context,
+        titulo: 'Integração excluída',
+        mensagem: 'A integração "${model.nomeExibicao}" foi excluída.',
+      );
+    }
   }
 
   Future<void> _testarConexaoFiscal(
@@ -757,6 +773,33 @@ class _AssinaturasConfiguracoesScreenState
               'A API Focus NFe rejeitou as credenciais.',
               'Ambiente: ${integracao.environment == 'production' ? 'Produção' : 'Homologação'}',
             ],
+          );
+        } on CallableHttpException catch (e) {
+          final code = e.code.toLowerCase();
+          final String mensagem;
+          final List<String> detalhes;
+          if (code == 'unauthenticated') {
+            mensagem = 'Sessão expirada ou App Check inválido. Faça login novamente.';
+            detalhes = [
+              'Código: UNAUTHENTICATED',
+              'O token de App Check pode estar ausente ou inválido.',
+              'Se o erro persistir, publique as Cloud Functions mais recentes.',
+            ];
+          } else if (code == 'permission_denied' || code == 'permission-denied') {
+            mensagem = 'Usuário sem autorização para acessar esta integração.';
+            detalhes = [
+              'Código: PERMISSION_DENIED',
+              'Verifique se você tem permissão de staff ou lojista autorizado.',
+            ];
+          } else {
+            mensagem = 'Erro na Cloud Function: ${e.message}';
+            detalhes = ['Código: ${e.code}', 'Mensagem: ${e.message}'];
+          }
+          return TestConexaoResultado(
+            sucesso: false,
+            provedor: providerNome,
+            mensagem: mensagem,
+            errosDetalhados: detalhes,
           );
         } catch (e) {
           return TestConexaoResultado(
@@ -1373,7 +1416,15 @@ class _AssinaturasConfiguracoesScreenState
       context: context,
       useRootNavigator: true,
       builder: (_) => _NovaIntegracaoLojistaDialog(
-        onSalvar: () => _exibirSnack('Integração criada com sucesso!'),
+        onSalvar: () {
+          if (mounted) {
+            PremiumResultDialog.mostrarSucesso(
+              context,
+              titulo: 'Integração criada',
+              mensagem: 'A integração lojista foi criada com sucesso.',
+            );
+          }
+        },
       ),
     );
   }
@@ -1386,7 +1437,13 @@ class _AssinaturasConfiguracoesScreenState
         integracao: model,
         onAtualizar: () => setState(() {}),
         onExcluir: () {
-          if (mounted) _exibirSnack('Integração excluída.');
+          if (mounted) {
+            PremiumResultDialog.mostrarSucesso(
+              context,
+              titulo: 'Integração excluída',
+              mensagem: 'A integração lojista foi excluída.',
+            );
+          }
         },
       ),
     );
@@ -1404,7 +1461,13 @@ class _AssinaturasConfiguracoesScreenState
     );
     if (!confirmou || !mounted) return;
     await LojistaIntegracaoService.excluirIntegracao(model.id);
-    if (mounted) _exibirSnack('Integração de "${model.storeNome}" excluída.');
+    if (mounted) {
+      PremiumResultDialog.mostrarSucesso(
+        context,
+        titulo: 'Integração excluída',
+        mensagem: 'A integração de "${model.storeNome}" foi excluída.',
+      );
+    }
   }
 
   // ─── Ações ─────────────────────────────────────────────────
@@ -1414,7 +1477,13 @@ class _AssinaturasConfiguracoesScreenState
       useRootNavigator: true,
       builder: (_) => _NovaIntegracaoDialog(
         onSalvar: (providerId, nome, dados) {
-          _exibirSnack('Integração $nome cadastrada com sucesso!');
+          if (mounted) {
+            PremiumResultDialog.mostrarSucesso(
+              context,
+              titulo: 'Integração cadastrada',
+              mensagem: 'A integração "$nome" foi cadastrada com sucesso.',
+            );
+          }
         },
       ),
     );
@@ -1425,13 +1494,14 @@ class _AssinaturasConfiguracoesScreenState
     return Container(
       padding: const EdgeInsets.fromLTRB(24, 22, 24, 22),
       decoration: BoxDecoration(
-        gradient: LinearGradient(
-          colors: [_roxoPrimario.withValues(alpha: 0.04), Colors.white],
+        // Mesmo gradiente premium das demais telas admin (Central/Lojas/Financeiro).
+        gradient: const LinearGradient(
+          colors: [Color(0xFF42127A), Color(0xFF6A1B9A)],
           begin: Alignment.topLeft,
           end: Alignment.bottomRight,
         ),
         borderRadius: BorderRadius.circular(18),
-        border: Border.all(color: _roxoPrimario.withValues(alpha: 0.08)),
+        border: Border.all(color: Colors.white.withValues(alpha: 0.12)),
       ),
       child: Row(
         children: [
@@ -1439,19 +1509,9 @@ class _AssinaturasConfiguracoesScreenState
             width: 48,
             height: 48,
             decoration: BoxDecoration(
-              gradient: const LinearGradient(
-                colors: [_roxoPrimario, _roxoClaro],
-                begin: Alignment.topLeft,
-                end: Alignment.bottomRight,
-              ),
+              color: Colors.white.withValues(alpha: 0.18),
               borderRadius: BorderRadius.circular(14),
-              boxShadow: [
-                BoxShadow(
-                  color: _roxoPrimario.withValues(alpha: 0.25),
-                  blurRadius: 10,
-                  offset: const Offset(0, 4),
-                ),
-              ],
+              border: Border.all(color: Colors.white.withValues(alpha: 0.32)),
             ),
             alignment: Alignment.center,
             child: const Icon(
@@ -1470,7 +1530,7 @@ class _AssinaturasConfiguracoesScreenState
                   style: GoogleFonts.plusJakartaSans(
                     fontSize: 22,
                     fontWeight: FontWeight.w800,
-                    color: _textoPrimario,
+                    color: Colors.white,
                     height: 1.2,
                   ),
                 ),
@@ -1479,7 +1539,7 @@ class _AssinaturasConfiguracoesScreenState
                   'Gerencie todas as configurações relacionadas ao menu Gestão de Assinaturas.',
                   style: GoogleFonts.plusJakartaSans(
                     fontSize: 13,
-                    color: _textoSecundario,
+                    color: Colors.white.withValues(alpha: 0.82),
                     height: 1.4,
                   ),
                 ),
@@ -1491,8 +1551,11 @@ class _AssinaturasConfiguracoesScreenState
             width: 4,
             height: 48,
             decoration: BoxDecoration(
-              gradient: const LinearGradient(
-                colors: [_roxoPrimario, _laranjaPrimario],
+              gradient: LinearGradient(
+                colors: [
+                  Colors.white.withValues(alpha: 0.9),
+                  _laranjaPrimario,
+                ],
                 begin: Alignment.topCenter,
                 end: Alignment.bottomCenter,
               ),
@@ -5636,6 +5699,9 @@ class _NovaIntegracaoDialogState extends State<_NovaIntegracaoDialog> {
     for (final campo in _camposDoProvedor(prov)) {
       _camposCtrl[campo.chave] = TextEditingController();
     }
+    // Adiciona campo separado para token de produção
+    // (não faz parte dos campos padrão do provedor, que só tem api_key)
+    _camposCtrl['production_token'] = TextEditingController();
   }
 
   List<CampoIntegracao> _camposDoProvedor(ProvedorFiscal prov) {
@@ -5778,19 +5844,71 @@ class _NovaIntegracaoDialogState extends State<_NovaIntegracaoDialog> {
                           if (campo.tipo == CampoIntegracaoTipo.selecao &&
                               campo.chave == 'status')
                             return const SizedBox.shrink();
+                          // Substitui o campo api_key único por dois campos
+                          // separados: homologação e produção.
+                          if (campo.chave == 'api_key') {
+                            return Column(
+                              children: [
+                                Padding(
+                                  padding: const EdgeInsets.only(bottom: 12),
+                                  child: _campoText(
+                                    label: 'Token de homologação',
+                                    controller: _camposCtrl['api_key']!,
+                                    isSenha: true,
+                                    hint: 'Token da Focus NFe para homologação',
+                                  ),
+                                ),
+                                Padding(
+                                  padding: const EdgeInsets.only(bottom: 12),
+                                  child: _campoText(
+                                    label: 'Token de produção',
+                                    controller: _camposCtrl['production_token']!,
+                                    isSenha: true,
+                                    hint: 'Token da Focus NFe para produção',
+                                  ),
+                                ),
+                              ],
+                            );
+                          }
                           return Padding(
                             padding: const EdgeInsets.only(bottom: 12),
                             child: _campoText(
                               label: campo.label,
                               controller: _camposCtrl[campo.chave]!,
                               isSenha: campo.tipo == CampoIntegracaoTipo.senha,
-                              hint: campo.chave == 'api_key'
-                                  ? 'Insira sua chave de API'
-                                  : null,
+                              hint: null,
                             ),
                           );
                         })),
                         const SizedBox(height: 8),
+                        // Aviso de segurança
+                        Container(
+                          padding: const EdgeInsets.all(12),
+                          decoration: BoxDecoration(
+                            color: const Color(0xFFFFF3E0),
+                            borderRadius: BorderRadius.circular(10),
+                            border: Border.all(color: const Color(0xFFFFE0B2)),
+                          ),
+                          child: Row(
+                            crossAxisAlignment: CrossAxisAlignment.start,
+                            children: [
+                              Icon(Icons.info_outline, size: 18, color: Colors.orange.shade800),
+                              const SizedBox(width: 10),
+                              Expanded(
+                                child: Text(
+                                  'Os tokens são criptografados no servidor '
+                                  'com AES-256-GCM. Nunca armazenamos tokens '
+                                  'em texto puro.',
+                                  style: GoogleFonts.plusJakartaSans(
+                                    fontSize: 12,
+                                    color: Colors.orange.shade900,
+                                    height: 1.4,
+                                  ),
+                                ),
+                              ),
+                            ],
+                          ),
+                        ),
                       ],
                     ],
                   ),
@@ -6147,40 +6265,116 @@ class _NovaIntegracaoDialogState extends State<_NovaIntegracaoDialog> {
   }
 
   Future<void> _salvar() async {
-    setState(() => _salvando = true);
-    final dados = <String, dynamic>{};
-    for (final e in _camposCtrl.entries) {
-      dados[e.key] = e.value.text;
+    final sw = Stopwatch()..start();
+    void tr(String msg) {
+      final n = DateTime.now();
+      String d2(int v) => v.toString().padLeft(2, '0');
+      String d3(int v) => v.toString().padLeft(3, '0');
+      final hora =
+          '${d2(n.hour)}:${d2(n.minute)}:${d2(n.second)}.${d3(n.millisecond)}';
+      debugPrint(
+          '[TRACE_salvarNovaIntegracao] $hora +${sw.elapsedMilliseconds}ms | $msg');
     }
-    final nomeInt = _nomeIntegracaoCtrl.text.trim();
-    dados['environment'] = _ambiente == 'Produção' ? 'production' : 'sandbox';
-    dados['provider'] = _selecionado!.info.id;
-    dados['provider_name'] = _selecionado!.info.nome;
-    dados['base_url_sandbox'] = _selecionado!.info.baseUrlSandbox;
-    dados['base_url_production'] = _selecionado!.info.baseUrlProducao;
-    dados['supported_documents'] = _selecionado!.info.documentosSuportados;
-    if (nomeInt.isNotEmpty) dados['nome_integracao'] = nomeInt;
-    await FiscalIntegrationsService.salvarIntegracao(
-      FiscalIntegrationModel(
-        id: '',
+
+    tr('Clique no botão → _salvar() INÍCIO');
+    setState(() => _salvando = true);
+    tr('_salvando=true');
+    try {
+      final dados = <String, dynamic>{};
+      for (final e in _camposCtrl.entries) {
+        dados[e.key] = e.value.text;
+      }
+      final nomeInt = _nomeIntegracaoCtrl.text.trim();
+      dados['environment'] = _ambiente == 'Produção' ? 'production' : 'sandbox';
+      dados['provider'] = _selecionado!.info.id;
+      dados['provider_name'] = _selecionado!.info.nome;
+      dados['base_url_sandbox'] = _selecionado!.info.baseUrlSandbox;
+      dados['base_url_production'] = _selecionado!.info.baseUrlProducao;
+      dados['supported_documents'] = _selecionado!.info.documentosSuportados;
+      if (nomeInt.isNotEmpty) dados['nome_integracao'] = nomeInt;
+
+      final sandboxLen = (_camposCtrl['api_key']?.text ?? '').length;
+      final prodLen = (_camposCtrl['production_token']?.text ?? '').length;
+      tr('Validação OK → provider=${_selecionado!.info.id}, '
+          'ambiente=${dados['environment']}, nome="$nomeInt", '
+          'sandbox_token=***($sandboxLen chars), production_token=***($prodLen chars)');
+
+      tr('→ FiscalIntegrationsService.salvarIntegracaoCallable() (await)');
+      final resposta = await FiscalIntegrationsService.salvarIntegracaoCallable(
         provider: _selecionado!.info.id,
         providerName: _selecionado!.info.nome,
+        sandboxToken: _camposCtrl['api_key']?.text ?? '',
+        productionToken: _camposCtrl['production_token']?.text ?? '',
         nomeIntegracao: nomeInt.isNotEmpty ? nomeInt : null,
         environment: dados['environment'] as String,
+        supportedDocuments: _selecionado!.info.documentosSuportados,
         baseUrlSandbox: _selecionado!.info.baseUrlSandbox,
         baseUrlProduction: _selecionado!.info.baseUrlProducao,
-        supportedDocuments: _selecionado!.info.documentosSuportados,
-        status: 'active',
-      ),
-      dados,
-    );
-    widget.onSalvar?.call(
-      _selecionado!.info.id,
-      nomeInt.isNotEmpty ? nomeInt : _selecionado!.info.nome,
-      dados,
-    );
-    if (mounted) Navigator.of(context).pop();
-    setState(() => _salvando = false);
+      );
+      tr('← salvarIntegracaoCallable RETORNO 200 — resposta=$resposta');
+
+      final onSalvar = widget.onSalvar;
+      final providerId = _selecionado!.info.id;
+      final nomeSalvo =
+          nomeInt.isNotEmpty ? nomeInt : _selecionado!.info.nome;
+      if (mounted) {
+        Navigator.of(context, rootNavigator: true).pop();
+        tr('Navigator.pop() executado');
+      } else {
+        tr('Navigator.pop() PULADO — !mounted');
+      }
+      if (onSalvar != null) {
+        WidgetsBinding.instance.addPostFrameCallback((_) {
+          onSalvar(providerId, nomeSalvo, dados);
+        });
+      }
+      tr('onSalvar callback agendado');
+      tr('SUCESSO (fluxo completo do início ao fim)');
+    } catch (e, stack) {
+      // ÚNICO catch — roteamento manual por tipo porque em dart2js
+      // o "on Tipo catch" pode não capturar tipos customizados.
+      String titulo;
+      String mensagem;
+      if (e is AppCheckException) {
+        titulo = 'Falha na validação de segurança';
+        mensagem = 'Não foi possível validar a segurança do painel.\n\n'
+            'Atualize a página e tente novamente.\n\n'
+            'Código: APP_CHECK_RECAPTCHA_ERROR';
+      } else if (e is TimeoutException) {
+        titulo = 'Tempo excedido';
+        mensagem = 'O servidor não respondeu dentro do prazo. '
+            'Verifique sua conexão e tente novamente.';
+      } else if (e is CallableHttpException) {
+        titulo = 'Servidor rejeitou a operação';
+        mensagem = mensagemCallableHttpException(e);
+      } else {
+        titulo = 'Erro inesperado';
+        mensagem = 'Ocorreu um erro ao criar a integração fiscal.\n\n'
+            '${e.toString().replaceAll(RegExp("[<>&\"'<>]"), ' ')}';
+      }
+      tr('CATCH — PARADA no fluxo | tipo=${e.runtimeType} | msg=$e');
+      // Sub-try para impedir que erro do diálogo cascade em Uncaught
+      if (mounted) {
+        try {
+          PremiumResultDialog.mostrarErro(
+            context,
+            titulo: titulo,
+            mensagem: mensagem,
+          );
+        } catch (_) {
+          tr('Erro ao exibir diálogo de erro ignorado');
+        }
+      }
+    } finally {
+      tr('FINALLY — mounted=$mounted');
+      if (mounted) {
+        try {
+          setState(() => _salvando = false);
+        } catch (_) {}
+        tr('_salvando=false');
+      }
+      tr('FIM — duração total=${sw.elapsedMilliseconds}ms');
+    }
   }
 }
 
@@ -6221,6 +6415,8 @@ class _EditarIntegracaoDialogState extends State<_EditarIntegracaoDialog> {
       if (campo.chave == 'environment' || campo.chave == 'status') continue;
       _camposCtrl[campo.chave] = TextEditingController();
     }
+    // Campo extra para token de produção (não faz parte dos campos padrão)
+    _camposCtrl['production_token'] = TextEditingController();
   }
 
   @override
@@ -6234,7 +6430,9 @@ class _EditarIntegracaoDialogState extends State<_EditarIntegracaoDialog> {
 
   Future<void> _salvar() async {
     if (!_formKey.currentState!.validate()) return;
+    debugPrint('[TRACE_salvarEditarIntegracao] INÍCIO');
     setState(() => _salvando = true);
+    debugPrint('[TRACE_salvarEditarIntegracao] salvando=true');
 
     try {
       final dados = <String, dynamic>{};
@@ -6246,46 +6444,68 @@ class _EditarIntegracaoDialogState extends State<_EditarIntegracaoDialog> {
       dados['status'] = _statusSelecionado == 'Ativo' ? 'active' : 'inactive';
       if (nomeInt.isNotEmpty) dados['nome_integracao'] = nomeInt;
 
-      final model = FiscalIntegrationModel(
-        id: widget.integracao.id,
+      debugPrint('[TRACE_salvarEditarIntegracao] Chamando atualizarIntegracaoCallable...');
+      await FiscalIntegrationsService.atualizarIntegracaoCallable(
+        integrationId: widget.integracao.id,
         provider: widget.integracao.provider,
         providerName: widget.integracao.providerName,
+        sandboxToken: _camposCtrl['api_key']?.text?.trim(),
+        productionToken: _camposCtrl['production_token']?.text?.trim(),
         nomeIntegracao: nomeInt.isNotEmpty ? nomeInt : null,
+        status: dados['status'] as String,
         environment: dados['environment'] as String,
+        supportedDocuments: widget.integracao.supportedDocuments,
         baseUrlSandbox: widget.integracao.baseUrlSandbox,
         baseUrlProduction: widget.integracao.baseUrlProduction,
-        supportedDocuments: widget.integracao.supportedDocuments,
-        status: dados['status'] as String,
       );
-
-      await FiscalIntegrationsService.atualizarIntegracao(
-        widget.integracao.id,
-        model,
-        dados,
-      );
+      debugPrint('[TRACE_salvarEditarIntegracao] atualizarIntegracaoCallable OK');
 
       if (mounted) {
         Navigator.of(context).pop(true);
       }
-    } catch (e) {
+      debugPrint('[TRACE_salvarEditarIntegracao] SUCESSO');
+    } catch (e, stack) {
+      String titulo;
+      String mensagem;
+      if (e is AppCheckException) {
+        titulo = 'Falha na validação de segurança';
+        mensagem = 'Não foi possível validar a segurança do painel.\n\n'
+            'Atualize a página e tente novamente.\n\n'
+            'Código: APP_CHECK_RECAPTCHA_ERROR';
+      } else if (e is TimeoutException) {
+        titulo = 'Tempo excedido';
+        mensagem = 'O servidor não respondeu dentro do prazo. '
+            'Verifique sua conexão e tente novamente.';
+      } else if (e is CallableHttpException) {
+        titulo = 'Servidor rejeitou a operação';
+        mensagem = mensagemCallableHttpException(e);
+      } else {
+        titulo = 'Erro inesperado';
+        mensagem = 'Ocorreu um erro ao atualizar a integração.\n\n'
+            '${e.toString().replaceAll(RegExp("[<>&\"'<>]"), ' ')}';
+      }
+      debugPrint('[TRACE_salvarEditarIntegracao] catch — tipo=${e.runtimeType}: $e');
       if (mounted) {
-        _exibirSnack('Erro ao atualizar: $e');
+        try {
+          PremiumResultDialog.mostrarErro(
+            context,
+            titulo: titulo,
+            mensagem: mensagem,
+          );
+        } catch (_) {
+          debugPrint('[TRACE_salvarEditarIntegracao] Erro ao exibir diálogo de erro ignorado');
+        }
       }
     } finally {
-      if (mounted) setState(() => _salvando = false);
+      debugPrint('[TRACE_salvarEditarIntegracao] FINALLY executado — mounted=$mounted');
+      if (mounted) {
+        try {
+          setState(() => _salvando = false);
+        } catch (_) {}
+        debugPrint('[TRACE_salvarEditarIntegracao] salvando=false');
+      }
+      debugPrint('[TRACE_salvarEditarIntegracao] FIM');
     }
-  }
-
-  void _exibirSnack(String msg) {
-    if (!mounted) return;
-    ScaffoldMessenger.of(context).showSnackBar(
-      SnackBar(
-        content: Text(msg),
-        behavior: SnackBarBehavior.floating,
-        shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(10)),
-        backgroundColor: _roxoPrimario,
-      ),
-    );
   }
 
   // ─── Helpers de formulário ─────────────────────────────────
@@ -6608,6 +6828,31 @@ class _EditarIntegracaoDialogState extends State<_EditarIntegracaoDialog> {
                         if (campo.tipo == CampoIntegracaoTipo.selecao) {
                           return const SizedBox.shrink();
                         }
+                        // Substitui o campo api_key por dois campos separados
+                        if (campo.chave == 'api_key') {
+                          return Column(
+                            children: [
+                              Padding(
+                                padding: const EdgeInsets.only(bottom: 12),
+                                child: _campoText(
+                                  'Token de homologação',
+                                  _camposCtrl['api_key']!,
+                                  isSenha: true,
+                                  hint: 'Deixe vazio para manter o atual',
+                                ),
+                              ),
+                              Padding(
+                                padding: const EdgeInsets.only(bottom: 12),
+                                child: _campoText(
+                                  'Token de produção',
+                                  _camposCtrl['production_token']!,
+                                  isSenha: true,
+                                  hint: 'Deixe vazio para manter o atual',
+                                ),
+                              ),
+                            ],
+                          );
+                        }
                         return Padding(
                           padding: const EdgeInsets.only(bottom: 12),
                           child: _campoText(
@@ -6625,6 +6870,37 @@ class _EditarIntegracaoDialogState extends State<_EditarIntegracaoDialog> {
                 ),
               ),
             ),
+            // Aviso de segurança
+            if (_camposDoProvedor().isNotEmpty)
+              Padding(
+                padding: const EdgeInsets.fromLTRB(24, 0, 24, 12),
+                child: Container(
+                  padding: const EdgeInsets.all(12),
+                  decoration: BoxDecoration(
+                    color: const Color(0xFFFFF3E0),
+                    borderRadius: BorderRadius.circular(10),
+                    border: Border.all(color: const Color(0xFFFFE0B2)),
+                  ),
+                  child: Row(
+                    crossAxisAlignment: CrossAxisAlignment.start,
+                    children: [
+                      Icon(Icons.info_outline, size: 18, color: Colors.orange.shade800),
+                      const SizedBox(width: 10),
+                      Expanded(
+                        child: Text(
+                          'Os tokens são criptografados no servidor com AES-256-GCM. '
+                          'Nunca armazenamos tokens em texto puro.',
+                          style: GoogleFonts.plusJakartaSans(
+                            fontSize: 12,
+                            color: Colors.orange.shade900,
+                            height: 1.4,
+                          ),
+                        ),
+                      ),
+                    ],
+                  ),
+                ),
+              ),
             // Footer
             Container(
               padding: const EdgeInsets.fromLTRB(24, 14, 24, 18),
@@ -8310,6 +8586,8 @@ class _NovaIntegracaoLojistaDialogState
   bool _certificadoAnexado = false;
   String? _nomeCertificado;
   Uint8List? _certificadoBytes;
+  bool _buscandoCep = false;
+  final FocusNode _numeroFocus = FocusNode();
 
   static const _regimes = [
     'MEI',
@@ -8350,6 +8628,8 @@ class _NovaIntegracaoLojistaDialogState
   @override
   void initState() {
     super.initState();
+    _cepCtrl.addListener(_onCepAlterado);
+    unawaited(CidadesBrasilService.precarregar());
     _carregarDados();
   }
 
@@ -8518,6 +8798,7 @@ class _NovaIntegracaoLojistaDialogState
 
   @override
   void dispose() {
+    _cepCtrl.removeListener(_onCepAlterado);
     _searchCtrl.dispose();
     _searchFocus.dispose();
     _limiteCtrl.dispose();
@@ -8525,6 +8806,7 @@ class _NovaIntegracaoLojistaDialogState
     _nomeFantasiaCtrl.dispose();
     _cnpjCtrl.dispose();
     _ieCtrl.dispose();
+    _numeroFocus.dispose();
     _cepCtrl.dispose();
     _logradouroCtrl.dispose();
     _numeroCtrl.dispose();
@@ -9218,13 +9500,21 @@ class _NovaIntegracaoLojistaDialogState
               const SizedBox(height: 12),
 
               // ── Endereço fiscal (campos individuais) ──
-              _campoForm('CEP', _cepCtrl, '00000-000'),
+              _campoCep(),
               const SizedBox(height: 12),
               _campoForm('Logradouro', _logradouroCtrl, 'Rua, Avenida...'),
               const SizedBox(height: 12),
               Row(
                 children: [
-                  Expanded(flex: 2, child: _campoForm('Número', _numeroCtrl, 'Nº')),
+                  Expanded(
+                    flex: 2,
+                    child: _campoForm(
+                      'Número',
+                      _numeroCtrl,
+                      'Nº',
+                      focusNode: _numeroFocus,
+                    ),
+                  ),
                   const SizedBox(width: 12),
                   Expanded(flex: 3, child: _campoForm('Complemento', _complementoCtrl, 'Apto, Bloco (opcional)')),
                 ],
@@ -9255,7 +9545,7 @@ class _NovaIntegracaoLojistaDialogState
                 ],
               ),
               const SizedBox(height: 12),
-              _campoForm('Código IBGE do Município', _codigoCidadeCtrl, '7 dígitos'),
+              _campoIbgeComLupa(),
               const SizedBox(height: 12),
               _campoForm('CNAE', _cnaeCtrl, 'Código CNAE de 7 dígitos'),
               const SizedBox(height: 12),
@@ -9372,7 +9662,207 @@ class _NovaIntegracaoLojistaDialogState
     );
   }
 
-  Widget _campoForm(String label, TextEditingController ctrl, String hint) {
+  void _onCepAlterado() {
+    final text = _cepCtrl.text.replaceAll(RegExp(r'[^0-9]'), '');
+    if (text.length > 8) return;
+
+    final masked = text.length <= 5
+        ? text
+        : '${text.substring(0, 5)}-${text.substring(5)}';
+    if (_cepCtrl.text != masked) {
+      _cepCtrl.text = masked;
+      _cepCtrl.selection = TextSelection.collapsed(offset: masked.length);
+    }
+
+    if (text.length == 8) {
+      _buscarCepPorApi(text);
+    }
+  }
+
+  Future<void> _buscarCepPorApi(String cep) async {
+    if (_buscandoCep) return;
+    setState(() => _buscandoCep = true);
+    try {
+      final response = await http.get(
+        Uri.parse('https://viacep.com.br/ws/$cep/json/'),
+        headers: {'Accept': 'application/json'},
+      );
+      if (response.statusCode != 200) {
+        throw Exception('HTTP ${response.statusCode}');
+      }
+
+      final data = jsonDecode(response.body) as Map<String, dynamic>;
+      if (data.containsKey('erro') && data['erro'] == true) {
+        if (!mounted) return;
+        setState(() => _buscandoCep = false);
+        PremiumResultDialog.mostrarErro(
+          context,
+          titulo: 'CEP não encontrado',
+          mensagem: 'Verifique o número digitado e tente novamente.',
+        );
+        return;
+      }
+
+      final logradouro = (data['logradouro'] as String?)?.trim() ?? '';
+      final bairro = (data['bairro'] as String?)?.trim() ?? '';
+      final cidade = (data['localidade'] as String?)?.trim() ?? '';
+      final estado = (data['uf'] as String?)?.trim() ?? '';
+      final ibge = (data['ibge'] as String?)?.trim() ?? '';
+
+      if (!mounted) return;
+      setState(() => _buscandoCep = false);
+
+      if (logradouro.isNotEmpty) _logradouroCtrl.text = logradouro;
+      if (bairro.isNotEmpty) _bairroCtrl.text = bairro;
+      if (cidade.isNotEmpty) _cidadeCtrl.text = cidade;
+      if (estado.isNotEmpty) _ufCtrl.text = estado;
+      if (ibge.isNotEmpty) _codigoCidadeCtrl.text = ibge;
+
+      _numeroCtrl.clear();
+      _numeroFocus.requestFocus();
+    } catch (_) {
+      if (!mounted) return;
+      setState(() => _buscandoCep = false);
+      PremiumResultDialog.mostrarErro(
+        context,
+        titulo: 'Erro ao consultar CEP',
+        mensagem:
+            'Não foi possível consultar o CEP. Verifique sua conexão e tente novamente.',
+      );
+    }
+  }
+
+  Future<void> _abrirSeletorIbge() async {
+    final selecionado = await IbgeMunicipioPickerModal.abrir(context);
+    if (selecionado == null || !mounted) return;
+    setState(() {
+      _codigoCidadeCtrl.text = selecionado.codigoIbge;
+      _cidadeCtrl.text = selecionado.nome;
+      _ufCtrl.text = selecionado.ufSigla;
+    });
+  }
+
+  Widget _campoCep() {
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.start,
+      children: [
+        Text(
+          'CEP',
+          style: GoogleFonts.plusJakartaSans(
+            fontSize: 11,
+            fontWeight: FontWeight.w600,
+            color: _textoSecundario,
+          ),
+        ),
+        const SizedBox(height: 4),
+        TextField(
+          controller: _cepCtrl,
+          keyboardType: TextInputType.number,
+          decoration: InputDecoration(
+            hintText: '00000-000',
+            hintStyle: GoogleFonts.plusJakartaSans(
+              fontSize: 12,
+              color: _textoSecundario.withValues(alpha: 0.5),
+            ),
+            suffixIcon: _buscandoCep
+                ? const Padding(
+                    padding: EdgeInsets.all(12),
+                    child: SizedBox(
+                      width: 18,
+                      height: 18,
+                      child: CircularProgressIndicator(
+                        strokeWidth: 2,
+                        color: _roxoPrimario,
+                      ),
+                    ),
+                  )
+                : null,
+            filled: true,
+            fillColor: Colors.white,
+            contentPadding:
+                const EdgeInsets.symmetric(horizontal: 12, vertical: 10),
+            border: OutlineInputBorder(
+              borderRadius: BorderRadius.circular(8),
+              borderSide: const BorderSide(color: Color(0xFFE9E8F0)),
+            ),
+            enabledBorder: OutlineInputBorder(
+              borderRadius: BorderRadius.circular(8),
+              borderSide: const BorderSide(color: Color(0xFFE9E8F0)),
+            ),
+            focusedBorder: OutlineInputBorder(
+              borderRadius: BorderRadius.circular(8),
+              borderSide: const BorderSide(color: _roxoPrimario, width: 1.5),
+            ),
+          ),
+          style: GoogleFonts.plusJakartaSans(
+            fontSize: 13,
+            color: _textoPrimario,
+          ),
+        ),
+      ],
+    );
+  }
+
+  Widget _campoIbgeComLupa() {
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.start,
+      children: [
+        Text(
+          'Código IBGE do Município',
+          style: GoogleFonts.plusJakartaSans(
+            fontSize: 11,
+            fontWeight: FontWeight.w600,
+            color: _textoSecundario,
+          ),
+        ),
+        const SizedBox(height: 4),
+        TextField(
+          controller: _codigoCidadeCtrl,
+          keyboardType: TextInputType.number,
+          inputFormatters: [FilteringTextInputFormatter.digitsOnly],
+          decoration: InputDecoration(
+            hintText: '7 dígitos',
+            hintStyle: GoogleFonts.plusJakartaSans(
+              fontSize: 12,
+              color: _textoSecundario.withValues(alpha: 0.5),
+            ),
+            suffixIcon: IconButton(
+              icon: const Icon(Icons.search_rounded, color: _roxoPrimario),
+              tooltip: 'Buscar município',
+              onPressed: _abrirSeletorIbge,
+            ),
+            filled: true,
+            fillColor: Colors.white,
+            contentPadding:
+                const EdgeInsets.symmetric(horizontal: 12, vertical: 10),
+            border: OutlineInputBorder(
+              borderRadius: BorderRadius.circular(8),
+              borderSide: const BorderSide(color: Color(0xFFE9E8F0)),
+            ),
+            enabledBorder: OutlineInputBorder(
+              borderRadius: BorderRadius.circular(8),
+              borderSide: const BorderSide(color: Color(0xFFE9E8F0)),
+            ),
+            focusedBorder: OutlineInputBorder(
+              borderRadius: BorderRadius.circular(8),
+              borderSide: const BorderSide(color: _roxoPrimario, width: 1.5),
+            ),
+          ),
+          style: GoogleFonts.plusJakartaSans(
+            fontSize: 13,
+            color: _textoPrimario,
+          ),
+        ),
+      ],
+    );
+  }
+
+  Widget _campoForm(
+    String label,
+    TextEditingController ctrl,
+    String hint, {
+    FocusNode? focusNode,
+  }) {
     return Column(
       crossAxisAlignment: CrossAxisAlignment.start,
       children: [
@@ -9384,6 +9874,7 @@ class _NovaIntegracaoLojistaDialogState
         const SizedBox(height: 4),
         TextField(
           controller: ctrl,
+          focusNode: focusNode,
           decoration: InputDecoration(
             hintText: hint,
             hintStyle: GoogleFonts.plusJakartaSans(
@@ -9562,16 +10053,11 @@ class _NovaIntegracaoLojistaDialogState
 
     if (erros.isNotEmpty) {
       if (!mounted) return;
-      ScaffoldMessenger.of(context).showSnackBar(
-        SnackBar(
-          content: Text(
-            'Campos obrigatórios pendentes: ${erros.join(', ')}.\n'
-            'Preencha todos os campos antes de continuar.',
-          ),
-          backgroundColor: Colors.red.shade700,
-          behavior: SnackBarBehavior.floating,
-          duration: const Duration(seconds: 6),
-        ),
+      PremiumResultDialog.mostrarErro(
+        context,
+        titulo: 'Campos obrigatórios',
+        mensagem:
+            'Preencha todos os campos antes de continuar:\n${erros.join(', ')}.',
       );
       return;
     }
@@ -9594,8 +10080,11 @@ class _NovaIntegracaoLojistaDialogState
   }
 
   Future<void> _salvarIntegracao() async {
+    final t0 = DateTime.now();
+    debugPrint('[TRACE_salvar] _salvarIntegracao INÍCIO');
     setState(() => _salvando = true);
     try {
+      debugPrint('[TRACE_salvar] salvando=true setado');
       final agora = DateTime.now();
       final proxMes = DateTime(agora.year, agora.month + 1, agora.day);
       final l = _lojistaSelecionado!;
@@ -9668,33 +10157,81 @@ class _NovaIntegracaoLojistaDialogState
         certEncrypted = '${base64Encode(_certificadoBytes!)}::$senha';
       }
 
-      // Sincroniza configurações fiscais com todos os dados
-      await FiscalIntegrationsService.salvarOuAtualizarSettings(
+      // ─── 1. Vincula a loja à integração via callable ───
+      debugPrint('[TRACE_salvar] Chamando vincularIntegracaoLojaCallable...');
+      await FiscalIntegrationsService.vincularIntegracaoLojaCallable(
         storeId: l.storeId,
         integrationId: _provedorSelecionado!.id,
+      );
+      debugPrint('[TRACE_salvar] vincularIntegracaoLojaCallable OK');
+
+      // ─── 2. Salva as demais configurações fiscais da loja ───
+      debugPrint('[TRACE_salvar] Chamando salvarOuAtualizarSettings...');
+      await FiscalIntegrationsService.salvarOuAtualizarSettings(
+        storeId: l.storeId,
         enableNfe: true,
         status: 'active',
         companyTaxData: razao.isNotEmpty || cnpj.isNotEmpty
             ? companyTaxData
             : null,
         nfeSettings: nfeSettings,
-        certificateDataEncrypted: certEncrypted,
       );
+      debugPrint('[TRACE_salvar] salvarOuAtualizarSettings OK');
 
-      widget.onSalvar?.call();
-      if (mounted) Navigator.of(context).pop();
-    } catch (e) {
-      debugPrint('[NovaIntegracaoLojista] Erro ao salvar: $e');
+      // Fecha o formulário ANTES do modal premium (pop após showDialog cancela o sucesso).
+      final onSalvar = widget.onSalvar;
       if (mounted) {
-        ScaffoldMessenger.of(context).showSnackBar(
-          SnackBar(
-            content: Text('Erro ao criar integração: $e'),
-            behavior: SnackBarBehavior.floating,
-          ),
-        );
+        Navigator.of(context, rootNavigator: true).pop();
+      }
+      if (onSalvar != null) {
+        WidgetsBinding.instance.addPostFrameCallback((_) => onSalvar());
+      }
+      debugPrint('[TRACE_salvar] SUCESSO — pop executado, total=${DateTime.now().difference(t0).inMilliseconds}ms');
+    } catch (e, stack) {
+      String titulo;
+      String mensagem;
+      if (e is AppCheckException) {
+        titulo = 'Falha de segurança';
+        mensagem = '${e.message}\n\n'
+            'Se o problema persistir, verifique se o domínio '
+            'www.dipertin.com.br está autorizado no '
+            'reCAPTCHA Admin (www.google.com/recaptcha/admin).';
+      } else if (e is CallableHttpException) {
+        titulo = 'Servidor rejeitou a operação';
+        mensagem = mensagemCallableHttpException(e);
+      } else if (e is TimeoutException) {
+        titulo = 'Tempo excedido';
+        mensagem = 'O servidor não respondeu dentro do prazo. '
+            'Verifique sua conexão e tente novamente.';
+      } else {
+        titulo = 'Erro inesperado';
+        mensagem = 'Ocorreu um erro ao criar a integração fiscal.\n\n'
+            '${e.toString().replaceAll(RegExp("[<>&\"'<>]"), ' ')}';
+      }
+      debugPrint('[TRACE_salvar] catch — tipo=${e.runtimeType}: $e');
+      if (mounted) {
+        try {
+          PremiumResultDialog.mostrarErro(
+            context,
+            titulo: titulo,
+            mensagem: mensagem,
+          );
+        } catch (_) {
+          debugPrint('[TRACE_salvar] Erro ao exibir diálogo de erro ignorado');
+        }
       }
     } finally {
-      if (mounted) setState(() => _salvando = false);
+      debugPrint('[TRACE_salvar] FINALLY executando — mounted=$mounted');
+      if (mounted) {
+        try {
+          setState(() => _salvando = false);
+        } catch (_) {}
+        debugPrint('[TRACE_salvar] salvando=false confirmado');
+      } else {
+        debugPrint('[TRACE_salvar] mounted=false — NÃO resetou salvando');
+      }
+      final total = DateTime.now().difference(t0).inMilliseconds;
+      debugPrint('[TRACE_salvar] FIM — total=${total}ms');
     }
   }
 
@@ -11108,7 +11645,35 @@ class _DetalheIntegracaoLojistaDialogState
             errosDetalhados: [
               'Provider: ${provider.nome}',
               'Ambiente: ${integracaoData['environment'] ?? 'sandbox'}',
+              'A API Focus NFe rejeitou as credenciais.',
             ],
+          );
+        } on CallableHttpException catch (e) {
+          final code = e.code.toLowerCase();
+          final String mensagem;
+          final List<String> detalhes;
+          if (code == 'unauthenticated') {
+            mensagem = 'Sessão expirada ou App Check inválido. Faça login novamente.';
+            detalhes = [
+              'Código: UNAUTHENTICATED',
+              'O token de App Check pode estar ausente ou inválido.',
+              'Se o erro persistir, publique as Cloud Functions mais recentes.',
+            ];
+          } else if (code == 'permission_denied' || code == 'permission-denied') {
+            mensagem = 'Usuário sem autorização para acessar esta integração.';
+            detalhes = [
+              'Código: PERMISSION_DENIED',
+              'Verifique se você tem permissão de staff ou lojista autorizado.',
+            ];
+          } else {
+            mensagem = 'Erro na Cloud Function: ${e.message}';
+            detalhes = ['Código: ${e.code}', 'Mensagem: ${e.message}'];
+          }
+          return TestConexaoResultado(
+            sucesso: false,
+            provedor: _i.planoNome,
+            mensagem: mensagem,
+            errosDetalhados: detalhes,
           );
         } catch (e) {
           return TestConexaoResultado(
@@ -11658,15 +12223,11 @@ class _DetalheIntegracaoLojistaDialogState
                             final codCid = codigoCidadeCtrl.text.trim();
                             if (codCid.length < 7 || !RegExp(r'^\d{7}$').hasMatch(codCid)) erros.add('Código IBGE (7 dígitos)');
                             if (erros.isNotEmpty) {
-                              ScaffoldMessenger.of(context)
-                                  .showSnackBar(
-                                SnackBar(
-                                  content: Text(
-                                    'Campos obrigatórios pendentes: ${erros.join(', ')}.'),
-                                  backgroundColor: Colors.red.shade700,
-                                  behavior: SnackBarBehavior.floating,
-                                  duration: const Duration(seconds: 6),
-                                ),
+                              PremiumResultDialog.mostrarErro(
+                                ctx,
+                                titulo: 'Campos obrigatórios',
+                                mensagem:
+                                    'Preencha todos os campos antes de salvar:\n${erros.join(', ')}.',
                               );
                               return;
                             }
@@ -11688,47 +12249,45 @@ class _DetalheIntegracaoLojistaDialogState
                               'regime_tributario': regime,
                               'crt': _NovaIntegracaoLojistaDialogState._crtDoRegime(regime),
                             };
-                            // Certificado
-                            String? certEncrypted;
-                            if (certificadoBytes != null &&
-                                certificadoBytes!
-                                    .isNotEmpty) {
-                              certEncrypted =
-                                  '${base64Encode(certificadoBytes!)}::${senhaCertCtrl.text.trim()}';
-                            }
                             // Guarda referências antes do await
-                            final scaffold =
-                                ScaffoldMessenger.of(context);
                             final onAtualizar =
                                 widget.onAtualizar;
                             // Preserva nfe_settings existente (environment nunca é perdido)
-                            final nfeSettingsExistente = existingSettings?['nfe_settings'] as Map<String, dynamic>?;
+                            final nfeSettingsExistente =
+                                existingSettings?['nfe_settings']
+                                    as Map<String, dynamic>?;
+                            // ─── 1. Reforça o vínculo com a integração (idempotente) ───
+                            // A callable repopula integration_data e remove
+                            // integration_removida_em, mesmo em edição de company_tax_data.
+                            try {
+                              final integIdExistente = existingSettings?['integration_id'] as String?;
+                              if (integIdExistente != null && integIdExistente.isNotEmpty) {
+                                await FiscalIntegrationsService.vincularIntegracaoLojaCallable(
+                                  storeId: storeId,
+                                  integrationId: integIdExistente,
+                                );
+                              }
+                            } catch (e) {
+                              debugPrint('[EditarDadosFiscais] Aviso: callable de vínculo falhou (prosseguindo): $e');
+                            }
+                            // ─── 2. Salva company_tax_data e demais configs ───
+                            // integration_id/integration_data NÃO são mais gerenciados aqui.
                             await FiscalIntegrationsService
                                 .salvarOuAtualizarSettings(
                               storeId: storeId,
-                              integrationId:
-                                  existingSettings?[
-                                          'integration_id']
-                                      as String?,
                               enableNfe: true,
                               status: 'active',
                               companyTaxData: companyTaxData,
                               nfeSettings: nfeSettingsExistente,
-                              certificateDataEncrypted:
-                                  certEncrypted,
+                              // Certificado é salvo via FiscalCertificatesService
                             );
-                            if (ctx.mounted) {
-                              Navigator.pop(ctx);
-                              scaffold.showSnackBar(
-                                const SnackBar(
-                                  content: Text(
-                                      'Dados fiscais salvos com sucesso!'),
-                                  backgroundColor:
-                                      Color(0xFF22C55E),
-                                  behavior:
-                                      SnackBarBehavior
-                                          .floating,
-                                ),
+                            if (ctx.mounted) Navigator.pop(ctx);
+                            if (mounted) {
+                              PremiumResultDialog.mostrarSucesso(
+                                context,
+                                titulo: 'Dados atualizados',
+                                mensagem:
+                                    'A configuração fiscal da loja foi atualizada.',
                               );
                             }
                             onAtualizar?.call();

@@ -46,7 +46,73 @@ const CONFIG_PADRAO = {
     memory: "512MiB",
     maxInstances: 10,
     timeoutSeconds: 60,
+    // Painel web roda sem App Check (reCAPTCHA desativado).
+    // Sem enforceAppCheck:false, app:MISSING gera UNAUTHENTICATED / "Unauthenticated".
+    enforceAppCheck: false,
+    // Garante que o token App Check ausente não seja consumido/rejeitado.
+    consumeAppCheckToken: false,
 };
+
+// =============================================================================
+// HELPER DE VALIDAÇÃO COMPARTILHADO
+// =============================================================================
+
+/**
+ * Valida que o caller é um lojista apto a usar a Gestão Comercial.
+ * - Proprietário (sem lojista_owner_uid): permitido
+ * - Colaborador: exige painel_colaborador_nivel >= 2
+ * - Qualquer outro perfil (cliente, entregador, etc.): negado
+ * - Loja bloqueada: negado
+ *
+ * Lança HttpsError com mensagem descritiva se a validação falhar.
+ * Retorna { callerUid, lojaId, ownerUid } em caso de sucesso.
+ */
+async function assertGestaoComercialAccess(db, request) {
+    if (!request.auth) {
+        throw new HttpsError("unauthenticated", "Login necessario.");
+    }
+    const callerUid = request.auth.uid;
+    const callerSnap = await db.collection("users").doc(callerUid).get();
+    if (!callerSnap.exists) {
+        throw new HttpsError("failed-precondition", "Perfil nao encontrado.");
+    }
+    const caller = callerSnap.data();
+    const role = String(caller.role || caller.tipoUsuario || "").toLowerCase();
+    if (role !== "lojista") {
+        throw new HttpsError("permission-denied", "Apenas lojistas podem acessar a Gestao Comercial.");
+    }
+    // Se for colaborador, validar nivel >= 2
+    const ownerUid = String(caller.lojista_owner_uid || "").trim();
+    if (ownerUid) {
+        const nivel = Number(caller.painel_colaborador_nivel || 0);
+        if (nivel < 2) {
+            throw new HttpsError(
+                "permission-denied",
+                "Voce nao tem permissao para acessar a Gestao Comercial."
+            );
+        }
+        // Verificar se a loja (dono) esta bloqueada
+        const ownerSnap = await db.collection("users").doc(ownerUid).get();
+        if (ownerSnap.exists) {
+            const owner = ownerSnap.data();
+            const bloqueado = owner.block_lojista
+                || owner.conta_bloqueada
+                || owner.status_loja === "bloqueada";
+            if (bloqueado) {
+                throw new HttpsError("permission-denied", "A loja esta bloqueada.");
+            }
+        }
+        return { callerUid, lojaId: ownerUid, ownerUid };
+    }
+    // Proprietario: verificar bloqueio da propria loja
+    const block = caller.block_lojista
+        || caller.conta_bloqueada
+        || caller.status_loja === "bloqueada";
+    if (block) {
+        throw new HttpsError("permission-denied", "Sua loja esta bloqueada.");
+    }
+    return { callerUid, lojaId: callerUid, ownerUid: "" };
+}
 
 // Para funções que exigem mais tempo ou recursos
 const CONFIG_PESADO = {
@@ -55,6 +121,7 @@ const CONFIG_PESADO = {
     memory: "1GiB",
     maxInstances: 5,
     timeoutSeconds: 120,
+    enforceAppCheck: false,
 };
 
 // =============================================================================
@@ -1228,6 +1295,7 @@ exports.gestaoComercialCriarPagamentoPix = onCall(
         if (!request.auth) {
             throw new HttpsError("unauthenticated", "Login necessario.");
         }
+        await assertGestaoComercialAccess(admin.firestore(), request);
 
         const data = request.data || {};
         const lojaId = String(data.lojaId || "").trim();
@@ -1363,6 +1431,7 @@ exports.gestaoComercialConsultarStatusPix = onCall(
             if (!request.auth) {
                 throw new HttpsError("unauthenticated", "Login necessario.");
             }
+            await assertGestaoComercialAccess(admin.firestore(), request);
 
             const cobrancaId = String(request.data?.cobrancaId || "").trim();
             if (!cobrancaId) {
@@ -1510,6 +1579,7 @@ exports.gestaoComercialTestarConexaoMercadoPago = onCall(
         if (!request.auth) {
             throw new HttpsError("unauthenticated", "Login necessario.");
         }
+        await assertGestaoComercialAccess(admin.firestore(), request);
 
         const accessToken = String(request.data?.accessToken || "").trim();
         const ambiente = String(request.data?.ambiente || "producao").trim();
@@ -1563,6 +1633,7 @@ exports.gestaoComercialTestarConexaoGateway = onCall(
         if (!request.auth) {
             throw new HttpsError("unauthenticated", "Login necessario.");
         }
+        await assertGestaoComercialAccess(admin.firestore(), request);
 
         const provedor = String(request.data?.provedor || "mercado_pago").trim();
         const accessToken = String(request.data?.accessToken || "").trim();
@@ -1881,6 +1952,7 @@ exports.gestaoComercialAbrirCaixa = onCall(
         if (!request.auth) {
             throw new HttpsError("unauthenticated", "Login necessario.");
         }
+        await assertGestaoComercialAccess(admin.firestore(), request);
 
         const data = request.data || {};
         const lojaId = String(data.lojaId || "").trim();
@@ -1959,6 +2031,7 @@ exports.gestaoComercialFecharCaixa = onCall(
         if (!request.auth) {
             throw new HttpsError("unauthenticated", "Login necessario.");
         }
+        await assertGestaoComercialAccess(admin.firestore(), request);
 
         const data = request.data || {};
         const lojaId = String(data.lojaId || "").trim();
@@ -2083,6 +2156,7 @@ exports.gestaoComercialReceberPagamento = onCall(
         if (!request.auth) {
             throw new HttpsError("unauthenticated", "Login necessario.");
         }
+        await assertGestaoComercialAccess(admin.firestore(), request);
 
         const data = request.data || {};
         const lojaId = String(data.lojaId || "").trim();
@@ -2188,6 +2262,7 @@ exports.gestaoComercialConcederCredito = onCall(
         if (!request.auth) {
             throw new HttpsError("unauthenticated", "Login necessario.");
         }
+        await assertGestaoComercialAccess(admin.firestore(), request);
 
         const data = request.data || {};
         const lojaId = String(data.lojaId || "").trim();
@@ -2250,6 +2325,7 @@ exports.gestaoComercialConsultarPendencias = onCall(
         if (!request.auth) {
             throw new HttpsError("unauthenticated", "Login necessario.");
         }
+        await assertGestaoComercialAccess(admin.firestore(), request);
 
         const data = request.data || {};
         const lojaId = String(data.lojaId || "").trim();
@@ -2342,6 +2418,7 @@ exports.gestaoComercialHistoricoVendas = onCall(
         if (!request.auth) {
             throw new HttpsError("unauthenticated", "Login necessario.");
         }
+        await assertGestaoComercialAccess(admin.firestore(), request);
 
         const data = request.data || {};
         const lojaId = String(data.lojaId || "").trim();
@@ -2412,6 +2489,7 @@ exports.gestaoComercialRelatorio = onCall(
         if (!request.auth) {
             throw new HttpsError("unauthenticated", "Login necessario.");
         }
+        await assertGestaoComercialAccess(admin.firestore(), request);
 
         const data = request.data || {};
         const lojaId = String(data.lojaId || "").trim();
@@ -2515,6 +2593,7 @@ exports.gestaoComercialFinanceiroCliente = onCall(
         if (!request.auth) {
             throw new HttpsError("unauthenticated", "Login necessario.");
         }
+        await assertGestaoComercialAccess(admin.firestore(), request);
 
         const data = request.data || {};
         const lojaId = String(data.lojaId || "").trim();
@@ -2614,6 +2693,7 @@ exports.gestaoComercialConsultarParcelas = onCall(
         if (!request.auth) {
             throw new HttpsError("unauthenticated", "Login necessario.");
         }
+        await assertGestaoComercialAccess(admin.firestore(), request);
 
         const data = request.data || {};
         const lojaId = String(data.lojaId || "").trim();
@@ -2721,17 +2801,80 @@ function _decryptToken(stored) {
     return stored;
 }
 
-function _extrairProvedorWhatsApp(apiUrl) {
+const VZAPS_API_BASE = "https://api.vzaps.com";
+
+/**
+ * Normaliza telefone para APIs WhatsApp (VZaps exige DDI, ex.: 5511999999999).
+ * Cadastro comercial costuma guardar só DDD+número (10/11 dígitos).
+ */
+function _normalizarTelefoneWhatsAppIntl(raw) {
+    let d = String(raw || "").replace(/\D/g, "");
+    if (!d) return "";
+    // Remove zeros à esquerda ocasionais (ex.: 055...)
+    d = d.replace(/^0+/, "");
+    if (!d) return "";
+    if (d.startsWith("55") && d.length >= 12 && d.length <= 13) return d;
+    // BR local: DDD + número (10) ou celular com 9 (11)
+    if (d.length === 10 || d.length === 11) return "55" + d;
+    return d;
+}
+
+function _normalizarProvedorWhatsApp(raw) {
+    const p = String(raw || "").trim().toLowerCase();
+    if (p === "vzaps" || p === "v-zaps") return "vzaps";
+    if (p === "meta" || p === "meta_cloud" || p === "facebook") return "meta";
+    if (p === "evolution" || p === "evolution_api") return "evolution";
+    if (p === "zapi" || p === "z-api") return "zapi";
+    if (p === "custom" || p === "outro" || p === "generic" || p === "api_personalizada") return "custom";
+    return p || "";
+}
+
+function _extrairProvedorWhatsApp(apiUrl, provedorHint) {
+    const hint = _normalizarProvedorWhatsApp(provedorHint);
+    if (hint) return hint === "generic" ? "custom" : hint;
     const url = String(apiUrl || "").toLowerCase();
+    if (url.includes("api.vzaps.com") || url.includes("vzaps")) return "vzaps";
     if (url.includes("graph.facebook.com") || url.includes("graph.fb")) return "meta";
     if (url.includes("z-api")) return "zapi";
     if (url.includes("evolution")) return "evolution";
-    return "generic";
+    return "custom";
+}
+
+function _resolverCredenciaisWhatsApp(canal, override) {
+    const base = canal && typeof canal === "object" ? canal : {};
+    const ov = override && typeof override === "object" ? override : {};
+    const pick = (key) => {
+        const v = ov[key];
+        if (v === undefined || v === null) return base[key];
+        const s = String(v).trim();
+        // Máscara / vazio no override = manter valor já salvo
+        if (!s || s === "••••••••" || s === "********") return base[key];
+        return v;
+    };
+    const apiUrlRaw = String(pick("apiUrl") || "").trim();
+    const provedor = _extrairProvedorWhatsApp(apiUrlRaw, pick("provedor"));
+    return {
+        provedor,
+        apiUrl: provedor === "vzaps"
+            ? (apiUrlRaw || VZAPS_API_BASE)
+            : apiUrlRaw,
+        token: _decryptToken(pick("token")),
+        clientToken: _decryptToken(pick("clientToken")),
+        clientSecret: _decryptToken(pick("clientSecret")),
+        instanceId: String(pick("instanceId") || "").trim(),
+        remetente: String(pick("remetente") || "").trim(),
+        authMethod: String(pick("authMethod") || "").trim().toLowerCase() || "bearer",
+        endpointEnvio: String(pick("endpointEnvio") || "").trim(),
+        templateMensagem: String(pick("templateMensagem") || base.templateMensagem || "").trim(),
+        nome: String(pick("nome") || base.nome || "").trim(),
+    };
 }
 
 function _montarPayloadWhatsApp(provedor, remetente, mensagem, destino) {
-    const number = String(destino || "").replace(/\D/g, "");
+    const number = _normalizarTelefoneWhatsAppIntl(destino);
     switch (provedor) {
+        case "vzaps":
+            return { phone: number, message: mensagem };
         case "meta":
             return {
                 messaging_product: "whatsapp",
@@ -2745,13 +2888,70 @@ function _montarPayloadWhatsApp(provedor, remetente, mensagem, destino) {
         case "evolution":
             return { number, text: mensagem, delay: 1200 };
         default:
-            return { to: number, text: mensagem };
+            return { to: number, phone: number, text: mensagem, message: mensagem };
     }
 }
 
-function _montarHeadersWhatsApp(provedor, token) {
+/**
+ * Interpreta resposta HTTP do provedor WhatsApp.
+ * VZaps: HTTP 200 = enfileirado; body.success deve ser true (docs: WorkerEnvelopeQueuedMessage).
+ */
+function _interpretarRespostaEnvioWhatsApp(provedor, r) {
+    const status = Number(r && r.status) || 0;
+    const parsed = _parseJsonBodySafe(r && r.body);
+    const detalhe = (() => {
+        if (parsed) {
+            return parsed.message || parsed.error || parsed.msg
+                || (parsed.success === false ? JSON.stringify(parsed).substring(0, 200) : null)
+                || null;
+        }
+        return String((r && r.body) || "").substring(0, 200) || null;
+    })();
+
+    if (provedor === "vzaps") {
+        const okHttp = status >= 200 && status < 300;
+        const successBody = parsed == null
+            ? okHttp
+            : (parsed.success === true || parsed.success === "true"
+                || Number(parsed.code) === 200);
+        if (okHttp && successBody) {
+            const messageId = parsed && parsed.data && parsed.data.message_id
+                ? String(parsed.data.message_id)
+                : null;
+            return { ok: true, status, provedor, messageId };
+        }
+        return {
+            ok: false,
+            status,
+            provedor,
+            erro: "Falha no provedor VZAPS (HTTP " + status + ")"
+                + (detalhe ? ": " + detalhe : (parsed && parsed.success === false
+                    ? ": API aceitou a requisicao mas success=false (verifique o telefone com DDI 55)"
+                    : "")),
+        };
+    }
+
+    if (status >= 200 && status < 300) {
+        return { ok: true, status, provedor };
+    }
+    return {
+        ok: false,
+        status,
+        provedor,
+        erro: "Falha no provedor " + String(provedor || "whatsapp").toUpperCase()
+            + " (HTTP " + status + ")"
+            + (detalhe ? ": " + detalhe : ""),
+    };
+}
+
+function _montarHeadersWhatsApp(provedor, token, extras) {
     const headers = { "Content-Type": "application/json", Accept: "application/json" };
+    const authMethod = String((extras && extras.authMethod) || "").toLowerCase();
     switch (provedor) {
+        case "vzaps":
+            if (extras && extras.clientToken) headers["X-Client-Token"] = extras.clientToken;
+            if (token) headers["X-Instance-Token"] = token;
+            break;
         case "meta":
             headers["Authorization"] = "Bearer " + token;
             break;
@@ -2762,73 +2962,177 @@ function _montarHeadersWhatsApp(provedor, token) {
             headers["apikey"] = token;
             break;
         default:
-            headers["Authorization"] = "Bearer " + token;
+            if (authMethod === "apikey" || authMethod === "header_apikey") {
+                headers["apikey"] = token;
+            } else if (authMethod === "client_token") {
+                headers["Client-Token"] = token;
+            } else if (authMethod === "x_api_key") {
+                headers["X-API-Key"] = token;
+            } else {
+                headers["Authorization"] = "Bearer " + token;
+            }
     }
     return headers;
 }
 
-function _montarUrlEnvioWhatsApp(provedor, apiUrl, remetente) {
+function _montarUrlEnvioWhatsApp(provedor, apiUrl, remetente, extras) {
     const base = String(apiUrl || "").replace(/\/+$/, "");
     switch (provedor) {
+        case "vzaps": {
+            const instanceId = String((extras && extras.instanceId) || "").trim();
+            return (base || VZAPS_API_BASE) + "/instances/" + instanceId + "/chat/send/text";
+        }
         case "meta":
             return base + "/v22.0/" + String(remetente || "").trim() + "/messages";
         case "zapi":
             return base + "/message/sendText";
         case "evolution":
             return base + "/message/sendText/" + String(remetente || "default").trim();
-        default:
+        default: {
+            const endpoint = String((extras && extras.endpointEnvio) || "").trim();
+            if (endpoint.startsWith("http")) return endpoint;
+            if (endpoint) return base + (endpoint.startsWith("/") ? endpoint : "/" + endpoint);
             return base + "/messages";
+        }
     }
 }
 
-function _montarUrlTesteWhatsApp(provedor, apiUrl) {
+function _montarUrlTesteWhatsApp(provedor, apiUrl, extras) {
     const base = String(apiUrl || "").replace(/\/+$/, "");
     switch (provedor) {
+        case "vzaps": {
+            const instanceId = String((extras && extras.instanceId) || "").trim();
+            return (base || VZAPS_API_BASE) + "/instances/" + instanceId + "/session/status";
+        }
         case "meta":
             return base + "/v22.0/me";
         case "zapi":
             return base + "/health";
         case "evolution":
             return base + "/instance/info";
-        default:
+        default: {
+            const endpoint = String((extras && extras.endpointEnvio) || "").trim();
+            if (endpoint.startsWith("http")) {
+                try {
+                    const u = new URL(endpoint);
+                    return u.origin + "/ping";
+                } catch (_) { /* fallthrough */ }
+            }
             return base + "/ping";
+        }
+    }
+}
+
+function _parseJsonBodySafe(body) {
+    try {
+        return JSON.parse(String(body || "{}"));
+    } catch (_) {
+        return null;
     }
 }
 
 /**
  * Testa a conexão com a API WhatsApp.
- * Recebe: { lojaId }
+ * Recebe: { lojaId, credenciais?: { provedor, apiUrl, token, clientToken, instanceId, ... } }
+ * Credenciais opcionais permitem testar antes de salvar.
  */
 exports.gestaoComercialWhatsAppTestarConexao = onCall(
-    Object.assign({}, CONFIG_PADRAO, { enforceAppCheck: false }),
+    Object.assign({}, CONFIG_PADRAO, {
+        enforceAppCheck: false,
+        consumeAppCheckToken: false,
+    }),
     async (request) => {
-        if (!request.auth) throw new HttpsError("unauthenticated", "Login necessario.");
-        const lojaId = String((request.data || {}).lojaId || "").trim();
+        // Log diagnóstico (não inclui secrets).
+        console.log("[WhatsAppTestar] auth=", request.auth ? request.auth.uid : null,
+            "app=", request.app ? "present" : "missing");
+        if (!request.auth) {
+            throw new HttpsError(
+                "unauthenticated",
+                "Sessao expirada. Faca login novamente no painel e tente outra vez.",
+            );
+        }
+        await assertGestaoComercialAccess(admin.firestore(), request);
+        const data = request.data || {};
+        const lojaId = String(data.lojaId || "").trim();
         if (!lojaId) throw new HttpsError("invalid-argument", "lojaId e obrigatorio.");
 
         const snap = await admin.firestore()
             .collection("gestao_comercial_configuracoes")
             .doc(lojaId).get();
         const canal = ((snap.data() || {}).cobranca || {}).whatsapp || {};
-        const apiUrl = String(canal.apiUrl || "").trim();
-        const token = _decryptToken(canal.token);
+        const cfg = _resolverCredenciaisWhatsApp(canal, data.credenciais);
 
-        if (!apiUrl) return { ok: false, mensagem: "URL da API WhatsApp nao informada." };
-        if (!token) return { ok: false, mensagem: "Token / API Key nao configurada." };
+        if (cfg.provedor === "vzaps") {
+            if (!cfg.instanceId) {
+                return { ok: false, mensagem: "Informe o ID da instancia VZaps (ex.: VZ...)." };
+            }
+            if (!cfg.clientToken) {
+                return { ok: false, mensagem: "Informe o Client Token (X-Client-Token) da VZaps." };
+            }
+            if (!cfg.token) {
+                return { ok: false, mensagem: "Informe o Instance Token (X-Instance-Token) da VZaps." };
+            }
+        } else {
+            if (!cfg.apiUrl) return { ok: false, mensagem: "URL da API WhatsApp nao informada." };
+            if (!cfg.token) return { ok: false, mensagem: "Token / API Key nao configurada." };
+        }
 
-        const provedor = _extrairProvedorWhatsApp(apiUrl);
-        const testUrl = _montarUrlTesteWhatsApp(provedor, apiUrl);
-        const headers = _montarHeadersWhatsApp(provedor, token);
+        const extras = {
+            instanceId: cfg.instanceId,
+            clientToken: cfg.clientToken,
+            authMethod: cfg.authMethod,
+            endpointEnvio: cfg.endpointEnvio,
+        };
+        const testUrl = _montarUrlTesteWhatsApp(cfg.provedor, cfg.apiUrl, extras);
+        const headers = _montarHeadersWhatsApp(cfg.provedor, cfg.token, extras);
 
         try {
             const r = await _httpReq(testUrl, { method: "GET", headers });
-            if (r.status >= 200 && r.status < 500) {
-                return { ok: true, mensagem: "Conexao realizada. Provedor: " + provedor.toUpperCase(), provedor };
+            const parsed = _parseJsonBodySafe(r.body);
+            if (cfg.provedor === "vzaps") {
+                const connected = !!(parsed && (
+                    (parsed.data && parsed.data.connected === true) ||
+                    parsed.connected === true
+                ));
+                const phone = (parsed && parsed.data && parsed.data.phone)
+                    ? String(parsed.data.phone)
+                    : "";
+                if (r.status >= 200 && r.status < 300 && connected) {
+                    return {
+                        ok: true,
+                        mensagem: "Instancia VZaps conectada ao WhatsApp.",
+                        provedor: "vzaps",
+                        telefoneConectado: phone,
+                        connected: true,
+                    };
+                }
+                if (r.status >= 200 && r.status < 300 && !connected) {
+                    return {
+                        ok: false,
+                        mensagem: "Credenciais validas, mas a instancia ainda nao esta pareada. Escaneie o QR Code no painel VZaps e tente novamente.",
+                        provedor: "vzaps",
+                        connected: false,
+                    };
+                }
+                return {
+                    ok: false,
+                    mensagem: "VZaps retornou status " + r.status + ". Verifique Instance ID e tokens.",
+                    provedor: "vzaps",
+                };
             }
-            return { ok: false, mensagem: "API retornou status " + r.status + "." };
+            if (r.status >= 200 && r.status < 500) {
+                return {
+                    ok: true,
+                    mensagem: "Conexao realizada. Provedor: " + cfg.provedor.toUpperCase(),
+                    provedor: cfg.provedor,
+                };
+            }
+            return { ok: false, mensagem: "API retornou status " + r.status + ".", provedor: cfg.provedor };
         } catch (err) {
             const m = String(err && err.message ? err.message : err);
-            if (/ENOTFOUND|getaddrinfo/i.test(m)) return { ok: false, mensagem: "Host nao encontrado (" + apiUrl + ")." };
+            if (/ENOTFOUND|getaddrinfo/i.test(m)) {
+                return { ok: false, mensagem: "Host nao encontrado (" + (cfg.apiUrl || VZAPS_API_BASE) + ")." };
+            }
             if (/ETIMEDOUT|timeout/i.test(m)) return { ok: false, mensagem: "Timeout — servidor nao respondeu." };
             if (/ECONNREFUSED/i.test(m)) return { ok: false, mensagem: "Servidor recusou conexao." };
             return { ok: false, mensagem: m };
@@ -2844,6 +3148,7 @@ exports.gestaoComercialWhatsAppEnviar = onCall(
     Object.assign({}, CONFIG_PADRAO, { enforceAppCheck: false }),
     async (request) => {
         if (!request.auth) throw new HttpsError("unauthenticated", "Login necessario.");
+        await assertGestaoComercialAccess(admin.firestore(), request);
         const data = request.data || {};
         const lojaId = String(data.lojaId || "").trim();
         const destino = String(data.destino || "").trim();
@@ -2856,13 +3161,17 @@ exports.gestaoComercialWhatsAppEnviar = onCall(
             .collection("gestao_comercial_configuracoes")
             .doc(lojaId).get();
         const canal = ((snap.data() || {}).cobranca || {}).whatsapp || {};
-        const apiUrl = String(canal.apiUrl || "").trim();
-        const token = _decryptToken(canal.token);
-        const remetente = String(canal.remetente || "").trim();
-        const template = String(canal.templateMensagem || "").trim();
+        const cfg = _resolverCredenciaisWhatsApp(canal, null);
+        const template = cfg.templateMensagem;
 
-        if (!apiUrl) throw new HttpsError("failed-precondition", "URL da API WhatsApp nao configurada.");
-        if (!token) throw new HttpsError("failed-precondition", "Token / API Key nao configurada.");
+        if (cfg.provedor === "vzaps") {
+            if (!cfg.instanceId || !cfg.clientToken || !cfg.token) {
+                throw new HttpsError("failed-precondition", "Integracao VZaps incompleta.");
+            }
+        } else {
+            if (!cfg.apiUrl) throw new HttpsError("failed-precondition", "URL da API WhatsApp nao configurada.");
+            if (!cfg.token) throw new HttpsError("failed-precondition", "Token / API Key nao configurada.");
+        }
         if (!template) throw new HttpsError("failed-precondition", "Template de mensagem nao configurado.");
 
         const vars = Object.assign({}, variaveis, {
@@ -2881,18 +3190,39 @@ exports.gestaoComercialWhatsAppEnviar = onCall(
             mensagem = mensagem.split("{" + k + "}").join(String(v ?? ""));
         }
 
-        const provedor = _extrairProvedorWhatsApp(apiUrl);
-        const urlEnvio = _montarUrlEnvioWhatsApp(provedor, apiUrl, remetente);
-        const headers = _montarHeadersWhatsApp(provedor, token);
-        const body = _montarPayloadWhatsApp(provedor, remetente, mensagem, destino);
+        const extras = {
+            instanceId: cfg.instanceId,
+            clientToken: cfg.clientToken,
+            authMethod: cfg.authMethod,
+            endpointEnvio: cfg.endpointEnvio,
+        };
+        const urlEnvio = _montarUrlEnvioWhatsApp(cfg.provedor, cfg.apiUrl, cfg.remetente, extras);
+        const headers = _montarHeadersWhatsApp(cfg.provedor, cfg.token, extras);
+        const body = _montarPayloadWhatsApp(cfg.provedor, cfg.remetente, mensagem, destino);
 
         try {
             const r = await _httpReq(urlEnvio, { method: "POST", headers }, body);
-            const resposta = (() => { try { return JSON.stringify(JSON.parse(r.body)).substring(0, 500); } catch (_) { return String(r.body || "").substring(0, 500); } })();
-            if (r.status >= 200 && r.status < 300) {
-                return { ok: true, mensagem: "Mensagem enviada via " + provedor.toUpperCase() + ".", statusHttp: r.status };
+            const interpretado = _interpretarRespostaEnvioWhatsApp(cfg.provedor, r);
+            const resposta = (() => {
+                try { return JSON.stringify(JSON.parse(r.body)).substring(0, 500); }
+                catch (_) { return String(r.body || "").substring(0, 500); }
+            })();
+            if (interpretado.ok) {
+                return {
+                    ok: true,
+                    mensagem: "Mensagem enviada via " + cfg.provedor.toUpperCase() + ".",
+                    statusHttp: r.status,
+                    provedor: cfg.provedor,
+                    messageId: interpretado.messageId || null,
+                    destinoNormalizado: body.phone || body.to || body.number || null,
+                };
             }
-            return { ok: false, mensagem: "Falha no envio. Status: " + r.status, detalhe: resposta };
+            return {
+                ok: false,
+                mensagem: interpretado.erro || ("Falha no envio. Status: " + r.status),
+                detalhe: resposta,
+                provedor: cfg.provedor,
+            };
         } catch (err) {
             return { ok: false, mensagem: "Erro ao enviar: " + String(err && err.message ? err.message : err) };
         }
@@ -2900,7 +3230,7 @@ exports.gestaoComercialWhatsAppEnviar = onCall(
 );
 
 /**
- * Firestore trigger: criptografa token do WhatsApp se estiver em texto puro.
+ * Firestore trigger: criptografa secrets do WhatsApp se estiverem em texto puro.
  */
 exports.gestaoComercialWhatsAppEncryptTokenOnWrite = onDocumentWritten(
     {
@@ -2912,15 +3242,21 @@ exports.gestaoComercialWhatsAppEncryptTokenOnWrite = onDocumentWritten(
         if (!depois) return;
         const whatsapp = (depois.cobranca || {}).whatsapp;
         if (!whatsapp || typeof whatsapp !== "object") return;
-        const token = String(whatsapp.token || "").trim();
-        if (!token || token.startsWith("enc:v1:")) return;
         if (!_emailHelpers || !_emailHelpers.encryptSecret) return;
-        const encToken = _emailHelpers.encryptSecret(token);
-        if (!encToken) return;
+
+        const patch = {};
+        for (const key of ["token", "clientToken", "clientSecret"]) {
+            const raw = String(whatsapp[key] || "").trim();
+            if (!raw || raw.startsWith("enc:v1:")) continue;
+            const enc = _emailHelpers.encryptSecret(raw);
+            if (enc) patch[key] = enc;
+        }
+        if (Object.keys(patch).length === 0) return;
+
         await admin.firestore()
             .collection("gestao_comercial_configuracoes")
             .doc(event.params.lojaId)
-            .set({ cobranca: { whatsapp: { token: encToken } } }, { merge: true });
+            .set({ cobranca: { whatsapp: patch } }, { merge: true });
     },
 );
 
@@ -2930,37 +3266,107 @@ exports.gestaoComercialWhatsAppEncryptTokenOnWrite = onDocumentWritten(
 
 /**
  * Testa a conexão com a API Comtele SMS.
- * Recebe: { lojaId }
+ * Recebe: { lojaId, credenciais?: { token, apiUrl, remetente } }
+ * Credenciais opcionais permitem testar a Auth Key antes de salvar.
  */
 exports.gestaoComercialSmsTestarConexao = onCall(
-    Object.assign({}, CONFIG_PADRAO, { enforceAppCheck: false }),
+    Object.assign({}, CONFIG_PADRAO, {
+        enforceAppCheck: false,
+        consumeAppCheckToken: false,
+    }),
     async (request) => {
-        if (!request.auth) throw new HttpsError("unauthenticated", "Login necessario.");
-        const lojaId = String((request.data || {}).lojaId || "").trim();
+        console.log("[SmsTestar] auth=", request.auth ? request.auth.uid : null,
+            "app=", request.app ? "present" : "missing");
+        if (!request.auth) {
+            throw new HttpsError(
+                "unauthenticated",
+                "Sessao expirada. Faca login novamente no painel e tente outra vez.",
+            );
+        }
+        await assertGestaoComercialAccess(admin.firestore(), request);
+        const data = request.data || {};
+        const lojaId = String(data.lojaId || "").trim();
         if (!lojaId) throw new HttpsError("invalid-argument", "lojaId e obrigatorio.");
 
         const snap = await admin.firestore()
             .collection("gestao_comercial_configuracoes")
             .doc(lojaId).get();
         const canal = ((snap.data() || {}).cobranca || {}).sms || {};
-        const apiUrl = String(canal.apiUrl || "https://sms.comtele.com.br/api/v2").replace(/\/+$/, "");
-        const token = _decryptToken(canal.token);
+        const cred = (data.credenciais && typeof data.credenciais === "object")
+            ? data.credenciais
+            : {};
 
-        if (!token) return { ok: false, mensagem: "Auth Key da Comtele nao configurada." };
+        const pickPlain = (raw) => {
+            const s = String(raw == null ? "" : raw).trim();
+            if (!s || s === "••••••••" || s === "********") return "";
+            if (s.startsWith("enc:v1:")) return "";
+            return s;
+        };
+
+        const tokenOverride = pickPlain(cred.token);
+        const token = tokenOverride || _decryptToken(canal.token);
+        const apiUrl = String(
+            pickPlain(cred.apiUrl) || canal.apiUrl || "https://sms.comtele.com.br/api/v2",
+        ).replace(/\/+$/, "");
+
+        if (!token) {
+            return {
+                ok: false,
+                mensagem: "Informe a Auth Key da Comtele no campo do modal e teste novamente.",
+            };
+        }
 
         const headers = { "Content-Type": "application/json", "auth-key": token };
 
         try {
-            const r = await _httpReq(apiUrl + "/account/balance", { method: "GET", headers });
-            if (r.status === 200) {
-                let saldo = "";
-                try { const j = JSON.parse(r.body); saldo = j.Balance || j.balance || j.credits || ""; } catch (_) {}
-                return { ok: true, mensagem: "Conexao Comtele realizada. Saldo: " + saldo };
+            // Docs Comtele (sms.comtele.com.br/api/v2): GET /credits — NÃO /account/balance
+            const creditsUrl = apiUrl.replace(/\/+$/, "") + "/credits";
+            console.log("[SmsTestar] GET", creditsUrl);
+            const r = await _httpReq(creditsUrl, { method: "GET", headers });
+            const parsed = (() => {
+                try { return JSON.parse(String(r.body || "{}")); }
+                catch (_) { return null; }
+            })();
+
+            if (r.status === 200 || r.status === 201) {
+                const success = parsed == null
+                    ? true
+                    : (parsed.Success === true || parsed.success === true
+                        || parsed.HasError === false || parsed.hasError === false
+                        || parsed.Success === undefined);
+                if (parsed && (parsed.Success === false || parsed.success === false
+                    || parsed.HasError === true || parsed.hasError === true)) {
+                    const msg = parsed.Message || parsed.message || "Auth Key rejeitada pela Comtele.";
+                    return { ok: false, mensagem: String(msg) };
+                }
+                const saldoRaw = parsed && (
+                    parsed.Object ?? parsed.object ?? parsed.Balance ?? parsed.balance
+                    ?? parsed.credits ?? parsed.Credit ?? null
+                );
+                const saldo = (saldoRaw !== null && saldoRaw !== undefined && saldoRaw !== "")
+                    ? String(saldoRaw)
+                    : "";
+                return {
+                    ok: success !== false,
+                    mensagem: saldo
+                        ? ("Conexao Comtele OK. Saldo: " + saldo)
+                        : "Conexao Comtele realizada com sucesso.",
+                };
             }
             if (r.status === 401 || r.status === 403) {
-                return { ok: false, mensagem: "Auth Key invalida ou sem permissao." };
+                return { ok: false, mensagem: "Auth Key invalida ou sem permissao na Comtele." };
             }
-            return { ok: false, mensagem: "API retornou status " + r.status + "." };
+            const detalhe = (() => {
+                if (parsed) {
+                    return parsed.Message || parsed.message || JSON.stringify(parsed).substring(0, 160);
+                }
+                return String(r.body || "").substring(0, 160);
+            })();
+            return {
+                ok: false,
+                mensagem: "Comtele retornou HTTP " + r.status
+                    + (detalhe ? (": " + detalhe) : "."),
+            };
         } catch (err) {
             const m = String(err && err.message ? err.message : err);
             if (/ENOTFOUND|getaddrinfo/i.test(m)) return { ok: false, mensagem: "Host nao encontrado." };
@@ -2975,9 +3381,18 @@ exports.gestaoComercialSmsTestarConexao = onCall(
  * Recebe: { lojaId, destino, variaveis: { cliente, valor, vencimento, link, ... } }
  */
 exports.gestaoComercialSmsEnviar = onCall(
-    Object.assign({}, CONFIG_PADRAO, { enforceAppCheck: false }),
+    Object.assign({}, CONFIG_PADRAO, {
+        enforceAppCheck: false,
+        consumeAppCheckToken: false,
+    }),
     async (request) => {
-        if (!request.auth) throw new HttpsError("unauthenticated", "Login necessario.");
+        if (!request.auth) {
+            throw new HttpsError(
+                "unauthenticated",
+                "Sessao expirada. Faca login novamente no painel e tente outra vez.",
+            );
+        }
+        await assertGestaoComercialAccess(admin.firestore(), request);
         const data = request.data || {};
         const lojaId = String(data.lojaId || "").trim();
         const destino = String(data.destino || "").trim();
@@ -3018,23 +3433,36 @@ exports.gestaoComercialSmsEnviar = onCall(
             .replace(/[^\x20-\x7E\n\r]/g, "");
 
         const number = String(destino).replace(/\D/g, "");
+        const phone = number.startsWith("55") ? number : ("55" + number);
+        const sender = remetente.replace(/[^\x20-\x7E]/g, "").substring(0, 11) || "DiPertin";
 
         try {
-            const r = await _httpReq(apiUrl + "/sms/send", {
+            // Docs Comtele: POST /send (não /sms/send); Receivers como string
+            const r = await _httpReq(apiUrl.replace(/\/+$/, "") + "/send", {
                 method: "POST",
                 headers: { "Content-Type": "application/json", "auth-key": token },
             }, {
-                Sender: remetente.substring(0, 11),
-                Receivers: [number.startsWith("55") ? number : "55" + number],
+                Sender: sender,
+                Receivers: phone,
                 Content: mensagem.substring(0, 160),
             });
 
-            const resposta = (() => { try { return JSON.stringify(JSON.parse(r.body)); } catch (_) { return String(r.body || ""); } })();
+            const parsed = (() => {
+                try { return JSON.parse(String(r.body || "{}")); }
+                catch (_) { return null; }
+            })();
+            const resposta = parsed ? JSON.stringify(parsed).substring(0, 500) : String(r.body || "").substring(0, 500);
+            const successBody = parsed == null
+                ? (r.status >= 200 && r.status < 300)
+                : (parsed.Success === true || parsed.success === true
+                    || (!(parsed.Success === false || parsed.success === false)
+                        && r.status >= 200 && r.status < 300));
 
-            if (r.status >= 200 && r.status < 300) {
+            if (successBody) {
                 return { ok: true, mensagem: "SMS enviado com sucesso via Comtele.", statusHttp: r.status };
             }
-            return { ok: false, mensagem: "Falha no envio SMS. Status: " + r.status, detalhe: resposta };
+            const msgErro = (parsed && (parsed.Message || parsed.message)) || ("Status: " + r.status);
+            return { ok: false, mensagem: "Falha no envio SMS. " + msgErro, detalhe: resposta };
         } catch (err) {
             return { ok: false, mensagem: "Erro ao enviar SMS: " + String(err && err.message ? err.message : err) };
         }
@@ -3075,9 +3503,18 @@ exports.gestaoComercialSmsEncryptTokenOnWrite = onDocumentWritten(
  * Recebe: { lojaId }
  */
 exports.gestaoComercialApiExternaTestarConexao = onCall(
-    Object.assign({}, CONFIG_PADRAO, { enforceAppCheck: false }),
+    Object.assign({}, CONFIG_PADRAO, {
+        enforceAppCheck: false,
+        consumeAppCheckToken: false,
+    }),
     async (request) => {
-        if (!request.auth) throw new HttpsError("unauthenticated", "Login necessario.");
+        if (!request.auth) {
+            throw new HttpsError(
+                "unauthenticated",
+                "Sessao expirada. Faca login novamente no painel e tente outra vez.",
+            );
+        }
+        await assertGestaoComercialAccess(admin.firestore(), request);
         const lojaId = String((request.data || {}).lojaId || "").trim();
         if (!lojaId) throw new HttpsError("invalid-argument", "lojaId e obrigatorio.");
 
@@ -3127,6 +3564,7 @@ exports.gestaoComercialApiExternaEnviar = onCall(
     Object.assign({}, CONFIG_PADRAO, { enforceAppCheck: false }),
     async (request) => {
         if (!request.auth) throw new HttpsError("unauthenticated", "Login necessario.");
+        await assertGestaoComercialAccess(admin.firestore(), request);
         const data = request.data || {};
         const lojaId = String(data.lojaId || "").trim();
         const destino = String(data.destino || "").trim();
@@ -3222,12 +3660,8 @@ async function _enviarNotificacaoCanal(lojaId, canal, destino, mensagem, variave
     const snap = await db.collection("gestao_comercial_configuracoes").doc(lojaId).get();
     const cfg = snap.data() || {};
     const canais = (cfg.cobranca || {})[canal] || {};
-    const apiUrl = String(canais.apiUrl || "").trim();
-    const token = _decryptToken(canais.token);
-    const remetente = String(canais.remetente || "").trim();
     const template = mensagem;
 
-    if (!apiUrl || !token) return { ok: false, erro: "Canal nao configurado" };
     if (!template) return { ok: false, erro: "Template vazio" };
 
     let msg = template;
@@ -3238,30 +3672,80 @@ async function _enviarNotificacaoCanal(lojaId, canal, destino, mensagem, variave
     try {
         switch (canal) {
             case "whatsapp": {
-                const provedor = _extrairProvedorWhatsApp(apiUrl);
-                const url = _montarUrlEnvioWhatsApp(provedor, apiUrl, remetente);
-                const headers = _montarHeadersWhatsApp(provedor, token);
-                const body = _montarPayloadWhatsApp(provedor, remetente, msg, destino);
+                const wa = _resolverCredenciaisWhatsApp(canais, null);
+                if (wa.provedor === "vzaps") {
+                    if (!wa.instanceId || !wa.clientToken || !wa.token) {
+                        return { ok: false, erro: "Canal WhatsApp (VZaps) nao configurado. Abra Configuracoes → WhatsApp e salve a integracao." };
+                    }
+                } else if (!wa.apiUrl || !wa.token) {
+                    return { ok: false, erro: "Canal WhatsApp nao configurado." };
+                }
+                const extras = {
+                    instanceId: wa.instanceId,
+                    clientToken: wa.clientToken,
+                    authMethod: wa.authMethod,
+                    endpointEnvio: wa.endpointEnvio,
+                };
+                const url = _montarUrlEnvioWhatsApp(wa.provedor, wa.apiUrl, wa.remetente, extras);
+                const headers = _montarHeadersWhatsApp(wa.provedor, wa.token, extras);
+                const body = _montarPayloadWhatsApp(wa.provedor, wa.remetente, msg, destino);
+                const phoneNorm = body.phone || body.to || body.number || "";
+                console.log("[gc-whatsapp] envio", {
+                    provedor: wa.provedor,
+                    url,
+                    destinoOriginal: String(destino || "").replace(/\d(?=\d{4})/g, "*"),
+                    destinoNormalizado: String(phoneNorm).replace(/\d(?=\d{4})/g, "*"),
+                    instanceId: wa.instanceId || null,
+                });
                 const r = await _httpReq(url, { method: "POST", headers }, body);
-                return { ok: r.status >= 200 && r.status < 300, status: r.status };
+                const interpretado = _interpretarRespostaEnvioWhatsApp(wa.provedor, r);
+                console.log("[gc-whatsapp] resposta", {
+                    provedor: wa.provedor,
+                    status: r.status,
+                    ok: interpretado.ok,
+                    messageId: interpretado.messageId || null,
+                    erro: interpretado.erro || null,
+                });
+                return interpretado;
             }
             case "sms": {
-                const base = apiUrl.replace(/\/+$/, "");
+                const apiUrl = String(canais.apiUrl || "https://sms.comtele.com.br/api/v2").trim();
+                const token = _decryptToken(canais.token);
+                const remetente = String(canais.remetente || "").trim();
+                if (!token) return { ok: false, erro: "Canal SMS nao configurado (Auth Key Comtele)." };
+                const base = apiUrl.replace(/\/+$/, "") || "https://sms.comtele.com.br/api/v2";
                 const number = String(destino).replace(/\D/g, "");
+                const phone = number.startsWith("55") ? number : ("55" + number);
                 const smsMsg = msg
                     .normalize("NFD").replace(/[\u0300-\u036f]/g, "")
                     .replace(/[^\x20-\x7E\n\r]/g, "").substring(0, 160);
-                const r = await _httpReq(base + "/sms/send", {
+                const sender = remetente.replace(/[^\x20-\x7E]/g, "").substring(0, 11) || "DiPertin";
+                const r = await _httpReq(base + "/send", {
                     method: "POST",
                     headers: { "Content-Type": "application/json", "auth-key": token },
                 }, {
-                    Sender: remetente.substring(0, 11) || "DiPertin",
-                    Receivers: [number.startsWith("55") ? number : "55" + number],
+                    Sender: sender,
+                    Receivers: phone,
                     Content: smsMsg,
                 });
-                return { ok: r.status >= 200 && r.status < 300, status: r.status };
+                const parsed = (() => {
+                    try { return JSON.parse(String(r.body || "{}")); }
+                    catch (_) { return null; }
+                })();
+                const ok = r.status >= 200 && r.status < 300 && !(
+                    parsed && (parsed.Success === false || parsed.success === false)
+                );
+                const erro = ok ? null : (
+                    (parsed && (parsed.Message || parsed.message))
+                    || ("Falha Comtele HTTP " + r.status)
+                );
+                return { ok, status: r.status, erro };
             }
             case "api_externa": {
+                const apiUrl = String(canais.apiUrl || "").trim();
+                const token = _decryptToken(canais.token);
+                const remetente = String(canais.remetente || "").trim();
+                if (!apiUrl || !token) return { ok: false, erro: "Canal nao configurado" };
                 const base = apiUrl.replace(/\/+$/, "");
                 const r = await _httpReq(base, {
                     method: "POST",
@@ -3499,6 +3983,7 @@ exports.gestaoComercialAutomacaoProcessarLoja = onCall(
     Object.assign({}, CONFIG_PADRAO, { enforceAppCheck: false }),
     async (request) => {
         if (!request.auth) throw new HttpsError("unauthenticated", "Login necessario.");
+        await assertGestaoComercialAccess(admin.firestore(), request);
         const data = request.data || {};
         const lojaId = String(data.lojaId || "").trim();
         if (!lojaId) throw new HttpsError("invalid-argument", "lojaId e obrigatorio.");
@@ -3524,9 +4009,15 @@ exports.gestaoComercialAutomacaoProcessarLoja = onCall(
  * Grava tudo em gestao_comercial_comunicacoes_historico/{lojaId}/envios/{autoId}.
  */
 exports.gestaoComercialEnviarComunicacao = onCall(
-    Object.assign({}, CONFIG_PADRAO, { enforceAppCheck: false }),
+    Object.assign({}, CONFIG_PADRAO, {
+        enforceAppCheck: false,
+        consumeAppCheckToken: false,
+    }),
     async (request) => {
-        if (!request.auth) throw new HttpsError("unauthenticated", "Login necessario.");
+        if (!request.auth) {
+            throw new HttpsError("unauthenticated", "Login necessario.");
+        }
+        const acesso = await assertGestaoComercialAccess(admin.firestore(), request);
         const data = request.data || {};
         const lojaId = String(data.lojaId || "").trim();
         const clienteId = String(data.clienteId || "").trim();
@@ -3537,6 +4028,22 @@ exports.gestaoComercialEnviarComunicacao = onCall(
         if (!clienteId) throw new HttpsError("invalid-argument", "clienteId e obrigatorio.");
         if (!tipo || !["cobranca", "comprovante"].includes(tipo)) throw new HttpsError("invalid-argument", "tipo deve ser 'cobranca' ou 'comprovante'.");
         if (canais.length === 0) throw new HttpsError("invalid-argument", "Selecione ao menos um canal.");
+
+        // Garante que o lojista só envia pela própria loja (dono ou loja do colaborador).
+        if (lojaId !== acesso.lojaId) {
+            throw new HttpsError(
+                "permission-denied",
+                "Sem permissao para enviar cobranca desta loja."
+            );
+        }
+
+        console.log("[gc-envio] inicio", {
+            uid: request.auth.uid,
+            lojaId,
+            clienteId,
+            tipo,
+            canais,
+        });
 
         const db = admin.firestore();
         const emailHelpers = _emailHelpers;
@@ -3711,7 +4218,13 @@ exports.gestaoComercialEnviarComunicacao = onCall(
                     continue;
                 }
                 const r = await _enviarNotificacaoCanal(lojaId, "whatsapp", destino, templateCanal, variaveis);
-                resultados.push({ canal, ok: r.ok, erro: r.erro || null });
+                resultados.push({
+                    canal,
+                    ok: r.ok,
+                    erro: r.erro || null,
+                    status: r.status || null,
+                    messageId: r.messageId || null,
+                });
             }
 
             else if (canal === "sms") {

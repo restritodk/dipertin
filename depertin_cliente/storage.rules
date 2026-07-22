@@ -163,6 +163,12 @@ service firebase.storage {
       allow delete: if isStaff();
     }
 
+    // Documentos fiscais (XML, DANFE, eventos) — acesso exclusivo via Cloud Functions
+    // (Admin SDK). Nenhum cliente, lojista ou entregador lê/escreve diretamente.
+    match /fiscal/{allPaths=**} {
+      allow read, write: if false;
+    }
+
     // Chat pedido/encomenda — fotos e vídeos compartilhados entre cliente e loja.
     // A autorização fina do participante é validada no Firestore da mensagem.
     match /chat_anexos/{colecao}/{docId}/{userId}/{fileName} {

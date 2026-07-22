@@ -69,10 +69,9 @@ class _FiscalCertificadoModalState extends State<FiscalCertificadoModal> {
         setState(() {
           _erro = null;
           _arquivoSelecionado = arquivo;
-          _infoExtraida = FiscalCertificadoService.extrairInfoBasica(
-            file: arquivo,
-            senha: _senhaController.text,
-          );
+          // Extração local apenas para exibição (nome e tamanho)
+          // A validação completa (PKCS#12) é feita no backend.
+          _infoExtraida = null;
         });
       }
     }
@@ -203,9 +202,9 @@ class _FiscalCertificadoModalState extends State<FiscalCertificadoModal> {
                                   : Colors.green.shade800,
                             ),
                           ),
-                          if (widget.certificadoAtual!.validUntil != null)
+                          if (widget.certificadoAtual!.validadeFim != null)
                             Text(
-                              'Valido ate: ${widget.certificadoAtual!.validUntil!.toLocal().toString().split(' ')[0]}',
+                              'Valido ate: ${widget.certificadoAtual!.validadeFim!.split('T')[0]}',
                               style: TextStyle(
                                 fontSize: 12,
                                 color: widget.certificadoAtual!.isExpired
@@ -320,14 +319,13 @@ class _FiscalCertificadoModalState extends State<FiscalCertificadoModal> {
                       ),
                     ),
                     const SizedBox(height: 4),
-                    if (_infoExtraida!.razaoSocial != null)
+                    if (_infoExtraida!.titular != null)
                       Text(
-                        'Arquivo: ${_infoExtraida!.razaoSocial}',
-                        style: const TextStyle(fontSize: 13),
+                        'Titular: ${_infoExtraida!.titular}',
                       ),
-                    if (_infoExtraida!.validUntil != null)
+                    if (_infoExtraida!.validadeFim != null)
                       Text(
-                        'Validade: ${_infoExtraida!.validUntil!.toLocal().toString().split(' ')[0]}',
+                        'Validade: ${_infoExtraida!.validadeFim}',
                         style: const TextStyle(fontSize: 13),
                       ),
                     Text(

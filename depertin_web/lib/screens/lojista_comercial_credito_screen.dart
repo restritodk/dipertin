@@ -313,6 +313,8 @@ class _LojistaComercialCreditoScreenState
                 );
                 final comCredito = _clientesComCredito(clientes);
                 final atrasoMap = _atrasoPorCliente();
+                final clientesFiltrados =
+                    _filtrarClientes(comCredito, atrasoPorCliente: atrasoMap);
                 final resumo = _calcularResumoCredito(comCredito, atrasoMap);
                 final pctUtilizado = resumo.limiteTotal > 0
                     ? (resumo.creditoUtilizado / resumo.limiteTotal * 100)
@@ -329,7 +331,10 @@ class _LojistaComercialCreditoScreenState
                       child: Column(
                         crossAxisAlignment: CrossAxisAlignment.stretch,
                         children: [
-                          _header(uidLoja),
+                          _header(
+                            uidLoja,
+                            clientesFiltrados: clientesFiltrados,
+                          ),
                           const SizedBox(height: 20),
                           _kpisRow(
                             resumo: resumo,
@@ -403,7 +408,10 @@ class _LojistaComercialCreditoScreenState
 
   // ─── Header ───
 
-  Widget _header(String lojaId) {
+  Widget _header(
+    String lojaId, {
+    required List<ComercialCliente> clientesFiltrados,
+  }) {
     return Row(
       crossAxisAlignment: CrossAxisAlignment.start,
       children: [
@@ -438,8 +446,12 @@ class _LojistaComercialCreditoScreenState
           alignment: WrapAlignment.end,
           children: [
             OutlinedButton.icon(
-              onPressed: () => mostrarComercialExportarModal(context, lojaId: lojaId),
-              icon: const Icon(Icons.download_rounded, size: 18),
+              onPressed: () => mostrarComercialExportarModal(
+                context,
+                lojaId: lojaId,
+                clientesComCreditoFiltrados: clientesFiltrados,
+              ),
+              icon: const Icon(Icons.picture_as_pdf_rounded, size: 18),
               label: const Text('Relatório de crédito'),
               style: OutlinedButton.styleFrom(
                 foregroundColor: PainelAdminTheme.roxo,

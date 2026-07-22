@@ -5,7 +5,7 @@
  * Somente Admin SDK / Cloud Functions (regra Firestore: write staff).
  */
 
-const admin = require("firebase-admin");
+const { FieldValue } = require("firebase-admin/firestore");
 
 const MAX_KEYS = 28;
 const MAX_STRING = 900;
@@ -19,6 +19,10 @@ const MAX_STRING = 900;
  *   detalhe?: unknown,
  *   atorUid?: string|null,
  *   atorEmail?: string|null,
+ *   atorNome?: string|null,
+ *   atorRole?: string|null,
+ *   modulo?: string|null,
+ *   tela?: string|null,
  * }} payload
  */
 async function registrarAuditLog(db, payload) {
@@ -29,22 +33,45 @@ async function registrarAuditLog(db, payload) {
         acao,
         origem,
         categoria,
-        criado_em: admin.firestore.FieldValue.serverTimestamp(),
+        criado_em: FieldValue.serverTimestamp(),
     };
     if (payload.atorUid) doc.ator_uid = String(payload.atorUid);
     if (payload.atorEmail) doc.ator_email = String(payload.atorEmail).slice(0, 200);
+    if (payload.atorNome) doc.ator_nome = String(payload.atorNome).slice(0, 200);
+    if (payload.atorRole) doc.ator_role = String(payload.atorRole).slice(0, 60);
+    if (payload.modulo) doc.modulo = String(payload.modulo).slice(0, 100);
+    if (payload.tela) doc.tela = String(payload.tela).slice(0, 200);
     if (payload.detalhe !== undefined && payload.detalhe !== null) {
         doc.detalhe = sanitizarDetalheValor(payload.detalhe, 0);
     }
     await db.collection("audit_logs").add(doc);
 }
 
+/** Busca dados do usuário no Firestore e retorna { nome, email, role } */
+async function buscarDadosUsuario(db, uid) {
+    if (!uid) return {};
+    try {
+        const snap = await db.collection("users").doc(uid).get();
+        if (!snap.exists) return {};
+        const d = snap.data() || {};
+        return {
+            nome: d.nome || d.displayName || d.nome_fantasia || d.loja_nome || null,
+            email: d.email || null,
+            role: d.role || d.tipoUsuario || null,
+        };
+    } catch (_) {
+        return {};
+    }
+}
+
+module.exports = { registrarAuditLog, sanitizarDetalheValor, buscarDadosUsuario };
+
 function sanitizarDetalheValor(v, depth) {
     if (depth > 3) return "[…]";
     if (v === null || v === undefined) return null;
     if (typeof v === "boolean" || typeof v === "number") return v;
     if (typeof v === "string") return v.slice(0, MAX_STRING);
-    if (v instanceof admin.firestore.Timestamp) {
+    if (v && typeof v.toDate === "function" && typeof v.seconds === "number") {
         try {
             return v.toDate().toISOString();
         } catch {
@@ -68,5 +95,3 @@ function sanitizarDetalheValor(v, depth) {
     }
     return String(v).slice(0, MAX_STRING);
 }
-
-module.exports = { registrarAuditLog, sanitizarDetalheValor };

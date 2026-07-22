@@ -327,7 +327,7 @@ packages:
       path: "../depertin_cliente"
       relative: true
     source: path
-    version: "1.2.7+23"
+    version: "1.2.8+24"
   device_info_plus:
     dependency: transitive
     description:
@@ -425,7 +425,7 @@ packages:
     source: hosted
     version: "0.9.3+5"
   firebase_app_check:
-    dependency: transitive
+    dependency: "direct main"
     description:
       name: firebase_app_check
       sha256: "893cf0f921f76a3eeb288a6fb4ba821d1fdb08f8967d71a429648aea0c172570"

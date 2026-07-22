@@ -25,6 +25,7 @@ class PdvItem {
   final String nome;
   final double preco;
   final String? imagem;
+  final bool produtoAvulso;
   int quantidade;
 
   PdvItem({
@@ -32,6 +33,7 @@ class PdvItem {
     required this.nome,
     required this.preco,
     this.imagem,
+    this.produtoAvulso = false,
     this.quantidade = 1,
   });
 
@@ -41,8 +43,10 @@ class PdvItem {
     'produto_id': id,
     'nome': nome,
     'preco': preco,
+    'valor_unitario': preco,
     'quantidade': quantidade,
     'valor_total': subtotal,
+    if (produtoAvulso) 'produto_avulso': true,
   };
 }
 
@@ -262,6 +266,31 @@ class _LojistaPdvScreenState extends State<LojistaPdvScreen> {
           imagem: img,
         ));
       }
+    });
+  }
+
+  /// Produto avulso: só no carrinho da venda atual (nunca grava em `produtos`).
+  Future<void> _abrirModalProdutoAvulso() async {
+    final resultado = await showDialog<Map<String, dynamic>>(
+      context: context,
+      useRootNavigator: true,
+      builder: (ctx) => const _ModalProdutoAvulso(),
+    );
+    if (resultado == null || !mounted) return;
+
+    final nome = (resultado['nome'] as String?)?.trim() ?? '';
+    final valor = (resultado['valor'] as num?)?.toDouble() ?? 0;
+    if (nome.isEmpty || valor <= 0) return;
+
+    setState(() {
+      _carrinho.add(
+        PdvItem(
+          id: 'avulso_${DateTime.now().microsecondsSinceEpoch}',
+          nome: nome,
+          preco: valor,
+          produtoAvulso: true,
+        ),
+      );
     });
   }
 
@@ -1145,9 +1174,12 @@ class _LojistaPdvScreenState extends State<LojistaPdvScreen> {
                           ),
                         ),
                         const SizedBox(width: 16),
-                        _buildModernIconButton(Icons.qr_code_scanner_rounded, onTap: () {}),
-                        const SizedBox(width: 12),
-                        _buildModernIconButton(Icons.add_rounded, label: 'Novo Produto', color: PainelAdminTheme.laranja, onTap: () {}),
+                        _buildModernIconButton(
+                          Icons.add_rounded,
+                          label: 'Produto avulso',
+                          color: PainelAdminTheme.laranja,
+                          onTap: _abrirModalProdutoAvulso,
+                        ),
                       ],
                     ),
                     const SizedBox(height: 24),
@@ -1592,11 +1624,19 @@ class _LojistaPdvScreenState extends State<LojistaPdvScreen> {
           Container(
             width: 44, height: 44,
             decoration: BoxDecoration(
-              color: const Color(0xFFF8F9FC),
+              color: item.produtoAvulso
+                  ? PainelAdminTheme.laranja.withValues(alpha: 0.12)
+                  : const Color(0xFFF8F9FC),
               borderRadius: BorderRadius.circular(8),
               image: (item.imagem != null && item.imagem!.isNotEmpty) ? DecorationImage(image: NetworkImage(item.imagem!), fit: BoxFit.cover) : null,
             ),
-            child: (item.imagem == null || item.imagem!.isEmpty) ? const Icon(Icons.image_outlined, size: 20, color: Colors.grey) : null,
+            child: (item.imagem == null || item.imagem!.isEmpty)
+                ? Icon(
+                    item.produtoAvulso ? Icons.sell_outlined : Icons.image_outlined,
+                    size: 20,
+                    color: item.produtoAvulso ? PainelAdminTheme.laranja : Colors.grey,
+                  )
+                : null,
           ),
           const SizedBox(width: 12),
           Expanded(
@@ -1604,7 +1644,12 @@ class _LojistaPdvScreenState extends State<LojistaPdvScreen> {
               crossAxisAlignment: CrossAxisAlignment.start,
               children: [
                 Text(item.nome, style: const TextStyle(fontWeight: FontWeight.bold, fontSize: 13), maxLines: 1, overflow: TextOverflow.ellipsis),
-                Text(NumberFormat.currency(locale: 'pt_BR', symbol: r'R$').format(item.preco), style: TextStyle(color: Colors.grey.shade600, fontSize: 11)),
+                Text(
+                  item.produtoAvulso
+                      ? 'Avulso · ${NumberFormat.currency(locale: 'pt_BR', symbol: r'R$').format(item.preco)}'
+                      : NumberFormat.currency(locale: 'pt_BR', symbol: r'R$').format(item.preco),
+                  style: TextStyle(color: Colors.grey.shade600, fontSize: 11),
+                ),
               ],
             ),
           ),
@@ -1713,6 +1758,326 @@ class _LojistaPdvScreenState extends State<LojistaPdvScreen> {
 }
 
 // --- MODAIS PROFISSIONAIS DE CAIXA ---
+
+/// Máscara monetária BR: só dígitos → R$ 0,00 (centavos).
+class _MoedaCentavosInputFormatter extends TextInputFormatter {
+  final NumberFormat _fmt =
+      NumberFormat.currency(locale: 'pt_BR', symbol: r'R$');
+
+  @override
+  TextEditingValue formatEditUpdate(
+    TextEditingValue oldValue,
+    TextEditingValue newValue,
+  ) {
+    final digits = newValue.text.replaceAll(RegExp(r'\D'), '');
+    if (digits.isEmpty) {
+      return const TextEditingValue(
+        text: '',
+        selection: TextSelection.collapsed(offset: 0),
+      );
+    }
+    final capped = digits.length > 11 ? digits.substring(0, 11) : digits;
+    final valor = int.parse(capped) / 100.0;
+    final texto = _fmt.format(valor);
+    return TextEditingValue(
+      text: texto,
+      selection: TextSelection.collapsed(offset: texto.length),
+    );
+  }
+}
+
+/// Modal premium: lança produto avulso só na venda atual (sem cadastro).
+class _ModalProdutoAvulso extends StatefulWidget {
+  const _ModalProdutoAvulso();
+
+  @override
+  State<_ModalProdutoAvulso> createState() => _ModalProdutoAvulsoState();
+}
+
+class _ModalProdutoAvulsoState extends State<_ModalProdutoAvulso> {
+  final _formKey = GlobalKey<FormState>();
+  final _nomeCtrl = TextEditingController();
+  final _valorCtrl = TextEditingController();
+  final _nomeFocus = FocusNode();
+
+  @override
+  void initState() {
+    super.initState();
+    WidgetsBinding.instance.addPostFrameCallback((_) {
+      if (mounted) _nomeFocus.requestFocus();
+    });
+  }
+
+  @override
+  void dispose() {
+    _nomeCtrl.dispose();
+    _valorCtrl.dispose();
+    _nomeFocus.dispose();
+    super.dispose();
+  }
+
+  double _parseValor() {
+    final digits = _valorCtrl.text.replaceAll(RegExp(r'\D'), '');
+    if (digits.isEmpty) return 0;
+    return int.parse(digits) / 100.0;
+  }
+
+  void _lancar() {
+    if (!(_formKey.currentState?.validate() ?? false)) return;
+    final nome = _nomeCtrl.text.trim();
+    final valor = _parseValor();
+    if (nome.isEmpty || valor <= 0) return;
+    Navigator.of(context).pop({'nome': nome, 'valor': valor});
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    return Dialog(
+      shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(20)),
+      elevation: 24,
+      child: Container(
+        width: 420,
+        decoration: const BoxDecoration(
+          borderRadius: BorderRadius.all(Radius.circular(20)),
+          gradient: LinearGradient(
+            begin: Alignment.topCenter,
+            end: Alignment.bottomCenter,
+            colors: [Colors.white, Color(0xFFF8F6FF)],
+          ),
+        ),
+        child: Padding(
+          padding: const EdgeInsets.fromLTRB(24, 28, 24, 20),
+          child: Form(
+            key: _formKey,
+            child: Column(
+              mainAxisSize: MainAxisSize.min,
+              crossAxisAlignment: CrossAxisAlignment.stretch,
+              children: [
+                Center(
+                  child: Container(
+                    width: 56,
+                    height: 56,
+                    decoration: BoxDecoration(
+                      shape: BoxShape.circle,
+                      gradient: LinearGradient(
+                        colors: [
+                          PainelAdminTheme.roxo,
+                          PainelAdminTheme.roxo.withValues(alpha: 0.75),
+                        ],
+                      ),
+                      boxShadow: [
+                        BoxShadow(
+                          color: PainelAdminTheme.roxo.withValues(alpha: 0.28),
+                          blurRadius: 12,
+                          offset: const Offset(0, 4),
+                        ),
+                      ],
+                    ),
+                    child: const Icon(Icons.sell_rounded, color: Colors.white, size: 28),
+                  ),
+                ),
+                const SizedBox(height: 16),
+                Text(
+                  'Adicionar produto avulso',
+                  textAlign: TextAlign.center,
+                  style: GoogleFonts.plusJakartaSans(
+                    fontSize: 20,
+                    fontWeight: FontWeight.w800,
+                    color: const Color(0xFF1A1A2E),
+                  ),
+                ),
+                const SizedBox(height: 6),
+                Text(
+                  'Válido somente nesta venda. Não entra no catálogo nem no estoque.',
+                  textAlign: TextAlign.center,
+                  style: GoogleFonts.plusJakartaSans(
+                    fontSize: 13,
+                    color: const Color(0xFF64748B),
+                    height: 1.35,
+                  ),
+                ),
+                const SizedBox(height: 22),
+                Text(
+                  'Nome do produto *',
+                  style: GoogleFonts.plusJakartaSans(
+                    fontSize: 12,
+                    fontWeight: FontWeight.w700,
+                    color: const Color(0xFF64748B),
+                  ),
+                ),
+                const SizedBox(height: 6),
+                TextFormField(
+                  controller: _nomeCtrl,
+                  focusNode: _nomeFocus,
+                  textInputAction: TextInputAction.next,
+                  style: GoogleFonts.plusJakartaSans(
+                    fontSize: 15,
+                    fontWeight: FontWeight.w600,
+                    color: const Color(0xFF1A1A2E),
+                  ),
+                  decoration: InputDecoration(
+                    hintText: 'Ex: Ajuste, frete, serviço...',
+                    hintStyle: GoogleFonts.plusJakartaSans(
+                      color: const Color(0xFF94A3B8),
+                    ),
+                    filled: true,
+                    fillColor: Colors.white,
+                    contentPadding: const EdgeInsets.symmetric(
+                      horizontal: 14,
+                      vertical: 14,
+                    ),
+                    border: OutlineInputBorder(
+                      borderRadius: BorderRadius.circular(12),
+                      borderSide: const BorderSide(color: Color(0xFFE8E4F0)),
+                    ),
+                    enabledBorder: OutlineInputBorder(
+                      borderRadius: BorderRadius.circular(12),
+                      borderSide: const BorderSide(color: Color(0xFFE8E4F0)),
+                    ),
+                    focusedBorder: OutlineInputBorder(
+                      borderRadius: BorderRadius.circular(12),
+                      borderSide: const BorderSide(
+                        color: PainelAdminTheme.roxo,
+                        width: 1.5,
+                      ),
+                    ),
+                  ),
+                  validator: (v) {
+                    if (v == null || v.trim().isEmpty) {
+                      return 'Informe o nome do produto';
+                    }
+                    return null;
+                  },
+                ),
+                const SizedBox(height: 16),
+                Text(
+                  'Valor *',
+                  style: GoogleFonts.plusJakartaSans(
+                    fontSize: 12,
+                    fontWeight: FontWeight.w700,
+                    color: const Color(0xFF64748B),
+                  ),
+                ),
+                const SizedBox(height: 6),
+                TextFormField(
+                  controller: _valorCtrl,
+                  keyboardType: TextInputType.number,
+                  inputFormatters: [
+                    _MoedaCentavosInputFormatter(),
+                  ],
+                  style: GoogleFonts.plusJakartaSans(
+                    fontSize: 18,
+                    fontWeight: FontWeight.w800,
+                    color: const Color(0xFF1A1A2E),
+                  ),
+                  decoration: InputDecoration(
+                    hintText: r'R$ 0,00',
+                    hintStyle: GoogleFonts.plusJakartaSans(
+                      color: const Color(0xFF94A3B8),
+                      fontWeight: FontWeight.w600,
+                    ),
+                    filled: true,
+                    fillColor: Colors.white,
+                    contentPadding: const EdgeInsets.symmetric(
+                      horizontal: 14,
+                      vertical: 14,
+                    ),
+                    border: OutlineInputBorder(
+                      borderRadius: BorderRadius.circular(12),
+                      borderSide: const BorderSide(color: Color(0xFFE8E4F0)),
+                    ),
+                    enabledBorder: OutlineInputBorder(
+                      borderRadius: BorderRadius.circular(12),
+                      borderSide: const BorderSide(color: Color(0xFFE8E4F0)),
+                    ),
+                    focusedBorder: OutlineInputBorder(
+                      borderRadius: BorderRadius.circular(12),
+                      borderSide: const BorderSide(
+                        color: PainelAdminTheme.laranja,
+                        width: 1.5,
+                      ),
+                    ),
+                  ),
+                  validator: (v) {
+                    if (_parseValor() <= 0) {
+                      return 'Informe um valor maior que zero';
+                    }
+                    return null;
+                  },
+                  onFieldSubmitted: (_) => _lancar(),
+                ),
+                const SizedBox(height: 24),
+                Row(
+                  children: [
+                    Expanded(
+                      child: OutlinedButton(
+                        onPressed: () => Navigator.of(context).pop(),
+                        style: OutlinedButton.styleFrom(
+                          foregroundColor: const Color(0xFF64748B),
+                          side: const BorderSide(color: Color(0xFFD4C8F0)),
+                          padding: const EdgeInsets.symmetric(vertical: 14),
+                          shape: RoundedRectangleBorder(
+                            borderRadius: BorderRadius.circular(12),
+                          ),
+                        ),
+                        child: Text(
+                          'Cancelar',
+                          style: GoogleFonts.plusJakartaSans(
+                            fontWeight: FontWeight.w700,
+                          ),
+                        ),
+                      ),
+                    ),
+                    const SizedBox(width: 12),
+                    Expanded(
+                      flex: 2,
+                      child: DecoratedBox(
+                        decoration: BoxDecoration(
+                          borderRadius: BorderRadius.circular(12),
+                          gradient: const LinearGradient(
+                            colors: [
+                              PainelAdminTheme.roxo,
+                              Color(0xFF8E24AA),
+                            ],
+                          ),
+                          boxShadow: [
+                            BoxShadow(
+                              color: PainelAdminTheme.roxo.withValues(alpha: 0.3),
+                              blurRadius: 10,
+                              offset: const Offset(0, 4),
+                            ),
+                          ],
+                        ),
+                        child: FilledButton(
+                          onPressed: _lancar,
+                          style: FilledButton.styleFrom(
+                            backgroundColor: Colors.transparent,
+                            shadowColor: Colors.transparent,
+                            padding: const EdgeInsets.symmetric(vertical: 14),
+                            shape: RoundedRectangleBorder(
+                              borderRadius: BorderRadius.circular(12),
+                            ),
+                          ),
+                          child: Text(
+                            'Lançar produto',
+                            style: GoogleFonts.plusJakartaSans(
+                              fontWeight: FontWeight.w800,
+                              color: Colors.white,
+                            ),
+                          ),
+                        ),
+                      ),
+                    ),
+                  ],
+                ),
+              ],
+            ),
+          ),
+        ),
+      ),
+    );
+  }
+}
 
 class _ModalAbrirCaixaPasso1 extends StatefulWidget {
   const _ModalAbrirCaixaPasso1();

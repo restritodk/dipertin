@@ -1028,6 +1028,7 @@ async function limparDespachoVoltarEmPreparo(ref, pedidoId, marcarAutoEncerrada)
         busca_entregadores_notificados: [],
         busca_raio_km: admin.firestore.FieldValue.delete(),
         busca_entregador_inicio: admin.firestore.FieldValue.delete(),
+        despacho_expansao_auto_em: admin.firestore.FieldValue.delete(),
     };
     if (marcarAutoEncerrada) {
         patch.despacho_auto_encerrada_sem_entregador = true;
@@ -2573,9 +2574,125 @@ exports.lojistaSolicitarDespachoEntregador = functions
         );
     });
 
+/**
+ * Scheduled (a cada 2 min): expansão automática do raio de busca.
+ *
+ * Quando o despacho primário (5 ciclos 3 km → 5 km → 35 km) não encontra
+ * entregador, o pedido fica em `aguardando_entregador` com a flag
+ * `despacho_aguarda_decisao_lojista: true` e o lojista precisa clicar
+ * "Continuar buscando" manualmente no painel.
+ *
+ * Esta scheduled function automatiza esse passo: detecta pedidos parados
+ * nesse estado e dispara `executarDespachoSequencial("estendido")` para
+ + tentar mais 5 ciclos sem depender da ação manual do lojista.
+ *
+ * Proteções:
+ *   - Respeita `despacho_job_lock` (não conflita com clique manual)
+ *   - `despacho_busca_extensao_usada` impede dupla tentativa
+ *   - Lock via transação Firestore (read-verify-write atômico)
+ *   - Log estruturado para monitoramento
+ */
 exports.expandirBuscaEntregador = functions.pubsub
-    .schedule("every 1 minutes")
+    .schedule("every 2 minutes")
     .timeZone("America/Sao_Paulo")
     .onRun(async () => {
+        const db = admin.firestore();
+        const rodada = Date.now();
+        const lockPrefix = `exp_auto_`;
+
+        const snapshot = await db
+            .collection("pedidos")
+            .where("status", "==", "aguardando_entregador")
+            .get();
+
+        const candidatos = snapshot.docs.filter((d) => {
+            const p = d.data();
+            if (!p.despacho_aguarda_decisao_lojista) return false;
+            if (p.despacho_busca_extensao_usada) return false;
+            if (p.entregador_id) return false;
+            if (p.despacho_job_lock) return false;
+            return true;
+        });
+
+        let processados = 0;
+
+        for (const doc of candidatos) {
+            const ref = doc.ref;
+            const pedidoId = doc.id;
+            const eventId = `${lockPrefix}${pedidoId}_${rodada}`;
+
+            // Adquire lock via transação (read-verify-write atômico).
+            let lockOk = false;
+            try {
+                lockOk = await db.runTransaction(async (t) => {
+                    const s = await t.get(ref);
+                    const x = s.data();
+                    if (!x || x.status !== "aguardando_entregador") return false;
+                    if (x.entregador_id) return false;
+                    if (x.despacho_job_lock) return false;
+                    if (!x.despacho_aguarda_decisao_lojista) return false;
+                    if (x.despacho_busca_extensao_usada) return false;
+
+                    t.update(ref, {
+                        despacho_job_lock: eventId,
+                        despacho_aguarda_decisao_lojista:
+                            admin.firestore.FieldValue.delete(),
+                        despacho_estado: "aguardando_entregador",
+                        despacho_msg_busca_entregador:
+                            "Buscando automaticamente com raio maior. " +
+                            "Se nenhum entregador aceitar, o pedido volta para 'em preparo'.",
+                        despacho_busca_extensao_usada: true,
+                        despacho_expansao_auto_em:
+                            admin.firestore.FieldValue.serverTimestamp(),
+                    });
+                    return true;
+                });
+            } catch (e) {
+                console.warn(
+                    `[expandirBusca] Lock TX falhou pedido ${pedidoId}: ${e.message || e}`,
+                );
+            }
+
+            if (!lockOk) {
+                console.log(
+                    `[expandirBusca] Pedido ${pedidoId} — lock não obtido (skip).`,
+                );
+                continue;
+            }
+
+            processados++;
+
+            try {
+                const fresh = (await ref.get()).data();
+                if (
+                    fresh &&
+                    fresh.status === "aguardando_entregador" &&
+                    !fresh.entregador_id
+                ) {
+                    await executarDespachoSequencial(
+                        ref,
+                        pedidoId,
+                        db,
+                        fresh,
+                        "estendido",
+                    );
+                }
+            } catch (e) {
+                console.error(
+                    `[expandirBusca] Erro no despacho p/ pedido ${pedidoId}: ${e.message || e}`,
+                );
+                // Cleanup do lock se o despacho falhou antes de começar.
+                try {
+                    await ref.update({
+                        despacho_job_lock: admin.firestore.FieldValue.delete(),
+                    });
+                } catch (_) {}
+            }
+        }
+
+        console.log(
+            `[expandirBusca] Rodada ${new Date(rodada).toISOString()}: ` +
+                `${candidatos.length} candidatos, ${processados} processados.`,
+        );
         return null;
     });

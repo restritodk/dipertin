@@ -8,54 +8,96 @@
  * 4. Registra em fiscal_status_history e fiscal_logs
  * 5. Se rejeitada: salva motivo da rejeição
  *
+ * Integração de Saldo:
+ * - Esta função atualiza SALDO via saldoHelper.processarWebhookAutorizacao
+ * - Webhook e polling usam o MESMO helper (idempotente)
+ * - Cancelamento fiscal NÃO estorna saldo (regras existentes)
+ *
  * Para consulta automática, o frontend chama fiscalConsultarEAtualizarStatus
  * com retry progressivo (não usa loop infinito no backend).
  */
 const { onCall, HttpsError } = require("firebase-functions/v2/https");
+const { defineSecret } = require("firebase-functions/params");
 const admin = require("firebase-admin");
 const crypto = require("crypto");
 const securityGuard = require("./fiscal_security_guard");
 const logger = require("./fiscal_logger");
+const saldoHelper = require("./fiscal_saldo_helper");
+
+// ─── Secret Manager: FISCAL_MASTER_KEY ───
+const fiscalMasterKey = defineSecret("FISCAL_MASTER_KEY");
 
 const CONFIG = {
-  region: "southamerica-east1",
+  region: "us-east1",
   cpu: 1,
   memory: "512MiB",
   maxInstances: 10,
   timeoutSeconds: 120,
+  // TODO: voltar para `enforceAppCheck: process.env.FUNCTIONS_EMULATOR ? false : true`
+  // após corrigir a Secret Key do reCAPTCHA v3 no Firebase Console → App Check →
+  // depertin_web. Mantido false (igual às functions do Mercado Pago) pois a Secret
+  // Key inválida faz o exchangeRecaptchaV3Token retornar 400 e bloqueia o staff.
+  // Proteção preservada: Firebase Auth + verificação de papel staff dentro da função.
   enforceAppCheck: false,
+  secrets: [fiscalMasterKey],
 };
 
 // ═══════════════════════════════════════════════════════════════════════
-// Helpers de criptografia (reutilizados de fiscal_nfe_proxy)
+// Helpers de criptografia (compartilhados com fiscal_nfe_proxy.js)
+// Usam FISCAL_MASTER_KEY via process.env (injetado pelo Secret Manager)
 // ═══════════════════════════════════════════════════════════════════════
 
 const CRYPTO_PREFIX = "DIP_AES256_v2:";
 const CRYPTO_PREFIX_LEGACY = "DIP_ENC_v1:";
-const APP_KEY = "DiPertin@2026!Fiscal#NF-e";
+
+/**
+ * Chave mestra — lê de process.env.FISCAL_MASTER_KEY (injetado via Secret Manager).
+ * Se ausente ou inválida, lança erro (SEM fallback hardcoded).
+ */
+function resolverChaveMestra() {
+  const rawKey = process.env.FISCAL_MASTER_KEY;
+  if (!rawKey || typeof rawKey !== "string" || rawKey.length < 32) {
+    throw new Error("Configuração criptográfica fiscal indisponível.");
+  }
+  return crypto.createHash("sha256").update(rawKey, "utf8").digest();
+}
+
+let _masterKeyCache = null;
+function obterChaveMestra() {
+  if (!_masterKeyCache) {
+    _masterKeyCache = resolverChaveMestra();
+  }
+  return _masterKeyCache;
+}
 
 function derivarChave256(seed) {
   return crypto.createHash("sha256").update(seed, "utf8").digest();
 }
 
-function decryptAesGcm(encrypted) {
+function decryptAesGcm(encrypted, masterKey) {
   const payload = encrypted.slice(CRYPTO_PREFIX.length);
   const [ivB64, dataB64] = payload.split(".");
   if (!ivB64 || !dataB64) return null;
   const iv = Buffer.from(ivB64, "base64url");
   const full = Buffer.from(dataB64, "base64url");
-  const key = derivarChave256(APP_KEY);
+  if (!masterKey) return null;
+  const key = masterKey;
   const tag = full.subarray(-16);
   const ciphertext = full.subarray(0, -16);
   const decipher = crypto.createDecipheriv("aes-256-gcm", key, iv);
   decipher.setAuthTag(tag);
-  return decipher.update(ciphertext) + decipher.final("utf8");
+  try {
+    return decipher.update(ciphertext) + decipher.final("utf8");
+  } catch {
+    return null;
+  }
 }
 
-function decryptLegacy(encrypted) {
+function decryptLegacy(encrypted, masterKey) {
   const encoded = encrypted.slice(CRYPTO_PREFIX_LEGACY.length);
   const buf = Buffer.from(encoded, "base64url");
-  const key = derivarChave256(APP_KEY);
+  if (!buf || buf.length === 0 || !masterKey) return null;
+  const key = masterKey;
   const decrypted = Buffer.alloc(buf.length);
   for (let i = 0; i < buf.length; i++) {
     decrypted[i] = buf[i] ^ key[i % key.length];
@@ -71,11 +113,14 @@ async function obterApiKey(integrationId) {
   const data = snap.data();
   let apiKey = data.credentials_encrypted || data.api_key || "";
   if (!apiKey) return null;
+
+  const masterKey = obterChaveMestra();
+
   if (apiKey.startsWith(CRYPTO_PREFIX)) {
-    const decrypted = decryptAesGcm(apiKey);
+    const decrypted = decryptAesGcm(apiKey, masterKey);
     if (decrypted) apiKey = decrypted;
   } else if (apiKey.startsWith(CRYPTO_PREFIX_LEGACY)) {
-    apiKey = decryptLegacy(apiKey);
+    apiKey = decryptLegacy(apiKey, masterKey);
   }
   return apiKey;
 }
@@ -116,7 +161,10 @@ function parseFocusResponse(json) {
 
 /**
  * Salva um arquivo (XML ou PDF) da Focus NFe para o Firebase Storage.
- * Se o download falhar, retorna a URL original como fallback.
+ *
+ * SEGURANÇA: Arquivos fiscais são mantidos PRIVADOS.
+ * Não usa makePublic() — apenas Admin SDK e Cloud Functions podem acessar.
+ * O caminho do arquivo é salvo no Firestore para recuperação via Cloud Function.
  */
 async function salvarNoStorage(url, caminhoDestino, storeId, documentoId) {
   if (!url) return null;
@@ -138,15 +186,14 @@ async function salvarNoStorage(url, caminhoDestino, storeId, documentoId) {
         store_id: storeId,
         documento_id: documentoId,
         criado_em: new Date().toISOString(),
+        // NÃO torna público — arquivo permanece privado no Storage
       },
     });
 
-    // Torna público
-    await file.makePublic();
-
-    const publicUrl = `https://storage.googleapis.com/${bucket.name}/${caminhoDestino}`;
-    console.log(`[salvarNoStorage] Salvo em: ${publicUrl}`);
-    return publicUrl;
+    // NÃO usa makePublic() — arquivo permanece privado
+    // Retorna o caminho interno (não URL pública)
+    console.log(`[salvarNoStorage] Salvo (privado): ${caminhoDestino}`);
+    return caminhoDestino; // Retorna caminho interno, não URL pública
   } catch (e) {
     console.error(`[salvarNoStorage] Erro ao salvar: ${e.message}`);
     return url; // fallback
@@ -300,18 +347,25 @@ exports.fiscalConsultarEAtualizarStatus = onCall(CONFIG, async (request) => {
     if (statusNovo === "autorizada") {
       updateData.issued_at = admin.firestore.FieldValue.serverTimestamp();
 
-      // Salva XML no Storage
+      // Salva XML no Storage (mantido privado)
       if (dados.xmlUrl) {
         const xmlPath = `fiscal/${store_id}/${documento_id}/nfe-${dados.numero || documento_id}.xml`;
-        const xmlStorageUrl = await salvarNoStorage(dados.xmlUrl, xmlPath, store_id, documento_id);
-        updateData.xml_url = xmlStorageUrl || dados.xmlUrl;
+        const xmlStoragePath = await salvarNoStorage(dados.xmlUrl, xmlPath, store_id, documento_id);
+        // Salva caminho interno (não URL pública)
+        // Se falhar, salva null (não expõe URL da Focus)
+        updateData.xml_url = xmlStoragePath && !xmlStoragePath.startsWith("http")
+          ? xmlStoragePath
+          : null;
       }
 
-      // Salva DANFE/PDF no Storage
+      // Salva DANFE/PDF no Storage (mantido privado)
       if (dados.danfeUrl) {
         const danfePath = `fiscal/${store_id}/${documento_id}/danfe-${dados.numero || documento_id}.pdf`;
-        const danfeStorageUrl = await salvarNoStorage(dados.danfeUrl, danfePath, store_id, documento_id);
-        updateData.pdf_url = danfeStorageUrl || dados.danfeUrl;
+        const danfeStoragePath = await salvarNoStorage(dados.danfeUrl, danfePath, store_id, documento_id);
+        // Salva caminho interno (não URL pública)
+        updateData.pdf_url = danfeStoragePath && !danfeStoragePath.startsWith("http")
+          ? danfeStoragePath
+          : null;
       }
     }
 
@@ -323,6 +377,27 @@ exports.fiscalConsultarEAtualizarStatus = onCall(CONFIG, async (request) => {
 
     // ═══ Atualizar documento ═══
     await db.collection("fiscal_documents").doc(documento_id).update(updateData);
+
+    // ═══════════════════════════════════════════════════════════════════════
+    // ATUALIZAR SALDO VIA HELPER TRANSACIONAL
+    // ═══════════════════════════════════════════════════════════════════════
+    // Buscar provider_ref para atualizar saldo
+    const providerRef = docData.ref || null;
+    if (providerRef) {
+      try {
+        const saldoResultado = await saldoHelper.processarPolling(
+          db,
+          providerRef,
+          statusNovo,
+          documento_id,
+          { status: dados.status, message: dados.erro || null }
+        );
+        console.log(`[fiscalConsultarEAtualizarStatus] Saldo processado: provider_ref=${providerRef}, resultado=${saldoResultado.status}`);
+      } catch (saldoErr) {
+        // Erro no saldo helper não deve falhar a consulta
+        console.warn(`[fiscalConsultarEAtualizarStatus] Erro ao processar saldo: ${saldoErr.message}`);
+      }
+    }
 
     // ═══ Histórico de status ═══
     await logger.registrarStatusHistory({
@@ -410,4 +485,155 @@ function mapearStatusFinal(statusProvedor) {
 
   // Mantém original se não reconhecido
   return s;
+}
+
+// ═══════════════════════════════════════════════════════════════════════
+// Download autenticado de arquivos fiscais
+// ═══════════════════════════════════════════════════════════════════════
+
+/**
+ * Cloud Function para download de arquivos fiscais (XML, DANFE, eventos).
+ *
+ * FLUXO SEGURO:
+ * 1. Recebe documento_id e tipo (xml/danfe/evento)
+ * 2. Valida autenticação do usuário
+ * 3. Verifica vínculo do usuário com a loja do documento
+ * 4. Busca caminho do arquivo no Firestore
+ * 5. Gera URL assinada com validade curta (5 minutos)
+ * 6. Retorna URL temporária para download
+ *
+ * NÃO aceita caminho de arquivo diretamente do frontend.
+ */
+exports.fiscalDownloadArquivo = onCall(CONFIG, async (request) => {
+  if (!request.auth) {
+    throw new HttpsError("unauthenticated", "Autenticação necessária.");
+  }
+
+  const { documento_id, tipo } = request.data || {};
+  const userId = request.auth.uid;
+
+  if (!documento_id) {
+    throw new HttpsError("invalid-argument", "documento_id é obrigatório.");
+  }
+
+  // Tipos permitidos
+  const tiposPermitidos = ["xml", "danfe", "evento", "carta_correcao", "cancelamento"];
+  const tipoNormalizado = String(tipo || "xml").toLowerCase();
+
+  if (!tiposPermitidos.includes(tipoNormalizado)) {
+    throw new HttpsError("invalid-argument", `Tipo "${tipo}" não permitido. Use: ${tiposPermitidos.join(", ")}`);
+  }
+
+  try {
+    const db = admin.firestore();
+
+    // 1. Buscar documento fiscal
+    const docSnap = await db.collection("fiscal_documents").doc(documento_id).get();
+    if (!docSnap.exists) {
+      throw new HttpsError("not-found", "Documento fiscal não encontrado.");
+    }
+
+    const docData = docSnap.data();
+    const storeId = docData.store_id;
+
+    // 2. Validar vínculo do usuário com a loja
+    await securityGuard.validateStoreAccess({
+      userId,
+      storeId: storeId,
+      action: "download",
+    });
+
+    // 3. Determinar caminho do arquivo
+    let caminhoArquivo = null;
+
+    switch (tipoNormalizado) {
+      case "xml":
+        caminhoArquivo = docData.xml_url;
+        break;
+      case "danfe":
+        caminhoArquivo = docData.pdf_url;
+        break;
+      case "evento":
+      case "carta_correcao":
+      case "cancelamento":
+        // Eventos são salvos com padrão: fiscal/{store_id}/{doc_id}/evento-{id}.json
+        caminhoArquivo = docData.evento_url || docData.cc_url || docData.cancelamento_url;
+        break;
+    }
+
+    if (!caminhoArquivo || caminhoArquivo.startsWith("http")) {
+      throw new HttpsError("not-found", "Arquivo não encontrado para este documento.");
+    }
+
+    // 4. Gerar URL assinada com validade de 5 minutos
+    const bucket = admin.storage().bucket();
+    const file = bucket.file(caminhoArquivo);
+
+    // Verifica se arquivo existe
+    const [exists] = await file.exists();
+    if (!exists) {
+      throw new HttpsError("not-found", "Arquivo não encontrado no Storage.");
+    }
+
+    // Gera URL assinada (válida por 5 minutos)
+    const [signedUrl] = await file.getSignedUrl({
+      version: "v4",
+      action: "read",
+      expires: Date.now() + 5 * 60 * 1000, // 5 minutos
+    });
+
+    // 5. Registrar download no log
+    await logger.registrarLog({
+      storeId: storeId,
+      acao: "download_arquivo",
+      status: "sucesso",
+      usuarioUid: userId,
+      documentoId: documento_id,
+      mensagem: `Download de ${tipoNormalizado} autorizado para usuário ${userId}`,
+      detalhes: {
+        tipo: tipoNormalizado,
+        caminho: caminhoArquivo,
+      },
+    });
+
+    return {
+      sucesso: true,
+      url: signedUrl,
+      tipo: tipoNormalizado,
+      expira_em: new Date(Date.now() + 5 * 60 * 1000).toISOString(),
+    };
+  } catch (e) {
+    if (e instanceof HttpsError) throw e;
+
+    console.error(`[fiscalDownloadArquivo] Erro: ${e.message}`);
+
+    // Log do erro
+    try {
+      const docId = request.data?.documento_id || "unknown";
+      const storeId = await getStoreIdFromDoc(docId).catch(() => "unknown");
+      await logger.registrarLog({
+        storeId: storeId,
+        acao: "download_arquivo_erro",
+        status: "erro",
+        usuarioUid: userId,
+        documentoId: documento_id,
+        mensagem: `Erro no download: ${e.message}`,
+      });
+    } catch (_) {}
+
+    throw new HttpsError("internal", "Erro ao gerar URL de download.");
+  }
+});
+
+/**
+ * Helper: obtém store_id de um documento fiscal.
+ */
+async function getStoreIdFromDoc(documentoId) {
+  try {
+    const db = admin.firestore();
+    const snap = await db.collection("fiscal_documents").doc(documentoId).get();
+    return snap.exists ? (snap.data().store_id || "unknown") : "unknown";
+  } catch (_) {
+    return "unknown";
+  }
 }

@@ -1,6 +1,9 @@
 import 'package:cloud_firestore/cloud_firestore.dart';
 import 'package:depertin_web/theme/painel_admin_theme.dart';
 import 'package:depertin_web/utils/lojista_painel_context.dart';
+import 'package:file_picker/file_picker.dart';
+import 'package:firebase_auth/firebase_auth.dart';
+import 'package:firebase_storage/firebase_storage.dart';
 import 'package:flutter/foundation.dart' show kIsWeb;
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
@@ -45,13 +48,6 @@ class _LojistaMeuCardapioScreenState extends State<LojistaMeuCardapioScreen> {
     super.dispose();
   }
 
-  static String _primeiraImagem(dynamic imagens) {
-    if (imagens is List && imagens.isNotEmpty) {
-      return imagens.first.toString();
-    }
-    return '';
-  }
-
   bool _passaVisibilidade(Map<String, dynamic> p, String filtro) {
     final ativo = p['ativo'] != false;
     switch (filtro) {
@@ -82,12 +78,17 @@ class _LojistaMeuCardapioScreenState extends State<LojistaMeuCardapioScreen> {
     final estC = TextEditingController(
       text: d['estoque_qtd'] != null ? '${d['estoque_qtd']}' : '0',
     );
-    final imgC = TextEditingController(text: _primeiraImagem(d['imagens']));
     final ncmC =
         TextEditingController(text: d['ncm']?.toString() ?? '');
     final cstC = TextEditingController(
       text: (d['cst_icms'] ?? d['csosn'] ?? '400').toString(),
     );
+    // Ordem = galeria; índice 0 = foto principal (mesmo contrato do app).
+    final fotos = <_FotoProdutoItem>[
+      for (final u in (d['imagens'] is List ? d['imagens'] as List : const []))
+        if (u.toString().trim().isNotEmpty)
+          _FotoProdutoItem.url(u.toString().trim()),
+    ];
     var ativo = d['ativo'] != false;
     var salvando = false;
     var tipo = (d['tipo_venda'] ?? 'pronta_entrega').toString();
@@ -172,534 +173,982 @@ class _LojistaMeuCardapioScreenState extends State<LojistaMeuCardapioScreen> {
       context: context,
       barrierDismissible: false,
       builder: (ctx) => StatefulBuilder(
-        builder: (ctx, setS) => Dialog(
-          shape: RoundedRectangleBorder(
-            borderRadius: BorderRadius.circular(22),
-          ),
-          clipBehavior: Clip.antiAlias,
-          child: ConstrainedBox(
-            constraints: const BoxConstraints(maxWidth: 460),
-            child: Column(
-              mainAxisSize: MainAxisSize.min,
-              crossAxisAlignment: CrossAxisAlignment.stretch,
-              children: [
-                Container(
-                  padding: const EdgeInsets.fromLTRB(22, 20, 22, 18),
-                  decoration: BoxDecoration(
-                    gradient: LinearGradient(
-                      begin: Alignment.topLeft,
-                      end: Alignment.bottomRight,
-                      colors: [
-                        _roxo.withValues(alpha: 0.12),
-                        _laranja.withValues(alpha: 0.06),
-                      ],
-                    ),
-                    border: Border(
-                      bottom: BorderSide(color: Colors.grey.shade200),
+        builder: (ctx, setS) {
+          Future<void> salvar() async {
+            if (nomeC.text.trim().isEmpty ||
+                categoriaSelecionada == null ||
+                categoriaSelecionada!.isEmpty) {
+              ScaffoldMessenger.of(context).showSnackBar(
+                const SnackBar(
+                  content: Text('Informe nome e categoria oficial.'),
+                  backgroundColor: Colors.orange,
+                ),
+              );
+              return;
+            }
+            final preco =
+                double.tryParse(precoC.text.replaceAll(',', '.')) ?? 0;
+            final est = int.tryParse(estC.text) ?? 0;
+            setS(() => salvando = true);
+            try {
+              final authUid =
+                  FirebaseAuth.instance.currentUser?.uid ?? uidLoja;
+              final baseTs = DateTime.now().millisecondsSinceEpoch;
+              // Upload em paralelo (ordem da lista = ordem da capa no app).
+              final urlsImagens = await Future.wait(
+                List.generate(fotos.length, (i) async {
+                  final foto = fotos[i];
+                  if (foto.url != null && foto.url!.isNotEmpty) {
+                    return foto.url!;
+                  }
+                  if (foto.bytes == null || foto.bytes!.isEmpty) {
+                    return '';
+                  }
+                  final ext = _extensaoArquivo(foto.nomeArquivo ?? 'jpg');
+                  final mime = _mimeImagem(ext);
+                  final nomeArq = '${baseTs}_$i.$ext';
+                  final path = authUid == uidLoja
+                      ? 'produtos/$uidLoja/$nomeArq'
+                      : 'produtos/${authUid}_$nomeArq';
+                  final ref = FirebaseStorage.instance.ref().child(path);
+                  await ref.putData(
+                    foto.bytes!,
+                    SettableMetadata(contentType: mime),
+                  );
+                  return await ref.getDownloadURL();
+                }),
+              );
+              final urlsValidas =
+                  urlsImagens.where((u) => u.isNotEmpty).toList();
+              final payload = <String, dynamic>{
+                'nome': nomeC.text.trim(),
+                'preco': preco,
+                'descricao': descC.text.trim(),
+                'categoria': categoriaSelecionada!.trim(),
+                'categoria_nome': categoriaSelecionada!.trim(),
+                'estoque_qtd': est,
+                'tipo_venda': tipo,
+                'ativo': ativo,
+                'is_oferta_especial': isOfertaEspecial,
+                'imagens': urlsValidas,
+                'lojista_id': uidLoja,
+                'loja_id': uidLoja,
+                'requer_veiculo_grande': requerVeiculoGrande,
+                'ncm': ncmC.text.trim(),
+                'cst_icms':
+                    cstC.text.trim().isNotEmpty ? cstC.text.trim() : '400',
+                'updated_at': FieldValue.serverTimestamp(),
+              };
+              if (!isEdit) {
+                payload['created_at'] = FieldValue.serverTimestamp();
+                await FirebaseFirestore.instance
+                    .collection('produtos')
+                    .add(payload);
+              } else {
+                await existente.reference.update(payload);
+              }
+              if (ctx.mounted) Navigator.pop(ctx);
+              if (context.mounted) {
+                ScaffoldMessenger.of(context).showSnackBar(
+                  const SnackBar(
+                    content: Text('Alterações salvas.'),
+                    backgroundColor: Color(0xFF15803D),
+                  ),
+                );
+              }
+            } catch (e) {
+              if (context.mounted) {
+                ScaffoldMessenger.of(context).showSnackBar(
+                  SnackBar(
+                    content: Text('Erro: $e'),
+                    backgroundColor: Colors.red,
+                  ),
+                );
+              }
+            } finally {
+              setS(() => salvando = false);
+            }
+          }
+
+          Widget colInfo() => Column(
+                crossAxisAlignment: CrossAxisAlignment.stretch,
+                children: [
+                  _secForm('Informações'),
+                  const SizedBox(height: 12),
+                  TextField(
+                    controller: nomeC,
+                    decoration: _dec('Nome do produto *'),
+                  ),
+                  const SizedBox(height: 14),
+                  StreamBuilder<QuerySnapshot<Map<String, dynamic>>>(
+                    stream: FirebaseFirestore.instance
+                        .collection('categorias')
+                        .where('ativo', isEqualTo: true)
+                        .snapshots(),
+                    builder: (context, catSnap) {
+                      if (!catSnap.hasData) {
+                        return const LinearProgressIndicator(color: _roxo);
+                      }
+                      final cats = catSnap.data!.docs.toList()
+                        ..sort((a, b) {
+                          final ma = a.data();
+                          final mb = b.data();
+                          final oa = (ma['ordem'] as num?)?.toInt() ?? 999;
+                          final ob = (mb['ordem'] as num?)?.toInt() ?? 999;
+                          if (oa != ob) return oa.compareTo(ob);
+                          return (ma['nome'] ?? '').toString().compareTo(
+                                (mb['nome'] ?? '').toString(),
+                              );
+                        });
+                      final valores = cats
+                          .map(
+                            (e) =>
+                                (e.data()['nome'] ?? '').toString().trim(),
+                          )
+                          .where((e) => e.isNotEmpty)
+                          .toSet()
+                          .toList();
+                      final valorAtual =
+                          valores.contains(categoriaSelecionada)
+                              ? categoriaSelecionada
+                              : null;
+                      return Column(
+                        crossAxisAlignment: CrossAxisAlignment.stretch,
+                        children: [
+                          DropdownButtonFormField<String>(
+                            initialValue: valorAtual,
+                            isExpanded: true,
+                            decoration: _dec('Categoria oficial'),
+                            items: valores
+                                .map(
+                                  (nome) => DropdownMenuItem(
+                                    value: nome,
+                                    child: Text(nome),
+                                  ),
+                                )
+                                .toList(),
+                            onChanged: (v) => setS(() {
+                              categoriaSelecionada = v;
+                              catC.text = v ?? '';
+                            }),
+                          ),
+                          Align(
+                            alignment: Alignment.centerRight,
+                            child: TextButton.icon(
+                              onPressed: sugerirCategoria,
+                              style: TextButton.styleFrom(
+                                foregroundColor: _laranja,
+                              ),
+                              icon: const Icon(
+                                Icons.lightbulb_outline,
+                                size: 18,
+                              ),
+                              label: const Text('Sugerir categoria'),
+                            ),
+                          ),
+                        ],
+                      );
+                    },
+                  ),
+                  TextField(
+                    controller: descC,
+                    maxLines: 3,
+                    decoration: _dec('Descrição (opcional)'),
+                  ),
+                  const SizedBox(height: 22),
+                  _secForm('Preço e estoque'),
+                  const SizedBox(height: 12),
+                  Row(
+                    crossAxisAlignment: CrossAxisAlignment.start,
+                    children: [
+                      Expanded(
+                        child: TextField(
+                          controller: precoC,
+                          keyboardType: const TextInputType.numberWithOptions(
+                            decimal: true,
+                          ),
+                          inputFormatters: [
+                            FilteringTextInputFormatter.allow(
+                              RegExp(r'[\d.,]'),
+                            ),
+                          ],
+                          decoration: _dec(r'Preço (R$) *'),
+                        ),
+                      ),
+                      const SizedBox(width: 12),
+                      Expanded(
+                        child: TextField(
+                          controller: estC,
+                          keyboardType: TextInputType.number,
+                          decoration: _dec('Estoque'),
+                        ),
+                      ),
+                    ],
+                  ),
+                  const SizedBox(height: 14),
+                  DropdownButtonFormField<String>(
+                    initialValue: tipo,
+                    decoration: _dec('Tipo de venda'),
+                    items: const [
+                      DropdownMenuItem(
+                        value: 'pronta_entrega',
+                        child: Text('Pronta entrega'),
+                      ),
+                      DropdownMenuItem(
+                        value: 'encomenda',
+                        child: Text('Encomenda'),
+                      ),
+                    ],
+                    onChanged: (v) =>
+                        setS(() => tipo = v ?? 'pronta_entrega'),
+                  ),
+                ],
+              );
+
+          Future<void> anexarFotos() async {
+            final restam = 5 - fotos.length;
+            if (restam <= 0) {
+              ScaffoldMessenger.of(context).showSnackBar(
+                const SnackBar(
+                  content: Text('Máximo de 5 fotos por produto.'),
+                  backgroundColor: Colors.orange,
+                ),
+              );
+              return;
+            }
+            FilePickerResult? result;
+            try {
+              result = await FilePicker.platform.pickFiles(
+                type: FileType.image,
+                allowMultiple: true,
+                withData: true,
+              );
+            } catch (e) {
+              if (context.mounted) {
+                ScaffoldMessenger.of(context).showSnackBar(
+                  SnackBar(
+                    content: Text('Erro ao abrir seletor: $e'),
+                    backgroundColor: Colors.red,
+                  ),
+                );
+              }
+              return;
+            }
+            if (result == null || result.files.isEmpty) return;
+            setS(() {
+              for (final f in result!.files) {
+                if (fotos.length >= 5) break;
+                final bytes = f.bytes;
+                if (bytes == null || bytes.isEmpty) continue;
+                fotos.add(_FotoProdutoItem.bytes(bytes, f.name));
+              }
+            });
+          }
+
+          Widget colExtra() => Column(
+                crossAxisAlignment: CrossAxisAlignment.stretch,
+                children: [
+                  _secForm('Imagem e visibilidade'),
+                  const SizedBox(height: 8),
+                  Text(
+                    'Até 5 fotos. A primeira é a principal na vitrine e no app.',
+                    style: GoogleFonts.plusJakartaSans(
+                      fontSize: 12,
+                      color: const Color(0xFF64748B),
                     ),
                   ),
-                  child: Row(
+                  const SizedBox(height: 12),
+                  Wrap(
+                    spacing: 10,
+                    runSpacing: 10,
                     children: [
-                      Container(
-                        padding: const EdgeInsets.all(10),
-                        decoration: BoxDecoration(
-                          color: Colors.white,
-                          borderRadius: BorderRadius.circular(12),
-                          boxShadow: [
-                            BoxShadow(
-                              color: _roxo.withValues(alpha: 0.12),
-                              blurRadius: 12,
-                              offset: const Offset(0, 4),
+                      for (var i = 0; i < fotos.length; i++)
+                        _miniaturaFotoProduto(
+                          foto: fotos[i],
+                          principal: i == 0,
+                          onRemover: salvando
+                              ? null
+                              : () => setS(() => fotos.removeAt(i)),
+                          onTornarPrincipal: salvando || i == 0
+                              ? null
+                              : () => setS(() {
+                                    final item = fotos.removeAt(i);
+                                    fotos.insert(0, item);
+                                  }),
+                        ),
+                      if (fotos.length < 5)
+                        Material(
+                          color: _roxo.withValues(alpha: 0.07),
+                          borderRadius: BorderRadius.circular(14),
+                          child: InkWell(
+                            onTap: salvando ? null : anexarFotos,
+                            borderRadius: BorderRadius.circular(14),
+                            child: SizedBox(
+                              width: 104,
+                              height: 104,
+                              child: Column(
+                                mainAxisAlignment: MainAxisAlignment.center,
+                                children: [
+                                  Icon(
+                                    Icons.add_photo_alternate_outlined,
+                                    color: _roxo,
+                                    size: 28,
+                                  ),
+                                  const SizedBox(height: 6),
+                                  Text(
+                                    'Adicionar',
+                                    style: GoogleFonts.plusJakartaSans(
+                                      fontSize: 11,
+                                      fontWeight: FontWeight.w800,
+                                      color: _roxo,
+                                    ),
+                                  ),
+                                  Text(
+                                    '${fotos.length}/5',
+                                    style: GoogleFonts.plusJakartaSans(
+                                      fontSize: 10,
+                                      color: const Color(0xFF64748B),
+                                    ),
+                                  ),
+                                ],
+                              ),
+                            ),
+                          ),
+                        ),
+                    ],
+                  ),
+                  const SizedBox(height: 14),
+                  _switchPremium(
+                    titulo: 'Mostrar na vitrine',
+                    subtitulo: 'Desligado = oculto para clientes',
+                    valor: ativo,
+                    onChanged: (v) => setS(() => ativo = v),
+                  ),
+                  const SizedBox(height: 8),
+                  _switchPremium(
+                    titulo: 'Oferta especial',
+                    subtitulo:
+                        'Ativo = aparece na seção "Ofertas especiais" da vitrine',
+                    valor: isOfertaEspecial,
+                    onChanged: (v) => setS(() => isOfertaEspecial = v),
+                  ),
+                  const SizedBox(height: 22),
+                  _secForm('Logística de entrega'),
+                  const SizedBox(height: 10),
+                  Container(
+                    padding: const EdgeInsets.all(14),
+                    decoration: BoxDecoration(
+                      color: const Color(0xFFF3E8FF),
+                      borderRadius: BorderRadius.circular(14),
+                      border: Border.all(
+                        color: _roxo.withValues(alpha: 0.22),
+                      ),
+                    ),
+                    child: Column(
+                      crossAxisAlignment: CrossAxisAlignment.start,
+                      children: [
+                        Row(
+                          children: [
+                            Icon(
+                              Icons.info_outline_rounded,
+                              size: 18,
+                              color: _roxo,
+                            ),
+                            const SizedBox(width: 8),
+                            Expanded(
+                              child: Text(
+                                'A logística mudou: configure na loja',
+                                style: GoogleFonts.plusJakartaSans(
+                                  fontWeight: FontWeight.w800,
+                                  color: const Color(0xFF32106D),
+                                  fontSize: 13,
+                                ),
+                              ),
                             ),
                           ],
                         ),
-                        child: Icon(
-                          isEdit ? Icons.edit_note_rounded : Icons.add_rounded,
-                          color: _roxo,
-                          size: 26,
+                        const SizedBox(height: 8),
+                        Text(
+                          'Agora o tipo de veículo usado para entregar é configurado '
+                          'uma única vez no perfil da sua loja (Configurações da loja → '
+                          'Tipos de entrega aceitos), e vale para TODOS os produtos. '
+                          'Essa configuração define a tabela de frete e quais entregadores '
+                          'serão convocados.',
+                          style: GoogleFonts.plusJakartaSans(
+                            fontSize: 12.5,
+                            color: const Color(0xFF4C1D95),
+                            height: 1.4,
+                          ),
+                        ),
+                        if (requerVeiculoGrande) ...[
+                          const SizedBox(height: 10),
+                          Container(
+                            padding: const EdgeInsets.all(10),
+                            decoration: BoxDecoration(
+                              color: _laranja.withValues(alpha: 0.08),
+                              borderRadius: BorderRadius.circular(10),
+                              border: Border.all(
+                                color: _laranja.withValues(alpha: 0.35),
+                              ),
+                            ),
+                            child: Row(
+                              crossAxisAlignment: CrossAxisAlignment.start,
+                              children: [
+                                Icon(
+                                  Icons.local_shipping_rounded,
+                                  size: 18,
+                                  color: _laranja,
+                                ),
+                                const SizedBox(width: 8),
+                                const Expanded(
+                                  child: Text(
+                                    'Este produto foi marcado como "volumoso/carga maior" '
+                                    'no modelo antigo. Esse dado ainda é lido como '
+                                    'fallback de segurança enquanto você não define os '
+                                    'Tipos de entrega da loja. Recomendamos configurar a '
+                                    'loja inteira em Configurações.',
+                                    style: TextStyle(
+                                      fontSize: 11.5,
+                                      height: 1.35,
+                                    ),
+                                  ),
+                                ),
+                              ],
+                            ),
+                          ),
+                        ],
+                      ],
+                    ),
+                  ),
+                  const SizedBox(height: 22),
+                  _secForm('Informações fiscais (NF-e)'),
+                  const SizedBox(height: 12),
+                  Row(
+                    crossAxisAlignment: CrossAxisAlignment.start,
+                    children: [
+                      Expanded(
+                        child: TextField(
+                          controller: ncmC,
+                          decoration: _dec('NCM (8 dígitos)').copyWith(
+                            helperText: 'Ex.: 64041900',
+                          ),
+                          keyboardType: TextInputType.number,
+                          inputFormatters: [
+                            FilteringTextInputFormatter.digitsOnly,
+                            LengthLimitingTextInputFormatter(8),
+                          ],
                         ),
                       ),
-                      const SizedBox(width: 14),
+                      const SizedBox(width: 12),
                       Expanded(
-                        child: Column(
-                          crossAxisAlignment: CrossAxisAlignment.start,
-                          children: [
-                            Text(
-                              isEdit ? 'Editar produto' : 'Novo produto',
-                              style: GoogleFonts.plusJakartaSans(
-                                fontSize: 20,
-                                fontWeight: FontWeight.w800,
-                                color: const Color(0xFF1E1B4B),
-                              ),
-                            ),
-                            const SizedBox(height: 4),
-                            Text(
-                              'Os clientes veem estes dados na vitrine do app.',
-                              style: TextStyle(
-                                fontSize: 13,
-                                color: Colors.grey.shade700,
-                                height: 1.3,
-                              ),
-                            ),
+                        child: TextField(
+                          controller: cstC,
+                          decoration: _dec('CST ICMS / CSOSN').copyWith(
+                            helperText: 'Ex.: 400 (SN) ou 000',
+                          ),
+                          keyboardType: TextInputType.number,
+                          inputFormatters: [
+                            FilteringTextInputFormatter.digitsOnly,
+                            LengthLimitingTextInputFormatter(4),
                           ],
                         ),
                       ),
                     ],
                   ),
-                ),
-                Flexible(
-                  child: SingleChildScrollView(
-                    padding: const EdgeInsets.fromLTRB(22, 18, 22, 8),
-                    child: Column(
-                      crossAxisAlignment: CrossAxisAlignment.stretch,
-                      children: [
-                        _secForm('Informações'),
-                        const SizedBox(height: 10),
-                        TextField(
-                          controller: nomeC,
-                          decoration: _dec('Nome do produto *'),
+                ],
+              );
+
+          return Dialog(
+            backgroundColor: Colors.transparent,
+            insetPadding: const EdgeInsets.symmetric(
+              horizontal: 24,
+              vertical: 24,
+            ),
+            child: ConstrainedBox(
+              constraints: const BoxConstraints(
+                maxWidth: 960,
+                maxHeight: 720,
+              ),
+              child: Material(
+                color: Colors.white,
+                elevation: 24,
+                shadowColor: _roxo.withValues(alpha: 0.25),
+                borderRadius: BorderRadius.circular(24),
+                clipBehavior: Clip.antiAlias,
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.stretch,
+                  children: [
+                    // Header premium
+                    Container(
+                      padding: const EdgeInsets.fromLTRB(28, 22, 20, 22),
+                      decoration: const BoxDecoration(
+                        gradient: LinearGradient(
+                          begin: Alignment.topLeft,
+                          end: Alignment.bottomRight,
+                          colors: [
+                            Color(0xFF1D0D5F),
+                            Color(0xFF5A1DB5),
+                            Color(0xFF7A1FFF),
+                          ],
                         ),
-                        const SizedBox(height: 12),
-                        StreamBuilder<QuerySnapshot<Map<String, dynamic>>>(
-                          stream: FirebaseFirestore.instance
-                              .collection('categorias')
-                              .where('ativo', isEqualTo: true)
-                              .snapshots(),
-                          builder: (context, catSnap) {
-                            if (!catSnap.hasData) {
-                              return const LinearProgressIndicator();
-                            }
-                            final cats = catSnap.data!.docs.toList()
-                              ..sort((a, b) {
-                                final ma = a.data();
-                                final mb = b.data();
-                                final oa =
-                                    (ma['ordem'] as num?)?.toInt() ?? 999;
-                                final ob =
-                                    (mb['ordem'] as num?)?.toInt() ?? 999;
-                                if (oa != ob) return oa.compareTo(ob);
-                                return (ma['nome'] ?? '').toString().compareTo(
-                                  (mb['nome'] ?? '').toString(),
-                                );
-                              });
-                            final valores = cats
-                                .map(
-                                  (e) => (e.data()['nome'] ?? '')
-                                      .toString()
-                                      .trim(),
-                                )
-                                .where((e) => e.isNotEmpty)
-                                .toSet()
-                                .toList();
-                            final valorAtual =
-                                valores.contains(categoriaSelecionada)
-                                ? categoriaSelecionada
-                                : null;
-                            return Column(
-                              crossAxisAlignment: CrossAxisAlignment.stretch,
+                      ),
+                      child: Row(
+                        children: [
+                          Container(
+                            width: 48,
+                            height: 48,
+                            decoration: BoxDecoration(
+                              color: Colors.white.withValues(alpha: 0.18),
+                              borderRadius: BorderRadius.circular(14),
+                              border: Border.all(
+                                color: Colors.white.withValues(alpha: 0.3),
+                              ),
+                            ),
+                            child: Icon(
+                              isEdit
+                                  ? Icons.edit_note_rounded
+                                  : Icons.add_rounded,
+                              color: Colors.white,
+                              size: 26,
+                            ),
+                          ),
+                          const SizedBox(width: 16),
+                          Expanded(
+                            child: Column(
+                              crossAxisAlignment: CrossAxisAlignment.start,
                               children: [
-                                DropdownButtonFormField<String>(
-                                  initialValue: valorAtual,
-                                  isExpanded: true,
-                                  decoration: _dec('Categoria oficial'),
-                                  items: valores
-                                      .map(
-                                        (nome) => DropdownMenuItem(
-                                          value: nome,
-                                          child: Text(nome),
-                                        ),
-                                      )
-                                      .toList(),
-                                  onChanged: (v) => setS(() {
-                                    categoriaSelecionada = v;
-                                    catC.text = v ?? '';
-                                  }),
-                                ),
-                                Align(
-                                  alignment: Alignment.centerRight,
-                                  child: TextButton.icon(
-                                    onPressed: sugerirCategoria,
-                                    icon: const Icon(
-                                      Icons.lightbulb_outline,
-                                      size: 18,
+                                Container(
+                                  padding: const EdgeInsets.symmetric(
+                                    horizontal: 10,
+                                    vertical: 4,
+                                  ),
+                                  decoration: BoxDecoration(
+                                    color: _laranja,
+                                    borderRadius: BorderRadius.circular(20),
+                                  ),
+                                  child: Text(
+                                    isEdit ? 'Edição' : 'Novo item',
+                                    style: GoogleFonts.plusJakartaSans(
+                                      fontSize: 10,
+                                      fontWeight: FontWeight.w800,
+                                      color: Colors.white,
                                     ),
-                                    label: const Text('Sugerir categoria'),
+                                  ),
+                                ),
+                                const SizedBox(height: 8),
+                                Text(
+                                  isEdit ? 'Editar produto' : 'Novo produto',
+                                  style: GoogleFonts.plusJakartaSans(
+                                    fontSize: 22,
+                                    fontWeight: FontWeight.w800,
+                                    color: Colors.white,
+                                    letterSpacing: -0.3,
+                                  ),
+                                ),
+                                const SizedBox(height: 4),
+                                Text(
+                                  'Os clientes veem estes dados na vitrine do app.',
+                                  style: GoogleFonts.plusJakartaSans(
+                                    fontSize: 13,
+                                    color: Colors.white.withValues(alpha: 0.88),
                                   ),
                                 ),
                               ],
-                            );
-                          },
-                        ),
-                        const SizedBox(height: 12),
-                        TextField(
-                          controller: descC,
-                          maxLines: 2,
-                          decoration: _dec('Descrição (opcional)'),
-                        ),
-                        const SizedBox(height: 20),
-                        _secForm('Preço e estoque'),
-                        const SizedBox(height: 10),
-                        Row(
-                          crossAxisAlignment: CrossAxisAlignment.start,
-                          children: [
-                            Expanded(
-                              child: TextField(
-                                controller: precoC,
-                                keyboardType:
-                                    const TextInputType.numberWithOptions(
-                                      decimal: true,
-                                    ),
-                                inputFormatters: [
-                                  FilteringTextInputFormatter.allow(
-                                    RegExp(r'[\d.,]'),
-                                  ),
-                                ],
-                                decoration: _dec('Preço (R\$) *'),
+                            ),
+                          ),
+                          IconButton(
+                            onPressed:
+                                salvando ? null : () => Navigator.pop(ctx),
+                            icon: const Icon(
+                              Icons.close_rounded,
+                              color: Colors.white,
+                            ),
+                            tooltip: 'Fechar',
+                          ),
+                        ],
+                      ),
+                    ),
+                    // Corpo horizontal (2 colunas)
+                    Expanded(
+                      child: LayoutBuilder(
+                        builder: (context, c) {
+                          final horizontal = c.maxWidth >= 700;
+                          if (!horizontal) {
+                            return SingleChildScrollView(
+                              padding: const EdgeInsets.fromLTRB(
+                                24,
+                                22,
+                                24,
+                                16,
                               ),
-                            ),
-                            const SizedBox(width: 12),
-                            Expanded(
-                              child: TextField(
-                                controller: estC,
-                                keyboardType: TextInputType.number,
-                                decoration: _dec('Estoque'),
-                              ),
-                            ),
-                          ],
-                        ),
-                        const SizedBox(height: 12),
-                        DropdownButtonFormField<String>(
-                          initialValue: tipo,
-                          decoration: _dec('Tipo de venda'),
-                          items: const [
-                            DropdownMenuItem(
-                              value: 'pronta_entrega',
-                              child: Text('Pronta entrega'),
-                            ),
-                            DropdownMenuItem(
-                              value: 'encomenda',
-                              child: Text('Encomenda'),
-                            ),
-                          ],
-                          onChanged: (v) =>
-                              setS(() => tipo = v ?? 'pronta_entrega'),
-                        ),
-                        const SizedBox(height: 20),
-                        _secForm('Imagem e visibilidade'),
-                        const SizedBox(height: 10),
-                        TextField(
-                          controller: imgC,
-                          decoration: _dec('URL da foto').copyWith(
-                            helperText: 'Link público (ex.: Firebase Storage)',
-                          ),
-                        ),
-                        const SizedBox(height: 8),
-                        SwitchListTile(
-                          contentPadding: EdgeInsets.zero,
-                          title: const Text('Mostrar na vitrine'),
-                          subtitle: Text(
-                            'Desligado = oculto para clientes',
-                            style: TextStyle(
-                              fontSize: 12,
-                              color: Colors.grey.shade600,
-                            ),
-                          ),
-                          value: ativo,
-                          activeThumbColor: _laranja,
-                          onChanged: (v) => setS(() => ativo = v),
-                        ),
-                        const SizedBox(height: 8),
-                        SwitchListTile(
-                          contentPadding: EdgeInsets.zero,
-                          title: const Text('Oferta especial'),
-                          subtitle: Text(
-                            'Ativo = aparece na seção "Ofertas especiais" da vitrine',
-                            style: TextStyle(
-                              fontSize: 12,
-                              color: Colors.grey.shade600,
-                            ),
-                          ),
-                          value: isOfertaEspecial,
-                          activeThumbColor: _laranja,
-                          onChanged: (v) => setS(() => isOfertaEspecial = v),
-                        ),
-                        const SizedBox(height: 20),
-                        _secForm('Logística de entrega'),
-                        const SizedBox(height: 4),
-                        Container(
-                          margin: const EdgeInsets.only(top: 8),
-                          padding: const EdgeInsets.all(14),
-                          decoration: BoxDecoration(
-                            color: const Color(0xFFF0F7FF),
-                            borderRadius: BorderRadius.circular(12),
-                            border: Border.all(color: const Color(0xFFBFDBFE)),
-                          ),
-                          child: Column(
-                            crossAxisAlignment: CrossAxisAlignment.start,
-                            children: [
-                              Row(
+                              child: Column(
+                                crossAxisAlignment: CrossAxisAlignment.stretch,
                                 children: [
-                                  const Icon(
-                                    Icons.info_outline,
-                                    size: 18,
-                                    color: Color(0xFF1D4ED8),
-                                  ),
-                                  const SizedBox(width: 8),
-                                  Expanded(
-                                    child: Text(
-                                      'A logística mudou: configure na loja',
-                                      style: TextStyle(
-                                        fontWeight: FontWeight.w700,
-                                        color: const Color(0xFF1E3A8A),
-                                        fontSize: 13.5,
-                                      ),
-                                    ),
-                                  ),
+                                  colInfo(),
+                                  const SizedBox(height: 24),
+                                  colExtra(),
                                 ],
                               ),
-                              const SizedBox(height: 8),
-                              Text(
-                                'Agora o tipo de veículo usado para entregar é configurado '
-                                'uma única vez no perfil da sua loja (Configurações da loja → '
-                                'Tipos de entrega aceitos), e vale para TODOS os produtos. '
-                                'Essa configuração define a tabela de frete e quais entregadores '
-                                'serão convocados.',
-                                style: TextStyle(
-                                  fontSize: 12.5,
-                                  color: const Color(0xFF1E3A8A),
-                                  height: 1.4,
+                            );
+                          }
+                          return Row(
+                            crossAxisAlignment: CrossAxisAlignment.stretch,
+                            children: [
+                              Expanded(
+                                child: SingleChildScrollView(
+                                  padding: const EdgeInsets.fromLTRB(
+                                    28,
+                                    24,
+                                    20,
+                                    16,
+                                  ),
+                                  child: colInfo(),
                                 ),
                               ),
-                              if (requerVeiculoGrande) ...[
-                                const SizedBox(height: 10),
-                                Container(
-                                  padding: const EdgeInsets.all(10),
-                                  decoration: BoxDecoration(
-                                    color: _laranja.withValues(alpha: 0.08),
-                                    borderRadius: BorderRadius.circular(8),
-                                    border: Border.all(
-                                      color: _laranja.withValues(alpha: 0.35),
-                                    ),
+                              Container(
+                                width: 1,
+                                margin:
+                                    const EdgeInsets.symmetric(vertical: 20),
+                                color: const Color(0xFFE9D5FF),
+                              ),
+                              Expanded(
+                                child: SingleChildScrollView(
+                                  padding: const EdgeInsets.fromLTRB(
+                                    20,
+                                    24,
+                                    28,
+                                    16,
+                                  ),
+                                  child: colExtra(),
+                                ),
+                              ),
+                            ],
+                          );
+                        },
+                      ),
+                    ),
+                    // Footer
+                    Container(
+                      padding: const EdgeInsets.fromLTRB(24, 14, 24, 18),
+                      decoration: BoxDecoration(
+                        color: const Color(0xFFF8F6FF),
+                        border: Border(
+                          top: BorderSide(
+                            color: _roxo.withValues(alpha: 0.12),
+                          ),
+                        ),
+                      ),
+                      child: Row(
+                        children: [
+                          TextButton(
+                            onPressed:
+                                salvando ? null : () => Navigator.pop(ctx),
+                            style: TextButton.styleFrom(
+                              foregroundColor: _roxo,
+                              padding: const EdgeInsets.symmetric(
+                                horizontal: 18,
+                                vertical: 14,
+                              ),
+                            ),
+                            child: Text(
+                              'Cancelar',
+                              style: GoogleFonts.plusJakartaSans(
+                                fontWeight: FontWeight.w700,
+                              ),
+                            ),
+                          ),
+                          const Spacer(),
+                          DecoratedBox(
+                            decoration: BoxDecoration(
+                              gradient: LinearGradient(
+                                colors: salvando
+                                    ? const [
+                                        Color(0xFFFFB74D),
+                                        Color(0xFFFFCC80),
+                                      ]
+                                    : const [
+                                        Color(0xFFFF8A00),
+                                        Color(0xFFFF8F00),
+                                      ],
+                              ),
+                              borderRadius: BorderRadius.circular(14),
+                              boxShadow: [
+                                BoxShadow(
+                                  color: _laranja.withValues(alpha: 0.35),
+                                  blurRadius: 14,
+                                  offset: const Offset(0, 6),
+                                ),
+                              ],
+                            ),
+                            child: Material(
+                              color: Colors.transparent,
+                              child: InkWell(
+                                onTap: salvando ? null : salvar,
+                                borderRadius: BorderRadius.circular(14),
+                                child: Padding(
+                                  padding: const EdgeInsets.symmetric(
+                                    horizontal: 26,
+                                    vertical: 14,
                                   ),
                                   child: Row(
-                                    crossAxisAlignment:
-                                        CrossAxisAlignment.start,
+                                    mainAxisSize: MainAxisSize.min,
                                     children: [
-                                      Icon(
-                                        Icons.local_shipping_rounded,
-                                        size: 18,
-                                        color: _laranja,
-                                      ),
-                                      const SizedBox(width: 8),
-                                      const Expanded(
-                                        child: Text(
-                                          'Este produto foi marcado como "volumoso/carga maior" '
-                                          'no modelo antigo. Esse dado ainda é lido como '
-                                          'fallback de segurança enquanto você não define os '
-                                          'Tipos de entrega da loja. Recomendamos configurar a '
-                                          'loja inteira em Configurações.',
-                                          style: TextStyle(
-                                            fontSize: 11.5,
-                                            height: 1.35,
+                                      if (salvando)
+                                        const SizedBox(
+                                          width: 18,
+                                          height: 18,
+                                          child: CircularProgressIndicator(
+                                            strokeWidth: 2,
+                                            color: Colors.white,
                                           ),
+                                        )
+                                      else
+                                        const Icon(
+                                          Icons.check_rounded,
+                                          color: Colors.white,
+                                          size: 20,
+                                        ),
+                                      const SizedBox(width: 8),
+                                      Text(
+                                        salvando
+                                            ? (fotos.any((f) => f.bytes != null)
+                                                ? 'Enviando fotos…'
+                                                : 'Salvando…')
+                                            : 'Salvar',
+                                        style: GoogleFonts.plusJakartaSans(
+                                          color: Colors.white,
+                                          fontWeight: FontWeight.w800,
+                                          fontSize: 14,
                                         ),
                                       ),
                                     ],
                                   ),
                                 ),
-                              ],
-                            ],
+                              ),
+                            ),
                           ),
-                        ),
-                        const SizedBox(height: 20),
-                        _secForm('Informações fiscais (NF-e)'),
-                        const SizedBox(height: 10),
-                        Row(
-                          crossAxisAlignment: CrossAxisAlignment.start,
-                          children: [
-                            Expanded(
-                              child: TextField(
-                                controller: ncmC,
-                                decoration: _dec('NCM (8 dígitos)').copyWith(
-                                  helperText: 'Ex.: 64041900',
-                                ),
-                                keyboardType: TextInputType.number,
-                                inputFormatters: [
-                                  FilteringTextInputFormatter.digitsOnly,
-                                  LengthLimitingTextInputFormatter(8),
-                                ],
-                              ),
+                        ],
+                      ),
+                    ),
+                  ],
+                ),
+              ),
+            ),
+          );
+        },
+      ),
+    );
+  }
+
+  static Widget _switchPremium({
+    required String titulo,
+    required String subtitulo,
+    required bool valor,
+    required ValueChanged<bool> onChanged,
+  }) {
+    return Container(
+      padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 8),
+      decoration: BoxDecoration(
+        color: const Color(0xFFF8F6FF),
+        borderRadius: BorderRadius.circular(12),
+        border: Border.all(color: const Color(0xFFE9D5FF)),
+      ),
+      child: SwitchListTile(
+        contentPadding: EdgeInsets.zero,
+        title: Text(
+          titulo,
+          style: GoogleFonts.plusJakartaSans(
+            fontSize: 13.5,
+            fontWeight: FontWeight.w700,
+            color: const Color(0xFF1A1A2E),
+          ),
+        ),
+        subtitle: Text(
+          subtitulo,
+          style: GoogleFonts.plusJakartaSans(
+            fontSize: 11.5,
+            color: const Color(0xFF64748B),
+          ),
+        ),
+        value: valor,
+        activeThumbColor: _laranja,
+        activeTrackColor: _laranja.withValues(alpha: 0.35),
+        onChanged: onChanged,
+      ),
+    );
+  }
+
+  static String _extensaoArquivo(String nome) {
+    final n = nome.toLowerCase().trim();
+    final i = n.lastIndexOf('.');
+    if (i < 0 || i == n.length - 1) return 'jpg';
+    final ext = n.substring(i + 1);
+    if (ext == 'jpeg' || ext == 'jpg' || ext == 'png' || ext == 'webp' ||
+        ext == 'gif') {
+      return ext == 'jpeg' ? 'jpg' : ext;
+    }
+    return 'jpg';
+  }
+
+  static String _mimeImagem(String ext) {
+    switch (ext) {
+      case 'png':
+        return 'image/png';
+      case 'webp':
+        return 'image/webp';
+      case 'gif':
+        return 'image/gif';
+      default:
+        return 'image/jpeg';
+    }
+  }
+
+  static Widget _miniaturaFotoProduto({
+    required _FotoProdutoItem foto,
+    required bool principal,
+    VoidCallback? onRemover,
+    VoidCallback? onTornarPrincipal,
+  }) {
+    return SizedBox(
+      width: 104,
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.stretch,
+        children: [
+          Stack(
+            children: [
+              Container(
+                width: 104,
+                height: 104,
+                decoration: BoxDecoration(
+                  borderRadius: BorderRadius.circular(14),
+                  border: Border.all(
+                    color: principal
+                        ? _laranja
+                        : const Color(0xFFE9D5FF),
+                    width: principal ? 2.2 : 1,
+                  ),
+                  color: const Color(0xFFF8F6FF),
+                ),
+                clipBehavior: Clip.antiAlias,
+                child: foto.bytes != null
+                    ? Image.memory(foto.bytes!, fit: BoxFit.cover)
+                    : (foto.url != null && foto.url!.isNotEmpty)
+                        ? Image.network(
+                            foto.url!,
+                            fit: BoxFit.cover,
+                            webHtmlElementStrategy: kIsWeb
+                                ? WebHtmlElementStrategy.prefer
+                                : WebHtmlElementStrategy.never,
+                            errorBuilder: (_, _, _) => const Icon(
+                              Icons.broken_image_outlined,
+                              color: _roxo,
                             ),
-                            const SizedBox(width: 12),
-                            Expanded(
-                              child: TextField(
-                                controller: cstC,
-                                decoration:
-                                    _dec('CST ICMS / CSOSN').copyWith(
-                                  helperText: 'Ex.: 400 (SN) ou 000',
-                                ),
-                                keyboardType: TextInputType.number,
-                                inputFormatters: [
-                                  FilteringTextInputFormatter.digitsOnly,
-                                  LengthLimitingTextInputFormatter(4),
-                                ],
-                              ),
-                            ),
-                          ],
-                        ),
-                      ],
+                          )
+                        : const Icon(Icons.image_outlined, color: _roxo),
+              ),
+              if (principal)
+                Positioned(
+                  left: 6,
+                  top: 6,
+                  child: Container(
+                    padding: const EdgeInsets.symmetric(
+                      horizontal: 7,
+                      vertical: 3,
+                    ),
+                    decoration: BoxDecoration(
+                      color: _laranja,
+                      borderRadius: BorderRadius.circular(8),
+                    ),
+                    child: Text(
+                      'Principal',
+                      style: GoogleFonts.plusJakartaSans(
+                        fontSize: 9,
+                        fontWeight: FontWeight.w800,
+                        color: Colors.white,
+                      ),
                     ),
                   ),
                 ),
-                Padding(
-                  padding: const EdgeInsets.fromLTRB(16, 0, 16, 16),
-                  child: Row(
-                    children: [
-                      TextButton(
-                        onPressed: salvando ? null : () => Navigator.pop(ctx),
-                        child: const Text('Cancelar'),
-                      ),
-                      const Spacer(),
-                      FilledButton.icon(
-                        onPressed: salvando
-                            ? null
-                            : () async {
-                                if (nomeC.text.trim().isEmpty ||
-                                    categoriaSelecionada == null ||
-                                    categoriaSelecionada!.isEmpty) {
-                                  ScaffoldMessenger.of(context).showSnackBar(
-                                    const SnackBar(
-                                      content: Text(
-                                        'Informe nome e categoria oficial.',
-                                      ),
-                                      backgroundColor: Colors.orange,
-                                    ),
-                                  );
-                                  return;
-                                }
-                                final preco =
-                                    double.tryParse(
-                                      precoC.text.replaceAll(',', '.'),
-                                    ) ??
-                                    0;
-                                final est = int.tryParse(estC.text) ?? 0;
-                                final imgs = <String>[];
-                                if (imgC.text.trim().isNotEmpty) {
-                                  imgs.add(imgC.text.trim());
-                                }
-                                setS(() => salvando = true);
-                                try {
-                                  final payload = <String, dynamic>{
-                                    'nome': nomeC.text.trim(),
-                                    'preco': preco,
-                                    'descricao': descC.text.trim(),
-                                    'categoria': categoriaSelecionada!.trim(),
-                                    'categoria_nome': categoriaSelecionada!
-                                        .trim(),
-                                    'estoque_qtd': est,
-                                    'tipo_venda': tipo,
-                                    'ativo': ativo,
-                                    'is_oferta_especial': isOfertaEspecial,
-                                    'imagens': imgs,
-                                    'lojista_id': uidLoja,
-                                    'loja_id': uidLoja,
-                                    'requer_veiculo_grande':
-                                        requerVeiculoGrande,
-                                    'ncm': ncmC.text.trim(),
-                                    'cst_icms': cstC.text.trim().isNotEmpty
-                                        ? cstC.text.trim()
-                                        : '400',
-                                    'updated_at': FieldValue.serverTimestamp(),
-                                  };
-                                  if (!isEdit) {
-                                    payload['created_at'] =
-                                        FieldValue.serverTimestamp();
-                                    await FirebaseFirestore.instance
-                                        .collection('produtos')
-                                        .add(payload);
-                                  } else {
-                                    await existente.reference.update(payload);
-                                  }
-                                  if (ctx.mounted) Navigator.pop(ctx);
-                                  if (context.mounted) {
-                                    ScaffoldMessenger.of(context).showSnackBar(
-                                      const SnackBar(
-                                        content: Text('Alterações salvas.'),
-                                        backgroundColor: Color(0xFF15803D),
-                                      ),
-                                    );
-                                  }
-                                } catch (e) {
-                                  if (context.mounted) {
-                                    ScaffoldMessenger.of(context).showSnackBar(
-                                      SnackBar(
-                                        content: Text('Erro: $e'),
-                                        backgroundColor: Colors.red,
-                                      ),
-                                    );
-                                  }
-                                } finally {
-                                  setS(() => salvando = false);
-                                }
-                              },
-                        style: FilledButton.styleFrom(
-                          backgroundColor: _laranja,
-                          foregroundColor: Colors.white,
-                          padding: const EdgeInsets.symmetric(
-                            horizontal: 22,
-                            vertical: 14,
-                          ),
-                          shape: RoundedRectangleBorder(
-                            borderRadius: BorderRadius.circular(12),
-                          ),
+              if (onRemover != null)
+                Positioned(
+                  right: 4,
+                  top: 4,
+                  child: Material(
+                    color: Colors.black.withValues(alpha: 0.55),
+                    shape: const CircleBorder(),
+                    child: InkWell(
+                      customBorder: const CircleBorder(),
+                      onTap: onRemover,
+                      child: const Padding(
+                        padding: EdgeInsets.all(4),
+                        child: Icon(
+                          Icons.close_rounded,
+                          size: 14,
+                          color: Colors.white,
                         ),
-                        icon: salvando
-                            ? const SizedBox(
-                                width: 18,
-                                height: 18,
-                                child: CircularProgressIndicator(
-                                  strokeWidth: 2,
-                                  color: Colors.white,
-                                ),
-                              )
-                            : const Icon(Icons.check_rounded, size: 20),
-                        label: Text(salvando ? 'Salvando…' : 'Salvar'),
                       ),
-                    ],
+                    ),
                   ),
                 ),
-              ],
-            ),
+            ],
           ),
-        ),
+          const SizedBox(height: 6),
+          if (onTornarPrincipal != null)
+            TextButton(
+              onPressed: onTornarPrincipal,
+              style: TextButton.styleFrom(
+                foregroundColor: _roxo,
+                padding: EdgeInsets.zero,
+                minimumSize: const Size(0, 28),
+                tapTargetSize: MaterialTapTargetSize.shrinkWrap,
+              ),
+              child: Text(
+                'Tornar principal',
+                style: GoogleFonts.plusJakartaSans(
+                  fontSize: 10,
+                  fontWeight: FontWeight.w800,
+                ),
+              ),
+            )
+          else if (principal)
+            Text(
+              'Capa do produto',
+              textAlign: TextAlign.center,
+              style: GoogleFonts.plusJakartaSans(
+                fontSize: 10,
+                fontWeight: FontWeight.w700,
+                color: _laranja,
+              ),
+            ),
+        ],
       ),
     );
   }
 
   static Widget _secForm(String t) => Text(
-    t,
-    style: GoogleFonts.plusJakartaSans(
-      fontSize: 13,
-      fontWeight: FontWeight.w700,
-      color: _roxo,
-      letterSpacing: 0.2,
-    ),
-  );
+        t,
+        style: GoogleFonts.plusJakartaSans(
+          fontSize: 13,
+          fontWeight: FontWeight.w800,
+          color: _roxo,
+          letterSpacing: 0.3,
+        ),
+      );
 
   static InputDecoration _dec(String label) => InputDecoration(
-    labelText: label,
-    filled: true,
-    fillColor: const Color(0xFFF8F7FC),
-    border: OutlineInputBorder(borderRadius: BorderRadius.circular(12)),
-    enabledBorder: OutlineInputBorder(
-      borderRadius: BorderRadius.circular(12),
-      borderSide: BorderSide(color: Colors.grey.shade300),
-    ),
-    focusedBorder: OutlineInputBorder(
-      borderRadius: BorderRadius.circular(12),
-      borderSide: const BorderSide(color: _roxo, width: 1.5),
-    ),
-  );
+        labelText: label,
+        filled: true,
+        fillColor: const Color(0xFFF8F6FF),
+        border: OutlineInputBorder(borderRadius: BorderRadius.circular(14)),
+        enabledBorder: OutlineInputBorder(
+          borderRadius: BorderRadius.circular(14),
+          borderSide: const BorderSide(color: Color(0xFFE9D5FF)),
+        ),
+        focusedBorder: OutlineInputBorder(
+          borderRadius: BorderRadius.circular(14),
+          borderSide: const BorderSide(color: _roxo, width: 1.6),
+        ),
+      );
 
   InputDecoration _inputDecorationFiltro(String label) {
     return InputDecoration(
@@ -2560,3 +3009,17 @@ class _CartaoProduto extends StatelessWidget {
         ),
       );
 }
+
+/// Foto no formulário de produto (URL já salva ou bytes locais a enviar).
+class _FotoProdutoItem {
+  final String? url;
+  final Uint8List? bytes;
+  final String? nomeArquivo;
+
+  const _FotoProdutoItem.url(this.url)
+      : bytes = null,
+        nomeArquivo = null;
+
+  _FotoProdutoItem.bytes(this.bytes, this.nomeArquivo) : url = null;
+}
+

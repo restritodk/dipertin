@@ -1227,8 +1227,26 @@ class _CardEspecial extends StatelessWidget {
 }
 
 // ═══════════════════════════════════════════════════════════════════════════
-//  _CardPlano — Card premium estilo SaaS
+//  _CardPlano — Card premium estilo SaaS (altura padronizada)
 // ═══════════════════════════════════════════════════════════════════════════
+
+/// Altura fixa para todos os cards de plano (compacta e elegante)
+const double _cardPlanoAltura = 560.0;
+
+/// Espaçamento interno padrão entre elementos do card
+const double _cardPlanoPadding = 24.0;
+
+/// Espaço entre badge "Mais popular" e nome do plano
+const double _cardPlanoBadgeMarginBottom = 12.0;
+
+/// Espaço entre elementos internos
+const double _cardPlanoSpacer = 6.0;
+
+/// Espaço maior entre seções
+const double _cardPlanoSpacerLarge = 16.0;
+
+/// Espaço entre lista de módulos e botão
+const double _cardPlanoModulosBotao = 20.0;
 class _CardPlano extends StatefulWidget {
   final Map<String, dynamic> dados;
   final bool recomendado;
@@ -1269,7 +1287,8 @@ class _CardPlanoState extends State<_CardPlano> {
             ? Matrix4.translationValues(0, -6, 0)
             : Matrix4.identity(),
         child: Container(
-          padding: const EdgeInsets.all(28),
+          height: _cardPlanoAltura,
+          padding: const EdgeInsets.all(_cardPlanoPadding),
           decoration: BoxDecoration(
             color: _P.card,
             borderRadius: BorderRadius.circular(20),
@@ -1298,11 +1317,12 @@ class _CardPlanoState extends State<_CardPlano> {
           ),
           child: Column(
             crossAxisAlignment: CrossAxisAlignment.center,
+            mainAxisSize: MainAxisSize.max,
             children: [
               // ── Badge "Mais popular" ──
               if (widget.recomendado)
                 Container(
-                  margin: const EdgeInsets.only(bottom: 16),
+                  margin: const EdgeInsets.only(bottom: _cardPlanoBadgeMarginBottom),
                   padding:
                       const EdgeInsets.symmetric(horizontal: 14, vertical: 7),
                   decoration: BoxDecoration(
@@ -1352,7 +1372,7 @@ class _CardPlanoState extends State<_CardPlano> {
 
               // ── Descrição ──
               if (descricao.isNotEmpty) ...[
-                const SizedBox(height: 8),
+                const SizedBox(height: _cardPlanoSpacer),
                 Text(
                   descricao,
                   textAlign: TextAlign.center,
@@ -1366,7 +1386,7 @@ class _CardPlanoState extends State<_CardPlano> {
                 ),
               ],
 
-              const SizedBox(height: 24),
+              const SizedBox(height: _cardPlanoSpacerLarge),
 
               // ── Preço ──
               Row(
@@ -1404,7 +1424,7 @@ class _CardPlanoState extends State<_CardPlano> {
               ),
 
               // ── Informação de cobrança ──
-              const SizedBox(height: 6),
+              const SizedBox(height: _cardPlanoSpacer),
               Text(
                 duracaoDias > 0
                     ? (tipoRec == 'Mensal'
@@ -1419,7 +1439,7 @@ class _CardPlanoState extends State<_CardPlano> {
 
               // ── Divisor ──
               const Padding(
-                padding: EdgeInsets.symmetric(vertical: 24),
+                padding: EdgeInsets.symmetric(vertical: _cardPlanoSpacerLarge),
                 child: Divider(height: 1, color: _P.bordaSuave),
               ),
 
@@ -1447,56 +1467,104 @@ class _CardPlanoState extends State<_CardPlano> {
                   ],
                 ),
                 const SizedBox(height: 12),
-                ...List.generate(modulos.length, (idx) {
-                  final mod = modulos[idx];
-                  return Padding(
-                    padding: EdgeInsets.only(
-                        bottom: idx < modulos.length - 1 ? 10 : 0),
-                    child: Row(
-                      children: [
-                        Container(
-                          width: 18,
-                          height: 18,
-                          decoration: BoxDecoration(
-                            color: _P.sucesso.withValues(alpha: 0.12),
-                            borderRadius: BorderRadius.circular(5),
-                          ),
-                          child: const Icon(Icons.check_rounded,
-                              size: 13, color: _P.sucesso),
-                        ),
-                        const SizedBox(width: 10),
-                        Expanded(
-                          child: Text(
-                            mod,
-                            style: GoogleFonts.plusJakartaSans(
-                              fontSize: 12.5,
-                              color: _P.texto,
-                              fontWeight: FontWeight.w500,
-                            ),
-                          ),
-                        ),
-                      ],
-                    ),
-                  );
-                }),
-                const SizedBox(height: 24),
-              ] else ...[
-                const SizedBox(height: 24),
+                // Layout inteligente: 1 ou 2 colunas conforme quantidade
+                _buildModulosLayout(modulos),
               ],
 
-              // ── Botão ──
+              // ── Spacer: empurra o botão para a parte inferior do card ──
+              const Spacer(),
+
+              // ── Botão (ancorado na parte inferior) ──
               SizedBox(
                 width: double.infinity,
-                height: 52,
+                height: 48,
                 child: _BotaoGradiente(
                   label: 'Contratar este plano',
                   onTap: widget.onContratar ?? () {},
                   largura: double.infinity,
                 ),
               ),
+
+              // ── Margem inferior após o botão ──
+              const SizedBox(height: 24),
             ],
           ),
         ),
+      ),
+    );
+  }
+
+  /// Constrói o layout de módulos: 1 ou 2 colunas conforme quantidade.
+  Widget _buildModulosLayout(List<String> modulos) {
+    if (modulos.length <= 4) {
+      // Uma coluna simples
+      return Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: modulos.asMap().entries.map((entry) {
+          return _buildModuloItem(entry.value, entry.key, modulos.length);
+        }).toList(),
+      );
+    } else {
+      // Duas colunas: divide automaticamente (primeira coluna = ceil(n/2))
+      final metade = (modulos.length / 2).ceil();
+      final colunaEsquerda = modulos.sublist(0, metade);
+      final colunaDireita = modulos.sublist(metade);
+
+      return Row(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          // Coluna esquerda
+          Expanded(
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: colunaEsquerda.asMap().entries.map((entry) {
+                return _buildModuloItem(entry.value, entry.key, colunaEsquerda.length);
+              }).toList(),
+            ),
+          ),
+          const SizedBox(width: 16),
+          // Coluna direita
+          Expanded(
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: colunaDireita.asMap().entries.map((entry) {
+                return _buildModuloItem(entry.value, entry.key, colunaDireita.length);
+              }).toList(),
+            ),
+          ),
+        ],
+      );
+    }
+  }
+
+  /// Constrói um item individual de módulo.
+  Widget _buildModuloItem(String modulo, int index, int totalNaColuna) {
+    return Padding(
+      padding: EdgeInsets.only(bottom: index < totalNaColuna - 1 ? 8 : 0),
+      child: Row(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          Container(
+            width: 16,
+            height: 16,
+            decoration: BoxDecoration(
+              color: _P.sucesso.withValues(alpha: 0.12),
+              borderRadius: BorderRadius.circular(4),
+            ),
+            child: const Icon(Icons.check_rounded, size: 11, color: _P.sucesso),
+          ),
+          const SizedBox(width: 8),
+          Expanded(
+            child: Text(
+              modulo,
+              style: GoogleFonts.plusJakartaSans(
+                fontSize: 12,
+                color: _P.texto,
+                fontWeight: FontWeight.w500,
+              ),
+            ),
+          ),
+        ],
       ),
     );
   }

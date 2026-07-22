@@ -28,6 +28,7 @@ abstract final class PainelRoutes {
     '/avaliacoes_painel',
     '/comunicados',
     '/conteudo_legal',
+    '/auditoria',
     '/pdv',
     '/meus_pedidos',
     '/negociacoes_encomenda',
@@ -119,6 +120,7 @@ abstract final class PainelRoutes {
     '/comercial_historico',
     '/comercial_relatorios',
     '/comercial_configuracoes',
+    '/modulo_fiscal',
   ];
 
   static bool ehRotaGestaoComercial(String route) =>

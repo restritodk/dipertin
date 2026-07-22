@@ -7,12 +7,10 @@ class QuickActionsCard extends StatelessWidget {
     super.key,
     this.onEnviarLembretes,
     this.onGerarCobrancas,
-    this.onExportarRelatorio,
   });
 
   final VoidCallback? onEnviarLembretes;
   final VoidCallback? onGerarCobrancas;
-  final VoidCallback? onExportarRelatorio;
 
   @override
   Widget build(BuildContext context) {
@@ -54,13 +52,6 @@ class QuickActionsCard extends StatelessWidget {
             'Gerar cobranças',
             const Color(0xFFFF8F00),
             onGerarCobrancas,
-          ),
-          const SizedBox(height: 10),
-          _botaoAcao(
-            Icons.download_rounded,
-            'Exportar relatório',
-            const Color(0xFF16A34A),
-            onExportarRelatorio,
           ),
         ],
       ),

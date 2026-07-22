@@ -12,8 +12,8 @@ const Color _diPertinRoxo = Color(0xFF6A1B9A);
 const Color _diPertinLaranja = Color(0xFFFF8F00);
 const Color _fundoTela = Color(0xFFF5F4F8);
 
-/// Texto exibido em Sobre — alinhar com [pubspec.yaml] version (1.2.7).
-const String _versaoFallback = '1.2.7';
+/// Texto exibido em Sobre — alinhar com [pubspec.yaml] version (1.2.8).
+const String _versaoFallback = '1.2.8';
 
 /// Informações do aplicativo DiPertin (versão, descrição).
 class SobreScreen extends StatefulWidget {

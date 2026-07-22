@@ -24,6 +24,7 @@
 //           hoje permite leitura anônima).
 
 const admin = require("firebase-admin");
+const { FieldValue } = require("firebase-admin/firestore");
 const functions = require("firebase-functions/v1");
 
 /**
@@ -93,7 +94,7 @@ function extrairCamposPublicos(data) {
     }
     // Marcador: sempre útil pra debug/filtro.
     patch.role = "lojista";
-    patch.sincronizado_em = admin.firestore.FieldValue.serverTimestamp();
+    patch.sincronizado_em = FieldValue.serverTimestamp();
     return patch;
 }
 

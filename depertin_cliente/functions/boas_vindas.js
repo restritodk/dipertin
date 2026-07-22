@@ -6,8 +6,11 @@
  */
 
 const admin = require("firebase-admin");
+const { FieldValue } = require("firebase-admin/firestore");
 const functions = require("firebase-functions/v1");
 const smtp = require("./smtp_transport");
+
+const EMULADOR_ATIVO = process.env.FUNCTIONS_EMULATOR === "true";
 
 function validarFormatoEmail(email) {
   return /^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email);
@@ -186,6 +189,11 @@ exports.onUsuarioCriadoBoasVindas = functions.firestore
       return null;
     }
 
+    if (EMULADOR_ATIVO) {
+      console.log("[boas-vindas] Emulador ativo — SMTP ignorado.");
+      return null;
+    }
+
     let transporter;
     try {
       transporter = smtp.criarTransport("padrao");
@@ -209,7 +217,7 @@ exports.onUsuarioCriadoBoasVindas = functions.firestore
 
       await snap.ref.set(
         {
-          email_boas_vindas_em: admin.firestore.FieldValue.serverTimestamp(),
+          email_boas_vindas_em: FieldValue.serverTimestamp(),
         },
         { merge: true }
       );

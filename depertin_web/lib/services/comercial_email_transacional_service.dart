@@ -51,7 +51,7 @@ class ComercialEmailTransacionalService {
   }) async {
     return callFirebaseFunctionSafe(
       'gestaoComercialEmailSalvarConfig',
-      region: kFirebaseFunctionsRegionSouth,
+      region: kFirebaseFunctionsRegionEmailGc,
       parameters: {
         'lojaId': lojaId,
         'config': config.toSalvarPayload(smtpSenha: smtpSenha, apiKey: apiKey),
@@ -66,7 +66,7 @@ class ComercialEmailTransacionalService {
   }) async {
     return callFirebaseFunctionSafe(
       'gestaoComercialEmailTestarSmtp',
-      region: kFirebaseFunctionsRegionSouth,
+      region: kFirebaseFunctionsRegionEmailGc,
       parameters: {
         'lojaId': lojaId,
         'smtp': smtp.toPayload(senhaDigitada: senha),
@@ -81,7 +81,7 @@ class ComercialEmailTransacionalService {
   }) async {
     return callFirebaseFunctionSafe(
       'gestaoComercialEmailTestarApi',
-      region: kFirebaseFunctionsRegionSouth,
+      region: kFirebaseFunctionsRegionEmailGc,
       parameters: {
         'lojaId': lojaId,
         'api': api.toPayload(apiKeyDigitada: apiKey),
@@ -95,7 +95,7 @@ class ComercialEmailTransacionalService {
   ) async {
     return callFirebaseFunctionSafe(
       'gestaoComercialEmailEnviarTeste',
-      region: kFirebaseFunctionsRegionSouth,
+      region: kFirebaseFunctionsRegionEmailGc,
       parameters: {'lojaId': lojaId, 'destino': destino},
     );
   }
@@ -103,7 +103,7 @@ class ComercialEmailTransacionalService {
   Future<void> inicializarTemplates(String lojaId) async {
     await callFirebaseFunctionSafe(
       'gestaoComercialEmailInicializarTemplates',
-      region: kFirebaseFunctionsRegionSouth,
+      region: kFirebaseFunctionsRegionEmailGc,
       parameters: {'lojaId': lojaId},
     );
   }
@@ -138,7 +138,7 @@ class ComercialEmailTransacionalService {
   ) async {
     return callFirebaseFunctionSafe(
       'gestaoComercialEmailSalvarTemplate',
-      region: kFirebaseFunctionsRegionSouth,
+      region: kFirebaseFunctionsRegionEmailGc,
       parameters: {
         'lojaId': lojaId,
         ...template.toPayload(),
@@ -153,7 +153,7 @@ class ComercialEmailTransacionalService {
   }) async {
     return callFirebaseFunctionSafe(
       'gestaoComercialEmailEnviarTemplateTeste',
-      region: kFirebaseFunctionsRegionSouth,
+      region: kFirebaseFunctionsRegionEmailGc,
       parameters: {
         'lojaId': lojaId,
         'destino': destino,

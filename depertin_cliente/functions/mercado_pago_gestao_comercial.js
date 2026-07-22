@@ -29,6 +29,33 @@ const admin = require("firebase-admin");
 const MP_API = "https://api.mercadopago.com";
 
 // =============================================================================
+// VALIDAÇÃO COMPARTILHADA (Gestão Comercial)
+// =============================================================================
+
+async function assertGcAcessoLoja(request) {
+    if (!request.auth) {
+        throw new HttpsError("unauthenticated", "Login necessario.");
+    }
+    const callerUid = request.auth.uid;
+    const callerSnap = await admin.firestore().collection("users").doc(callerUid).get();
+    if (!callerSnap.exists) {
+        throw new HttpsError("failed-precondition", "Perfil nao encontrado.");
+    }
+    const caller = callerSnap.data() || {};
+    const role = String(caller.role || caller.tipoUsuario || "").toLowerCase();
+    if (role !== "lojista") {
+        throw new HttpsError("permission-denied", "Apenas lojistas.");
+    }
+    const ownerUid = String(caller.lojista_owner_uid || "").trim();
+    if (ownerUid) {
+        const nivel = Number(caller.painel_colaborador_nivel || 0);
+        if (nivel < 2) {
+            throw new HttpsError("permission-denied", "Sem permissao.");
+        }
+    }
+}
+
+// =============================================================================
 // WEBHOOK PRINCIPAL
 // =============================================================================
 
@@ -122,7 +149,49 @@ function extrairPaymentId(body) {
 async function processarNotificacaoPagamento(paymentId) {
     const db = admin.firestore();
 
-    // 1. Buscar cobranca pelo paymentId
+    // 0. ROTEAMENTO: se for pagamento de assinatura_cobranca (Plano GC),
+    //    processa pela função dedicada e retorna.
+    try {
+        const tokenRoteamento = await getMercadoPagoAccessTokenPlataforma();
+        if (tokenRoteamento) {
+            const paymentRoteamento = await fetchPaymentFromMp(tokenRoteamento, paymentId);
+            const meta = (paymentRoteamento && paymentRoteamento.metadata) || {};
+            if (meta.tipo === "assinatura_cobranca") {
+                console.log(
+                    "[mp-gestao] Roteando pagamento " + paymentId + " para processarCobrancaAssinatura"
+                );
+                const assinaturaCobrancas = require("./assinatura_cobrancas");
+                if (typeof assinaturaCobrancas.processarPagamentoGestaoComercial !== "function") {
+                    console.error("[mp-gestao] processarPagamentoGestaoComercial NÃO exportado");
+                    return;
+                }
+                const r = await assinaturaCobrancas.processarPagamentoGestaoComercial(paymentRoteamento);
+                console.log("[mp-gestao] Resultado processamento assinatura:", JSON.stringify(r));
+                return;
+            }
+            if (meta.tipo === "assinatura_contratacao" || meta.tipo === "assinatura_renovacao") {
+                console.log(
+                    "[mp-gestao] Roteando pagamento " + paymentId + " para PIX assinatura direta"
+                );
+                const assinaturaPagamento = require("./assinatura_pagamento");
+                const r = await assinaturaPagamento.processarPagamentoPixAssinaturaDireto(paymentRoteamento);
+                console.log("[mp-gestao] Resultado PIX assinatura:", JSON.stringify(r));
+                return;
+            }
+            // Fallback por external_reference
+            const ext = String(paymentRoteamento.external_reference || "");
+            if (/^(assinatura_|renovar_)/.test(ext)) {
+                const assinaturaPagamento = require("./assinatura_pagamento");
+                const r = await assinaturaPagamento.processarPagamentoPixAssinaturaDireto(paymentRoteamento);
+                console.log("[mp-gestao] Resultado PIX por external_reference:", JSON.stringify(r));
+                return;
+            }
+        }
+    } catch (eRoteamento) {
+        console.warn("[mp-gestao] Erro no roteamento de assinatura (continuando):", eRoteamento.message || eRoteamento);
+    }
+
+    // 1. Buscar cobranca pelo paymentId (fluxo PDV/Gestão Comercial normal)
     const cobrancasSnap = await db
         .collection("gestao_comercial_cobrancas")
         .where("paymentId", "==", paymentId)
@@ -399,6 +468,7 @@ exports.createPdvPixPayment = onCall(
         if (!request.auth) {
             throw new HttpsError("unauthenticated", "Login necessario.");
         }
+        await assertGcAcessoLoja(request);
 
         const data = request.data || {};
         const lojaId = String(data.lojaId || "").trim();
@@ -596,6 +666,7 @@ exports.checkPdvPixPaymentStatus = onCall(
             if (!request.auth) {
                 throw new HttpsError("unauthenticated", "Login necessario.");
             }
+            await assertGcAcessoLoja(request);
 
             const cobrancaId = String(request.data?.cobrancaId || "").trim();
             if (!cobrancaId) {
@@ -868,6 +939,7 @@ exports.testarConexaoMercadoPago = onCall(
         if (!request.auth) {
             throw new HttpsError("unauthenticated", "Login necessario.");
         }
+        await assertGcAcessoLoja(request);
 
         const accessToken = String(request.data?.accessToken || "").trim();
         if (!accessToken) {

@@ -370,7 +370,8 @@ class NuvemFiscalProvider implements FiscalProvider {
       'emitente': {
         'cnpj': payload.emitente.cnpj,
         'x_nome': payload.emitente.razaoSocial,
-        'x_fantasia': payload.emitente.nomeFantasia,
+        if (payload.emitente.nomeFantasia.trim().isNotEmpty)
+          'x_fantasia': payload.emitente.nomeFantasia.trim(),
         'ie': payload.emitente.ie,
         if (payload.emitente.crt != null)
           'CRT': int.tryParse(payload.emitente.crt!) ?? 3,

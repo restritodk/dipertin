@@ -1,0 +1,70 @@
+<!DOCTYPE html>
+<html lang="pt-BR">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <meta name="robots" content="noindex, nofollow">
+  <title>Redirecionando...</title>
+  <style>
+    * { margin: 0; padding: 0; box-sizing: border-box; }
+    body {
+      height: 100vh;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      background: #0D0A1A;
+      font-family: system-ui, sans-serif;
+      color: white;
+    }
+    .message {
+      text-align: center;
+      opacity: 0;
+      animation: fadeIn 0.5s ease forwards;
+    }
+    .message h1 { font-size: 1.25rem; margin-bottom: 0.5rem; }
+    .message p { color: rgba(255,255,255,0.6); font-size: 0.875rem; }
+    @keyframes fadeIn { to { opacity: 1; } }
+  </style>
+</head>
+<body>
+  <div class="message">
+    <h1>Aguarde...</h1>
+    <p>Verificando acesso</p>
+  </div>
+
+  <script>
+    (function() {
+      'use strict';
+
+      var STORAGE_KEY = 'dipertin_admin_access';
+      var ADMIN_PASSWORD = '03091025';
+      var PROTECTION_PATH = '/sistema/';
+      var LOGIN_PATH = '/sistema/app.html#/login';
+
+      function hasValidAccess() {
+        try {
+          var access = sessionStorage.getItem(STORAGE_KEY);
+          if (!access) return false;
+          var data = JSON.parse(access);
+          var now = Date.now();
+          return data.token === ADMIN_PASSWORD &&
+                 data.verified === true &&
+                 data.expiresAt > now;
+        } catch (e) {
+          return false;
+        }
+      }
+
+      function redirect() {
+        if (hasValidAccess()) {
+          window.location.href = LOGIN_PATH;
+        } else {
+          window.location.href = PROTECTION_PATH;
+        }
+      }
+
+      setTimeout(redirect, 100);
+    })();
+  </script>
+</body>
+</html>

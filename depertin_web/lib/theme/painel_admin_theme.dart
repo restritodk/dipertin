@@ -415,6 +415,12 @@ abstract final class PainelAdminTheme {
   static const Color textoSecundario = DiPertinTheme.textSecondary;
   static const Color dashboardBorder = DiPertinTheme.borderDefault;
   static const Color dashboardInk = DiPertinTheme.textPrimary;
+  static const Color errorRed = DiPertinTheme.errorRed;
+  static const Color errorRedAlt = DiPertinTheme.errorRedAlt;
+  static const Color warningAmber = DiPertinTheme.warningAmber;
+  static const Color infoBlue = DiPertinTheme.infoBlue;
+  static const Color successGreen = DiPertinTheme.successGreen;
+  static const Color successGreenAlt = DiPertinTheme.successGreenAlt;
 
   static ThemeData theme() => DiPertinTheme.theme();
 

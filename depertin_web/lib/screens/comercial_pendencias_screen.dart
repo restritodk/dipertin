@@ -5,15 +5,18 @@ import 'package:depertin_web/services/comercial_config_service.dart';
 import 'package:depertin_web/services/comercial_pendencias_service.dart';
 import 'package:depertin_web/theme/painel_admin_theme.dart';
 import 'package:depertin_web/utils/lojista_painel_context.dart';
+import 'package:depertin_web/widgets/comercial/comercial_acoes_rapidas_modals.dart';
 import 'package:depertin_web/widgets/comercial/comercial_debt_chart_card.dart';
 import 'package:depertin_web/widgets/comercial/comercial_enviar_comunicacao_modal.dart';
 import 'package:depertin_web/widgets/comercial/comercial_financial_filters.dart';
 import 'package:depertin_web/widgets/comercial/comercial_financial_summary_card.dart';
 import 'package:depertin_web/widgets/comercial/comercial_financial_table.dart';
 import 'package:depertin_web/widgets/comercial/comercial_quick_actions_card.dart';
+import 'package:depertin_web/widgets/comercial/comercial_todas_pendencias_modal.dart';
 import 'package:depertin_web/widgets/comercial/comercial_top_debtors_card.dart';
 import 'package:depertin_web/widgets/comercial_cliente_recebimento_modal.dart';
 import 'package:depertin_web/widgets/comercial/comercial_renegociar_divida_modal.dart';
+import 'package:depertin_web/widgets/dipertin_feedback_premium_modal.dart';
 import 'package:flutter/material.dart';
 import 'package:google_fonts/google_fonts.dart';
 
@@ -135,20 +138,13 @@ class _ComercialPendenciasScreenState extends State<ComercialPendenciasScreen> {
       ),
     );
     if (confirmar == true && mounted) {
-      _mostrarSnack('Lançamento excluído com sucesso.');
+      await mostrarDiPertinFeedbackPremium(
+        context,
+        sucesso: true,
+        titulo: 'Lançamento excluído',
+        mensagem: 'O lançamento foi excluído com sucesso.',
+      );
     }
-  }
-
-  void _mostrarSnack(String msg) {
-    if (!mounted) return;
-    ScaffoldMessenger.of(context).showSnackBar(
-      SnackBar(
-        content: Text(msg),
-        behavior: SnackBarBehavior.floating,
-        shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
-        margin: const EdgeInsets.all(16),
-      ),
-    );
   }
 
   @override
@@ -527,31 +523,27 @@ class _PendenciasBodyState extends State<_PendenciasBody> {
         ),
         const SizedBox(height: 16),
         QuickActionsCard(
-          onEnviarLembretes: () =>
-              _mostrarSnack('Lembretes enviados com sucesso.'),
-          onGerarCobrancas: () =>
-              _mostrarSnack('Cobranças geradas com sucesso.'),
-          onExportarRelatorio: () =>
-              _mostrarSnack('Relatório exportado com sucesso.'),
+          onEnviarLembretes: () => abrirModalEnviarLembretes(
+            context: context,
+            lojaId: widget.lojaId,
+            itens: r.itens,
+          ),
+          onGerarCobrancas: () => abrirModalGerarCobrancas(
+            context: context,
+            lojaId: widget.lojaId,
+            itens: r.itens,
+          ),
         ),
         const SizedBox(height: 16),
         TopDebtorsCard(
           debtors: r.topDebtors,
-          onVerTodos: () => _mostrarSnack('Exibindo todas as pendências.'),
+          onVerTodos: () => abrirModalTodasPendencias30Dias(
+            context: context,
+            lojaId: widget.lojaId,
+            itens: r.itens,
+          ),
         ),
       ],
-    );
-  }
-
-  void _mostrarSnack(String msg) {
-    if (!mounted) return;
-    ScaffoldMessenger.of(context).showSnackBar(
-      SnackBar(
-        content: Text(msg),
-        behavior: SnackBarBehavior.floating,
-        shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
-        margin: const EdgeInsets.all(16),
-      ),
     );
   }
 }

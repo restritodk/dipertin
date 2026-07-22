@@ -126,5 +126,95 @@ void main() {
       expect(result.valido, isFalse);
       expect(result.erros.any((e) => e.campo.contains('natureza_operacao')), isTrue);
     });
+
+    test('deve aceitar emitente MEI com IE isenta (ie vazia)', () {
+      final payload = FiscalPayload(
+        tipoDocumento: TipoDocumentoFiscal.nfe,
+        emitente: FiscalEmitente(
+          razaoSocial: 'Fran Artesanatos MEI',
+          nomeFantasia: 'Fran Artesanatos',
+          cnpj: '66918730000184',
+          ie: '',
+          ieIsento: true,
+          crt: '1',
+          regimeTributario: 'MEI',
+          logradouro: 'Avenida das Andorinhas',
+          numero: '10',
+          bairro: 'Parque Residencial Universitário',
+          cidade: 'Rondonópolis',
+          uf: 'MT',
+          cep: '78750235',
+          codigoCidade: '5107602',
+        ),
+        destinatario: destinatarioValido,
+        itens: [itemValido],
+        totais: totaisValidos,
+        pagamento: pagamentoValido,
+        naturezaOperacao: 'Venda de mercadoria',
+      );
+      final result = FiscalValidator.validarParaEmissao(payload);
+      expect(result.valido, isTrue);
+      expect(
+        result.erros.where((e) => e.campo == 'emitente.ie'),
+        isEmpty,
+      );
+    });
+
+    test('deve aceitar emitente sem nome fantasia (só razão social)', () {
+      final payload = FiscalPayload(
+        tipoDocumento: TipoDocumentoFiscal.nfe,
+        emitente: FiscalEmitente(
+          razaoSocial: 'Eurico dos Santos Mota',
+          nomeFantasia: '',
+          cnpj: '66918730000184',
+          ie: '',
+          ieIsento: true,
+          crt: '1',
+          regimeTributario: 'MEI',
+          logradouro: 'Avenida das Andorinhas',
+          numero: '10',
+          bairro: 'Parque Residencial Universitário',
+          cidade: 'Rondonópolis',
+          uf: 'MT',
+          cep: '78750235',
+          codigoCidade: '5107602',
+        ),
+        destinatario: destinatarioValido,
+        itens: [itemValido],
+        totais: totaisValidos,
+        pagamento: pagamentoValido,
+        naturezaOperacao: 'Venda de mercadoria',
+      );
+      final result = FiscalValidator.validarParaEmissao(payload);
+      expect(result.valido, isTrue);
+      expect(
+        result.erros.where((e) => e.campo.contains('fantasia')),
+        isEmpty,
+      );
+    });
+
+    test('resolverIeIsentoEmitente detecta MEI sem IE', () {
+      expect(
+        resolverIeIsentoEmitente({
+          'regime_tributario': 'MEI',
+          'ie': '',
+        }),
+        isTrue,
+      );
+      expect(
+        resolverIeIsentoEmitente({
+          'ie_isento': true,
+          'ie': '',
+        }),
+        isTrue,
+      );
+      expect(
+        resolverIeIsentoEmitente({
+          'regime_tributario': 'Regime Normal',
+          'ie': '',
+        }),
+        isFalse,
+      );
+    });
   });
 }

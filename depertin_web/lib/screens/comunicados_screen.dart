@@ -323,48 +323,73 @@ class _ComunicadosScreenState extends State<ComunicadosScreen> {
       body: Column(
         crossAxisAlignment: CrossAxisAlignment.stretch,
         children: [
-          Material(
-            color: Colors.white,
-            child: Padding(
-              padding: const EdgeInsets.fromLTRB(28, 28, 28, 20),
-              child: Row(
-                children: [
-                  const Expanded(
-                    child: Column(
-                      crossAxisAlignment: CrossAxisAlignment.start,
-                      children: [
-                        Text('Comunicados no App',
-                            style: TextStyle(
-                                fontSize: 26,
-                                fontWeight: FontWeight.w800,
-                                color: _roxo,
-                                letterSpacing: -0.5)),
-                        SizedBox(height: 6),
-                        Text(
-                          'Publique avisos, promoções e informações visíveis no app para os usuários.',
-                          style: TextStyle(
-                              color: PainelAdminTheme.textoSecundario,
-                              fontSize: 15),
-                        ),
-                      ],
-                    ),
-                  ),
-                  FilledButton.icon(
-                    onPressed: _abrirFormulario,
-                    icon: const Icon(Icons.add_rounded, size: 20),
-                    label: const Text('Novo comunicado'),
-                    style: FilledButton.styleFrom(
-                      backgroundColor: _laranja,
-                      foregroundColor: Colors.white,
-                      padding: const EdgeInsets.symmetric(
-                          horizontal: 20, vertical: 14),
-                    ),
-                  ),
-                ],
+          Container(
+            padding: const EdgeInsets.fromLTRB(28, 28, 28, 22),
+            decoration: const BoxDecoration(
+              gradient: LinearGradient(
+                colors: [Color(0xFF42127A), Color(0xFF6A1B9A)],
+                begin: Alignment.topLeft,
+                end: Alignment.bottomRight,
               ),
             ),
+            child: Row(
+              children: [
+                Container(
+                  width: 48,
+                  height: 48,
+                  decoration: BoxDecoration(
+                    color: Colors.white.withValues(alpha: 0.18),
+                    borderRadius: BorderRadius.circular(14),
+                    border: Border.all(
+                      color: Colors.white.withValues(alpha: 0.32),
+                    ),
+                  ),
+                  alignment: Alignment.center,
+                  child: const Icon(
+                    Icons.campaign_rounded,
+                    color: Colors.white,
+                    size: 24,
+                  ),
+                ),
+                const SizedBox(width: 16),
+                const Expanded(
+                  child: Column(
+                    crossAxisAlignment: CrossAxisAlignment.start,
+                    children: [
+                      Text(
+                        'Comunicados no App',
+                        style: TextStyle(
+                          fontSize: 26,
+                          fontWeight: FontWeight.w800,
+                          color: Colors.white,
+                          letterSpacing: -0.5,
+                        ),
+                      ),
+                      SizedBox(height: 6),
+                      Text(
+                        'Publique avisos, promoções e informações visíveis no app para os usuários.',
+                        style: TextStyle(
+                          color: Color(0xD1FFFFFF),
+                          fontSize: 15,
+                        ),
+                      ),
+                    ],
+                  ),
+                ),
+                FilledButton.icon(
+                  onPressed: _abrirFormulario,
+                  icon: const Icon(Icons.add_rounded, size: 20),
+                  label: const Text('Novo comunicado'),
+                  style: FilledButton.styleFrom(
+                    backgroundColor: _laranja,
+                    foregroundColor: Colors.white,
+                    padding: const EdgeInsets.symmetric(
+                        horizontal: 20, vertical: 14),
+                  ),
+                ),
+              ],
+            ),
           ),
-          Divider(height: 1, color: Colors.grey.shade200),
           Expanded(child: _buildLista()),
         ],
       ),

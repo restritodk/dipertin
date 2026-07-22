@@ -1,4 +1,4 @@
-import 'dart:convert';
+import 'dart:math';
 
 import 'package:flutter/foundation.dart' show debugPrint;
 
@@ -34,8 +34,8 @@ class FocusNFeProvider implements FiscalProvider {
   @override
   List<String> get documentosSuportados => info.documentosSuportados;
 
-  /// Região das Cloud Functions fiscais (southamerica-east1).
-  static const _regiao = 'southamerica-east1';
+  /// Região das Cloud Functions fiscais (us-east1 — migrado para liberar quota).
+  static const _regiao = 'us-east1';
   static const _timeout = Duration(seconds: 90);
 
   @override
@@ -85,25 +85,36 @@ class FocusNFeProvider implements FiscalProvider {
         'integration_id=$integrationId store_id=$storeId cnpj=$cnpj',
       );
 
-      // ═══ LOG DO PAYLOAD COMPLETO ENVIADO PARA A CLOUD FUNCTION ═══
-      debugPrint('');
-      debugPrint('╔══════════════════════════════════════════════════════╗');
-      debugPrint('║      PAYLOAD COMPLETO ENVIADO AO BACKEND           ║');
-      debugPrint('╚══════════════════════════════════════════════════════╝');
-      debugPrint('PROVA: Abaixo o JSON exato enviado para fiscalEmitirNFe:');
-      try {
-        final encoder = const JsonEncoder.withIndent('  ');
-        debugPrint(encoder.convert(body));
-      } catch (e) {
-        debugPrint('(erro ao serializar body: $e)');
-        debugPrint('body keys: ${body.keys.join(', ')}');
-      }
-      debugPrint('══════════════════════════════════════════════════════');
-      debugPrint('');
+      // Log sanitizado — apenas metadados, sem dados pessoais
+      debugPrint('[FocusNFeProvider] Payload enviado: '
+          'store_id=$storeId cnpj=$cnpj '
+          'itens=${(body['items'] as List?)?.length ?? 0} '
+          'valor_total=${body['valor_total']}');
 
       // Lê lojista_integration_id e certificate_id da config (passados do frontend)
       final lojistaIntegrationId = config['lojista_integration_id'] as String? ?? '';
       final certificateId = config['certificate_id'] as String? ?? '';
+
+      // ─── Chave de idempotência (obrigatória no backend) ───
+      // Prioridade: pedido_id/venda_id real → request_id persistido
+      final sourceId = payload.pedidoId ?? payload.vendaId ?? '';
+      final String requestId;
+      if (sourceId.isNotEmpty) {
+        requestId = '';
+      } else {
+        // request_id UUID para emissão avulsa:
+        // Cópia mutável de configuracoesExtras (evita "Cannot modify unmodifiable map"
+        // quando o default const {} é usado ou o caller passa um map imutável).
+        final extras = Map<String, dynamic>.from(payload.configuracoesExtras);
+        if (extras.containsKey('request_id') &&
+            (extras['request_id'] as String).isNotEmpty) {
+          requestId = extras['request_id'] as String;
+        } else {
+          final uuid = _gerarUuidV4();
+          extras['request_id'] = uuid;
+          requestId = uuid;
+        }
+      }
 
       final result = await callFirebaseFunctionSafe(
         'fiscalEmitirNFe',
@@ -115,6 +126,8 @@ class FocusNFeProvider implements FiscalProvider {
           'document_type': payload.tipoDocumento.codigo,
           'serie': payload.serie ?? '1',
           'numero': payload.numero ?? '',
+          if (sourceId.isNotEmpty) 'source_id': sourceId,
+          if (requestId.isNotEmpty) 'request_id': requestId,
           if (lojistaIntegrationId.isNotEmpty) 'lojista_integration_id': lojistaIntegrationId,
           if (certificateId.isNotEmpty) 'certificate_id': certificateId,
         },
@@ -356,6 +369,8 @@ class FocusNFeProvider implements FiscalProvider {
       );
 
       return validado && sucesso;
+    } on CallableHttpException {
+      rethrow;
     } catch (e) {
       debugPrint('[FocusNFeProvider] testarConexao ERRO: $e');
       return false;
@@ -383,23 +398,33 @@ class FocusNFeProvider implements FiscalProvider {
     debugPrint('PROVA: Campos planos cnpj_emitente, nome_emitente, etc.');
     debugPrint('═══════════════════════════════════════════════════════');
     final regimeValor = _calcRegimeFocus(payload.emitente.regimeTributario);
-    final ieIsento = config['ie_isento'] == true;
+    final regimeLower =
+        (payload.emitente.regimeTributario ?? '').toLowerCase().replaceAll(' ', '_');
+    final ieIsento = config['ie_isento'] == true ||
+        payload.emitente.ieIsento ||
+        (payload.emitente.ie.trim().isEmpty && regimeLower.contains('mei'));
 
     return {
       // ─── Campos planos do emitente ───
       'cnpj_emitente': _apenasDigitos(payload.emitente.cnpj),
       'nome_emitente': payload.emitente.razaoSocial,
-      'nome_fantasia_emitente': payload.emitente.nomeFantasia,
+      // xFant opcional — só envia se preenchido (MEI frequentemente não tem)
+      if (payload.emitente.nomeFantasia.trim().isNotEmpty)
+        'nome_fantasia_emitente': payload.emitente.nomeFantasia.trim(),
       'logradouro_emitente': payload.emitente.logradouro,
       'numero_emitente': payload.emitente.numero,
       'bairro_emitente': payload.emitente.bairro,
       'municipio_emitente': payload.emitente.cidade,
       'uf_emitente': payload.emitente.uf,
       'cep_emitente': payload.emitente.cep,
-      // IE — envia "ISENTO" se dispensada, senão envia o valor real
-      // Porém, se ie_isento=true, remove completamente o campo (SEFAZ/MT
-      // rejeita "ISENTO" como valor mesmo em homologação)
-      if (!ieIsento && payload.emitente.ie.trim().isNotEmpty)
+      // IE do emitente:
+      // - Com IE numérica → envia o valor
+      // - Isento/MEI sem IE → envia "ISENTO" (MOC/SEFAZ; string vazia causa rejeição 209)
+      if (ieIsento)
+        'inscricao_estadual_emitente': 'ISENTO'
+      else if (payload.emitente.ie.trim().toUpperCase() == 'ISENTO')
+        'inscricao_estadual_emitente': 'ISENTO'
+      else if (payload.emitente.ie.trim().isNotEmpty)
         'inscricao_estadual_emitente': payload.emitente.ie.trim(),
       'regime_tributario_emitente': regimeValor,
 
@@ -653,6 +678,22 @@ class FocusNFeProvider implements FiscalProvider {
   }
 
   String _digitos(String s) => s.replaceAll(RegExp(r'\D'), '');
+
+  /// Gera um UUID v4 para identificador único de operação avulsa.
+  /// Usado como request_id persistido em configuracoesExtras.
+  static String _gerarUuidV4() {
+    final random = Random();
+    final bytes = List<int>.generate(16, (_) => random.nextInt(256));
+    // UUID v4: bytes[6] = 0x40|(bytes[6]&0x0f), bytes[8] = 0x80|(bytes[8]&0x3f)
+    bytes[6] = (bytes[6] & 0x0f) | 0x40;
+    bytes[8] = (bytes[8] & 0x3f) | 0x80;
+    final hex = bytes.map((b) => b.toRadixString(16).padLeft(2, '0')).toList();
+    return '${hex[0]}${hex[1]}${hex[2]}${hex[3]}-'
+        '${hex[4]}${hex[5]}-'
+        '${hex[6]}${hex[7]}-'
+        '${hex[8]}${hex[9]}-'
+        '${hex[10]}${hex[11]}${hex[12]}${hex[13]}${hex[14]}${hex[15]}';
+  }
 
   /// Converte regime tributário textual para valor numérico Focus NFe (1-3).
   /// 1 = Simples Nacional / MEI, 2 = Excesso sublimite, 3 = Normal

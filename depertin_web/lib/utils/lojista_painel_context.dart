@@ -42,6 +42,11 @@ bool painelMostrarMeusProdutos(Map<String, dynamic> dadosUsuario) {
   return nivelAcessoPainelLojista(dadosUsuario) >= 2;
 }
 
+/// Gestão Comercial: permitida para dono, Nível II e Nível III.
+bool podeAcessarGestaoComercial(Map<String, dynamic> dadosUsuario) {
+  return nivelAcessoPainelLojista(dadosUsuario) >= 2;
+}
+
 /// Evita abas proibidas (URL direta ou estado antigo).
 String sanearRotaPainelLojista(String route, int nivel) {
   if (PainelRoutes.ehRotaCentroOperacoes(route)) return '/dashboard';
@@ -60,14 +65,12 @@ String sanearRotaPainelLojista(String route, int nivel) {
     }
     return PainelRoutes.normalize(route);
   }
+  // Nível 1: bloqueia Gestão Comercial e demais rotas avançadas
+  if (PainelRoutes.ehRotaGestaoComercial(route)) return '/dashboard';
+  // Nível 1 permite apenas dashboard, pedidos e encomendas
   if (route == '/dashboard' ||
       route == '/meus_pedidos' ||
-      route == '/negociacoes_encomenda' ||
-      route == '/pdv' ||
-      route == '/comercial_dashboard' ||
-      route == '/minha_loja' ||
-      route == '/comercial_clientes' ||
-      route == '/comercial_credito') {
+      route == '/negociacoes_encomenda') {
     return PainelRoutes.normalize(route);
   }
   return '/dashboard';

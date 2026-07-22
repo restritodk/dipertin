@@ -11,11 +11,20 @@ abstract final class MarketingLeadsService {
 
   static FirebaseFirestore get _db => FirebaseFirestore.instance;
 
-  /// Stream da lista (ordenada pela última atualização). Filtros de status/busca
-  /// são aplicados no cliente para evitar exigir muitos índices.
-  static Stream<QuerySnapshot<Map<String, dynamic>>> stream(String colecao) {
-    return _db
-        .collection(colecao)
+  /// Stream da lista (ordenada pela última atualização).
+  ///
+  /// Quando [cidade] é informado, aplica filtro server-side usando o índice
+  /// composto `(cidade ASC, atualizado_em DESC)`. Caso contrário, carrega os
+  /// últimos 2000 registros sem filtro (compatível com o índice `atualizado_em DESC`).
+  static Stream<QuerySnapshot<Map<String, dynamic>>> stream(
+    String colecao, {
+    String? cidade,
+  }) {
+    var query = _db.collection(colecao) as Query<Map<String, dynamic>>;
+    if (cidade != null && cidade.isNotEmpty) {
+      query = query.where('cidade', isEqualTo: cidade);
+    }
+    return query
         .orderBy('atualizado_em', descending: true)
         .limit(2000)
         .snapshots();

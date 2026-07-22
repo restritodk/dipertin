@@ -7,6 +7,7 @@ import 'package:intl/intl.dart';
 
 import '../models/fiscal_document_model.dart';
 import '../services/fiscal/fiscal_admin_service.dart';
+import '../services/fiscal/fiscal_download_service.dart';
 import '../services/fiscal/fiscal_pos_emissao_service.dart';
 import '../services/firebase_functions_config.dart';
 import '../theme/painel_admin_theme.dart';
@@ -2086,27 +2087,45 @@ class _AdminFiscalScreenState extends State<AdminFiscalScreen>
     }
   }
 
-  void _nfBaixarArquivo(FiscalDocumentModel doc, String tipo) async {
-    final url = tipo == 'xml' ? doc.xmlUrl : doc.pdfUrl;
-    if (url == null || url.isEmpty) {
-      _mostrarSnack(tipo == 'xml'
-          ? 'XML não disponível.'
-          : 'DANFE não disponível.');
+  Future<void> _nfBaixarArquivo(FiscalDocumentModel doc, String tipo) async {
+    final documentoId = doc.id;
+    if (documentoId.isEmpty) {
+      _mostrarSnack('Documento não encontrado.');
       return;
     }
-    _mostrarSnack('Baixando ${tipo.toUpperCase()}...');
-    final nome = tipo == 'xml'
-        ? 'nfe-${doc.number ?? doc.id}.xml'
-        : 'danfe-${doc.number ?? doc.id}.pdf';
-    final result = await FiscalPosEmissaoService.baixarConteudoUrl(
-      url: url,
-      nomeArquivo: nome,
-    );
-    if (!mounted) return;
-    if (result['sucesso'] == true) {
-      _mostrarSnack('Download concluído.');
-    } else {
-      _mostrarSnack('Erro: ${result['erro'] ?? 'Falha no download'}');
+
+    _mostrarSnack('Gerando link de download...');
+
+    try {
+      String url;
+      try {
+        if (tipo == 'xml') {
+          url = await FiscalDownloadService.baixarXml(documentoId);
+        } else {
+          url = await FiscalDownloadService.baixarDanfe(documentoId);
+        }
+      } on FiscalDownloadException catch (e) {
+        _mostrarSnack(e.mensagem);
+        return;
+      }
+
+      // Download via HTTP para salvar localmente
+      _mostrarSnack('Baixando ${tipo.toUpperCase()}...');
+      final nome = tipo == 'xml'
+          ? 'nfe-${doc.number ?? doc.id}.xml'
+          : 'danfe-${doc.number ?? doc.id}.pdf';
+      final result = await FiscalPosEmissaoService.baixarConteudoUrl(
+        url: url,
+        nomeArquivo: nome,
+      );
+      if (!mounted) return;
+      if (result['sucesso'] == true) {
+        _mostrarSnack('Download concluído.');
+      } else {
+        _mostrarSnack('Erro: ${result['erro'] ?? 'Falha no download'}');
+      }
+    } catch (e) {
+      _mostrarSnack('Erro ao baixar ${tipo.toUpperCase()}.');
     }
   }
 
@@ -2208,7 +2227,7 @@ class _AdminFiscalScreenState extends State<AdminFiscalScreen>
           'numero_protocolo': doc.protocol,
           'integration_id': null,
         },
-        region: 'southamerica-east1',
+        region: 'us-east1',
         timeout: const Duration(seconds: 60),
       );
       if (mounted) {

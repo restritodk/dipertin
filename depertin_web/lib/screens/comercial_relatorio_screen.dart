@@ -22,6 +22,33 @@ class _RankingItem {
   const _RankingItem(this.nome, this.quantidade, this.valor);
 }
 
+/// Ponto mensal do gráfico Evolução Comercial.
+class _MesEvolucao {
+  final int ano;
+  final int mes;
+  final double faturamento;
+  final double recebido;
+  final double? crescimentoPct;
+
+  const _MesEvolucao({
+    required this.ano,
+    required this.mes,
+    required this.faturamento,
+    this.recebido = 0,
+    this.crescimentoPct,
+  });
+
+  static const _rotulos = [
+    'Jan', 'Fev', 'Mar', 'Abr', 'Mai', 'Jun',
+    'Jul', 'Ago', 'Set', 'Out', 'Nov', 'Dez',
+  ];
+
+  String get rotuloMes => _rotulos[(mes - 1).clamp(0, 11)];
+
+  String rotuloEixo({required bool multiAno}) =>
+      multiAno ? '$rotuloMes/${ano % 100}' : rotuloMes;
+}
+
 class _ResumoFinanceiro {
   final double recebido;
   final double pendente;
@@ -122,9 +149,10 @@ class _ComercialRelatorioScreenState
   _ResumoFinanceiro _resumoFinanceiro = const _ResumoFinanceiro();
   List<_RankingItem> _topProdutos = [];
   List<_RankingItem> _topClientes = [];
-  List<_RankingItem> _topOperadores = [];
+  List<_MesEvolucao> _evolucaoMensal = [];
   Map<DateTime, double> _evolucaoDiaria = {};
   Map<String, double> _formasPagamento = {};
+  List<ComercialRecebimento> _recebimentos = [];
 
   // Meta mensal
   double _metaMensal = 20000;
@@ -281,61 +309,19 @@ class _ComercialRelatorioScreenState
         }
       }
 
-      // Formas de pagamento
+      // Formas de pagamento (normaliza casing — evita "PIX" vs "pix")
       final formas = <String, double>{};
       for (final r in recebimentos) {
         if (r.status == 'confirmado') {
-          formas[r.formaPagamento] =
-              (formas[r.formaPagamento] ?? 0) + r.valorRecebido;
+          final forma = _normalizarFormaPagamento(r.formaPagamento);
+          formas[forma] = (formas[forma] ?? 0) + r.valorRecebido;
         }
       }
 
-      // Top produtos
-      final prodAgg = <String, _RankingAcc>{};
-      for (final v in vendas) {
-        for (final item in v.itens) {
-          prodAgg.putIfAbsent(item.produtoNome, () => _RankingAcc());
-          prodAgg[item.produtoNome]!.qtd += item.quantidade;
-          prodAgg[item.produtoNome]!.valor += item.total;
-        }
-      }
-      final topProdutos = prodAgg.entries
-          .map((e) => _RankingItem(e.key, e.value.qtd, e.value.valor))
-          .toList()
-        ..sort((a, b) => b.valor.compareTo(a.valor));
-      final top5Prod = topProdutos.take(5).toList();
-
-      // Top clientes
-      final cliAgg = <String, _RankingAcc>{};
-      for (final v in vendas) {
-        final nome = v.clienteNome ?? '—';
-        cliAgg.putIfAbsent(nome, () => _RankingAcc());
-        cliAgg[nome]!.qtd += 1;
-        cliAgg[nome]!.valor += v.valorTotal;
-      }
-      final topClientes = cliAgg.entries
-          .map((e) => _RankingItem(e.key, e.value.qtd, e.value.valor))
-          .toList()
-        ..sort((a, b) => b.valor.compareTo(a.valor));
-      final top5Cli = topClientes.take(5).toList();
-
-      // Top operadores
-      final opAgg = <String, _RankingAcc>{};
-      for (final v in vendas) {
-        if (v.operadorNome != null && v.operadorNome!.isNotEmpty) {
-          opAgg.putIfAbsent(v.operadorNome!, () => _RankingAcc());
-          opAgg[v.operadorNome!]!.qtd += 1;
-          opAgg[v.operadorNome!]!.valor += v.valorTotal;
-        }
-      }
-      final topOperadores = opAgg.entries
-          .map((e) => _RankingItem(e.key, e.value.qtd, e.value.valor))
-          .toList()
-        ..sort((a, b) => b.valor.compareTo(a.valor));
-      final top5Op = topOperadores.take(5).toList();
-
+      if (!mounted) return;
       setState(() {
         _vendas = vendas;
+        _recebimentos = recebimentos;
         _kpis = _Kpis(
           faturamentoMes: faturamentoMes,
           totalRecebido: totalRecebido,
@@ -359,19 +345,33 @@ class _ComercialRelatorioScreenState
         );
         _evolucaoDiaria = evolucao;
         _formasPagamento = formas;
-        _topProdutos = top5Prod;
-        _topClientes = top5Cli;
-        _topOperadores = top5Op;
-        _vendasFiltradas = vendas;
         _carregando = false;
-        _paginaTabela = 1;
       });
+      _aplicarFiltros();
     } catch (_) {
       if (!mounted) return;
       setState(() {
         _erro = true;
         _carregando = false;
       });
+    }
+  }
+
+  DateTime _dataLimitePeriodo() {
+    final agora = DateTime.now();
+    switch (_filtroPeriodo) {
+      case 'Últimos 7 dias':
+        return agora.subtract(const Duration(days: 7));
+      case 'Últimos 15 dias':
+        return agora.subtract(const Duration(days: 15));
+      case 'Últimos 60 dias':
+        return agora.subtract(const Duration(days: 60));
+      case 'Últimos 90 dias':
+        return agora.subtract(const Duration(days: 90));
+      case 'Este ano':
+        return DateTime(agora.year, 1, 1);
+      default:
+        return agora.subtract(const Duration(days: 30));
     }
   }
 
@@ -403,27 +403,7 @@ class _ComercialRelatorioScreenState
           .where((v) => v.statusExibicao == _filtroStatus)
           .toList();
     }
-    final agora = DateTime.now();
-    DateTime dataLimite;
-    switch (_filtroPeriodo) {
-      case 'Últimos 7 dias':
-        dataLimite = agora.subtract(const Duration(days: 7));
-        break;
-      case 'Últimos 15 dias':
-        dataLimite = agora.subtract(const Duration(days: 15));
-        break;
-      case 'Últimos 60 dias':
-        dataLimite = agora.subtract(const Duration(days: 60));
-        break;
-      case 'Últimos 90 dias':
-        dataLimite = agora.subtract(const Duration(days: 90));
-        break;
-      case 'Este ano':
-        dataLimite = DateTime(agora.year, 1, 1);
-        break;
-      default:
-        dataLimite = agora.subtract(const Duration(days: 30));
-    }
+    final dataLimite = _dataLimitePeriodo();
     filtradas = filtradas
         .where((v) {
           final d = v.dataVenda;
@@ -431,10 +411,128 @@ class _ComercialRelatorioScreenState
         })
         .toList();
 
+    // Top 10 produtos — por quantidade vendida
+    final prodAgg = <String, _RankingAcc>{};
+    for (final v in filtradas) {
+      for (final item in v.itens) {
+        prodAgg.putIfAbsent(item.produtoNome, () => _RankingAcc());
+        prodAgg[item.produtoNome]!.qtd += item.quantidade;
+        prodAgg[item.produtoNome]!.valor += item.total;
+      }
+    }
+    final topProdutos = prodAgg.entries
+        .map((e) => _RankingItem(e.key, e.value.qtd, e.value.valor))
+        .toList()
+      ..sort((a, b) {
+        final byQtd = b.quantidade.compareTo(a.quantidade);
+        if (byQtd != 0) return byQtd;
+        return b.valor.compareTo(a.valor);
+      });
+
+    // Top 10 clientes — por valor total gasto
+    final cliAgg = <String, _RankingAcc>{};
+    for (final v in filtradas) {
+      final nome = v.clienteNome ?? '—';
+      cliAgg.putIfAbsent(nome, () => _RankingAcc());
+      cliAgg[nome]!.qtd += 1;
+      cliAgg[nome]!.valor += v.valorTotal;
+    }
+    final topClientes = cliAgg.entries
+        .map((e) => _RankingItem(e.key, e.value.qtd, e.value.valor))
+        .toList()
+      ..sort((a, b) => b.valor.compareTo(a.valor));
+
+    // Evolução mensal (faturamento + recebido) no período filtrado
+    final evolucaoMensal = _calcularEvolucaoMensal(
+      vendas: filtradas,
+      recebimentos: _recebimentos,
+      dataLimite: dataLimite,
+    );
+
+    if (!mounted) return;
     setState(() {
       _vendasFiltradas = filtradas;
+      _topProdutos = topProdutos.take(10).toList();
+      _topClientes = topClientes.take(10).toList();
+      _evolucaoMensal = evolucaoMensal;
       _paginaTabela = 1;
     });
+  }
+
+  List<_MesEvolucao> _calcularEvolucaoMensal({
+    required List<VendaHistorico> vendas,
+    required List<ComercialRecebimento> recebimentos,
+    required DateTime dataLimite,
+  }) {
+    final agora = DateTime.now();
+    final inicioMes = DateTime(dataLimite.year, dataLimite.month, 1);
+    final fimMes = DateTime(agora.year, agora.month, 1);
+
+    final fatPorMes = <String, double>{};
+    final recPorMes = <String, double>{};
+
+    for (final v in vendas) {
+      final d = v.dataVenda;
+      if (d == null) continue;
+      final key = '${d.year}-${d.month.toString().padLeft(2, '0')}';
+      fatPorMes[key] = (fatPorMes[key] ?? 0) + v.valorTotal;
+    }
+
+    for (final r in recebimentos) {
+      if (r.status != 'confirmado') continue;
+      final d = r.dataRecebimento;
+      if (d.isBefore(dataLimite)) continue;
+      final key = '${d.year}-${d.month.toString().padLeft(2, '0')}';
+      recPorMes[key] = (recPorMes[key] ?? 0) + r.valorRecebido;
+    }
+
+    final out = <_MesEvolucao>[];
+    var cursor = inicioMes;
+    double? anterior;
+    while (!cursor.isAfter(fimMes)) {
+      final key =
+          '${cursor.year}-${cursor.month.toString().padLeft(2, '0')}';
+      final fat = fatPorMes[key] ?? 0;
+      final rec = recPorMes[key] ?? 0;
+      double? cresc;
+      if (anterior != null) {
+        if (anterior > 0.009) {
+          cresc = ((fat - anterior) / anterior) * 100;
+        } else {
+          cresc = fat > 0.009 ? 100.0 : 0.0;
+        }
+      }
+      out.add(_MesEvolucao(
+        ano: cursor.year,
+        mes: cursor.month,
+        faturamento: fat,
+        recebido: rec,
+        crescimentoPct: cresc,
+      ));
+      anterior = fat;
+      cursor = DateTime(cursor.year, cursor.month + 1, 1);
+    }
+    return out;
+  }
+
+  static String _normalizarFormaPagamento(String raw) {
+    final t = raw.trim();
+    if (t.isEmpty) return 'Outros';
+    final lower = t.toLowerCase();
+    if (lower == 'pix') return 'PIX';
+    if (lower.contains('dinheiro') || lower == 'cash') return 'Dinheiro';
+    if (lower.contains('crédito') || lower.contains('credito')) {
+      return 'Cartão de crédito';
+    }
+    if (lower.contains('débito') || lower.contains('debito')) {
+      return 'Cartão de débito';
+    }
+    if (lower.contains('transfer')) return 'Transferência';
+    if (lower.contains('carteira') || lower.contains('dipertin')) {
+      return 'Carteira DiPertin';
+    }
+    // Capitaliza primeira letra mantendo o restante
+    return t[0].toUpperCase() + t.substring(1);
   }
 
   @override
@@ -462,7 +560,7 @@ class _ComercialRelatorioScreenState
           resumoFinanceiro: _resumoFinanceiro,
           topProdutos: _topProdutos,
           topClientes: _topClientes,
-          topOperadores: _topOperadores,
+          evolucaoMensal: _evolucaoMensal,
           evolucaoDiaria: _evolucaoDiaria,
           formasPagamento: _formasPagamento,
           vendasFiltradas: _vendasFiltradas,
@@ -509,9 +607,8 @@ class _ComercialRelatorioScreenState
               _filtroPeriodo = 'Últimos 30 dias';
               _clienteCtrl.clear();
               _operadorCtrl.clear();
-              _vendasFiltradas = _vendas;
-              _paginaTabela = 1;
             });
+            _aplicarFiltros();
           },
           onPageChanged: (v) => setState(() => _paginaTabela = v),
           onItensPorPaginaChanged: (v) => setState(() {
@@ -592,7 +689,8 @@ const _cardTitleSize = 18.0;
 
 const _kpiTitleColor = Color(0xFF6B7280);
 const _kpiValueColor = Color(0xFF1A1A2E);
-const _rankingCardHeight = 340.0;
+const _rankingListHeight = 360.0;
+const _evolucaoChartHeight = 280.0;
 
 // =============================================================================
 // BODY
@@ -606,7 +704,7 @@ class _RelatorioBody extends StatelessWidget {
     required this.resumoFinanceiro,
     required this.topProdutos,
     required this.topClientes,
-    required this.topOperadores,
+    required this.evolucaoMensal,
     required this.evolucaoDiaria,
     required this.formasPagamento,
     required this.vendasFiltradas,
@@ -638,7 +736,8 @@ class _RelatorioBody extends StatelessWidget {
   final bool carregando, erro;
   final _Kpis kpis;
   final _ResumoFinanceiro resumoFinanceiro;
-  final List<_RankingItem> topProdutos, topClientes, topOperadores;
+  final List<_RankingItem> topProdutos, topClientes;
+  final List<_MesEvolucao> evolucaoMensal;
   final Map<DateTime, double> evolucaoDiaria;
   final Map<String, double> formasPagamento;
   final List<VendaHistorico> vendasFiltradas;
@@ -1170,8 +1269,14 @@ class _RelatorioBody extends StatelessWidget {
     final sortedDays = evolucaoDiaria.entries.toList()
       ..sort((a, b) => a.key.compareTo(b.key));
     final maxVal = sortedDays.isEmpty
-        ? 1000.0
-        : sortedDays.map((e) => e.value).reduce(max);
+        ? 100.0
+        : sortedDays.map((e) => e.value).reduce(max).clamp(1.0, double.infinity);
+    final maxY = maxVal * 1.2;
+    final intervaloY = maxVal < 50
+        ? (maxVal / 4).clamp(1.0, 50.0)
+        : maxVal < 1000
+            ? (maxVal / 4).clamp(10.0, 250.0)
+            : null;
 
     return _CardBase(
       titulo: 'Evolução das vendas',
@@ -1208,9 +1313,12 @@ class _RelatorioBody extends StatelessWidget {
                         right: 16, top: 8, bottom: 4, left: 4),
                     child: LineChart(
                       LineChartData(
+                        minY: 0,
+                        maxY: maxY,
                         gridData: FlGridData(
                           show: true,
                           drawVerticalLine: false,
+                          horizontalInterval: intervaloY,
                           getDrawingHorizontalLine: (value) => FlLine(
                             color: const Color(0xFFF1F5F9),
                             strokeWidth: 1,
@@ -1221,12 +1329,17 @@ class _RelatorioBody extends StatelessWidget {
                             sideTitles: SideTitles(
                               showTitles: true,
                               reservedSize: 56,
+                              interval: intervaloY,
                               getTitlesWidget: (val, meta) {
-                                if (val == 0) return const SizedBox();
+                                if (val <= 0) return const SizedBox();
+                                // Valores pequenos (ex.: R$ 14) não usam "k"
+                                final txt = val >= 1000
+                                    ? 'R\$ ${(val / 1000).toStringAsFixed(val >= 10000 ? 0 : 1)}k'
+                                    : 'R\$ ${val.toStringAsFixed(val < 10 ? 2 : 0)}';
                                 return Padding(
                                   padding: const EdgeInsets.only(left: 4),
                                   child: Text(
-                                    'R\$ ${(val / 1000).toStringAsFixed(0)}k',
+                                    txt,
                                     style: GoogleFonts.plusJakartaSans(
                                         fontSize: 10,
                                         color: const Color(0xFF94A3B8)),
@@ -1315,8 +1428,6 @@ class _RelatorioBody extends StatelessWidget {
                             ),
                           ),
                         ],
-                        minY: 0,
-                        maxY: maxVal * 1.25,
                       ),
                     ),
                   ),
@@ -1578,7 +1689,7 @@ class _RelatorioBody extends StatelessWidget {
               const SizedBox(width: 24),
               Expanded(
                 child: _buildRankingCard(
-                  'Clientes que mais compraram',
+                  'Clientes que mais compram',
                   topClientes,
                   col1Label: 'Cliente',
                   col2Label: 'Compras',
@@ -1589,18 +1700,7 @@ class _RelatorioBody extends StatelessWidget {
                 ),
               ),
               const SizedBox(width: 24),
-              Expanded(
-                child: _buildRankingCard(
-                  'Operadores que mais venderam',
-                  topOperadores,
-                  col1Label: 'Operador',
-                  col2Label: 'Vendas',
-                  col3Label: 'Valor vendido',
-                  getCol1: (item) => item.nome,
-                  getCol2: (item) => '${item.quantidade}',
-                  getCol3: (item) => moedaFmt.format(item.valor),
-                ),
-              ),
+              Expanded(child: _buildEvolucaoComercialCard()),
             ],
           );
         }
@@ -1608,6 +1708,7 @@ class _RelatorioBody extends StatelessWidget {
           return Column(
             children: [
               Row(
+                crossAxisAlignment: CrossAxisAlignment.start,
                 children: [
                   Expanded(
                     child: _buildRankingCard(
@@ -1624,7 +1725,7 @@ class _RelatorioBody extends StatelessWidget {
                   const SizedBox(width: 24),
                   Expanded(
                     child: _buildRankingCard(
-                      'Clientes que mais compraram',
+                      'Clientes que mais compram',
                       topClientes,
                       col1Label: 'Cliente',
                       col2Label: 'Compras',
@@ -1637,45 +1738,42 @@ class _RelatorioBody extends StatelessWidget {
                 ],
               ),
               const SizedBox(height: 24),
-              _buildRankingCard(
-                'Operadores que mais venderam',
-                topOperadores,
-                col1Label: 'Operador',
-                col2Label: 'Vendas',
-                col3Label: 'Valor vendido',
-                getCol1: (item) => item.nome,
-                getCol2: (item) => '${item.quantidade}',
-                getCol3: (item) => moedaFmt.format(item.valor),
-              ),
+              _buildEvolucaoComercialCard(),
             ],
           );
         }
         return Column(
           children: [
-            _buildRankingCard('Produtos mais vendidos', topProdutos,
-                col1Label: 'Produto', col2Label: 'Qtd', col3Label: 'Valor',
-                getCol1: (item) => item.nome,
-                getCol2: (item) => '${item.quantidade}',
-                getCol3: (item) => moedaFmt.format(item.valor)),
+            _buildRankingCard(
+              'Produtos mais vendidos',
+              topProdutos,
+              col1Label: 'Produto',
+              col2Label: 'Qtd',
+              col3Label: 'Valor',
+              getCol1: (item) => item.nome,
+              getCol2: (item) => '${item.quantidade}',
+              getCol3: (item) => moedaFmt.format(item.valor),
+            ),
             const SizedBox(height: 24),
-            _buildRankingCard('Clientes que mais compraram', topClientes,
-                col1Label: 'Cliente', col2Label: 'Compras', col3Label: 'Valor',
-                getCol1: (item) => item.nome,
-                getCol2: (item) => '${item.quantidade}',
-                getCol3: (item) => moedaFmt.format(item.valor)),
+            _buildRankingCard(
+              'Clientes que mais compram',
+              topClientes,
+              col1Label: 'Cliente',
+              col2Label: 'Compras',
+              col3Label: 'Valor',
+              getCol1: (item) => item.nome,
+              getCol2: (item) => '${item.quantidade}',
+              getCol3: (item) => moedaFmt.format(item.valor),
+            ),
             const SizedBox(height: 24),
-            _buildRankingCard('Operadores que mais venderam', topOperadores,
-                col1Label: 'Operador', col2Label: 'Vendas', col3Label: 'Valor vendido',
-                getCol1: (item) => item.nome,
-                getCol2: (item) => '${item.quantidade}',
-                getCol3: (item) => moedaFmt.format(item.valor)),
+            _buildEvolucaoComercialCard(),
           ],
         );
       },
     );
   }
 
-  // ── BUILD RANKING CARD ──
+  // ── BUILD RANKING CARD (Top 10) ──
   Widget _buildRankingCard(
     String titulo,
     List<_RankingItem> items, {
@@ -1686,62 +1784,385 @@ class _RelatorioBody extends StatelessWidget {
     required String Function(_RankingItem) getCol2,
     required String Function(_RankingItem) getCol3,
   }) {
-    return SizedBox(
-      height: _rankingCardHeight,
-      child: _CardBase(
+    return _CardBase(
       titulo: titulo,
       child: Column(
+        crossAxisAlignment: CrossAxisAlignment.stretch,
+        mainAxisSize: MainAxisSize.min,
         children: [
-          // Header
-          Row(
-            children: [
-              const SizedBox(width: 22),
-              Expanded(
-                flex: 3,
-                child: Text(col1Label,
-                    style: GoogleFonts.plusJakartaSans(
-                        fontSize: 11,
-                        fontWeight: FontWeight.w600,
-                        color: const Color(0xFF9CA3AF))),
-              ),
-              SizedBox(
-                width: 44,
-                child: Text(col2Label,
-                    textAlign: TextAlign.center,
-                    style: GoogleFonts.plusJakartaSans(
-                        fontSize: 11,
-                        fontWeight: FontWeight.w600,
-                        color: const Color(0xFF9CA3AF))),
-              ),
-              SizedBox(
-                width: 90,
-                child: Text(col3Label,
-                    textAlign: TextAlign.end,
-                    style: GoogleFonts.plusJakartaSans(
-                        fontSize: 11,
-                        fontWeight: FontWeight.w600,
-                        color: const Color(0xFF9CA3AF))),
-              ),
-            ],
-          ),
-          const SizedBox(height: 14),
-          // 5 linhas: preenchidas ou vazias
-          ...List.generate(5, (i) {
-            if (i < items.length) {
-              final item = items[i];
-              final rank = i + 1;
-              return _rankingLinha(
-                rank: rank,
-                col1: getCol1(item),
-                col2: getCol2(item),
-                col3: getCol3(item),
-              );
-            }
-            return _rankingLinhaVazia();
-          }),
+            Row(
+              children: [
+                const SizedBox(width: 22),
+                Expanded(
+                  flex: 3,
+                  child: Text(col1Label,
+                      style: GoogleFonts.plusJakartaSans(
+                          fontSize: 11,
+                          fontWeight: FontWeight.w600,
+                          color: const Color(0xFF9CA3AF))),
+                ),
+                SizedBox(
+                  width: 52,
+                  child: Text(col2Label,
+                      textAlign: TextAlign.center,
+                      style: GoogleFonts.plusJakartaSans(
+                          fontSize: 11,
+                          fontWeight: FontWeight.w600,
+                          color: const Color(0xFF9CA3AF))),
+                ),
+                SizedBox(
+                  width: 90,
+                  child: Text(col3Label,
+                      textAlign: TextAlign.end,
+                      style: GoogleFonts.plusJakartaSans(
+                          fontSize: 11,
+                          fontWeight: FontWeight.w600,
+                          color: const Color(0xFF9CA3AF))),
+                ),
+              ],
+            ),
+            const SizedBox(height: 10),
+            SizedBox(
+              height: _rankingListHeight,
+              child: items.isEmpty
+                  ? Center(
+                      child: Text(
+                        'Sem dados no período',
+                        style: GoogleFonts.plusJakartaSans(
+                          fontSize: 12,
+                          color: const Color(0xFF94A3B8),
+                        ),
+                      ),
+                    )
+                  : ListView.builder(
+                      itemCount: items.length,
+                      itemBuilder: (context, i) {
+                        final item = items[i];
+                        return _rankingLinha(
+                          rank: i + 1,
+                          col1: getCol1(item),
+                          col2: getCol2(item),
+                          col3: getCol3(item),
+                        );
+                      },
+                    ),
+            ),
         ],
       ),
-    ),
+    );
+  }
+
+  Widget _buildEvolucaoComercialCard() {
+    final agora = DateTime.now();
+    final multiAno = evolucaoMensal
+            .map((m) => m.ano)
+            .toSet()
+            .length >
+        1;
+    _MesEvolucao? mesAtual;
+    for (final m in evolucaoMensal) {
+      if (m.ano == agora.year && m.mes == agora.month) {
+        mesAtual = m;
+        break;
+      }
+    }
+    mesAtual ??= evolucaoMensal.isNotEmpty ? evolucaoMensal.last : null;
+    final fatAtual = mesAtual?.faturamento ?? 0;
+    final crescAtual = mesAtual?.crescimentoPct;
+    _MesEvolucao? melhor;
+    for (final m in evolucaoMensal) {
+      if (melhor == null || m.faturamento > melhor.faturamento) {
+        melhor = m;
+      }
+    }
+
+    final maxVal = evolucaoMensal.isEmpty
+        ? 100.0
+        : evolucaoMensal
+            .map((m) => max(m.faturamento, m.recebido))
+            .fold<double>(0, max)
+            .clamp(1.0, double.infinity);
+
+    String fmtCresc(double? pct) {
+      if (pct == null) return '—';
+      final sinal = pct >= 0 ? '+' : '';
+      return '$sinal${pct.toStringAsFixed(1)}%';
+    }
+
+    Color corCresc(double? pct) {
+      if (pct == null) return const Color(0xFF94A3B8);
+      if (pct >= 0) return const Color(0xFF16A34A);
+      return const Color(0xFFDC2626);
+    }
+
+    return _CardBase(
+      titulo: 'Evolução Comercial',
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.stretch,
+        mainAxisSize: MainAxisSize.min,
+        children: [
+            Wrap(
+              spacing: 10,
+              runSpacing: 8,
+              children: [
+                _evoChip(
+                  'Faturamento atual',
+                  moedaFmt.format(fatAtual),
+                  PainelAdminTheme.roxo,
+                ),
+                _evoChip(
+                  'Crescimento',
+                  fmtCresc(crescAtual),
+                  corCresc(crescAtual),
+                ),
+                _evoChip(
+                  'Melhor mês',
+                  melhor == null
+                      ? '—'
+                      : '${melhor.rotuloMes} (${moedaFmt.format(melhor.faturamento)})',
+                  PainelAdminTheme.laranja,
+                ),
+              ],
+            ),
+            const SizedBox(height: 12),
+            SizedBox(
+              height: _evolucaoChartHeight,
+              child: evolucaoMensal.isEmpty
+                  ? Center(
+                      child: Text(
+                        'Sem faturamento no período',
+                        style: GoogleFonts.plusJakartaSans(
+                          fontSize: 12,
+                          color: const Color(0xFF94A3B8),
+                        ),
+                      ),
+                    )
+                  : LineChart(
+                      LineChartData(
+                        minX: 0,
+                        maxX: max(0, evolucaoMensal.length - 1).toDouble(),
+                        minY: 0,
+                        maxY: maxVal * 1.15,
+                        gridData: FlGridData(
+                          show: true,
+                          drawVerticalLine: false,
+                          getDrawingHorizontalLine: (value) => const FlLine(
+                            color: Color(0xFFF1F5F9),
+                            strokeWidth: 1,
+                          ),
+                        ),
+                        titlesData: FlTitlesData(
+                          leftTitles: AxisTitles(
+                            sideTitles: SideTitles(
+                              showTitles: true,
+                              reservedSize: 44,
+                              getTitlesWidget: (val, meta) {
+                                if (val <= 0) return const SizedBox();
+                                final txt = val >= 1000
+                                    ? 'R\$ ${(val / 1000).toStringAsFixed(val >= 10000 ? 0 : 1)}k'
+                                    : 'R\$ ${val.toStringAsFixed(0)}';
+                                return Text(
+                                  txt,
+                                  style: GoogleFonts.plusJakartaSans(
+                                    fontSize: 9,
+                                    color: const Color(0xFF94A3B8),
+                                  ),
+                                );
+                              },
+                            ),
+                          ),
+                          bottomTitles: AxisTitles(
+                            sideTitles: SideTitles(
+                              showTitles: true,
+                              reservedSize: 22,
+                              interval: 1,
+                              getTitlesWidget: (val, meta) {
+                                final idx = val.toInt();
+                                if (idx < 0 || idx >= evolucaoMensal.length) {
+                                  return const SizedBox();
+                                }
+                                // Evita poluir quando há muitos meses
+                                if (evolucaoMensal.length > 8 &&
+                                    idx % 2 != 0 &&
+                                    idx != evolucaoMensal.length - 1) {
+                                  return const SizedBox();
+                                }
+                                return Padding(
+                                  padding: const EdgeInsets.only(top: 4),
+                                  child: Text(
+                                    evolucaoMensal[idx]
+                                        .rotuloEixo(multiAno: multiAno),
+                                    style: GoogleFonts.plusJakartaSans(
+                                      fontSize: 9,
+                                      fontWeight: FontWeight.w600,
+                                      color: const Color(0xFF64748B),
+                                    ),
+                                  ),
+                                );
+                              },
+                            ),
+                          ),
+                          topTitles: const AxisTitles(
+                              sideTitles: SideTitles(showTitles: false)),
+                          rightTitles: const AxisTitles(
+                              sideTitles: SideTitles(showTitles: false)),
+                        ),
+                        borderData: FlBorderData(show: false),
+                        lineTouchData: LineTouchData(
+                          enabled: true,
+                          touchTooltipData: LineTouchTooltipData(
+                            getTooltipColor: (_) => const Color(0xFF1A1A2E),
+                            getTooltipItems: (spots) {
+                              return spots.map((spot) {
+                                if (spot.barIndex != 0) return null;
+                                final idx = spot.x.toInt();
+                                if (idx < 0 ||
+                                    idx >= evolucaoMensal.length) {
+                                  return null;
+                                }
+                                final m = evolucaoMensal[idx];
+                                final cresc = m.crescimentoPct == null
+                                    ? ''
+                                    : '\nCrescimento: ${fmtCresc(m.crescimentoPct)}';
+                                return LineTooltipItem(
+                                  '${m.rotuloMes}\n'
+                                  'Faturamento: ${moedaFmt.format(m.faturamento)}\n'
+                                  'Recebido: ${moedaFmt.format(m.recebido)}'
+                                  '$cresc',
+                                  GoogleFonts.plusJakartaSans(
+                                    fontSize: 11,
+                                    fontWeight: FontWeight.w600,
+                                    color: Colors.white,
+                                    height: 1.35,
+                                  ),
+                                );
+                              }).toList();
+                            },
+                          ),
+                        ),
+                        lineBarsData: [
+                          LineChartBarData(
+                            spots: evolucaoMensal.asMap().entries
+                                .map((e) => FlSpot(
+                                      e.key.toDouble(),
+                                      e.value.faturamento,
+                                    ))
+                                .toList(),
+                            isCurved: true,
+                            preventCurveOverShooting: true,
+                            color: PainelAdminTheme.roxo,
+                            barWidth: 2.8,
+                            dotData: FlDotData(
+                              show: evolucaoMensal.length <= 12,
+                              getDotPainter:
+                                  (spot, percent, barData, index) {
+                                return FlDotCirclePainter(
+                                  radius: 3.5,
+                                  color: Colors.white,
+                                  strokeWidth: 2.2,
+                                  strokeColor: PainelAdminTheme.roxo,
+                                );
+                              },
+                            ),
+                            belowBarData: BarAreaData(
+                              show: true,
+                              gradient: LinearGradient(
+                                begin: Alignment.topCenter,
+                                end: Alignment.bottomCenter,
+                                colors: [
+                                  PainelAdminTheme.roxo
+                                      .withValues(alpha: 0.32),
+                                  PainelAdminTheme.roxo
+                                      .withValues(alpha: 0.02),
+                                ],
+                              ),
+                            ),
+                          ),
+                          LineChartBarData(
+                            spots: evolucaoMensal.asMap().entries
+                                .map((e) => FlSpot(
+                                      e.key.toDouble(),
+                                      e.value.recebido,
+                                    ))
+                                .toList(),
+                            isCurved: true,
+                            preventCurveOverShooting: true,
+                            color: PainelAdminTheme.laranja,
+                            barWidth: 2,
+                            dotData: const FlDotData(show: false),
+                            belowBarData: BarAreaData(show: false),
+                          ),
+                        ],
+                      ),
+                      duration: const Duration(milliseconds: 700),
+                      curve: Curves.easeOutCubic,
+                    ),
+            ),
+            const SizedBox(height: 6),
+            Row(
+              children: [
+                _legendaSerie(PainelAdminTheme.roxo, 'Faturamento'),
+                const SizedBox(width: 14),
+                _legendaSerie(PainelAdminTheme.laranja, 'Recebido'),
+              ],
+            ),
+        ],
+      ),
+    );
+  }
+
+  Widget _evoChip(String label, String valor, Color cor) {
+    return Container(
+      padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 7),
+      decoration: BoxDecoration(
+        color: cor.withValues(alpha: 0.08),
+        borderRadius: BorderRadius.circular(10),
+        border: Border.all(color: cor.withValues(alpha: 0.2)),
+      ),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          Text(
+            label,
+            style: GoogleFonts.plusJakartaSans(
+              fontSize: 9,
+              fontWeight: FontWeight.w600,
+              color: const Color(0xFF64748B),
+            ),
+          ),
+          const SizedBox(height: 2),
+          Text(
+            valor,
+            style: GoogleFonts.plusJakartaSans(
+              fontSize: 11,
+              fontWeight: FontWeight.w800,
+              color: cor,
+            ),
+          ),
+        ],
+      ),
+    );
+  }
+
+  Widget _legendaSerie(Color cor, String label) {
+    return Row(
+      mainAxisSize: MainAxisSize.min,
+      children: [
+        Container(
+          width: 10,
+          height: 10,
+          decoration: BoxDecoration(color: cor, shape: BoxShape.circle),
+        ),
+        const SizedBox(width: 5),
+        Text(
+          label,
+          style: GoogleFonts.plusJakartaSans(
+            fontSize: 10,
+            fontWeight: FontWeight.w600,
+            color: const Color(0xFF64748B),
+          ),
+        ),
+      ],
     );
   }
 
@@ -1793,43 +2214,6 @@ class _RelatorioBody extends StatelessWidget {
                     fontSize: 12,
                     fontWeight: FontWeight.w700,
                     color: const Color(0xFF1F2937))),
-          ),
-        ],
-      ),
-    );
-  }
-
-  Widget _rankingLinhaVazia() {
-    return const Padding(
-      padding: EdgeInsets.only(bottom: 6),
-      child: Row(
-        children: [
-          SizedBox(
-              width: 22,
-              child: Text('—',
-                  textAlign: TextAlign.center,
-                  style: TextStyle(
-                      fontSize: 11,
-                      color: Color(0xFFE5E7EB)))),
-          Expanded(
-            flex: 3,
-            child: Text('—',
-                style: TextStyle(
-                    fontSize: 12, color: Color(0xFFE5E7EB))),
-          ),
-          SizedBox(
-            width: 44,
-            child: Text('—',
-                textAlign: TextAlign.center,
-                style: TextStyle(
-                    fontSize: 12, color: Color(0xFFE5E7EB))),
-          ),
-          SizedBox(
-            width: 90,
-            child: Text('—',
-                textAlign: TextAlign.end,
-                style: TextStyle(
-                    fontSize: 12, color: Color(0xFFE5E7EB))),
           ),
         ],
       ),

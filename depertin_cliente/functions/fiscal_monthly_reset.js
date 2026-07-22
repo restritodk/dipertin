@@ -2,12 +2,11 @@
  * Rotina Mensal Fiscal
  *
  * Responsabilidades:
- * 1. Resetar limite mensal de emissão de NF-e para todos os lojistas
+ * 1. Resetar contador de NF-e do ciclo (lojista_integracao.notas_emitidas / notas_reservadas)
  * 2. Detectar certificados A1 próximos do vencimento e gerar alertas
- * 3. Gerar relatório mensal de notas emitidas por loja
+ * 3. Registrar auditoria da execução
  *
  * Schedule: todo dia 1º de cada mês às 02:00 (America/Sao_Paulo)
- * Também executa alertas de certificado semanalmente (a cada 7 dias)
  */
 const functions = require('firebase-functions/v2/scheduler');
 const admin = require('firebase-admin');
@@ -17,6 +16,8 @@ const ALERTA_CERT_DIAS = parseInt(process.env.FISCAL_CERT_ALERTA_DIAS || '30', 1
 /**
  * Reset mensal do limite + verificação de certificados.
  * Executa no 1º dia de cada mês.
+ *
+ * Campos canônicos (snake_case): notas_emitidas, notas_reservadas, status == 'ativa'
  */
 exports.fiscalRotinaMensalReset = functions.onSchedule(
   {
@@ -32,47 +33,50 @@ exports.fiscalRotinaMensalReset = functions.onSchedule(
     console.log(`[fiscal-rotina] Iniciando reset mensal para referencia: ${mesRef}`);
 
     try {
-      // 1. Resetar limite mensal de todas as integrações
+      // Docs usam status: 'ativa' (não boolean 'ativa')
       const integracoes = await db.collection('lojista_integracao')
-        .where('ativa', '==', true)
+        .where('status', '==', 'ativa')
         .get();
 
       let resetados = 0;
-      const batch = db.batch();
-      const LIMITE_BATCH = 500;
+      let batch = db.batch();
+      const LIMITE_BATCH = 450;
       let opCount = 0;
 
-      for (const doc of integracoes.docs) {
-        const data = doc.data();
-        const limite = data.limiteMensal || 200;
+      const commitBatch = async () => {
+        if (opCount === 0) return;
+        await batch.commit();
+        console.log(`[fiscal-rotina] Batch de ${opCount} resets concluido. Total: ${resetados}`);
+        batch = db.batch();
+        opCount = 0;
+      };
 
+      for (const doc of integracoes.docs) {
         batch.update(doc.ref, {
-          notasEmitidas: 0,
-          notasRestantes: limite,
-          mesReferencia: mesRef,
+          notas_emitidas: 0,
+          notas_reservadas: 0,
+          mes_referencia: mesRef,
           ultimo_reset_em: admin.firestore.FieldValue.serverTimestamp(),
+          // limpa aliases legados camelCase se existirem
+          notasEmitidas: admin.firestore.FieldValue.delete(),
+          notasRestantes: admin.firestore.FieldValue.delete(),
+          mesReferencia: admin.firestore.FieldValue.delete(),
         });
 
         opCount++;
         resetados++;
 
         if (opCount >= LIMITE_BATCH) {
-          await batch.commit();
-          console.log(`[fiscal-rotina] Batch de ${LIMITE_BATCH} resets concluido. Total: ${resetados}`);
-          opCount = 0;
+          await commitBatch();
         }
       }
 
-      if (opCount > 0) {
-        await batch.commit();
-      }
+      await commitBatch();
 
       console.log(`[fiscal-rotina] Reset concluido: ${resetados} lojistas atualizados para mes ${mesRef}`);
 
-      // 2. Verificar certificados próximos do vencimento
       await verificarCertificadosVencendo(db, now);
 
-      // 3. Registrar execução da rotina
       await db.collection('fiscal_audit_logs').add({
         acao: 'rotina_mensal_reset',
         descricao: `Reset mensal de limite concluido: ${resetados} lojistas, referencia ${mesRef}`,
@@ -124,7 +128,6 @@ async function verificarCertificadosVencendo(db, now) {
     const diasRestantes = Math.floor((expiresAt.getTime() - now.toDate().getTime()) / (1000 * 60 * 60 * 24));
     const certVencido = diasRestantes <= 0;
 
-    // Registrar alerta no log de auditoria
     batch.set(db.collection('fiscal_audit_logs').doc(), {
       loja_id: data.store_id || '',
       acao: certVencido ? 'certificado_vencido' : 'certificado_proximo_vencimento',
@@ -136,12 +139,21 @@ async function verificarCertificadosVencendo(db, now) {
       criado_em: admin.firestore.FieldValue.serverTimestamp(),
     });
 
-    // Se vencido, desativar integração automaticamente
+    // Se vencido, marcar integração (campo canônico status + legado ativa)
     if (certVencido) {
       const lojaId = data.store_id;
       if (lojaId) {
-        const integracaoRef = db.collection('lojista_integracao').doc(lojaId);
-        batch.set(integracaoRef, { ativa: false, motivo_desativacao: 'certificado_vencido' }, { merge: true });
+        const snap = await db.collection('lojista_integracao')
+          .where('store_id', '==', lojaId)
+          .limit(1)
+          .get();
+        if (!snap.empty) {
+          batch.set(snap.docs[0].ref, {
+            status: 'inativa',
+            ativa: false,
+            motivo_desativacao: 'certificado_vencido',
+          }, { merge: true });
+        }
       }
     }
 

@@ -110,12 +110,13 @@ abstract final class FiscalAdminService {
             () => AdminFiscalLojaResumo(storeId: doc.storeId),
           );
           loja.storeName ??= _storeNameCache[doc.storeId] ?? doc.storeId;
-          loja.total++;
           loja.provedor ??= doc.provider;
           if (doc.isAutorizada) loja.autorizadas++;
           if (doc.isRejeitada) loja.rejeitadas++;
           if (doc.isCancelada) loja.canceladas++;
           if (doc.isProcessando) loja.pendentes++;
+          // "Total NF-es" = emissões reais (não conta tentativa rejeitada).
+          if (doc.isAutorizada || doc.isCancelada) loja.total++;
           if (doc.issuedAt != null &&
               (loja.ultimaEmissao == null ||
                   doc.issuedAt!.toDate().isAfter(
@@ -124,7 +125,11 @@ abstract final class FiscalAdminService {
           }
         }
 
-        final lista = porLoja.values.toList()
+        // Só lista lojas com emissão real (autorizada/cancelada).
+        // Tentativas só rejeitadas não entram como "loja com emissão".
+        final lista = porLoja.values
+            .where((l) => l.autorizadas > 0 || l.canceladas > 0)
+            .toList()
           ..sort((a, b) => b.total.compareTo(a.total));
         controller.add(lista);
       }, onError: controller.addError);
@@ -133,17 +138,28 @@ abstract final class FiscalAdminService {
     });
   }
 
-  /// Stream de todos os documentos fiscais recentes (timeline).
+  /// Stream de documentos fiscais recentes (timeline).
+  ///
+  /// Só inclui docs de lojas com emissão real (autorizada/cancelada),
+  /// alinhado aos KPIs e à aba Lojas do Monitor.
   static Stream<List<FiscalDocumentModel>> streamDocumentosRecentes({
     int limite = 100,
   }) {
     return _db
         .collection('fiscal_documents')
         .orderBy('created_at', descending: true)
-        .limit(limite)
         .snapshots()
-        .map((snap) =>
-            snap.docs.map(FiscalDocumentModel.fromFirestore).toList());
+        .map((snap) {
+      final docs = snap.docs.map(FiscalDocumentModel.fromFirestore).toList();
+      final lojasComEmissao = <String>{
+        for (final d in docs)
+          if (d.isAutorizada || d.isCancelada) d.storeId,
+      };
+      return docs
+          .where((d) => lojasComEmissao.contains(d.storeId))
+          .take(limite)
+          .toList();
+    });
   }
 
   // ═══════════════════════════════════════════════════════════
@@ -199,25 +215,39 @@ abstract final class FiscalAdminService {
   static AdminFiscalResumo _calcularResumo(List<FiscalDocumentModel> docs) {
     int autorizadas = 0, rejeitadas = 0, canceladas = 0;
     int pendentes = 0, contingencia = 0;
-    final lojasSet = <String>{};
+    final lojasComEmissao = <String>{};
 
+    // 1ª passagem: lojas com emissão real (autorizada/cancelada).
     for (final doc in docs) {
-      lojasSet.add(doc.storeId);
-      if (doc.isAutorizada) autorizadas++;
+      if (doc.isAutorizada) {
+        autorizadas++;
+        lojasComEmissao.add(doc.storeId);
+      }
+      if (doc.isCancelada) {
+        canceladas++;
+        lojasComEmissao.add(doc.storeId);
+      }
+    }
+
+    // 2ª passagem: rejeitadas/pendentes só de lojas que já emitiram de fato.
+    // Tentativas órfãs (ex.: lojista apagou na UI e sobrou só em fiscal_documents)
+    // não entram nos KPIs do Monitor.
+    for (final doc in docs) {
+      if (!lojasComEmissao.contains(doc.storeId)) continue;
       if (doc.isRejeitada) rejeitadas++;
-      if (doc.isCancelada) canceladas++;
       if (doc.isProcessando) pendentes++;
       if (doc.isContingencia) contingencia++;
     }
 
     return AdminFiscalResumo(
-      totalDocumentos: docs.length,
+      // Total = NF-e emitidas de fato (autorizadas + canceladas).
+      totalDocumentos: autorizadas + canceladas,
       totalAutorizadas: autorizadas,
       totalRejeitadas: rejeitadas,
       totalCanceladas: canceladas,
       totalPendentes: pendentes,
       totalContingencia: contingencia,
-      totalLojasComEmissao: lojasSet.length,
+      totalLojasComEmissao: lojasComEmissao.length,
     );
   }
 }

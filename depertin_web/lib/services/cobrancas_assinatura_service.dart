@@ -136,6 +136,50 @@ abstract final class CobrancasAssinaturaService {
       },
     );
   }
+
+  // ═══════════════════════════════════════════════════════════
+  // PIX DE COBRANÇA RECORRENTE (painel lojista)
+  // ═══════════════════════════════════════════════════════════
+
+  /// Gera PIX para pagar uma cobrança existente.
+  ///
+  /// Chama a Cloud Function [assinaturaCobrancaGerarPix].
+  /// Retorna os dados do PIX (QR Code, copia-e-colá, expiração).
+  ///
+  /// Se já existir PIX válido para esta cobrança, retorna o existente.
+  static Future<GerarPixCobrancaResultado> gerarPixCobranca(
+    String cobrancaId,
+  ) async {
+    final resp = await callFirebaseFunctionSafe(
+      'assinaturaCobrancaGerarPix',
+      parameters: {
+        'cobrancaId': cobrancaId,
+      },
+    );
+    return GerarPixCobrancaResultado.fromJson(
+      Map<String, dynamic>.from(resp),
+    );
+  }
+
+  /// Consulta o status do PIX de uma cobrança.
+  ///
+  /// Chama a Cloud Function [assinaturaCobrancaConsultarStatusPix].
+  /// Se o pagamento for aprovado, a assinatura será renovada automaticamente.
+  ///
+  /// Retorna o status atual do pagamento.
+  static Future<ConsultarStatusPixResultado> consultarStatusPixCobranca(
+    String cobrancaId,
+  ) async {
+    final resp = await callFirebaseFunctionSafe(
+      'assinaturaCobrancaConsultarStatusPix',
+      parameters: {
+        'cobrancaId': cobrancaId,
+      },
+    );
+    return ConsultarStatusPixResultado.fromJson(
+      Map<String, dynamic>.from(resp),
+    );
+  }
 }
 
 class GerarCobrancasResultado {
@@ -148,4 +192,76 @@ class GerarCobrancasResultado {
   final int atualizadas;
 
   int get total => criadas + atualizadas;
+}
+
+/// Resultado da geração de PIX para uma cobrança.
+class GerarPixCobrancaResultado {
+  const GerarPixCobrancaResultado({
+    required this.qrCode,
+    required this.qrCodeBase64,
+    required this.pixCopiaECola,
+    required this.expiresAt,
+    required this.paymentId,
+    required this.status,
+    this.reutilizado = false,
+  });
+
+  /// Código PIX copia-e-cola.
+  final String qrCode;
+
+  /// QR Code em base64 (para exibição como imagem).
+  final String qrCodeBase64;
+
+  /// Mesmo que qrCode (para compatibilidade).
+  final String pixCopiaECola;
+
+  /// Data/hora de expiração do PIX.
+  final String expiresAt;
+
+  /// ID do pagamento no Mercado Pago.
+  final String paymentId;
+
+  /// Status do pagamento no MP.
+  final String status;
+
+  /// True se o PIX retornado já existia (não foi gerado novo).
+  final bool reutilizado;
+
+  factory GerarPixCobrancaResultado.fromJson(Map<String, dynamic> json) {
+    return GerarPixCobrancaResultado(
+      qrCode: json['qrCode'] as String? ?? '',
+      qrCodeBase64: json['qrCodeBase64'] as String? ?? '',
+      pixCopiaECola: json['pixCopiaECola'] as String? ?? json['qrCode'] as String? ?? '',
+      expiresAt: json['expiresAt'] as String? ?? '',
+      paymentId: json['paymentId'] as String? ?? '',
+      status: json['status'] as String? ?? 'pending',
+      reutilizado: json['reutilizado'] as bool? ?? false,
+    );
+  }
+}
+
+/// Resultado da consulta de status do PIX.
+class ConsultarStatusPixResultado {
+  const ConsultarStatusPixResultado({
+    required this.status,
+    required this.pago,
+    required this.message,
+  });
+
+  /// Status: "paga", "pendente", "expirado", "cancelado", etc.
+  final String status;
+
+  /// True se o pagamento foi aprovado.
+  final bool pago;
+
+  /// Mensagem descritiva do status.
+  final String message;
+
+  factory ConsultarStatusPixResultado.fromJson(Map<String, dynamic> json) {
+    return ConsultarStatusPixResultado(
+      status: json['status'] as String? ?? 'desconhecido',
+      pago: json['pago'] as bool? ?? false,
+      message: json['message'] as String? ?? '',
+    );
+  }
 }

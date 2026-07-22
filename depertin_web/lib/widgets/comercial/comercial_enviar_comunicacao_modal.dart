@@ -345,7 +345,12 @@ class _EnviarComunicacaoModalState extends State<_EnviarComunicacaoModal> {
           final detalheFalhas = falhas.map((r) {
             final m = r as Map;
             final c = _canaisLabels[m['canal']?.toString() ?? ''] ?? m['canal'];
-            return '$c: ${m['erro'] ?? 'erro desconhecido'}';
+            final erro = (m['erro']?.toString().trim().isNotEmpty == true)
+                ? m['erro'].toString()
+                : (m['status'] != null
+                    ? 'falha HTTP ${m['status']}'
+                    : 'erro desconhecido');
+            return '$c: $erro';
           }).join('\n');
           _mostrarResultadoDialog(
             tipo: 'parcial',
@@ -362,7 +367,12 @@ class _EnviarComunicacaoModalState extends State<_EnviarComunicacaoModal> {
           final erros = falhas.map((r) {
             final m = r as Map;
             final c = _canaisLabels[m['canal']?.toString() ?? ''] ?? m['canal'];
-            return '$c: ${m['erro'] ?? 'erro desconhecido'}';
+            final erro = (m['erro']?.toString().trim().isNotEmpty == true)
+                ? m['erro'].toString()
+                : (m['status'] != null
+                    ? 'falha HTTP ${m['status']}'
+                    : 'erro desconhecido');
+            return '$c: $erro';
           }).join('\n');
           _mostrarResultadoDialog(
             tipo: 'erro',
@@ -370,6 +380,13 @@ class _EnviarComunicacaoModalState extends State<_EnviarComunicacaoModal> {
             erros: erros,
           );
         }
+      }
+    } on CallableHttpException catch (e) {
+      if (mounted) {
+        setState(() {
+          _enviando = false;
+          _erro = mensagemCallableHttpException(e);
+        });
       }
     } catch (e) {
       if (mounted) {

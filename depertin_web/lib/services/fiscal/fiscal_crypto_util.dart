@@ -21,26 +21,24 @@ class FiscalCryptoUtil {
   /// Prefixo para identificar dados criptografados (v2 = AES-256-GCM).
   static const _prefix = 'DIP_AES256_v2:';
 
-  /// Chave derivada do projeto para ofuscacao basica (fallback).
-  /// Em producao, obter via Cloud Function.
-  static const _appKey = 'DiPertin@2026!Fiscal#NF-e';
-
-  /// Cache da chave mestra obtida do backend.
+  /// Cache da chave mestra em memória.
   static String? _chaveMestraCache;
+
+  /// Timestamp de quando a chave foi armazenada em cache.
   static DateTime? _chaveCacheEm;
 
   /// Obtem a chave de criptografia.
   ///
   /// Prioridade:
   /// 1. Cache em memoria (valido por 5 min)
-  /// 2. Fallback para chave derivada do projeto
-  static String _obterChave() {
+  /// 2. Se nenhuma chave foi obtida, retorna nulo (frontend não criptografa)
+  static String? _obterChave() {
     if (_chaveMestraCache != null &&
         _chaveCacheEm != null &&
         DateTime.now().difference(_chaveCacheEm!).inMinutes < 5) {
       return _chaveMestraCache!;
     }
-    return _appKey;
+    return null;
   }
 
   /// Define a chave mestra (chamado apos obter do backend).
@@ -57,6 +55,8 @@ class FiscalCryptoUtil {
     if (plainText.isEmpty) return '';
 
     final chave = _obterChave();
+    if (chave == null) return ''; // Sem chave mestra, não criptografa
+
     final keyBytes = _derivarChave256(chave);
     final key = enc.Key(keyBytes);
     final iv = enc.IV(_gerarIvBytes());
@@ -90,6 +90,7 @@ class FiscalCryptoUtil {
       final dataBytes = _base64UrlDecode(partes[1]);
 
       final chave = _obterChave();
+      if (chave == null) return ''; // Sem chave, não descriptografa
       final keyBytes = _derivarChave256(chave);
       final key = enc.Key(keyBytes);
       final iv = enc.IV(ivBytes);
@@ -183,7 +184,8 @@ class FiscalCryptoUtil {
     try {
       final encoded = encryptedText.substring(prefixLegacy.length);
       final encrypted = _base64UrlDecode(encoded);
-      final key = _derivarChave256Legacy(_appKey);
+      const legacyKey = 'DiPertin@2026!Fiscal#NF-e';
+      final key = _derivarChave256Legacy(legacyKey);
       final decrypted = List<int>.generate(encrypted.length, (i) {
         return encrypted[i] ^ key[i % key.length];
       });

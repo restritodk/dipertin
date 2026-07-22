@@ -113,10 +113,19 @@ class _ComercialEmailTransacionalModalState
         _carregando = false;
       });
       await _carregarTemplate(_slugSelecionado);
-    } catch (e) {
+    } catch (e, st) {
+      // Detalhes técnicos só no console — UI usa modal premium amigável.
+      debugPrint('[EmailTransacional] Erro ao carregar: $e\n$st');
       if (!mounted) return;
       setState(() => _carregando = false);
-      _toast('Erro ao carregar: $e', erro: true);
+      await _showPremiumResult(
+        sucesso: false,
+        titulo: 'Não foi possível carregar',
+        mensagem:
+            'Não foi possível carregar as configurações de e-mail.\n'
+            'Tente novamente em alguns instantes.',
+        botaoLabel: 'OK',
+      );
     }
   }
 

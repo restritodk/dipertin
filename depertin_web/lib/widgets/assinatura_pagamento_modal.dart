@@ -110,6 +110,7 @@ class _AssinaturaPagamentoModalState extends State<AssinaturaPagamentoModal>
   Timer? _pollTimer;
   Timer? _pixTimer;
   int _pixTempoRestante = 300;
+  bool _pixConfirmacaoJaMostrada = false;
 
   // Estado Cartão
   bool _cardCarregando = false;
@@ -121,10 +122,16 @@ class _AssinaturaPagamentoModalState extends State<AssinaturaPagamentoModal>
 
   String? _cardMensagem;
 
+  // Estado Cartão Recorrente (Etapa 3.2.2)
+  bool _recorrenteCarregando = false;
+  bool _aceitoRecorrencia = false;
+  String? _recorrenteMensagem;
+  String? _recorrenteMensagemTipo; // 'erro' | 'sucesso' | null
+
   @override
   void initState() {
     super.initState();
-    _tabCtrl = TabController(length: 2, vsync: this);
+    _tabCtrl = TabController(length: 3, vsync: this);
   }
 
   @override
@@ -138,6 +145,491 @@ class _AssinaturaPagamentoModalState extends State<AssinaturaPagamentoModal>
     _cvvCtrl.dispose();
     _cpfCtrl.dispose();
     super.dispose();
+  }
+
+  // ── CARTÃO RECORRENTE (Etapa 3.2.2) ──
+
+  ({int mes, int ano})? _parseValidadeRecorrente(String valor) {
+    final partes = valor.split('/');
+    if (partes.length != 2) return null;
+    final mes = int.tryParse(partes[0].replaceAll(RegExp(r'\D'), '')) ?? 0;
+    var ano = int.tryParse(partes[1].replaceAll(RegExp(r'\D'), '')) ?? 0;
+    if (mes < 1 || mes > 12 || ano <= 0) return null;
+    if (ano < 100) ano += 2000;
+    final fimMes = DateTime(ano, mes + 1, 0, 23, 59, 59);
+    if (fimMes.isBefore(DateTime.now())) return null;
+    return (mes: mes, ano: ano);
+  }
+
+  String _resolverPaymentMethodIdRecorrente(String numeroCartao) {
+    if (numeroCartao.startsWith('4')) return 'visa';
+    if (RegExp(r'^(5[1-5]|2[2-7])').hasMatch(numeroCartao)) return 'master';
+    if (RegExp(r'^3[47]').hasMatch(numeroCartao)) return 'amex';
+    if (RegExp(r'^(636368|438935|504175|451416|636297|5067|4576|4011)').hasMatch(numeroCartao)) {
+      return 'elo';
+    }
+    return 'visa';
+  }
+
+  Future<void> _processarRecorrente() async {
+    if (!_aceitoRecorrencia) return;
+
+    final nome = _nomeCtrl.text.trim();
+    final numCartao = _numCtrl.text.replaceAll(RegExp(r'\D'), '');
+    final validade = _parseValidadeRecorrente(_validadeCtrl.text.trim());
+    final cvv = _cvvCtrl.text.replaceAll(RegExp(r'\D'), '');
+    final cpf = _cpfCtrl.text.replaceAll(RegExp(r'\D'), '');
+
+    if (nome.isEmpty) {
+      setState(() {
+        _recorrenteMensagem = 'Informe o nome do titular.';
+        _recorrenteMensagemTipo = 'erro';
+      });
+      return;
+    }
+    if (numCartao.length < 13) {
+      setState(() {
+        _recorrenteMensagem = 'Número do cartão inválido.';
+        _recorrenteMensagemTipo = 'erro';
+      });
+      return;
+    }
+    if (validade == null) {
+      setState(() {
+        _recorrenteMensagem = 'Data de validade inválida (MM/AA).';
+        _recorrenteMensagemTipo = 'erro';
+      });
+      return;
+    }
+    if (cvv.length < 3) {
+      setState(() {
+        _recorrenteMensagem = 'CVV inválido.';
+        _recorrenteMensagemTipo = 'erro';
+      });
+      return;
+    }
+    if (cpf.length != 11) {
+      setState(() {
+        _recorrenteMensagem = 'CPF inválido.';
+        _recorrenteMensagemTipo = 'erro';
+      });
+      return;
+    }
+
+    setState(() {
+      _recorrenteCarregando = true;
+      _recorrenteMensagem = null;
+      _recorrenteMensagemTipo = null;
+    });
+
+    try {
+      final valor = (widget.plano['valor'] as num?)?.toDouble() ?? 0;
+      final planId = widget.plano['id']?.toString() ?? '';
+      final planName = widget.plano['nome']?.toString() ?? 'Plano';
+      final modulos = List<String>.from(widget.plano['modulos'] as List? ?? []);
+
+      final result = await pagamento.AssinaturaPagamentoService.criarCartaoRecorrente(
+        planId: planId,
+        planName: planName,
+        valor: valor,
+        lojaId: widget.lojaId,
+        lojaNome: widget.lojaNome,
+        ownerName: widget.ownerName,
+        ownerEmail: widget.ownerEmail,
+        numeroCartao: numCartao,
+        nomeTitular: nome,
+        mesExpiracao: validade.mes.toString().padLeft(2, '0'),
+        anoExpiracao: validade.ano.toString(),
+        cvv: cvv,
+        cpf: cpf,
+        paymentMethodId: _resolverPaymentMethodIdRecorrente(numCartao),
+        modulos: modulos,
+      );
+
+      if (!mounted) return;
+      setState(() {
+        _recorrenteCarregando = false;
+        _recorrenteMensagem =
+            'Assinatura recorrente ativada! Cartão final ${result['lastFour'] ?? '****'}. '
+            'Próxima cobrança: ${result['nextBillingDate'] ?? '—'}.';
+        _recorrenteMensagemTipo = 'sucesso';
+      });
+
+      // Notifica o pai e fecha após 2s
+      widget.onPagamentoAprovado?.call();
+      Future.delayed(const Duration(seconds: 2), () {
+        if (mounted) Navigator.of(context).pop();
+      });
+    } on CallableHttpException catch (e) {
+      if (!mounted) return;
+      setState(() {
+        _recorrenteCarregando = false;
+        _recorrenteMensagem = mensagemCallableHttpException(e);
+        _recorrenteMensagemTipo = 'erro';
+      });
+    } catch (e) {
+      if (!mounted) return;
+      setState(() {
+        _recorrenteCarregando = false;
+        _recorrenteMensagem = 'Erro ao ativar assinatura recorrente: $e';
+        _recorrenteMensagemTipo = 'erro';
+      });
+    }
+  }
+
+  Widget _buildRecorrenteTab() {
+    final valor = (widget.plano['valor'] as num?)?.toDouble() ?? 0;
+    final valorStr = valor > 0
+        ? 'R\$ ${valor.toStringAsFixed(2).replaceAll('.', ',')}'
+        : '—';
+    final proximaCobranca = (() {
+      final d = DateTime.now();
+      final prox = DateTime(d.year, d.month + 1, 1);
+      return DateFormat('dd/MM/yyyy').format(prox);
+    })();
+
+    final podeHabilitar = _aceitoRecorrencia;
+
+    return SingleChildScrollView(
+      padding: const EdgeInsets.all(24),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          // Card de aviso
+          Container(
+            padding: const EdgeInsets.all(16),
+            decoration: BoxDecoration(
+              color: const Color(0xFFEEF2FF),
+              borderRadius: BorderRadius.circular(14),
+              border: Border.all(color: const Color(0xFF6366F1).withValues(alpha: 0.3)),
+            ),
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                Row(
+                  children: [
+                    const Icon(Icons.autorenew_rounded, color: Color(0xFF6366F1), size: 22),
+                    const SizedBox(width: 8),
+                    Text(
+                      'Assinatura Recorrente',
+                      style: GoogleFonts.plusJakartaSans(
+                        fontSize: 14,
+                        fontWeight: FontWeight.w700,
+                        color: const Color(0xFF4338CA),
+                      ),
+                    ),
+                  ],
+                ),
+                const SizedBox(height: 10),
+                Text(
+                  'Valor mensal: $valorStr',
+                  style: GoogleFonts.plusJakartaSans(fontSize: 13, color: const Color(0xFF1F2937)),
+                ),
+                const SizedBox(height: 4),
+                Text(
+                  'Próxima cobrança: $proximaCobranca',
+                  style: GoogleFonts.plusJakartaSans(fontSize: 12.5, color: const Color(0xFF4B5563)),
+                ),
+                const SizedBox(height: 8),
+                const Divider(color: Color(0xFF6366F1), height: 1),
+                const SizedBox(height: 8),
+                _infoRecorrente('Cobrança automática todo mês'),
+                _infoRecorrente('Pode cancelar a qualquer momento'),
+                _infoRecorrente('Não salvamos número completo nem CVV'),
+              ],
+            ),
+          ),
+          const SizedBox(height: 16),
+
+          // Checkbox de aceite
+          InkWell(
+            onTap: () {
+              setState(() {
+                _aceitoRecorrencia = !_aceitoRecorrencia;
+                _recorrenteMensagem = null;
+                _recorrenteMensagemTipo = null;
+              });
+            },
+            borderRadius: BorderRadius.circular(10),
+            child: Container(
+              padding: const EdgeInsets.all(12),
+              decoration: BoxDecoration(
+                color: _aceitoRecorrencia
+                    ? const Color(0xFFEEF2FF)
+                    : const Color(0xFFF9FAFB),
+                borderRadius: BorderRadius.circular(10),
+                border: Border.all(
+                  color: _aceitoRecorrencia
+                      ? const Color(0xFF6366F1)
+                      : const Color(0xFFD1D5DB),
+                  width: _aceitoRecorrencia ? 1.5 : 1,
+                ),
+              ),
+              child: Row(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  Container(
+                    width: 22,
+                    height: 22,
+                    margin: const EdgeInsets.only(top: 1),
+                    decoration: BoxDecoration(
+                      color: _aceitoRecorrencia
+                          ? const Color(0xFF6366F1)
+                          : Colors.white,
+                      border: Border.all(
+                        color: _aceitoRecorrencia
+                            ? const Color(0xFF6366F1)
+                            : const Color(0xFF9CA3AF),
+                        width: 1.5,
+                      ),
+                      borderRadius: BorderRadius.circular(5),
+                    ),
+                    child: _aceitoRecorrencia
+                        ? const Icon(Icons.check, color: Colors.white, size: 16)
+                        : null,
+                  ),
+                  const SizedBox(width: 10),
+                  Expanded(
+                    child: Text(
+                      'Autorizo a cobrança automática mensal deste plano no meu cartão até que eu cancele a assinatura.',
+                      style: GoogleFonts.plusJakartaSans(
+                        fontSize: 12.5,
+                        fontWeight: FontWeight.w500,
+                        color: const Color(0xFF1F2937),
+                        height: 1.4,
+                      ),
+                    ),
+                  ),
+                ],
+              ),
+            ),
+          ),
+          const SizedBox(height: 20),
+
+          // Formulário de cartão (reutiliza controllers do cartão avulso)
+          _buildFieldLabel('Número do cartão'),
+          const SizedBox(height: 6),
+          TextField(
+            controller: _numCtrl,
+            keyboardType: TextInputType.number,
+            decoration: _inputDeco('0000 0000 0000 0000', Icons.credit_card_rounded),
+            maxLength: 19,
+            onChanged: (v) {
+              final digits = v.replaceAll(RegExp(r'\D'), '');
+              if (digits.length != v.length) {
+                final buf = StringBuffer();
+                for (var i = 0; i < digits.length; i++) {
+                  if (i > 0 && i % 4 == 0) buf.write(' ');
+                  buf.write(digits[i]);
+                }
+                _numCtrl.value = TextEditingValue(
+                  text: buf.toString(),
+                  selection: TextSelection.collapsed(offset: buf.length),
+                );
+              }
+              setState(() {});
+            },
+          ),
+          const SizedBox(height: 14),
+          Row(
+            children: [
+              Expanded(
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    _buildFieldLabel('Validade'),
+                    const SizedBox(height: 6),
+                    TextField(
+                      controller: _validadeCtrl,
+                      keyboardType: TextInputType.number,
+                      decoration: _inputDeco('MM/AA', Icons.calendar_today_rounded),
+                      maxLength: 5,
+                      onChanged: (v) {
+                        final digits = v.replaceAll(RegExp(r'\D'), '');
+                        final limited = digits.length > 4
+                            ? digits.substring(0, 4)
+                            : digits;
+                        final buf = StringBuffer();
+                        for (var i = 0; i < limited.length; i++) {
+                          if (i == 2) buf.write('/');
+                          buf.write(limited[i]);
+                        }
+                        final formatted = buf.toString();
+                        if (formatted != v) {
+                          _validadeCtrl.value = TextEditingValue(
+                            text: formatted,
+                            selection: TextSelection.collapsed(
+                              offset: formatted.length,
+                            ),
+                          );
+                        }
+                      },
+                    ),
+                  ],
+                ),
+              ),
+              const SizedBox(width: 14),
+              Expanded(
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    _buildFieldLabel('CVV'),
+                    const SizedBox(height: 6),
+                    TextField(
+                      controller: _cvvCtrl,
+                      keyboardType: TextInputType.number,
+                      obscureText: true,
+                      obscuringCharacter: '*',
+                      decoration: _inputDeco('123', Icons.security_rounded),
+                      maxLength: 4,
+                      onChanged: (v) {
+                        final digits = v.replaceAll(RegExp(r'\D'), '');
+                        if (digits != v) {
+                          _cvvCtrl.value = TextEditingValue(
+                            text: digits,
+                            selection: TextSelection.collapsed(
+                              offset: digits.length,
+                            ),
+                          );
+                        }
+                      },
+                    ),
+                  ],
+                ),
+              ),
+            ],
+          ),
+          const SizedBox(height: 14),
+          _buildFieldLabel('Nome do titular'),
+          const SizedBox(height: 6),
+          TextField(
+            controller: _nomeCtrl,
+            textCapitalization: TextCapitalization.characters,
+            decoration: _inputDeco('Nome como está no cartão', Icons.person_rounded),
+            maxLength: 40,
+          ),
+          const SizedBox(height: 14),
+          _buildFieldLabel('CPF do titular'),
+          const SizedBox(height: 6),
+          TextField(
+            controller: _cpfCtrl,
+            keyboardType: TextInputType.number,
+            decoration: _inputDeco('000.000.000-00', Icons.badge_rounded),
+            maxLength: 14,
+            onChanged: (v) {
+              final digits = v.replaceAll(RegExp(r'\D'), '');
+              if (digits.length != v.length) {
+                var buf = '';
+                for (var i = 0; i < digits.length; i++) {
+                  if (i == 3 || i == 6) buf += '.';
+                  if (i == 9) buf += '-';
+                  buf += digits[i];
+                }
+                _cpfCtrl.value = TextEditingValue(
+                  text: buf,
+                  selection: TextSelection.collapsed(offset: buf.length),
+                );
+              }
+              setState(() {});
+            },
+          ),
+
+          // Mensagem de feedback
+          if (_recorrenteMensagem != null) ...[
+            const SizedBox(height: 16),
+            Container(
+              padding: const EdgeInsets.all(12),
+              decoration: BoxDecoration(
+                color: _recorrenteMensagemTipo == 'erro'
+                    ? const Color(0xFFFEF2F2)
+                    : const Color(0xFFE8F5E9),
+                borderRadius: BorderRadius.circular(10),
+                border: Border.all(
+                  color: _recorrenteMensagemTipo == 'erro'
+                      ? const Color(0xFFFCA5A5)
+                      : const Color(0xFFA5D6A7),
+                ),
+              ),
+              child: Row(
+                children: [
+                  Icon(
+                    _recorrenteMensagemTipo == 'erro'
+                        ? Icons.error_outline_rounded
+                        : Icons.check_circle_outline_rounded,
+                    color: _recorrenteMensagemTipo == 'erro'
+                        ? const Color(0xFFDC2626)
+                        : const Color(0xFF16A34A),
+                    size: 20,
+                  ),
+                  const SizedBox(width: 8),
+                  Expanded(
+                    child: Text(
+                      _recorrenteMensagem!,
+                      style: GoogleFonts.plusJakartaSans(
+                        fontSize: 12.5,
+                        color: _recorrenteMensagemTipo == 'erro'
+                            ? const Color(0xFFDC2626)
+                            : const Color(0xFF16A34A),
+                      ),
+                    ),
+                  ),
+                ],
+              ),
+            ),
+          ],
+
+          const SizedBox(height: 20),
+
+          // Botão
+          SizedBox(
+            width: double.infinity,
+            height: 50,
+            child: _BotaoGradiente(
+              label: _recorrenteCarregando
+                  ? 'Ativando...'
+                  : 'Ativar assinatura recorrente',
+              onTap: podeHabilitar && !_recorrenteCarregando
+                  ? _processarRecorrente
+                  : () {},
+            ),
+          ),
+          if (!podeHabilitar) ...[
+            const SizedBox(height: 8),
+            Text(
+              'Marque o aceite para continuar.',
+              style: GoogleFonts.plusJakartaSans(
+                fontSize: 11.5,
+                color: const Color(0xFF6B7280),
+                fontStyle: FontStyle.italic,
+              ),
+              textAlign: TextAlign.center,
+            ),
+          ],
+        ],
+      ),
+    );
+  }
+
+  Widget _infoRecorrente(String texto) {
+    return Padding(
+      padding: const EdgeInsets.only(top: 4),
+      child: Row(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          const Icon(Icons.check_circle_rounded, color: Color(0xFF16A34A), size: 14),
+          const SizedBox(width: 6),
+          Expanded(
+            child: Text(
+              texto,
+              style: GoogleFonts.plusJakartaSans(
+                fontSize: 12,
+                color: const Color(0xFF374151),
+              ),
+            ),
+          ),
+        ],
+      ),
+    );
   }
 
   // ── GERAR PIX ──
@@ -156,6 +648,13 @@ class _AssinaturaPagamentoModalState extends State<AssinaturaPagamentoModal>
           planName: widget.plano['nome']?.toString() ?? 'Plano',
         );
         if (!mounted) return;
+        // Sempre mostra o QR. Confirmação só vem do polling após MP status=approved.
+        if ((result['qrCode'] ?? result['pixCopiaECola']) == null
+            || (result['qrCode'] ?? result['pixCopiaECola']).toString().isEmpty) {
+          setState(() => _pixCarregando = false);
+          _mostrarErro('Erro ao gerar PIX', 'Não foi possível obter o QR Code. Tente novamente.');
+          return;
+        }
         setState(() {
           _pixQrCode = result['qrCode']?.toString();
           _pixQrCodeBase64 = result['qrCodeBase64']?.toString();
@@ -166,7 +665,7 @@ class _AssinaturaPagamentoModalState extends State<AssinaturaPagamentoModal>
           _assinaturaId = result['assinaturaId']?.toString();
           _pixStatus = 'pendente';
           _pixCarregando = false;
-          _pixTempoRestante = 300;
+          _pixTempoRestante = 1800; // 30 min — renovação antecipada
         });
       } else {
         final result = await pagamento.AssinaturaPagamentoService.criarPagamentoPix(
@@ -197,6 +696,10 @@ class _AssinaturaPagamentoModalState extends State<AssinaturaPagamentoModal>
 
       _iniciarTimerExpiracao();
       _iniciarPolling();
+    } on CallableHttpException catch (e) {
+      if (!mounted) return;
+      setState(() => _pixCarregando = false);
+      _mostrarErro('Erro ao gerar PIX', mensagemCallableHttpException(e));
     } catch (e) {
       if (!mounted) return;
       setState(() => _pixCarregando = false);
@@ -204,41 +707,85 @@ class _AssinaturaPagamentoModalState extends State<AssinaturaPagamentoModal>
     }
   }
 
-  void _iniciarPolling() {
-    _pollTimer?.cancel();
-    _pollTimer = Timer.periodic(const Duration(seconds: 3), (_) async {
-      if (_assinaturaId == null) return;
-      Map<String, dynamic> status;
-      if (widget.ehRenovacao) {
-        status = await pagamento.AssinaturaPagamentoService.consultarStatusRenovacaoPix(
-          assinaturaId: _assinaturaId!,
-        );
-      } else {
-        status = await pagamento.AssinaturaPagamentoService.consultarStatusPix(
-          assinaturaId: _assinaturaId!,
-        );
-      }
-      if (!mounted) return;
-      final st = status['status']?.toString() ?? '';
-      if (st == 'ativo') {
-        _pollTimer?.cancel();
-        _mostrarConfirmacao(status);
-      } else if (st == 'expirado') {
-        _pollTimer?.cancel();
+  Future<void> _consultarStatusPixUmaVez() async {
+    if (_assinaturaId == null || !mounted || _pixConfirmacaoJaMostrada) return;
+    Map<String, dynamic> status;
+    if (widget.ehRenovacao) {
+      status = await pagamento.AssinaturaPagamentoService.consultarStatusRenovacaoPix(
+        assinaturaId: _assinaturaId!,
+      );
+    } else {
+      status = await pagamento.AssinaturaPagamentoService.consultarStatusPix(
+        assinaturaId: _assinaturaId!,
+      );
+    }
+    if (!mounted || _pixConfirmacaoJaMostrada) return;
+
+    // Confirmação SOMENTE com approved explícito do Mercado Pago neste PIX.
+    final approved = status['approved'] == true;
+    final paymentStatus = (status['payment_status'] ?? '').toString().toLowerCase();
+    final statusLegado = (status['status'] ?? '').toString().toLowerCase();
+
+    if (approved && paymentStatus == 'approved') {
+      _pixConfirmacaoJaMostrada = true;
+      _pollTimer?.cancel();
+      _pixTimer?.cancel();
+      _mostrarConfirmacao(status);
+      return;
+    }
+
+    if (paymentStatus == 'expired'
+        || statusLegado == 'expirado'
+        || statusLegado == 'expired') {
+      // Não cancela o poll imediatamente: MP ainda pode confirmar após o timer local.
+      // Só marca UI como expirado; o poll continua até approved ou usuário gerar novo.
+      if (_pixStatus != 'expirado') {
         setState(() => _pixStatus = 'expirado');
       }
+      return;
+    }
+
+    if (_pixStatus != 'pendente' && _pixStatus != 'expirado') {
+      setState(() => _pixStatus = 'pendente');
+    }
+  }
+
+  void _iniciarPolling() {
+    _pollTimer?.cancel();
+    _pixConfirmacaoJaMostrada = false;
+    // Consulta imediata + a cada 3s
+    unawaited(_consultarStatusPixUmaVez());
+    _pollTimer = Timer.periodic(const Duration(seconds: 3), (_) {
+      unawaited(_consultarStatusPixUmaVez());
     });
   }
 
   void _iniciarTimerExpiracao() {
     _pixTimer?.cancel();
+    // Renovação: 30 min (alinhado ao backend). Contratação: mantém 5 min se já era o padrão.
+    _pixTempoRestante = widget.ehRenovacao ? 1800 : _pixTempoRestante;
+    if (_pixTempoRestante <= 0) _pixTempoRestante = widget.ehRenovacao ? 1800 : 300;
     _pixTimer = Timer.periodic(const Duration(seconds: 1), (_) {
       if (!mounted) { _pixTimer?.cancel(); return; }
       setState(() => _pixTempoRestante--);
       if (_pixTempoRestante <= 0) {
         _pixTimer?.cancel();
-        _pollTimer?.cancel();
-        setState(() => _pixStatus = 'expirado');
+        // Última consulta ao backend ANTES de parar o poll — pagamento pode já estar approved.
+        unawaited(() async {
+          await _consultarStatusPixUmaVez();
+          if (!mounted || _pixConfirmacaoJaMostrada) return;
+          // Continua polling por mais 2 min após o timer visual (atraso do banco/MP)
+          Future.delayed(const Duration(minutes: 2), () {
+            if (!mounted || _pixConfirmacaoJaMostrada) return;
+            _pollTimer?.cancel();
+            if (_pixStatus != 'expirado') {
+              setState(() => _pixStatus = 'expirado');
+            }
+          });
+          if (_pixStatus != 'expirado') {
+            setState(() => _pixStatus = 'expirado');
+          }
+        }());
       }
     });
   }
@@ -760,6 +1307,7 @@ class _AssinaturaPagamentoModalState extends State<AssinaturaPagamentoModal>
                 tabs: const [
                   Tab(text: 'PIX'),
                   Tab(text: 'Cartão'),
+                  Tab(text: 'Recorrente'),
                 ],
               ),
             ),
@@ -773,6 +1321,7 @@ class _AssinaturaPagamentoModalState extends State<AssinaturaPagamentoModal>
               children: [
                 _buildPixTab(),
                 _buildCardTab(),
+                _buildRecorrenteTab(),
               ],
             ),
           ),
@@ -866,8 +1415,11 @@ class _AssinaturaPagamentoModalState extends State<AssinaturaPagamentoModal>
           const SizedBox(height: 16),
           Text('PIX expirado', style: GoogleFonts.plusJakartaSans(fontSize: 16, fontWeight: FontWeight.w700)),
           const SizedBox(height: 6),
-          Text('O tempo de pagamento expirou.',
-              style: GoogleFonts.plusJakartaSans(fontSize: 12, color: DiPertinTheme.textSecondary)),
+          Text(
+            'Este PIX expirou. Gere uma nova cobrança para continuar.',
+            textAlign: TextAlign.center,
+            style: GoogleFonts.plusJakartaSans(fontSize: 12, color: DiPertinTheme.textSecondary),
+          ),
           const SizedBox(height: 20),
           SizedBox(
             width: double.infinity, height: 48,
@@ -930,7 +1482,7 @@ class _AssinaturaPagamentoModalState extends State<AssinaturaPagamentoModal>
           ),
           const SizedBox(width: 8),
           Text(
-            'Aguardando pagamento',
+            'Aguardando confirmação do pagamento',
             style: GoogleFonts.plusJakartaSans(
               fontSize: 12,
               fontWeight: FontWeight.w500,
@@ -1277,6 +1829,7 @@ class _AssinaturaPagamentoModalState extends State<AssinaturaPagamentoModal>
 // ═══════════════════════════════════════════════════════════════════════════
 //  Botão Gradiente Reutilizável
 // ═══════════════════════════════════════════════════════════════════════════
+
 class _BotaoGradiente extends StatefulWidget {
   final String label;
   final VoidCallback onTap;

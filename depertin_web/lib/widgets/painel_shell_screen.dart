@@ -33,6 +33,7 @@ import '../screens/centro_operacoes_marketing_dashboard_panel.dart';
 import '../screens/avaliacoes_painel_screen.dart';
 import '../screens/comunicados_screen.dart';
 import '../screens/conteudo_legal_screen.dart';
+import '../screens/auditoria_screen.dart';
 import '../screens/lojista_pedidos_tabela_screen.dart';
 import '../screens/lojista_negociacoes_encomenda_screen.dart';
 import '../screens/lojista_meu_cardapio_screen.dart';
@@ -43,8 +44,10 @@ import '../screens/lojista_carteira_financeiro_screen.dart';
 import '../screens/lojista_carteira_relatorio_screen.dart';
 import '../screens/lojista_carteira_configuracao_screen.dart';
 import '../screens/comercial_upsell_screen.dart';
+import '../screens/comercial_upgrade_fiscal_screen.dart';
 import '../screens/lojista_comercial_dashboard_screen.dart';
 import '../widgets/gestao_comercial_access_gate.dart';
+import '../widgets/modulo_fiscal_access_gate.dart';
 import '../screens/lojista_comercial_clientes_screen.dart';
 import '../screens/lojista_comercial_credito_screen.dart';
 import '../screens/comercial_pendencias_screen.dart';
@@ -197,117 +200,126 @@ class _PainelShellScreenState extends State<PainelShellScreen> {
         _tabs[i] = const ConteudoLegalScreen();
         break;
       case 27:
+        _tabs[i] = const AuditoriaScreen();
+        break;
+      case 28:
         _tabs[i] = GestaoComercialAccessGate(
           semPlano: const ComercialUpsellScreen(),
           child: const LojistaPdvScreen(),
         );
         break;
-      case 28:
+      case 29:
         _tabs[i] = const LojistaPedidosTabelaScreen();
         break;
-      case 29:
+      case 30:
         _tabs[i] = const LojistaNegociacoesEncomendaScreen();
         break;
-      case 30:
+      case 31:
         _tabs[i] = const LojistaMeuCardapioScreen();
         break;
-      case 31:
+      case 32:
         _tabs[i] = const LojistaCuponsScreen();
         break;
-      case 32:
+      case 33:
         _tabs[i] = const LojistaMinhaCarteiraScreen();
         break;
-      case 33:
+      case 34:
         _tabs[i] = const LojistaCarteiraFinanceiroScreen();
         break;
-      case 34:
+      case 35:
         _tabs[i] = const LojistaCarteiraRelatorioScreen();
         break;
-      case 35:
+      case 36:
         _tabs[i] = const LojistaCarteiraConfiguracaoScreen();
         break;
-      case 36:
+      case 37:
         _tabs[i] = GestaoComercialAccessGate(
           semPlano: const ComercialUpsellScreen(),
           child: const LojistaComercialDashboardScreen(),
         );
         break;
-      case 37:
+      case 38:
         _tabs[i] = GestaoComercialAccessGate(
           semPlano: const ComercialUpsellScreen(),
           child: const LojistaMinhaLojaScreen(),
         );
         break;
-      case 38:
+      case 39:
         _tabs[i] = GestaoComercialAccessGate(
           semPlano: const ComercialUpsellScreen(),
           child: const LojistaComercialClientesScreen(),
         );
         break;
-      case 39:
+      case 40:
         _tabs[i] = GestaoComercialAccessGate(
           semPlano: const ComercialUpsellScreen(),
           child: const LojistaComercialCreditoScreen(),
         );
         break;
-      case 40:
+      case 41:
         _tabs[i] = GestaoComercialAccessGate(
           semPlano: const ComercialUpsellScreen(),
           child: const ComercialPendenciasScreen(),
         );
         break;
-      case 41:
+      case 42:
         _tabs[i] = GestaoComercialAccessGate(
           semPlano: const ComercialUpsellScreen(),
           child: const ComercialRecebimentosScreen(),
         );
         break;
-      case 42:
+      case 43:
         _tabs[i] = GestaoComercialAccessGate(
           semPlano: const ComercialUpsellScreen(),
           child: const ComercialHistoricoVendasScreen(),
         );
         break;
-      case 43:
+      case 44:
         _tabs[i] = GestaoComercialAccessGate(
           semPlano: const ComercialUpsellScreen(),
           child: const ComercialRelatorioScreen(),
         );
         break;
-      case 44:
+      case 45:
         _tabs[i] = GestaoComercialAccessGate(
           semPlano: const ComercialUpsellScreen(),
           child: const ComercialConfiguracoesScreen(),
         );
         break;
-      case 45:
+      case 46:
         _tabs[i] = const AssinaturasDashboardScreen();
         break;
-      case 46:
+      case 47:
         _tabs[i] = const AssinaturasClientesScreen();
         break;
-      case 47:
+      case 48:
         _tabs[i] = const AssinaturasPlanosScreen();
         break;
-      case 48:
+      case 49:
         _tabs[i] = const AssinaturasCobrancasScreen();
         break;
-      case 49:
+      case 50:
         _tabs[i] = const AssinaturasInadimplenciaScreen();
         break;
-      case 50:
+      case 51:
         _tabs[i] = const AssinaturasRelatoriosScreen();
         break;
-      case 51:
+      case 52:
         _tabs[i] = const AssinaturasFiscalScreen();
         break;
-      case 52:
+      case 53:
         _tabs[i] = const AssinaturasConfiguracoesScreen();
         break;
-      case 53:
-        _tabs[i] = const LojistaModuloFiscalScreen();
-        break;
       case 54:
+        _tabs[i] = GestaoComercialAccessGate(
+          semPlano: const ComercialUpsellScreen(),
+          child: ModuloFiscalAccessGate(
+            semModulo: const ComercialUpgradeFiscalScreen(),
+            child: const LojistaModuloFiscalScreen(),
+          ),
+        );
+        break;
+      case 55:
         _tabs[i] = const AdminFiscalScreen();
         break;
       default:

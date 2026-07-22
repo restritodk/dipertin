@@ -13,6 +13,8 @@ class LojistaIntegracaoModel {
   final String planoNome;
   final int limiteMensal;
   final int notasEmitidas;
+  /// Holds em andamento (não entram no card "X utilizadas").
+  final int notasReservadas;
   final int notasRestantes;
   final double percentualUtilizado;
   final String cicloRef; // "2026-07"
@@ -32,6 +34,7 @@ class LojistaIntegracaoModel {
     required this.planoNome,
     this.limiteMensal = 0,
     this.notasEmitidas = 0,
+    this.notasReservadas = 0,
     this.notasRestantes = 0,
     this.percentualUtilizado = 0,
     required this.cicloRef,
@@ -46,12 +49,17 @@ class LojistaIntegracaoModel {
   bool get estaAtiva => status == 'ativa';
   bool get estaSuspensa => status == 'suspensa';
   bool get estaBloqueada => status == 'bloqueada';
+  /// Limite esgotado por notas já autorizadas no ciclo.
   bool get atingiuLimite => limiteMensal > 0 && notasEmitidas >= limiteMensal;
+  /// Sem vagas para nova emissão (autorizadas + holds).
+  bool get semVagaParaNovaEmissao =>
+      limiteMensal > 0 && (notasEmitidas + notasReservadas) >= limiteMensal;
   bool get ehIlimitado => limiteMensal == 0;
 
   String get limiteExibir => ehIlimitado ? 'Ilimitado' : limiteMensal.toString();
   String get emitidasExibir => notasEmitidas.toString();
-  String get restantesExibir => ehIlimitado ? '∞' : (limiteMensal - notasEmitidas).toString();
+  String get restantesExibir =>
+      ehIlimitado ? '∞' : (limiteMensal - notasEmitidas).clamp(0, limiteMensal).toString();
 
   Color get statusCor => switch (status) {
         'ativa' => const Color(0xFF16A34A),
@@ -79,6 +87,7 @@ class LojistaIntegracaoModel {
     final d = doc.data() ?? {};
     final limite = (d['limite_mensal'] as num?)?.toInt() ?? 0;
     final emitidas = (d['notas_emitidas'] as num?)?.toInt() ?? 0;
+    final reservadas = (d['notas_reservadas'] as num?)?.toInt() ?? 0;
     return LojistaIntegracaoModel(
       id: doc.id,
       storeId: d['store_id'] as String? ?? '',
@@ -88,11 +97,15 @@ class LojistaIntegracaoModel {
       planoNome: d['plano_nome'] as String? ?? '',
       limiteMensal: limite,
       notasEmitidas: emitidas,
-      notasRestantes: limite > 0 ? (limite - emitidas).clamp(0, limite) : 0,
+      notasReservadas: reservadas,
+      // Vagas para nova emissão (holds ocupam vaga, mas não aparecem no card)
+      notasRestantes: limite > 0
+          ? (limite - emitidas - reservadas).clamp(0, limite)
+          : 0,
       percentualUtilizado: limite > 0
           ? ((emitidas / limite) * 100).clamp(0, 100)
           : 0,
-      cicloRef: d['ciclo_ref'] as String? ?? '',
+      cicloRef: d['ciclo_ref'] as String? ?? d['mes_referencia'] as String? ?? '',
       proximaRenovacao: d['proxima_renovacao'] as Timestamp?,
       status: d['status'] as String? ?? 'ativa',
       observacao: d['observacao'] as String?,
@@ -110,6 +123,7 @@ class LojistaIntegracaoModel {
         'plano_nome': planoNome,
         'limite_mensal': limiteMensal,
         'notas_emitidas': notasEmitidas,
+        'notas_reservadas': notasReservadas,
         'ciclo_ref': cicloRef,
         'proxima_renovacao': proximaRenovacao,
         'status': status,

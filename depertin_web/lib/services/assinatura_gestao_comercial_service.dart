@@ -4,8 +4,8 @@ import 'package:flutter/foundation.dart';
 
 
 
+import '../constants/modulo_codigos.dart';
 import '../models/cliente_assinatura_model.dart';
-
 import '../models/modulo_config_model.dart';
 
 
@@ -531,6 +531,128 @@ abstract final class AssinaturaGestaoComercialService {
   ) {
     return filtrarAssinaturasGestao(assinaturas, ctx)
         .any(assinaturaTemAcessoGestao);
+  }
+
+  // ─── Módulo Emissão de NF-e (código estável + nome legado) ───
+
+  /// Detecta se texto/código/nome representa o módulo de emissão fiscal.
+  ///
+  /// Aceita o código canônico [ModuloCodigos.emissaoNfe] e nomes como
+  /// "Emissão de NF-e" gravados em `modulos_planos.modulos`.
+  static bool textoIndicaEmissaoNfe(String? raw) {
+    if (raw == null || raw.trim().isEmpty) return false;
+
+    final codigo = ModuloCodigos.emissaoNfe;
+    final normalizado = _normalizar(raw.trim());
+    if (normalizado == codigo || normalizado.contains(codigo)) return true;
+
+    // "emissao_de_nf_e", "emissao_nfe", "nf_e", etc.
+    final temEmissao =
+        normalizado.contains('emissao') || normalizado.contains('emitir');
+    final temNfe = normalizado.contains('nfe') ||
+        normalizado.contains('nf_e') ||
+        normalizado.contains('nfc_e') ||
+        normalizado.contains('nfs_e');
+    if (temEmissao && temNfe) return true;
+
+    final lower = raw.toLowerCase();
+    if ((lower.contains('nf-e') ||
+            lower.contains('nfe') ||
+            lower.contains('nfc-e') ||
+            lower.contains('nfs-e')) &&
+        (lower.contains('emissão') ||
+            lower.contains('emissao') ||
+            lower.contains('nota fiscal'))) {
+      return true;
+    }
+
+    return false;
+  }
+
+  static bool _moduloConfigEhEmissaoNfe(ModuloConfigModel? mod) {
+    if (mod == null) return false;
+    return textoIndicaEmissaoNfe(mod.codigo) ||
+        textoIndicaEmissaoNfe(mod.nome);
+  }
+
+  static bool _moduloReferenciaEhEmissaoNfe(
+    String? ref,
+    AssinaturaGestaoComercialContexto ctx,
+  ) {
+    if (ref == null || ref.trim().isEmpty) return false;
+    final chave = ref.trim();
+    if (textoIndicaEmissaoNfe(chave)) return true;
+    if (_moduloConfigEhEmissaoNfe(ctx.modulosPorNome[chave])) return true;
+    if (_moduloConfigEhEmissaoNfe(ctx.modulosPorId[chave])) return true;
+
+    // Catálogo: se a referência é o nome e o código do módulo é emissao_nfe
+    final porNome = ctx.modulosPorNome[chave];
+    if (porNome != null &&
+        _normalizar(porNome.codigo) == ModuloCodigos.emissaoNfe) {
+      return true;
+    }
+    return false;
+  }
+
+  /// Plano (doc `modulos_planos`) inclui o módulo Emissão de NF-e.
+  static bool planoDocTemEmissaoNfe(
+    Map<String, dynamic> data, {
+    required AssinaturaGestaoComercialContexto ctx,
+  }) {
+    final mv = data['modulo_vinculado']?.toString() ?? '';
+    if (_moduloReferenciaEhEmissaoNfe(mv, ctx)) return true;
+
+    final modulos = data['modulos'];
+    if (modulos is List) {
+      for (final item in modulos) {
+        if (_moduloReferenciaEhEmissaoNfe(item.toString(), ctx)) return true;
+      }
+    }
+    return false;
+  }
+
+  /// Assinatura ativa com acesso GC e módulo NF-e no plano (ou extras).
+  static bool assinaturaTemEmissaoNfe(
+    ClienteAssinaturaModel assinatura,
+    AssinaturaGestaoComercialContexto ctx,
+  ) {
+    if (!assinaturaTemAcessoGestao(assinatura)) return false;
+
+    for (final mod in assinatura.modulosExtras) {
+      if (_moduloReferenciaEhEmissaoNfe(mod, ctx)) return true;
+    }
+
+    final planoDocId = resolverPlanoDocId(assinatura, ctx);
+    if (planoDocId == null) return false;
+    final data = ctx.planosPorId[planoDocId];
+    if (data == null) return false;
+    return planoDocTemEmissaoNfe(data, ctx: ctx);
+  }
+
+  static bool lojistaTemModuloEmissaoNfe(
+    List<ClienteAssinaturaModel> assinaturas,
+    AssinaturaGestaoComercialContexto ctx,
+  ) {
+    return filtrarAssinaturasGestao(assinaturas, ctx)
+        .any((a) => assinaturaTemEmissaoNfe(a, ctx));
+  }
+
+  /// Módulos do plano resolvido da assinatura (nomes/códigos como no Firestore).
+  static List<String> modulosDoPlanoDaAssinatura(
+    ClienteAssinaturaModel assinatura,
+    AssinaturaGestaoComercialContexto ctx,
+  ) {
+    final planoDocId = resolverPlanoDocId(assinatura, ctx);
+    if (planoDocId == null) return List<String>.from(assinatura.modulosExtras);
+    final data = ctx.planosPorId[planoDocId];
+    if (data == null) return List<String>.from(assinatura.modulosExtras);
+    final raw = data['modulos'];
+    final lista = raw is List
+        ? raw.map((e) => e.toString()).where((s) => s.trim().isNotEmpty).toList()
+        : <String>[];
+    if (assinatura.modulosExtras.isEmpty) return lista;
+    final set = {...lista, ...assinatura.modulosExtras};
+    return set.toList();
   }
 }
 

@@ -152,6 +152,17 @@ service cloud.firestore {
         || !lojistaDocumentoBloqueado(dadosDonoLojaParaBloqueio());
     }
 
+    // Acesso a módulo fiscal — dono ou colaborador nível >= 2, loja não bloqueada.
+    function fiscalAcessoPermitido() {
+      return userExists()
+        && isLojistaRoleDoc(userData())
+        && !lojistaDocumentoBloqueado(dadosDonoLojaParaBloqueio())
+        && (
+          fieldStr(userData(), 'lojista_owner_uid') == ''
+          || userData().get('painel_colaborador_nivel', 0) >= 2
+        );
+    }
+
     function isLojistaRoleDoc(d) {
       return normStr(fieldStr(d, 'role')) == 'lojista'
         || normStr(fieldStr(d, 'tipoUsuario')) == 'lojista'
@@ -1388,6 +1399,7 @@ service cloud.firestore {
     }
 
     // Assinaturas contratadas por lojistas (Gestão de Assinaturas — Clientes)
+    // Assinaturas contratadas por lojistas (Gestão de Assinaturas — Clientes)
     match /assinaturas_clientes/{id} {
       allow read: if isStaff()
         || (signedIn()
@@ -1500,37 +1512,27 @@ service cloud.firestore {
     }
 
     // Configuração fiscal da loja
+    // LEITURA: lojista autorizado da própria loja e staff.
+    // ESCRITA: exclusivamente staff ou Admin SDK.
+    // Lojista NÃO pode alterar integration_id, certificate_id, company_tax_data,
+    // saldo, environment ou outras configurações privadas.
     match /store_fiscal_settings/{settingId} {
       allow read: if isStaff()
         || (signedIn()
-          && isLojistaRoleDoc(userData())
-          && lojistaLojaPodeOperar()
+          && fiscalAcessoPermitido()
           && resource.data.get('store_id', '') == idLojaUsuarioLogado());
-      allow create: if isStaff()
-        || (signedIn()
-          && isLojistaRoleDoc(userData())
-          && lojistaLojaPodeOperar()
-          && request.resource.data.get('store_id', '') == idLojaUsuarioLogado());
-      allow update: if isStaff()
-        || (signedIn()
-          && isLojistaRoleDoc(userData())
-          && lojistaLojaPodeOperar()
-          && resource.data.get('store_id', '') == idLojaUsuarioLogado());
-      allow delete: if isStaff();
+      allow create, update, delete: if isStaff();
     }
 
     // Documentos fiscais emitidos
+    // LEITURA: staff ou lojista autorizado da própria loja.
+    // ESCRITA: APENAS via Admin SDK (Cloud Functions). Frontend NUNCA cria/altera/exclui.
     match /fiscal_documents/{docId} {
       allow read: if isStaff()
         || (signedIn()
-          && isLojistaRoleDoc(userData())
-          && lojistaLojaPodeOperar()
+          && fiscalAcessoPermitido()
           && resource.data.get('store_id', '') == idLojaUsuarioLogado());
-      allow create: if signedIn()
-        && isLojistaRoleDoc(userData())
-        && lojistaLojaPodeOperar()
-        && request.resource.data.get('store_id', '') == idLojaUsuarioLogado();
-      allow update, delete: if isStaff();
+      allow create, update, delete: if false;
     }
 
     // Planos de emissão NF-e
@@ -1538,18 +1540,47 @@ service cloud.firestore {
       allow read, write: if isStaff();
     }
 
+    // Certificados digitais A1 — contêm dados sensíveis (senha, conteúdo criptografado).
+    // Acesso exclusivo via Admin SDK no backend. Frontend NUNCA lê diretamente.
+    // O lojista consulta status/validade via Cloud Function fiscalValidarCertificado.
+    match /fiscal_certificates/{certId} {
+      allow read, write: if isStaff();
+    }
+
+    // Operações de emissão — controle transacional de idempotência e saldo.
+    // Escrita exclusiva via Cloud Functions (Admin SDK).
+    match /fiscal_emission_operations/{opId} {
+      allow read: if isStaff()
+        || (signedIn()
+          && fiscalAcessoPermitido()
+          && resource.data.get('store_id', '') == idLojaUsuarioLogado());
+      allow write: if false;
+    }
+
+    // Wallet Reservas — saldo transacional (subcoleção de users)
+    // Escrita exclusiva via callables (Admin SDK); leitura pelo dono ou staff
+    match /users/{userId}/wallet_reservas/{reservaId} {
+      allow read: if isStaff() || (signedIn() && userId == request.auth.uid);
+      allow write: if false;
+    }
+
+    // Wallet transaction logs — auditoria de reservas
+    // Apenas staff pode ler; escrita exclusiva via Admin SDK
+    match /wallet_transaction_logs/{logId} {
+      allow read: if isStaff();
+      allow write: if false;
+    }
+
     // Integrações de NF-e dos lojistas
     match /lojista_integracao/{integracaoId} {
       allow read: if isStaff()
         || (signedIn()
-          && isLojistaRoleDoc(userData())
-          && lojistaLojaPodeOperar()
+          && fiscalAcessoPermitido()
           && resource.data.get('store_id', '') == idLojaUsuarioLogado());
       allow create: if isStaff();
       allow update: if isStaff()
         || (signedIn()
-          && isLojistaRoleDoc(userData())
-          && lojistaLojaPodeOperar()
+          && fiscalAcessoPermitido()
           && resource.data.get('store_id', '') == idLojaUsuarioLogado());
       allow delete: if isStaff();
     }

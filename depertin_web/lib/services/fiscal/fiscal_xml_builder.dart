@@ -147,8 +147,12 @@ class FiscalXmlBuilder {
           '<xFant>${_escapeXml(emit.nomeFantasia.substring(0, emit.nomeFantasia.length > 60 ? 60 : emit.nomeFantasia.length))}</xFant>');
     }
     _enderEmit(b, emit);
-    b.writeln(
-        '<IE>${_apenasDigitos(emit.ie)}</IE>');
+    if (emit.ieIsento || emit.ie.trim().toUpperCase() == 'ISENTO') {
+      b.writeln('<IE>ISENTO</IE>');
+    } else if (emit.ie.trim().isNotEmpty) {
+      b.writeln(
+          '<IE>${_apenasDigitos(emit.ie)}</IE>');
+    }
     if (emit.im != null && emit.im!.isNotEmpty) {
       b.writeln('<IM>${_escapeXml(emit.im!)}</IM>');
     }

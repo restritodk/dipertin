@@ -9,6 +9,7 @@
  * Nunca salva token completo nos logs.
  */
 const admin = require("firebase-admin");
+const { FieldValue: FirebaseFieldValue } = require("firebase-admin/firestore");
 
 const SENSITIVE_FIELDS = [
   "api_key",
@@ -81,7 +82,7 @@ async function registrarLog({
       integration_id: integrationId || null,
       // Sanitiza detalhes para não vazar token
       detalhes_sanitizados: detalhes ? sanitizar(detalhes) : null,
-      criado_em: admin.firestore.FieldValue.serverTimestamp(),
+      criado_em: FirebaseFieldValue.serverTimestamp(),
     };
 
     await db.collection("fiscal_logs").add(logData);
@@ -125,7 +126,7 @@ async function registrarWebhook({
       motivo_rejeicao: motivoRejeicao || null,
       // Payload sanitizado (NUNCA token)
       payload: payload ? sanitizar(payload) : null,
-      recebido_em: admin.firestore.FieldValue.serverTimestamp(),
+      recebido_em: FirebaseFieldValue.serverTimestamp(),
     };
 
     await db.collection("fiscal_webhooks").add(logData);
@@ -168,7 +169,7 @@ async function registrarStatusHistory({
       motivo: motivo || null,
       usuario_uid: usuarioUid || null,
       origem,
-      criado_em: admin.firestore.FieldValue.serverTimestamp(),
+      criado_em: FirebaseFieldValue.serverTimestamp(),
     };
 
     await db.collection("fiscal_status_history").add(logData);

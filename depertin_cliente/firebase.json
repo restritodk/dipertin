@@ -6,25 +6,6 @@
   "storage": {
     "rules": "storage.rules"
   },
-  "flutter": {
-    "platforms": {
-      "android": {
-        "default": {
-          "projectId": "depertin-f940f",
-          "appId": "1:939151024179:android:d9108d8925fbd8e7d3c346",
-          "fileOutput": "android/app/google-services.json"
-        }
-      },
-      "dart": {
-        "lib/firebase_options.dart": {
-          "projectId": "depertin-f940f",
-          "configurations": {
-            "android": "1:939151024179:android:d9108d8925fbd8e7d3c346"
-          }
-        }
-      }
-    }
-  },
   "functions": [
     {
       "source": "functions",
@@ -38,5 +19,28 @@
         "*.local"
       ]
     }
-  ]
+  ],
+  "emulators": {
+    "functions": {
+      "port": 5001
+    },
+    "firestore": {
+      "port": 8080,
+      "host": "127.0.0.1"
+    },
+    "ui": {
+      "enabled": true,
+      "port": 4000
+    },
+    "auth": {
+      "port": 9099
+    },
+    "storage": {
+      "port": 9199
+    },
+    "hosting": {
+      "port": 5000
+    },
+    "singleProjectMode": true
+  }
 }

@@ -243,7 +243,8 @@ class _AtendimentoSuporteScreenState extends State<AtendimentoSuporteScreen> {
       });
 
       await ref.collection('mensagens').add({
-        'mensagem': '$nomeAdmin iniciou seu atendimento.',
+        'mensagem':
+            'Operador $nomeAdmin iniciou seu atendimento.\nComo posso ajudá-lo?',
         'sender_id': user.uid,
         'sender_type': 'system',
         'is_read': false,
@@ -779,6 +780,7 @@ class _AtendimentoSuporteScreenState extends State<AtendimentoSuporteScreen> {
     final uid = FirebaseAuth.instance.currentUser?.uid;
     if (uid == null) return;
 
+    final nomeAdmin = await _nomeAtendente(uid);
     final ref = FirebaseFirestore.instance
         .collection('support_tickets')
         .doc(id);
@@ -788,7 +790,9 @@ class _AtendimentoSuporteScreenState extends State<AtendimentoSuporteScreen> {
       final batch = FirebaseFirestore.instance.batch();
       final msgRef = ref.collection('mensagens').doc();
       batch.set(msgRef, {
-        'mensagem': '--- Atendimento encerrado pelo suporte ---',
+        'mensagem':
+            'Operador $nomeAdmin finalizou este atendimento.\n'
+            'Obrigado por utilizar o suporte DiPertin.',
         'sender_id': uid,
         'sender_type': 'system',
         'is_read': false,

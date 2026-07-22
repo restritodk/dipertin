@@ -30,7 +30,7 @@ class _ComercialRecebimentosScreenState
   String _filtroForma = 'Todas';
   String _filtroRecebidoPor = 'Todos';
   int _pagina = 1;
-  int _itensPorPagina = 10;
+  static const int _itensPorPagina = 10;
 
   List<ComercialRecebimento> _recebimentos = [];
   bool _carregando = true;
@@ -171,10 +171,6 @@ class _ComercialRecebimentosScreenState
           }),
           onLimparFiltros: _limparFiltros,
           onPageChanged: (v) => setState(() => _pagina = v),
-          onItensPorPaginaChanged: (v) => setState(() {
-            _itensPorPagina = v;
-            _pagina = 1;
-          }),
           onRefresh: () => _forcarRecarga(uidLoja),
         );
       },
@@ -207,7 +203,6 @@ class _RecebimentosBody extends StatelessWidget {
     required this.onRecebidoPorChanged,
     required this.onLimparFiltros,
     required this.onPageChanged,
-    required this.onItensPorPaginaChanged,
     required this.onRefresh,
   });
 
@@ -226,7 +221,6 @@ class _RecebimentosBody extends StatelessWidget {
   final ValueChanged<String?> onRecebidoPorChanged;
   final VoidCallback onLimparFiltros;
   final ValueChanged<int> onPageChanged;
-  final ValueChanged<int> onItensPorPaginaChanged;
   final VoidCallback onRefresh;
 
   @override
@@ -586,13 +580,17 @@ class _RecebimentosBody extends StatelessWidget {
   }
 
   Widget _buildTabela(BuildContext context, ComercialRecebimentosResumo r) {
-    final inicio = (pagina - 1) * itensPorPagina;
-    final fim = inicio + itensPorPagina;
-    final paginaItens = itensFiltrados.length > itensPorPagina
-        ? itensFiltrados.sublist(inicio, fim.clamp(0, itensFiltrados.length))
-        : itensFiltrados;
     final totalPaginas =
-        (itensFiltrados.length / itensPorPagina).ceil().clamp(1, 999);
+        max(1, (itensFiltrados.length / itensPorPagina).ceil());
+    final paginaAtual = pagina.clamp(1, totalPaginas);
+    final inicio = (paginaAtual - 1) * itensPorPagina;
+    final fim = inicio + itensPorPagina;
+    final paginaItens = itensFiltrados.isEmpty
+        ? const <ComercialRecebimento>[]
+        : itensFiltrados.sublist(
+            inicio.clamp(0, itensFiltrados.length),
+            fim.clamp(0, itensFiltrados.length),
+          );
 
     return Container(
       decoration: BoxDecoration(
@@ -667,9 +665,9 @@ class _RecebimentosBody extends StatelessWidget {
             )
           else
             ...paginaItens.map((rec) => _linha(context, rec)),
-          // Paginação
-          if (itensFiltrados.length > itensPorPagina)
-            _buildPaginacao(itensFiltrados.length, pagina, totalPaginas),
+          // Paginação — sempre visível quando há registros
+          if (itensFiltrados.isNotEmpty)
+            _buildPaginacao(itensFiltrados.length, paginaAtual, totalPaginas),
         ],
       ),
     );
@@ -1093,76 +1091,73 @@ class _RecebimentosBody extends StatelessWidget {
   Widget _buildPaginacao(int total, int atual, int totalPag) {
     final inicio = (atual - 1) * itensPorPagina;
     final fim = (inicio + itensPorPagina).clamp(0, total);
+    final paginas = _paginasVisiveis(atual, totalPag);
+
     return Padding(
       padding: const EdgeInsets.fromLTRB(16, 12, 16, 14),
-      child: Row(
-        children: [
-          Text(
-            'Mostrando ${inicio + 1} a $fim de $total recebimentos',
+      child: LayoutBuilder(
+        builder: (context, constraints) {
+          final compacto = constraints.maxWidth < 520;
+          final info = Text(
+            'Mostrando ${inicio + 1}–$fim de $total recebimentos',
             style: GoogleFonts.plusJakartaSans(
               fontSize: 12,
               color: const Color(0xFF94A3B8),
             ),
-          ),
-          const Spacer(),
-          Row(
+          );
+          final controles = Row(
+            mainAxisSize: MainAxisSize.min,
             children: [
-              _pagBtn(Icons.chevron_left_rounded,
-                  atual > 1 ? () => onPageChanged(atual - 1) : null),
-              ...List.generate(min(totalPag, 5), (i) {
-                final pagNum = i + max(1, atual - 2);
-                if (pagNum > totalPag) return const SizedBox.shrink();
-                return _pagNum(pagNum as int, atual == pagNum);
-              }),
-              _pagBtn(Icons.chevron_right_rounded,
-                  atual < totalPag ? () => onPageChanged(atual + 1) : null),
-            ],
-          ),
-          const SizedBox(width: 16),
-          Row(
-            children: [
-              Text(
-                'Itens por página:',
-                style: GoogleFonts.plusJakartaSans(
-                  fontSize: 12,
-                  color: const Color(0xFF94A3B8),
-                ),
+              _pagBtn(
+                Icons.chevron_left_rounded,
+                atual > 1 ? () => onPageChanged(atual - 1) : null,
               ),
-              const SizedBox(width: 6),
-              SizedBox(
-                width: 60,
-                height: 32,
-                child: Container(
-                  padding: const EdgeInsets.symmetric(horizontal: 8),
-                  decoration: BoxDecoration(
-                    color: const Color(0xFFF8F9FC),
-                    borderRadius: BorderRadius.circular(8),
-                    border: Border.all(color: const Color(0xFFE2E8F0)),
-                  ),
-                  child: DropdownButtonHideUnderline(
-                    child: DropdownButton<int>(
-                      value: itensPorPagina,
-                      isDense: true,
-                      icon: const Icon(Icons.expand_more_rounded, size: 14),
-                      style: GoogleFonts.plusJakartaSans(
-                        fontSize: 12,
-                        fontWeight: FontWeight.w500,
-                      ),
-                      items: [5, 10, 15, 20, 50]
-                          .map((n) => DropdownMenuItem(value: n, child: Text('$n')))
-                          .toList(),
-                      onChanged: (v) {
-                        if (v != null) onItensPorPaginaChanged(v);
-                      },
-                    ),
-                  ),
-                ),
+              ...paginas.map((n) => _pagNum(n, atual == n)),
+              _pagBtn(
+                Icons.chevron_right_rounded,
+                atual < totalPag ? () => onPageChanged(atual + 1) : null,
               ),
             ],
-          ),
-        ],
+          );
+
+          if (compacto) {
+            return Column(
+              children: [
+                info,
+                const SizedBox(height: 10),
+                controles,
+              ],
+            );
+          }
+
+          return Row(
+            children: [
+              Expanded(child: info),
+              controles,
+            ],
+          );
+        },
       ),
     );
+  }
+
+  /// Janela de até 5 números de página centrada na página atual.
+  List<int> _paginasVisiveis(int atual, int totalPag) {
+    if (totalPag <= 5) {
+      return List.generate(totalPag, (i) => i + 1);
+    }
+    var start = atual - 2;
+    var end = atual + 2;
+    if (start < 1) {
+      end += 1 - start;
+      start = 1;
+    }
+    if (end > totalPag) {
+      start -= end - totalPag;
+      end = totalPag;
+    }
+    start = start.clamp(1, totalPag);
+    return [for (var i = start; i <= end; i++) i];
   }
 
   Widget _pagBtn(IconData icon, VoidCallback? onTap) {
@@ -1220,16 +1215,7 @@ class _RecebimentosBody extends StatelessWidget {
   }
 
   Widget _buildSidebar(ComercialRecebimentosResumo r) {
-    return Column(
-      crossAxisAlignment: CrossAxisAlignment.stretch,
-      children: [
-        _buildDonutCard(r),
-        const SizedBox(height: 16),
-        _buildPorFormaCard(r),
-        const SizedBox(height: 16),
-        _buildMaioresCard(r),
-      ],
-    );
+    return _buildDonutCard(r);
   }
 
   Widget _buildDonutCard(ComercialRecebimentosResumo r) {
@@ -1282,106 +1268,6 @@ class _RecebimentosBody extends StatelessWidget {
                         fontSize: 11, color: const Color(0xFF64748B)),
                     maxLines: 1, overflow: TextOverflow.ellipsis),
               )),
-        ],
-      ),
-    );
-  }
-
-  Widget _buildPorFormaCard(ComercialRecebimentosResumo r) {
-    final formas = {'PIX', 'Cartão de crédito', 'Cartão de débito', 'Dinheiro', 'Transferência', 'Carteira DiPertin'};
-    return _CardLateral(
-      titulo: 'Por forma de pagamento',
-      child: Column(
-        children: [
-          ...(r.porForma.isNotEmpty ? r.porForma.entries : formas.map((f) => MapEntry<String, Map<String, double>>(f, {'total': 0.0, 'qtd': 0.0})))
-              .map((e) => Padding(
-                    padding: const EdgeInsets.only(bottom: 8),
-                    child: Row(
-                      children: [
-                        Expanded(
-                          child: Text(e.key,
-                              style: GoogleFonts.plusJakartaSans(
-                                  fontSize: 12, fontWeight: FontWeight.w500)),
-                        ),
-                        Text(
-                          '${(e.value['qtd'] ?? 0).toInt()} recebimentos',
-                          style: GoogleFonts.plusJakartaSans(
-                              fontSize: 10, color: const Color(0xFF94A3B8)),
-                        ),
-                        const SizedBox(width: 8),
-                        Text(formatarMoeda(e.value['total'] ?? 0),
-                            style: GoogleFonts.plusJakartaSans(
-                                fontSize: 12, fontWeight: FontWeight.w700)),
-                      ],
-                    ),
-                  )),
-          const Divider(height: 16),
-          Row(
-            children: [
-              Expanded(
-                child: Text('Total',
-                    style: GoogleFonts.plusJakartaSans(
-                        fontSize: 13, fontWeight: FontWeight.w700)),
-              ),
-              Text('${r.parcelasRecebidas} recebimentos',
-                  style: GoogleFonts.plusJakartaSans(
-                      fontSize: 10, color: const Color(0xFF94A3B8))),
-              const SizedBox(width: 8),
-              Text(formatarMoeda(r.recebidoMes),
-                  style: GoogleFonts.plusJakartaSans(
-                      fontSize: 13, fontWeight: FontWeight.w800,
-                      color: PainelAdminTheme.roxo)),
-            ],
-          ),
-        ],
-      ),
-    );
-  }
-
-  Widget _buildMaioresCard(ComercialRecebimentosResumo r) {
-    return _CardLateral(
-      titulo: 'Maiores recebimentos',
-      child: Column(
-        children: [
-          if (r.maioresRecebimentos.isEmpty)
-            Padding(
-              padding: const EdgeInsets.only(bottom: 12),
-              child: Text('Nenhum recebimento no período.',
-                  style: GoogleFonts.plusJakartaSans(
-                      fontSize: 12, color: const Color(0xFF94A3B8))),
-            )
-          else ...[
-            ...r.maioresRecebimentos.take(5).map((rec) => Padding(
-                  padding: const EdgeInsets.only(bottom: 8),
-                  child: Row(
-                    children: [
-                      Expanded(
-                        child: Text(rec.clienteNome,
-                            maxLines: 1, overflow: TextOverflow.ellipsis,
-                            style: GoogleFonts.plusJakartaSans(
-                                fontSize: 12, fontWeight: FontWeight.w500)),
-                      ),
-                      Text(formatarMoeda(rec.valorRecebido),
-                          style: GoogleFonts.plusJakartaSans(
-                              fontSize: 12, fontWeight: FontWeight.w700)),
-                    ],
-                  ),
-                )),
-            const SizedBox(height: 8),
-            SizedBox(
-              width: double.infinity,
-              child: OutlinedButton(
-                onPressed: () {},
-                style: OutlinedButton.styleFrom(
-                  foregroundColor: PainelAdminTheme.roxo,
-                  side: const BorderSide(color: Color(0xFFE2E8F0)),
-                  shape: RoundedRectangleBorder(
-                      borderRadius: BorderRadius.circular(10)),
-                ),
-                child: const Text('Ver todos os recebimentos'),
-              ),
-            ),
-          ],
         ],
       ),
     );

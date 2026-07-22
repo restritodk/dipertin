@@ -74,6 +74,14 @@ class ClienteAssinaturaModel {
     this.gateway = 'Mercado Pago',
     this.historico = const [],
     this.modulosExtras = const [],
+    // ── Campos de Cartão Recorrente (Etapa 3.2.3) ──
+    this.mpPreapprovalId,
+    this.tipoCobranca,
+    this.cartaoLastFour,
+    this.cartaoBandeira,
+    this.proximaCobrancaRecorrente,
+    this.autorizacaoRecorrenteAceita = false,
+    this.autorizacaoRecorrenteEm,
   });
 
   final String id;
@@ -105,6 +113,37 @@ class ClienteAssinaturaModel {
   final String gateway;
   final List<HistoricoAssinaturaEvento> historico;
   final List<String> modulosExtras;
+
+  // ── Campos de Cartão Recorrente (preapproval) ──
+  /// ID do preapproval no Mercado Pago. Se presente, é recorrente.
+  final String? mpPreapprovalId;
+
+  /// Tipo de cobrança: 'pix' | 'cartao_avulso' | 'cartao_recorrente'
+  final String? tipoCobranca;
+
+  /// Últimos 4 dígitos do cartão salvo (não é dado sensível).
+  final String? cartaoLastFour;
+
+  /// Bandeira do cartão (visa, master, elo, etc).
+  final String? cartaoBandeira;
+
+  /// Próxima data de cobrança recorrente (pode diferir de nextBillingDate).
+  final Timestamp? proximaCobrancaRecorrente;
+
+  /// Se o lojista aceitou explicitamente a cobrança automática (LGPD).
+  final bool autorizacaoRecorrenteAceita;
+
+  /// Quando foi aceito.
+  final Timestamp? autorizacaoRecorrenteEm;
+
+  // ── Getters derivados de Cartão Recorrente ──
+
+  /// True se a assinatura é do tipo cartão recorrente.
+  bool get ehCartaoRecorrente => tipoCobranca == "cartao_recorrente";
+
+  /// True se possui preapproval (assinatura recorrente ativa).
+  bool get temPreapproval =>
+      mpPreapprovalId != null && mpPreapprovalId!.isNotEmpty;
 
   // ── Propriedades computadas ──
 
@@ -353,6 +392,15 @@ class ClienteAssinaturaModel {
       ),
       modulosExtras:
           (d['modulos_extras'] as List<dynamic>?)?.cast<String>() ?? const [],
+      // Cartão recorrente (campos opcionais — compatibilidade)
+      mpPreapprovalId: d['mp_preapproval_id'] as String?,
+      tipoCobranca: d['tipo_cobranca'] as String?,
+      cartaoLastFour: d['cartao_last_four'] as String?,
+      cartaoBandeira: d['cartao_bandeira'] as String?,
+      proximaCobrancaRecorrente: d['proxima_cobranca_recorrente'] as Timestamp?,
+      autorizacaoRecorrenteAceita:
+          d['autorizacao_recorrente_aceita'] as bool? ?? false,
+      autorizacaoRecorrenteEm: d['autorizacao_recorrente_em'] as Timestamp?,
     );
   }
 }

@@ -10,16 +10,20 @@
 #   (GC_EMAIL_CONFIG_SECRET em depertin_cliente/functions/.env + redeploy functions)
 #
 # Não suba a pasta build inteira — só os arquivos DENTRO de build\web\
+#
+# App Check: DESATIVADO no painel (main.dart não ativa reCAPTCHA).
+# Callables usam enforceAppCheck:false — não passe RECAPTCHA_V3_SITE_KEY.
 
 $ErrorActionPreference = "Stop"
 Set-Location $PSScriptRoot
 
 Write-Host "=== DiPertin — flutter build web (base-href /sistema/) ===" -ForegroundColor Cyan
+Write-Host "App Check: desativado no painel (Auth Bearer apenas)." -ForegroundColor DarkGray
 
 flutter pub get
 if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
 
-flutter build web --release --base-href /sistema/ --pwa-strategy=none --no-tree-shake-icons
+flutter build web --release --base-href /sistema/ --pwa-strategy=none
 
 if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
 

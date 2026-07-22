@@ -14,11 +14,14 @@ const https = require("https");
 const http = require("http");
 
 const CONFIG_PADRAO = {
-    region: "southamerica-east1",
+    region: "us-east1", // Migrado de southamerica-east1 para liberar quota
     cpu: 1,
     memory: "512MiB",
     maxInstances: 10,
     timeoutSeconds: 60,
+    // Painel web sem App Check: Auth Firebase + assertAcessoLoja bastam.
+    // Sem isto, app MISSING + enforce=true → HTTP 401 "Unauthenticated".
+    enforceAppCheck: false,
 };
 
 const ALGO = "aes-256-gcm";
@@ -118,7 +121,11 @@ function gerarProtocoloAmigavel() {
 }
 
 async function assertAcessoLoja(auth, lojaId) {
-    if (!auth) throw new HttpsError("unauthenticated", "Login necessário.");
+    // UNAUTHENTICATED só quando Auth Firebase realmente ausente/inválido.
+    // App Check NÃO entra nesta validação (enforceAppCheck: false).
+    if (!auth || !auth.uid) {
+        throw new HttpsError("unauthenticated", "Login necessário.");
+    }
     const lid = limparEnv(lojaId);
     if (!lid) throw new HttpsError("invalid-argument", "lojaId é obrigatório.");
     const userSnap = await db().collection("users").doc(auth.uid).get();
@@ -127,8 +134,24 @@ async function assertAcessoLoja(auth, lojaId) {
     const role = String(u.role || "").toLowerCase();
     if (role === "master" || role === "master_city" || role === "staff") return lid;
     if (role !== "lojista") throw new HttpsError("permission-denied", "Sem permissão.");
-    const lojaEfetiva = limparEnv(u.lojista_owner_uid) || auth.uid;
-    if (lojaEfetiva !== lid) throw new HttpsError("permission-denied", "Sem permissão para esta loja.");
+    // Verificar bloqueio da loja
+    const ownerUid = limparEnv(u.lojista_owner_uid) || auth.uid;
+    const lojaSnap = await db().collection("users").doc(ownerUid).get();
+    if (lojaSnap.exists) {
+        const loja = lojaSnap.data() || {};
+        if (loja.block_lojista || loja.conta_bloqueada || loja.status_loja === "bloqueada") {
+            throw new HttpsError("permission-denied", "Loja bloqueada.");
+        }
+    }
+    // Colaborador precisa nivel >= 2
+    const refDono = limparEnv(u.lojista_owner_uid);
+    if (refDono) {
+        const nivel = Number(u.painel_colaborador_nivel || 0);
+        if (nivel < 2) {
+            throw new HttpsError("permission-denied", "Sem permissão para a Gestão Comercial.");
+        }
+    }
+    if (ownerUid !== lid) throw new HttpsError("permission-denied", "Sem permissão para esta loja.");
     return lid;
 }
 

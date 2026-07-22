@@ -355,17 +355,15 @@ class _LojasFinanceiroDashboardScreenState
   Widget _cabecalho() {
     return Container(
       padding: const EdgeInsets.fromLTRB(24, 28, 24, 20),
-      decoration: BoxDecoration(
+      decoration: const BoxDecoration(
+        // Mesmo gradiente premium da Central de Clientes / Gestão de Lojas.
         gradient: LinearGradient(
           colors: [
-            PainelAdminTheme.roxo.withValues(alpha: 0.08),
-            Colors.white,
+            Color(0xFF42127A),
+            Color(0xFF6A1B9A),
           ],
           begin: Alignment.topLeft,
           end: Alignment.bottomRight,
-        ),
-        border: Border(
-          bottom: BorderSide(color: Colors.grey.shade200),
         ),
       ),
       child: Row(
@@ -374,12 +372,13 @@ class _LojasFinanceiroDashboardScreenState
           Container(
             padding: const EdgeInsets.all(14),
             decoration: BoxDecoration(
-              color: PainelAdminTheme.roxo.withValues(alpha: 0.12),
+              color: Colors.white.withValues(alpha: 0.18),
               borderRadius: BorderRadius.circular(16),
+              border: Border.all(color: Colors.white.withValues(alpha: 0.32)),
             ),
             child: const Icon(
               Icons.account_balance_wallet_outlined,
-              color: PainelAdminTheme.roxo,
+              color: Colors.white,
               size: 32,
             ),
           ),
@@ -393,7 +392,7 @@ class _LojasFinanceiroDashboardScreenState
                   style: GoogleFonts.plusJakartaSans(
                     fontSize: 26,
                     fontWeight: FontWeight.w800,
-                    color: const Color(0xFF1E1B4B),
+                    color: Colors.white,
                     letterSpacing: -0.5,
                   ),
                 ),
@@ -402,7 +401,7 @@ class _LojasFinanceiroDashboardScreenState
                   'Visão consolidada de vendas, comissões, repasses e performance por loja.',
                   style: GoogleFonts.plusJakartaSans(
                     fontSize: 14,
-                    color: PainelAdminTheme.textoSecundario,
+                    color: Colors.white.withValues(alpha: 0.82),
                     height: 1.4,
                   ),
                 ),
@@ -413,7 +412,7 @@ class _LojasFinanceiroDashboardScreenState
             tooltip: 'Atualizar dados',
             onPressed: _aplicarFiltros,
             icon: const Icon(Icons.refresh_rounded),
-            color: PainelAdminTheme.roxo,
+            color: Colors.white,
           ),
         ],
       ),

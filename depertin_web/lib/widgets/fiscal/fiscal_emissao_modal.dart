@@ -487,7 +487,12 @@ class _FiscalEmissaoModalState extends State<_FiscalEmissaoModal>
           if (emit.nomeFantasia.isNotEmpty)
             _emitenteLinha('Nome Fantasia', emit.nomeFantasia),
           _emitenteLinha('CNPJ', emit.cnpj),
-          _emitenteLinha('Inscrição Estadual', emit.ie),
+          _emitenteLinha(
+            'Inscrição Estadual',
+            emit.ieIsento
+                ? 'Isento'
+                : (emit.ie.trim().isNotEmpty ? emit.ie : '—'),
+          ),
           _emitenteLinha('Regime Tributário', regimeLabel),
           _emitenteLinha('CRT', crtLabel),
           const Divider(height: 14),
@@ -862,13 +867,19 @@ class _FiscalEmissaoModalState extends State<_FiscalEmissaoModal>
       }
     }
 
-    // Código de rejeição SEFAZ
+    // Código de rejeição SEFAZ — prioridade alta na lista visível
     if (resultado.sefazCode != null && resultado.sefazCode!.isNotEmpty) {
       final msg = resultado.sefazMessage?.isNotEmpty == true
-          ? resultado.sefazMessage!
+          ? 'Rejeição SEFAZ ${resultado.sefazCode}: ${resultado.sefazMessage}'
           : 'Rejeição SEFAZ ${resultado.sefazCode}';
-      if (!erros.contains(msg)) {
-        erros.add(msg);
+      if (!erros.any((e) => e.contains(resultado.sefazCode!))) {
+        erros.insert(0, msg);
+      }
+    } else if (resultado.codigoRejeicao != null &&
+        resultado.codigoRejeicao!.isNotEmpty) {
+      final msg = 'Rejeição SEFAZ ${resultado.codigoRejeicao}';
+      if (!erros.any((e) => e.contains(resultado.codigoRejeicao!))) {
+        erros.insert(0, msg);
       }
     }
 

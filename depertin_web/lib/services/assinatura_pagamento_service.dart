@@ -161,7 +161,13 @@ abstract final class AssinaturaPagamentoService {
       return result;
     } catch (e) {
       debugPrint('[AssinaturaPagamento] erro consultar renovação PIX: $e');
-      return {'status': 'erro', 'pago': false};
+      return {
+        'success': false,
+        'payment_status': 'erro',
+        'approved': false,
+        'pago': false,
+        'status': 'erro',
+      };
     }
   }
 
@@ -208,6 +214,92 @@ abstract final class AssinaturaPagamentoService {
       return result;
     } catch (e) {
       debugPrint('[AssinaturaPagamento] erro renovar cartão: $e');
+      rethrow;
+    }
+  }
+
+  // ═══════════════════════════════════════════════════════════════
+  // CARTÃO RECORRENTE (Etapa 3.2.1) — Preapproval Mercado Pago
+  // ═══════════════════════════════════════════════════════════════
+
+  /// Cria assinatura recorrente via cartão de crédito (preapproval).
+  ///
+  /// Chama a Cloud Function [assinarPlanoCriarCartaoRecorrente].
+  /// O lojista deve ter aceito explicitamente a cobrança automática.
+  ///
+  /// Retorna: { preapprovalId, status, paymentMethodId, lastFour,
+  ///           bandeira, nextBillingDate, valor }
+  ///
+  /// IMPORTANTE: Não salva dados sensíveis do cartão.
+  /// Apenas tokeniza no backend via MP.
+  static Future<Map<String, dynamic>> criarCartaoRecorrente({
+    required String planId,
+    required String planName,
+    required double valor,
+    required String lojaId,
+    required String lojaNome,
+    required String ownerName,
+    required String ownerEmail,
+    required String numeroCartao,
+    required String nomeTitular,
+    required String mesExpiracao,
+    required String anoExpiracao,
+    required String cvv,
+    required String cpf,
+    String paymentMethodId = 'visa',
+    List<String> modulos = const [],
+  }) async {
+    try {
+      final result = await callFirebaseFunctionSafe(
+        'assinarPlanoCriarCartaoRecorrente',
+        parameters: {
+          'planId': planId,
+          'planName': planName,
+          'valor': valor,
+          'lojaId': lojaId,
+          'lojaNome': lojaNome,
+          'ownerName': ownerName,
+          'ownerEmail': ownerEmail,
+          'ownerPhone': '',
+          'numeroCartao': numeroCartao,
+          'nomeTitular': nomeTitular,
+          'mesExpiracao': mesExpiracao,
+          'anoExpiracao': anoExpiracao,
+          'cvv': cvv,
+          'cpf': cpf,
+          'paymentMethodId': paymentMethodId,
+          'modulos': modulos,
+          'aceitoRecorrencia': true,  // Frontend garante aceite
+        },
+        timeout: const Duration(seconds: 90),
+      );
+      return result;
+    } catch (e) {
+      debugPrint('[AssinaturaPagamento] erro criar cartão recorrente: $e');
+      rethrow;
+    }
+  }
+
+  // ═══════════════════════════════════════════════════════════════
+  // CANCELAR CARTÃO RECORRENTE (Etapa 3.4.3)
+  // ═══════════════════════════════════════════════════════════════
+
+  /// Cancela a cobrança recorrente no cartão (preapproval) do lojista.
+  ///
+  /// NÃO cancela o plano inteiro. Apenas desativa a recorrência automática.
+  /// Chama a Cloud Function [cancelarAssinaturaCartaoRecorrente].
+  ///
+  /// Retorna: { ok, preapprovalId, status, message }
+  static Future<Map<String, dynamic>> cancelarCartaoRecorrente() async {
+    try {
+      final result = await callFirebaseFunctionSafe(
+        'cancelarAssinaturaCartaoRecorrente',
+        // O storeId é inferido do request.auth.uid no backend
+        timeout: const Duration(seconds: 60),
+      );
+      return result;
+    } catch (e) {
+      debugPrint('[AssinaturaPagamento] erro cancelar cartão recorrente: $e');
       rethrow;
     }
   }

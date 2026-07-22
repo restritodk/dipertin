@@ -2751,49 +2751,6 @@ class _UtilidadesScreenState extends State<UtilidadesScreen> {
                           ],
                         ),
                       ),
-                      const SizedBox(width: 16),
-                      OutlinedButton.icon(
-                        onPressed: () {},
-                        icon: const Icon(Icons.download_rounded, size: 18),
-                        label: Text(
-                          "Exportar relatório",
-                          style: GoogleFonts.plusJakartaSans(
-                            fontWeight: FontWeight.w600,
-                            fontSize: 13,
-                          ),
-                        ),
-                        style: OutlinedButton.styleFrom(
-                          foregroundColor: Colors.grey.shade700,
-                          side: BorderSide(color: Colors.grey.shade300),
-                          shape: RoundedRectangleBorder(
-                            borderRadius: BorderRadius.circular(12),
-                          ),
-                          padding: const EdgeInsets.symmetric(
-                              horizontal: 18, vertical: 12),
-                        ),
-                      ),
-                      const SizedBox(width: 10),
-                      ElevatedButton.icon(
-                        onPressed: _mostrarFormularioNovoPost,
-                        icon: const Icon(Icons.add, size: 18),
-                        label: Text(
-                          "Novo anúncio",
-                          style: GoogleFonts.plusJakartaSans(
-                            fontWeight: FontWeight.w700,
-                            fontSize: 14,
-                          ),
-                        ),
-                        style: ElevatedButton.styleFrom(
-                          backgroundColor: diPertinLaranja,
-                          foregroundColor: Colors.white,
-                          shape: RoundedRectangleBorder(
-                            borderRadius: BorderRadius.circular(12),
-                          ),
-                          padding: const EdgeInsets.symmetric(
-                              horizontal: 22, vertical: 14),
-                          elevation: 0,
-                        ),
-                      ),
                     ],
                   ),
                   const SizedBox(height: 24),
@@ -2817,54 +2774,51 @@ class _UtilidadesScreenState extends State<UtilidadesScreen> {
                           }
                         }
                       }
-                      return LayoutBuilder(
-                        builder: (context, c) {
-                          final cardW = (c.maxWidth - 48) / 4;
-                          return Row(
-                            children: [
-                              _kpiCard(
-                                icon: Icons.today_rounded,
-                                cor: const Color(0xFF6A1B9A),
-                                fundo: const Color(0xFFF3E8FF),
-                                titulo: 'Receita hoje',
-                                valor: receitaMes * 0.03,
-                              ),
-                              const SizedBox(width: 16),
-                              SizedBox(
-                                width: cardW,
-                                child: _kpiCard(
-                                  icon: Icons.date_range_rounded,
-                                  cor: const Color(0xFF1565C0),
-                                  fundo: const Color(0xFFE3F2FD),
-                                  titulo: 'Receita esta semana',
-                                  valor: receitaMes * 0.25,
-                                ),
-                              ),
-                              const SizedBox(width: 16),
-                              SizedBox(
-                                width: cardW,
-                                child: _kpiCard(
-                                  icon: Icons.calendar_month_rounded,
-                                  cor: const Color(0xFF1B8A5A),
-                                  fundo: const Color(0xFFE8F5E9),
-                                  titulo: 'Receita este mês',
-                                  valor: receitaMes,
-                                ),
-                              ),
-                              const SizedBox(width: 16),
-                              SizedBox(
-                                width: cardW,
-                                child: _kpiCard(
-                                  icon: Icons.trending_up_rounded,
-                                  cor: const Color(0xFFE65100),
-                                  fundo: const Color(0xFFFFF3E0),
-                                  titulo: 'Receita este ano',
-                                  valor: receitaMes * 12,
-                                ),
-                              ),
-                            ],
-                          );
-                        },
+                      // KPIs em Expanded direto no Row (nunca Expanded dentro de
+                      // SizedBox — em release web isso gera TypeError no layout
+                      // e deixa a tela cinza abaixo do cabeçalho).
+                      return Row(
+                        children: [
+                          Expanded(
+                            child: _kpiCard(
+                              icon: Icons.today_rounded,
+                              cor: const Color(0xFF6A1B9A),
+                              fundo: const Color(0xFFF3E8FF),
+                              titulo: 'Receita hoje',
+                              valor: receitaMes * 0.03,
+                            ),
+                          ),
+                          const SizedBox(width: 16),
+                          Expanded(
+                            child: _kpiCard(
+                              icon: Icons.date_range_rounded,
+                              cor: const Color(0xFF1565C0),
+                              fundo: const Color(0xFFE3F2FD),
+                              titulo: 'Receita esta semana',
+                              valor: receitaMes * 0.25,
+                            ),
+                          ),
+                          const SizedBox(width: 16),
+                          Expanded(
+                            child: _kpiCard(
+                              icon: Icons.calendar_month_rounded,
+                              cor: const Color(0xFF1B8A5A),
+                              fundo: const Color(0xFFE8F5E9),
+                              titulo: 'Receita este mês',
+                              valor: receitaMes,
+                            ),
+                          ),
+                          const SizedBox(width: 16),
+                          Expanded(
+                            child: _kpiCard(
+                              icon: Icons.trending_up_rounded,
+                              cor: const Color(0xFFE65100),
+                              fundo: const Color(0xFFFFF3E0),
+                              titulo: 'Receita este ano',
+                              valor: receitaMes * 12,
+                            ),
+                          ),
+                        ],
                       );
                     },
                   ),
@@ -3190,75 +3144,73 @@ class _UtilidadesScreenState extends State<UtilidadesScreen> {
     required String titulo,
     required double valor,
   }) {
-    return Expanded(
-      child: Container(
-        padding: const EdgeInsets.all(18),
-        decoration: BoxDecoration(
-          color: Colors.white,
-          borderRadius: BorderRadius.circular(16),
-          border: Border.all(color: const Color(0xFFF0EEF5)),
-          boxShadow: [
-            BoxShadow(
-              color: Colors.black.withValues(alpha: 0.04),
-              blurRadius: 12,
-              offset: const Offset(0, 4),
+    return Container(
+      padding: const EdgeInsets.all(18),
+      decoration: BoxDecoration(
+        color: Colors.white,
+        borderRadius: BorderRadius.circular(16),
+        border: Border.all(color: const Color(0xFFF0EEF5)),
+        boxShadow: [
+          BoxShadow(
+            color: Colors.black.withValues(alpha: 0.04),
+            blurRadius: 12,
+            offset: const Offset(0, 4),
+          ),
+        ],
+      ),
+      child: Row(
+        children: [
+          Container(
+            padding: const EdgeInsets.all(10),
+            decoration: BoxDecoration(
+              color: fundo,
+              borderRadius: BorderRadius.circular(12),
             ),
-          ],
-        ),
-        child: Row(
-          children: [
-            Container(
-              padding: const EdgeInsets.all(10),
-              decoration: BoxDecoration(
-                color: fundo,
-                borderRadius: BorderRadius.circular(12),
-              ),
-              child: Icon(icon, color: cor, size: 22),
-            ),
-            const SizedBox(width: 14),
-            Expanded(
-              child: Column(
-                crossAxisAlignment: CrossAxisAlignment.start,
-                children: [
-                  Text(
-                    titulo,
-                    style: GoogleFonts.plusJakartaSans(
-                      fontSize: 12,
-                      fontWeight: FontWeight.w600,
-                      color: Colors.grey.shade600,
-                    ),
+            child: Icon(icon, color: cor, size: 22),
+          ),
+          const SizedBox(width: 14),
+          Expanded(
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                Text(
+                  titulo,
+                  style: GoogleFonts.plusJakartaSans(
+                    fontSize: 12,
+                    fontWeight: FontWeight.w600,
+                    color: Colors.grey.shade600,
                   ),
-                  const SizedBox(height: 4),
-                  Text(
-                    _fmtBrl(valor),
-                    style: GoogleFonts.plusJakartaSans(
-                      fontSize: 20,
-                      fontWeight: FontWeight.w800,
-                      color: const Color(0xFF1A1A2E),
-                      letterSpacing: -0.5,
-                    ),
+                ),
+                const SizedBox(height: 4),
+                Text(
+                  _fmtBrl(valor),
+                  style: GoogleFonts.plusJakartaSans(
+                    fontSize: 20,
+                    fontWeight: FontWeight.w800,
+                    color: const Color(0xFF1A1A2E),
+                    letterSpacing: -0.5,
                   ),
-                  const SizedBox(height: 4),
-                  Row(
-                    children: [
-                      Icon(Icons.trending_up_rounded,
-                          size: 14, color: const Color(0xFF16A34A)),
-                      const SizedBox(width: 4),
-                      Text(
-                        '${valor > 0 ? '+' : ''}${_fmtBrl(valor * 0.08)}',
-                        style: GoogleFonts.plusJakartaSans(
-                          fontSize: 11,
-                          fontWeight: FontWeight.w700,
-                          color: const Color(0xFF16A34A),
-                        ),
+                ),
+                const SizedBox(height: 4),
+                Row(
+                  children: [
+                    Icon(Icons.trending_up_rounded,
+                        size: 14, color: const Color(0xFF16A34A)),
+                    const SizedBox(width: 4),
+                    Text(
+                      '${valor > 0 ? '+' : ''}${_fmtBrl(valor * 0.08)}',
+                      style: GoogleFonts.plusJakartaSans(
+                        fontSize: 11,
+                        fontWeight: FontWeight.w700,
+                        color: const Color(0xFF16A34A),
                       ),
-                    ],
-                  ),
-                ],
-              ),
+                    ),
+                  ],
+                ),
+              ],
             ),
-          ],
-        ),
+          ),
+        ],
       ),
     );
   }

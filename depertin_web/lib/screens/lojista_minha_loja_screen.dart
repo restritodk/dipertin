@@ -1,6 +1,9 @@
 import 'dart:convert';
 import 'package:http/http.dart' as http;
 
+import 'dart:async';
+import 'dart:ui' as ui;
+
 import 'package:cloud_firestore/cloud_firestore.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
@@ -9,9 +12,14 @@ import 'package:intl/intl.dart' hide TextDirection;
 
 import '../models/cliente_assinatura_model.dart';
 import '../models/cobranca_assinatura_model.dart';
+import '../services/cobrancas_assinatura_service.dart';
+import '../services/assinatura_pagamento_service.dart' as pagamento;
+import '../services/firebase_functions_config.dart';
 import '../utils/lojista_painel_context.dart';
 import '../navigation/painel_navigation_scope.dart';
 import '../widgets/assinatura_pagamento_modal.dart';
+import '../widgets/dipertin_feedback_premium_modal.dart';
+import '../widgets/suporte/suporte_lojista_chat_modal.dart';
 
 // ──────────────────────────────────────────────
 //  HELPERS
@@ -236,7 +244,15 @@ class _ConteudoMinhaLoja extends StatelessWidget {
             const SizedBox(height: 24),
 
             // Linha 5: Suporte (full width)
-            _CardSuporte(),
+            _CardSuporte(
+              uidLoja: uidLoja,
+              lojaNome: (dadosUsuario['loja_nome'] ??
+                      dadosUsuario['nome_loja'] ??
+                      dadosUsuario['nome_fantasia'] ??
+                      dadosUsuario['nome'] ??
+                      '')
+                  .toString(),
+            ),
 
             // Mobile: seções que ficaram de fora
             if (!wide) ...[
@@ -1873,9 +1889,16 @@ class _CardCobrancas extends StatelessWidget {
 //  Mostra faturas existentes + próxima cobrança
 // ══════════════════════════════════════════════
 
-class _CardExtratoFinanceiro extends StatelessWidget {
+class _CardExtratoFinanceiro extends StatefulWidget {
   const _CardExtratoFinanceiro({required this.uidLoja});
   final String uidLoja;
+
+  @override
+  State<_CardExtratoFinanceiro> createState() => _CardExtratoFinanceiroState();
+}
+
+class _CardExtratoFinanceiroState extends State<_CardExtratoFinanceiro> {
+  bool _cancelarRecorrenteCarregando = false;
 
   @override
   Widget build(BuildContext context) {
@@ -1883,7 +1906,7 @@ class _CardExtratoFinanceiro extends StatelessWidget {
     return StreamBuilder<QuerySnapshot<Map<String, dynamic>>>(
       stream: FirebaseFirestore.instance
           .collection('assinaturas_clientes')
-          .where('store_id', isEqualTo: uidLoja)
+          .where('store_id', isEqualTo: widget.uidLoja)
           .where('status', whereIn: ['ativo', 'em_atraso'])
           .limit(1)
           .snapshots(),
@@ -1897,7 +1920,7 @@ class _CardExtratoFinanceiro extends StatelessWidget {
         return StreamBuilder<QuerySnapshot<Map<String, dynamic>>>(
           stream: FirebaseFirestore.instance
               .collection('assinaturas_cobrancas')
-              .where('store_id', isEqualTo: uidLoja)
+              .where('store_id', isEqualTo: widget.uidLoja)
               .orderBy('vencimento', descending: true)
               .limit(15)
               .snapshots(),
@@ -1927,6 +1950,11 @@ class _CardExtratoFinanceiro extends StatelessWidget {
               child: Column(
                 crossAxisAlignment: CrossAxisAlignment.start,
                 children: [
+                  // ─── Cartão recorrente ativo (se for o caso) ───
+                  if (temProxima && _isCartaoRecorrente(assinatura)) ...[
+                    _buildCartaoRecorrenteAtivo(context, assinatura),
+                    if (temInvoice) const SizedBox(height: 20),
+                  ],
                   // ─── Próxima cobrança (se houver assinatura ativa) ───
                   if (temProxima) ...[
                     _buildProximaCobranca(context, assinatura),
@@ -1952,6 +1980,7 @@ class _CardExtratoFinanceiro extends StatelessWidget {
                           _col('Valor'),
                           _col('Vencimento'),
                           _col('Status'),
+                          _col('Ação'),
                         ],
                         rows: docs.map((doc) {
                           final d = doc.data();
@@ -1960,12 +1989,20 @@ class _CardExtratoFinanceiro extends StatelessWidget {
                           final status = d['status'] as String? ?? '';
                           final vencimento = d['vencimento'] as Timestamp?;
                           final statusLabel = StatusCobranca.fromCodigo(status).rotulo;
+                          final statusCodigo = status;
+                          final cobrancaId = doc.id;
                           return DataRow(cells: [
                             _cell(_fmtData(vencimento)),
                             _cell(fatura, bold: true),
                             _cell(_fmtMoeda(valor), bold: true),
                             _cell(_fmtData(vencimento)),
                             DataCell(_statusBadge(statusLabel)),
+                            DataCell(_buildPagarPixBotao(
+                              context,
+                              cobrancaId,
+                              statusCodigo,
+                              valor,
+                            )),
                           ]);
                         }).toList(),
                       ),
@@ -1976,6 +2013,559 @@ class _CardExtratoFinanceiro extends StatelessWidget {
           },
         );
       },
+    );
+  }
+
+  // ─── Verifica se a assinatura é cartão recorrente ───
+  bool _isCartaoRecorrente(ClienteAssinaturaModel a) {
+    return a.temPreapproval &&
+        a.autorizacaoRecorrenteAceita == true &&
+        a.tipoCobranca == "cartao_recorrente";
+  }
+
+  // ─── Bloco premium do cartão recorrente ativo ───
+  Widget _buildCartaoRecorrenteAtivo(
+    BuildContext context,
+    ClienteAssinaturaModel a,
+  ) {
+    final bandeira = (a.cartaoBandeira ?? '—').toUpperCase();
+    final lastFour = a.cartaoLastFour ?? '****';
+    final proxima = a.proximaCobrancaRecorrente != null
+        ? DateFormat('dd/MM/yyyy').format(a.proximaCobrancaRecorrente!.toDate())
+        : (a.nextBillingDateExibir != '—' ? a.nextBillingDateExibir : '—');
+    final valor = _fmtMoeda(a.monthlyAmount);
+    final statusRotulo = a.statusExibicaoRotulo;
+
+    return Container(
+      width: double.infinity,
+      padding: const EdgeInsets.fromLTRB(18, 16, 18, 16),
+      decoration: BoxDecoration(
+        gradient: LinearGradient(
+          colors: [
+            const Color(0xFFEEF2FF).withValues(alpha: 0.7),
+            const Color(0xFFECFEFF).withValues(alpha: 0.5),
+          ],
+          begin: Alignment.centerLeft,
+          end: Alignment.centerRight,
+        ),
+        borderRadius: BorderRadius.circular(16),
+        border: Border.all(
+          color: const Color(0xFF6366F1).withValues(alpha: 0.25),
+        ),
+      ),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          Row(
+            children: [
+              Container(
+                width: 40,
+                height: 40,
+                decoration: BoxDecoration(
+                  color: const Color(0xFF6366F1).withValues(alpha: 0.12),
+                  borderRadius: BorderRadius.circular(10),
+                ),
+                child: const Icon(
+                  Icons.credit_card_rounded,
+                  size: 20,
+                  color: Color(0xFF4F46E5),
+                ),
+              ),
+              const SizedBox(width: 12),
+              Expanded(
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    Text(
+                      'Cartão recorrente ativo',
+                      style: GoogleFonts.plusJakartaSans(
+                        fontSize: 14,
+                        fontWeight: FontWeight.w700,
+                        color: const Color(0xFF1F2937),
+                      ),
+                    ),
+                    const SizedBox(height: 2),
+                    Text(
+                      '$bandeira · final $lastFour',
+                      style: GoogleFonts.plusJakartaSans(
+                        fontSize: 12,
+                        color: const Color(0xFF6B7280),
+                      ),
+                    ),
+                  ],
+                ),
+              ),
+              Container(
+                padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
+                decoration: BoxDecoration(
+                  color: const Color(0xFFEEF2FF),
+                  borderRadius: BorderRadius.circular(12),
+                ),
+                child: Text(
+                  statusRotulo,
+                  style: GoogleFonts.plusJakartaSans(
+                    fontSize: 11,
+                    fontWeight: FontWeight.w600,
+                    color: const Color(0xFF4F46E5),
+                  ),
+                ),
+              ),
+            ],
+          ),
+          const SizedBox(height: 12),
+          Container(
+            padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 10),
+            decoration: BoxDecoration(
+              color: Colors.white.withValues(alpha: 0.7),
+              borderRadius: BorderRadius.circular(10),
+              border: Border.all(
+                color: const Color(0xFFE5E7EB).withValues(alpha: 0.6),
+              ),
+            ),
+            child: Row(
+              children: [
+                Expanded(
+                  child: Column(
+                    crossAxisAlignment: CrossAxisAlignment.start,
+                    children: [
+                      Text(
+                        'Valor mensal',
+                        style: GoogleFonts.plusJakartaSans(
+                          fontSize: 11,
+                          color: const Color(0xFF6B7280),
+                        ),
+                      ),
+                      const SizedBox(height: 2),
+                      Text(
+                        valor,
+                        style: GoogleFonts.plusJakartaSans(
+                          fontSize: 14,
+                          fontWeight: FontWeight.w700,
+                          color: const Color(0xFF1F2937),
+                        ),
+                      ),
+                    ],
+                  ),
+                ),
+                Container(width: 1, height: 32, color: const Color(0xFFE5E7EB)),
+                Expanded(
+                  child: Padding(
+                    padding: const EdgeInsets.only(left: 12),
+                    child: Column(
+                      crossAxisAlignment: CrossAxisAlignment.start,
+                      children: [
+                        Text(
+                          'Próxima cobrança',
+                          style: GoogleFonts.plusJakartaSans(
+                            fontSize: 11,
+                            color: const Color(0xFF6B7280),
+                          ),
+                        ),
+                        const SizedBox(height: 2),
+                        Text(
+                          proxima,
+                          style: GoogleFonts.plusJakartaSans(
+                            fontSize: 14,
+                            fontWeight: FontWeight.w700,
+                            color: const Color(0xFF1F2937),
+                          ),
+                        ),
+                      ],
+                    ),
+                  ),
+                ),
+              ],
+            ),
+          ),
+          const SizedBox(height: 10),
+          Row(
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              const Icon(
+                Icons.info_outline_rounded,
+                size: 14,
+                color: Color(0xFF6B7280),
+              ),
+              const SizedBox(width: 6),
+              Expanded(
+                child: Text(
+                  'A cobrança será feita automaticamente pelo Mercado Pago.',
+                  style: GoogleFonts.plusJakartaSans(
+                    fontSize: 11.5,
+                    color: const Color(0xFF6B7280),
+                    height: 1.3,
+                  ),
+                ),
+              ),
+            ],
+          ),
+          const SizedBox(height: 10),
+
+          // Texto + botão "Como trocar cartão?"
+          InkWell(
+            onTap: () => _abrirModalComoTrocarCartao(context),
+            borderRadius: BorderRadius.circular(8),
+            child: Container(
+              padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 8),
+              decoration: BoxDecoration(
+                color: Colors.white.withValues(alpha: 0.6),
+                borderRadius: BorderRadius.circular(8),
+                border: Border.all(
+                  color: const Color(0xFFE5E7EB).withValues(alpha: 0.7),
+                ),
+              ),
+              child: Row(
+                children: [
+                  const Icon(
+                    Icons.credit_card_outlined,
+                    size: 14,
+                    color: Color(0xFF6B7280),
+                  ),
+                  const SizedBox(width: 8),
+                  Expanded(
+                    child: Text(
+                      'Para trocar o cartão, cancele a recorrência atual e ative novamente com o novo cartão.',
+                      style: GoogleFonts.plusJakartaSans(
+                        fontSize: 11,
+                        color: const Color(0xFF4B5563),
+                        height: 1.3,
+                      ),
+                    ),
+                  ),
+                  const SizedBox(width: 4),
+                  const Icon(
+                    Icons.help_outline_rounded,
+                    size: 14,
+                    color: Color(0xFF6B7280),
+                  ),
+                ],
+              ),
+            ),
+          ),
+          const SizedBox(height: 14),
+
+          // Botão de cancelar recorrência
+          SizedBox(
+            width: double.infinity,
+            height: 38,
+            child: OutlinedButton.icon(
+              onPressed: _cancelarRecorrenteCarregando
+                  ? null
+                  : () => _abrirModalCancelarRecorrente(context, a),
+              icon: _cancelarRecorrenteCarregando
+                  ? const SizedBox(
+                      width: 14,
+                      height: 14,
+                      child: CircularProgressIndicator(strokeWidth: 2),
+                    )
+                  : const Icon(Icons.cancel_outlined, size: 16),
+              label: Text(
+                _cancelarRecorrenteCarregando
+                    ? 'Cancelando...'
+                    : 'Cancelar recorrência',
+                style: GoogleFonts.plusJakartaSans(
+                  fontSize: 12.5,
+                  fontWeight: FontWeight.w600,
+                  color: const Color(0xFFDC2626),
+                ),
+              ),
+              style: OutlinedButton.styleFrom(
+                foregroundColor: const Color(0xFFDC2626),
+                side: BorderSide(
+                  color: const Color(0xFFDC2626).withValues(alpha: 0.4),
+                ),
+                shape: RoundedRectangleBorder(
+                  borderRadius: BorderRadius.circular(10),
+                ),
+              ),
+            ),
+          ),
+        ],
+      ),
+    );
+  }
+
+  // ─── Cancelar recorrência (Etapa 3.4.4) ───
+
+  Future<void> _abrirModalCancelarRecorrente(
+    BuildContext context,
+    ClienteAssinaturaModel a,
+  ) async {
+    final confirmou = await showDialog<bool>(
+      context: context,
+      builder: (ctx) => AlertDialog(
+        shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(20)),
+        title: Row(
+          children: [
+            const Icon(
+              Icons.warning_amber_rounded,
+              color: Color(0xFFDC2626),
+              size: 24,
+            ),
+            const SizedBox(width: 10),
+            Expanded(
+              child: Text(
+                'Cancelar recorrência?',
+                style: GoogleFonts.plusJakartaSans(
+                  fontSize: 18,
+                  fontWeight: FontWeight.w700,
+                ),
+              ),
+            ),
+          ],
+        ),
+        content: Column(
+          mainAxisSize: MainAxisSize.min,
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            Text(
+              'Tem certeza que deseja cancelar a cobrança automática no cartão?',
+              style: GoogleFonts.plusJakartaSans(fontSize: 14),
+            ),
+            const SizedBox(height: 14),
+            _infoCancelar(
+              '✓ O plano NÃO será cancelado imediatamente',
+            ),
+            _infoCancelar(
+              '✓ Apenas a cobrança automática no cartão será desativada',
+            ),
+            _infoCancelar(
+              '✓ Você precisará pagar futuras cobranças manualmente',
+            ),
+            _infoCancelar(
+              '✓ O histórico será preservado',
+            ),
+          ],
+        ),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.of(ctx).pop(false),
+            child: Text(
+              'Voltar',
+              style: GoogleFonts.plusJakartaSans(
+                fontWeight: FontWeight.w600,
+                color: const Color(0xFF6B7280),
+              ),
+            ),
+          ),
+          FilledButton(
+            onPressed: () => Navigator.of(ctx).pop(true),
+            style: FilledButton.styleFrom(
+              backgroundColor: const Color(0xFFDC2626),
+            ),
+            child: Text(
+              'Sim, cancelar',
+              style: GoogleFonts.plusJakartaSans(fontWeight: FontWeight.w600),
+            ),
+          ),
+        ],
+      ),
+    );
+
+    if (confirmou != true) return;
+    if (!context.mounted) return;
+
+    setState(() => _cancelarRecorrenteCarregando = true);
+
+    try {
+      final result = await pagamento.AssinaturaPagamentoService.cancelarCartaoRecorrente();
+      if (!context.mounted) return;
+
+      final ok = result['ok'] == true;
+      final mensagem = result['message']?.toString() ??
+          (ok
+              ? 'Cobrança recorrente cancelada com sucesso. Seu plano continua ativo até o vencimento atual.'
+              : 'Não foi possível cancelar a recorrência.');
+
+      // Mostra feedback
+      mostrarDiPertinFeedbackPremium(
+        context,
+        sucesso: ok,
+        titulo: ok ? 'Recorrência cancelada' : 'Erro ao cancelar',
+        mensagem: mensagem,
+      );
+
+      setState(() => _cancelarRecorrenteCarregando = false);
+    } on CallableHttpException catch (e) {
+      if (!context.mounted) return;
+      setState(() => _cancelarRecorrenteCarregando = false);
+      mostrarDiPertinFeedbackPremium(
+        context,
+        sucesso: false,
+        titulo: 'Erro ao cancelar',
+        mensagem: mensagemCallableHttpException(e),
+      );
+    } catch (e) {
+      if (!context.mounted) return;
+      setState(() => _cancelarRecorrenteCarregando = false);
+      mostrarDiPertinFeedbackPremium(
+        context,
+        sucesso: false,
+        titulo: 'Erro ao cancelar',
+        mensagem: 'Erro ao cancelar recorrência: $e',
+      );
+    }
+  }
+
+  Widget _infoCancelar(String texto) {
+    return Padding(
+      padding: const EdgeInsets.only(top: 6),
+      child: Row(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          const SizedBox(width: 4),
+          Expanded(
+            child: Text(
+              texto,
+              style: GoogleFonts.plusJakartaSans(
+                fontSize: 12.5,
+                color: const Color(0xFF374151),
+                height: 1.3,
+              ),
+            ),
+          ),
+        ],
+      ),
+    );
+  }
+
+  // ─── Modal explicativo: Como trocar cartão (Etapa 3.5) ───
+
+  Future<void> _abrirModalComoTrocarCartao(BuildContext context) async {
+    await showDialog<void>(
+      context: context,
+      builder: (ctx) => AlertDialog(
+        shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(20)),
+        title: Row(
+          children: [
+            const Icon(
+              Icons.credit_card_outlined,
+              color: Color(0xFF6366F1),
+              size: 24,
+            ),
+            const SizedBox(width: 10),
+            Expanded(
+              child: Text(
+                'Como trocar o cartão?',
+                style: GoogleFonts.plusJakartaSans(
+                  fontSize: 18,
+                  fontWeight: FontWeight.w700,
+                ),
+              ),
+            ),
+          ],
+        ),
+        content: Column(
+          mainAxisSize: MainAxisSize.min,
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            Text(
+              'Para trocar o cartão da cobrança automática, siga os passos abaixo:',
+              style: GoogleFonts.plusJakartaSans(fontSize: 13.5),
+            ),
+            const SizedBox(height: 16),
+            _passoTrocarCartao(
+              numero: '1',
+              texto: 'Clique em "Cancelar recorrência" neste card.',
+            ),
+            _passoTrocarCartao(
+              numero: '2',
+              texto: 'Volte na contratação/assinatura e selecione a opção "Cartão recorrente".',
+            ),
+            _passoTrocarCartao(
+              numero: '3',
+              texto: 'Informe os dados do novo cartão.',
+            ),
+            _passoTrocarCartao(
+              numero: '4',
+              texto: 'A nova cobrança automática será criada pelo Mercado Pago.',
+            ),
+            const SizedBox(height: 16),
+            Container(
+              padding: const EdgeInsets.all(10),
+              decoration: BoxDecoration(
+                color: const Color(0xFFFEF3C7),
+                borderRadius: BorderRadius.circular(8),
+                border: Border.all(
+                  color: const Color(0xFFFCD34D).withValues(alpha: 0.5),
+                ),
+              ),
+              child: Row(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  const Icon(
+                    Icons.info_outline_rounded,
+                    size: 14,
+                    color: Color(0xFF92400E),
+                  ),
+                  const SizedBox(width: 6),
+                  Expanded(
+                    child: Text(
+                      'Seu plano não será cancelado — apenas a forma de cobrança automática mudará.',
+                      style: GoogleFonts.plusJakartaSans(
+                        fontSize: 11.5,
+                        color: const Color(0xFF92400E),
+                        height: 1.3,
+                      ),
+                    ),
+                  ),
+                ],
+              ),
+            ),
+          ],
+        ),
+        actions: [
+          FilledButton(
+            onPressed: () => Navigator.of(ctx).pop(),
+            style: FilledButton.styleFrom(
+              backgroundColor: const Color(0xFF6366F1),
+            ),
+            child: Text(
+              'Entendi',
+              style: GoogleFonts.plusJakartaSans(fontWeight: FontWeight.w600),
+            ),
+          ),
+        ],
+      ),
+    );
+  }
+
+  Widget _passoTrocarCartao({required String numero, required String texto}) {
+    return Padding(
+      padding: const EdgeInsets.only(bottom: 10),
+      child: Row(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          Container(
+            width: 22,
+            height: 22,
+            alignment: Alignment.center,
+            decoration: BoxDecoration(
+              color: const Color(0xFF6366F1).withValues(alpha: 0.12),
+              borderRadius: BorderRadius.circular(11),
+            ),
+            child: Text(
+              numero,
+              style: GoogleFonts.plusJakartaSans(
+                fontSize: 11,
+                fontWeight: FontWeight.w700,
+                color: const Color(0xFF4F46E5),
+              ),
+            ),
+          ),
+          const SizedBox(width: 10),
+          Expanded(
+            child: Text(
+              texto,
+              style: GoogleFonts.plusJakartaSans(
+                fontSize: 12.5,
+                color: const Color(0xFF374151),
+                height: 1.3,
+              ),
+            ),
+          ),
+        ],
+      ),
     );
   }
 
@@ -2088,6 +2678,51 @@ class _CardExtratoFinanceiro extends StatelessWidget {
     );
   }
 
+  // ═══════════════════════════════════════════════════════════
+  // PIX DE COBRANÇA RECORRENTE
+  // ═══════════════════════════════════════════════════════════
+
+  Widget _buildPagarPixBotao(
+    BuildContext context,
+    String cobrancaId,
+    String status,
+    double valor,
+  ) {
+    // Só mostra botão para cobranças em aberto ou vencidas
+    if (status != 'em_aberto' && status != 'vencida') {
+      return const SizedBox.shrink();
+    }
+
+    return SizedBox(
+      height: 30,
+      child: ElevatedButton.icon(
+        onPressed: () => _abrirPagamentoPixCobranca(context, cobrancaId),
+        icon: const Icon(Icons.qr_code_rounded, size: 14),
+        label: Text('PIX',
+            style: GoogleFonts.plusJakartaSans(fontSize: 11, fontWeight: FontWeight.w600)),
+        style: ElevatedButton.styleFrom(
+          backgroundColor: const Color(0xFF6A1B9A),
+          foregroundColor: Colors.white,
+          padding: const EdgeInsets.symmetric(horizontal: 12),
+          shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(8)),
+          elevation: 0,
+        ),
+      ),
+    );
+  }
+
+  Future<void> _abrirPagamentoPixCobranca(BuildContext context, String cobrancaId) async {
+    // Buscar dados da cobrança
+    final db = FirebaseFirestore.instance;
+    final cobrancaSnap = await db.collection('assinaturas_cobrancas').doc(cobrancaId).get();
+    if (!cobrancaSnap.exists || !context.mounted) return;
+
+    final cobranca = CobrancaAssinatura.fromFirestore(cobrancaSnap);
+
+    // Abrir modal PIX - a atualização da tabela ocorre automaticamente via Firestore snapshots
+    _CobrancaPixModal.mostrar(context, cobranca: cobranca);
+  }
+
   DataColumn _col(String label) => DataColumn(
         label: Text(label,
             style: GoogleFonts.plusJakartaSans(fontSize: 11.5, fontWeight: FontWeight.w700, color: const Color(0xFF64748B))),
@@ -2101,6 +2736,515 @@ class _CardExtratoFinanceiro extends StatelessWidget {
               color: const Color(0xFF1A1A2E),
             )),
       );
+}
+
+// ═══════════════════════════════════════════════════════════════════════════
+//  _CobrancaPixModal — Modal premium de pagamento PIX para cobrança recorrente
+// ═══════════════════════════════════════════════════════════════════════════
+
+class _CobrancaPixModal extends StatefulWidget {
+  final CobrancaAssinatura cobranca;
+
+  const _CobrancaPixModal({required this.cobranca});
+
+  static Future<void> mostrar(
+    BuildContext context, {
+    required CobrancaAssinatura cobranca,
+  }) {
+    return showGeneralDialog(
+      context: context,
+      barrierDismissible: false,
+      barrierLabel: '',
+      barrierColor: Colors.black.withValues(alpha: 0.55),
+      transitionDuration: const Duration(milliseconds: 280),
+      pageBuilder: (ctx, anim1, anim2) => ClipRect(
+        child: BackdropFilter(
+          filter: ui.ImageFilter.blur(sigmaX: 14, sigmaY: 14),
+          child: Material(
+            type: MaterialType.transparency,
+            child: _CobrancaPixModal(cobranca: cobranca),
+          ),
+        ),
+      ),
+      transitionBuilder: (ctx, anim, secAnim, child) {
+        return FadeTransition(
+          opacity: anim,
+          child: ScaleTransition(
+            scale: Tween<double>(begin: 0.93, end: 1).animate(
+              CurvedAnimation(parent: anim, curve: Curves.easeOutCubic),
+            ),
+            child: child,
+          ),
+        );
+      },
+    );
+  }
+
+  @override
+  State<_CobrancaPixModal> createState() => _CobrancaPixModalState();
+}
+
+class _CobrancaPixModalState extends State<_CobrancaPixModal> {
+  bool _carregando = false;
+  bool _pixGerado = false;
+  String _qrCodeBase64 = '';
+  String _qrCodeTexto = '';
+  int _segundosRestantes = 0;
+  String _statusPix = '';
+  String _mensagemErro = '';
+  Timer? _timerExpiracao;
+  Timer? _timerPolling;
+
+  @override
+  void initState() {
+    super.initState();
+    _gerarPix();
+  }
+
+  @override
+  void dispose() {
+    _timerExpiracao?.cancel();
+    _timerPolling?.cancel();
+    super.dispose();
+  }
+
+  Future<void> _gerarPix() async {
+    setState(() {
+      _carregando = true;
+      _mensagemErro = '';
+    });
+
+    try {
+      final resultado = await CobrancasAssinaturaService.gerarPixCobranca(widget.cobranca.id);
+
+      if (!mounted) return;
+
+      setState(() {
+        _carregando = false;
+        _pixGerado = true;
+        _qrCodeBase64 = resultado.qrCodeBase64;
+        _qrCodeTexto = resultado.qrCode;
+        _statusPix = resultado.status;
+
+        // Calcular segundos restantes
+        if (resultado.expiresAt.isNotEmpty) {
+          final expDate = DateTime.tryParse(resultado.expiresAt);
+          if (expDate != null) {
+            _segundosRestantes = expDate.difference(DateTime.now()).inSeconds;
+            if (_segundosRestantes > 0) {
+              _iniciarTimerExpiracao();
+            }
+          }
+        }
+      });
+
+      // Se já está aprovado, mostrar sucesso
+      if (resultado.status == 'approved' || resultado.status == 'authorized') {
+        _mostrarSucesso();
+      } else {
+        // Iniciar polling
+        _iniciarPolling();
+      }
+    } catch (e) {
+      if (!mounted) return;
+      setState(() {
+        _carregando = false;
+        _mensagemErro = e.toString();
+      });
+    }
+  }
+
+  void _iniciarTimerExpiracao() {
+    _timerExpiracao?.cancel();
+    _timerExpiracao = Timer.periodic(const Duration(seconds: 1), (_) {
+      if (!mounted) { _timerExpiracao?.cancel(); return; }
+      setState(() {
+        if (_segundosRestantes > 0) {
+          _segundosRestantes--;
+        } else {
+          _timerExpiracao?.cancel();
+          _timerPolling?.cancel();
+          _statusPix = 'expirado';
+        }
+      });
+    });
+  }
+
+  void _iniciarPolling() {
+    _timerPolling?.cancel();
+    _timerPolling = Timer.periodic(const Duration(seconds: 15), (_) async {
+      if (!mounted || !_pixGerado) return;
+
+      try {
+        final status = await CobrancasAssinaturaService.consultarStatusPixCobranca(widget.cobranca.id);
+        if (!mounted) return;
+
+        if (status.pago) {
+          _timerPolling?.cancel();
+          _timerExpiracao?.cancel();
+          _mostrarSucesso();
+        } else if (status.status == 'expirado' || status.status == 'cancelado') {
+          _timerPolling?.cancel();
+          _timerExpiracao?.cancel();
+          setState(() => _statusPix = status.status);
+        }
+      } catch (_) {
+        // Silencioso - tenta novamente
+      }
+    });
+  }
+
+  String _formatarTempo(int segundos) {
+    if (segundos <= 0) return 'Expirado';
+    final min = (segundos ~/ 60).toString().padLeft(2, '0');
+    final sec = (segundos % 60).toString().padLeft(2, '0');
+    return '$min:$sec';
+  }
+
+  Future<void> _copiarCodigo() async {
+    if (_qrCodeTexto.isNotEmpty) {
+      await Clipboard.setData(ClipboardData(text: _qrCodeTexto));
+      if (!mounted) return;
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(
+          content: Text('Código PIX copiado!'),
+          duration: Duration(seconds: 2),
+          behavior: SnackBarBehavior.floating,
+        ),
+      );
+    }
+  }
+
+  Future<void> _consultarStatus() async {
+    setState(() => _carregando = true);
+
+    try {
+      final status = await CobrancasAssinaturaService.consultarStatusPixCobranca(widget.cobranca.id);
+
+      if (!mounted) return;
+
+      if (status.pago) {
+        _timerPolling?.cancel();
+        _timerExpiracao?.cancel();
+        _mostrarSucesso();
+      } else {
+        setState(() {
+          _carregando = false;
+          _statusPix = status.status;
+        });
+
+        if (status.status == 'expirado' || status.status == 'cancelado') {
+          _timerPolling?.cancel();
+          _timerExpiracao?.cancel();
+        }
+      }
+    } catch (e) {
+      if (!mounted) return;
+      setState(() => _carregando = false);
+      mostrarDiPertinFeedbackPremium(
+        context,
+        sucesso: false,
+        titulo: 'Erro ao consultar',
+        mensagem: 'Não foi possível consultar o status do PIX: $e',
+      );
+    }
+  }
+
+  void _mostrarSucesso() {
+    setState(() {
+      _carregando = false;
+      _statusPix = 'approved';
+    });
+    // A atualização da tabela ocorre automaticamente via Firestore snapshots
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    return Center(
+      child: Material(
+        color: Colors.white,
+        borderRadius: BorderRadius.circular(20),
+        elevation: 12,
+        child: Container(
+          width: 420,
+          padding: const EdgeInsets.all(28),
+          child: Column(
+            mainAxisSize: MainAxisSize.min,
+            crossAxisAlignment: CrossAxisAlignment.center,
+            children: [
+              // Header
+              Row(
+                children: [
+                  Container(
+                    padding: const EdgeInsets.all(10),
+                    decoration: BoxDecoration(
+                      color: const Color(0xFF6A1B9A).withValues(alpha: 0.1),
+                      borderRadius: BorderRadius.circular(12),
+                    ),
+                    child: const Icon(Icons.qr_code_rounded, color: Color(0xFF6A1B9A), size: 24),
+                  ),
+                  const SizedBox(width: 14),
+                  Expanded(
+                    child: Column(
+                      crossAxisAlignment: CrossAxisAlignment.start,
+                      children: [
+                        Text(
+                          'Pagar Cobrança',
+                          style: GoogleFonts.plusJakartaSans(fontSize: 18, fontWeight: FontWeight.w700, color: const Color(0xFF1A1A2E)),
+                        ),
+                        Text(
+                          widget.cobranca.fatura,
+                          style: GoogleFonts.plusJakartaSans(fontSize: 13, color: const Color(0xFF6E7894)),
+                        ),
+                      ],
+                    ),
+                  ),
+                  IconButton(
+                    onPressed: () => Navigator.of(context).pop(),
+                    icon: const Icon(Icons.close_rounded, color: Color(0xFF6E7894)),
+                  ),
+                ],
+              ),
+
+              const SizedBox(height: 24),
+              const Divider(height: 1),
+              const SizedBox(height: 24),
+
+              // Valor
+              Text(
+                widget.cobranca.valorExibicao,
+                style: GoogleFonts.plusJakartaSans(fontSize: 36, fontWeight: FontWeight.w800, color: const Color(0xFF1A1A2E)),
+              ),
+              Text(
+                'Cobrança ${widget.cobranca.planoNome}',
+                style: GoogleFonts.plusJakartaSans(fontSize: 13, color: const Color(0xFF6E7894)),
+              ),
+
+              const SizedBox(height: 24),
+
+              // Conteúdo
+              if (_carregando && !_pixGerado)
+                const CircularProgressIndicator()
+              else if (_mensagemErro.isNotEmpty)
+                Column(
+                  children: [
+                    const Icon(Icons.error_outline, color: Color(0xFFF04438), size: 48),
+                    const SizedBox(height: 12),
+                    Text(_mensagemErro, style: GoogleFonts.plusJakartaSans(color: const Color(0xFFF04438)), textAlign: TextAlign.center),
+                    const SizedBox(height: 16),
+                    ElevatedButton(
+                      onPressed: _gerarPix,
+                      child: const Text('Tentar novamente'),
+                    ),
+                  ],
+                )
+              else if (_statusPix == 'approved')
+                _buildSucesso()
+              else if (_statusPix == 'expirado')
+                _buildExpirado()
+              else if (_pixGerado)
+                _buildPixContent()
+              else
+                const Text('Aguardando...'),
+            ],
+          ),
+        ),
+      ),
+    );
+  }
+
+  Widget _buildPixContent() {
+    return Column(
+      children: [
+        // QR Code
+        if (_qrCodeBase64.isNotEmpty)
+          Container(
+            padding: const EdgeInsets.all(12),
+            decoration: BoxDecoration(
+              color: Colors.white,
+              borderRadius: BorderRadius.circular(16),
+              border: Border.all(color: const Color(0xFFEEEAF6)),
+            ),
+            child: Image.memory(
+              base64Decode(_qrCodeBase64),
+              width: 180,
+              height: 180,
+              errorBuilder: (_, __, ___) => const Icon(Icons.qr_code_2, size: 180, color: Color(0xFF6E7894)),
+            ),
+          ),
+
+        const SizedBox(height: 16),
+
+        // Tempo restante
+        Container(
+          padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 8),
+          decoration: BoxDecoration(
+            color: _segundosRestantes < 60 ? const Color(0xFFFFF3E6) : const Color(0xFFF1E9FF),
+            borderRadius: BorderRadius.circular(20),
+          ),
+          child: Row(
+            mainAxisSize: MainAxisSize.min,
+            children: [
+              Icon(Icons.timer, size: 16, color: _segundosRestantes < 60 ? const Color(0xFFFF8F00) : const Color(0xFF6A1B9A)),
+              const SizedBox(width: 6),
+              Text(
+                'Expira em ${_formatarTempo(_segundosRestantes)}',
+                style: GoogleFonts.plusJakartaSans(
+                  fontSize: 13,
+                  fontWeight: FontWeight.w600,
+                  color: _segundosRestantes < 60 ? const Color(0xFFFF8F00) : const Color(0xFF6A1B9A),
+                ),
+              ),
+            ],
+          ),
+        ),
+
+        const SizedBox(height: 16),
+
+        // Copiar código
+        if (_qrCodeTexto.isNotEmpty) ...[
+          Container(
+            padding: const EdgeInsets.all(12),
+            decoration: BoxDecoration(
+              color: const Color(0xFFF8F8FC),
+              borderRadius: BorderRadius.circular(12),
+              border: Border.all(color: const Color(0xFFEEEAF6)),
+            ),
+            child: Column(
+              children: [
+                Text(
+                  'Código PIX copia e cola',
+                  style: GoogleFonts.plusJakartaSans(fontSize: 11, color: const Color(0xFF6E7894)),
+                ),
+                const SizedBox(height: 4),
+                Text(
+                  _qrCodeTexto.length > 50 ? '${_qrCodeTexto.substring(0, 50)}...' : _qrCodeTexto,
+                  style: GoogleFonts.plusJakartaSans(fontSize: 11, color: const Color(0xFF1A1A2E)),
+                  textAlign: TextAlign.center,
+                ),
+              ],
+            ),
+          ),
+          const SizedBox(height: 12),
+          SizedBox(
+            width: double.infinity,
+            child: OutlinedButton.icon(
+              onPressed: _copiarCodigo,
+              icon: const Icon(Icons.copy_rounded, size: 16),
+              label: const Text('Copiar código PIX'),
+              style: OutlinedButton.styleFrom(
+                foregroundColor: const Color(0xFF6A1B9A),
+                side: const BorderSide(color: Color(0xFF6A1B9A)),
+                padding: const EdgeInsets.symmetric(vertical: 12),
+              ),
+            ),
+          ),
+        ],
+
+        const SizedBox(height: 16),
+
+        // Consultar status
+        SizedBox(
+          width: double.infinity,
+          child: ElevatedButton.icon(
+            onPressed: _carregando ? null : _consultarStatus,
+            icon: _carregando ? const SizedBox(width: 16, height: 16, child: CircularProgressIndicator(strokeWidth: 2, color: Colors.white)) : const Icon(Icons.refresh_rounded, size: 16),
+            label: const Text('Consultar pagamento'),
+            style: ElevatedButton.styleFrom(
+              backgroundColor: const Color(0xFF16A34A),
+              foregroundColor: Colors.white,
+              padding: const EdgeInsets.symmetric(vertical: 14),
+            ),
+          ),
+        ),
+
+        const SizedBox(height: 8),
+
+        // Status atual
+        Text(
+          _statusPix == 'pending' ? 'Aguardando pagamento...' : 'Status: $_statusPix',
+          style: GoogleFonts.plusJakartaSans(fontSize: 12, color: const Color(0xFF6E7894)),
+        ),
+      ],
+    );
+  }
+
+  Widget _buildSucesso() {
+    return Column(
+      children: [
+        Container(
+          padding: const EdgeInsets.all(20),
+          decoration: BoxDecoration(
+            color: const Color(0xFFE8F5E9),
+            shape: BoxShape.circle,
+          ),
+          child: const Icon(Icons.check_circle_rounded, color: Color(0xFF16A34A), size: 64),
+        ),
+        const SizedBox(height: 16),
+        Text(
+          'Pagamento aprovado!',
+          style: GoogleFonts.plusJakartaSans(fontSize: 20, fontWeight: FontWeight.w700, color: const Color(0xFF16A34A)),
+        ),
+        const SizedBox(height: 8),
+        Text(
+          'Sua assinatura foi renovada.',
+          style: GoogleFonts.plusJakartaSans(fontSize: 14, color: const Color(0xFF6E7894)),
+        ),
+        const SizedBox(height: 20),
+        SizedBox(
+          width: double.infinity,
+          child: ElevatedButton(
+            onPressed: () => Navigator.of(context).pop(),
+            style: ElevatedButton.styleFrom(
+              backgroundColor: const Color(0xFF16A34A),
+              foregroundColor: Colors.white,
+              padding: const EdgeInsets.symmetric(vertical: 14),
+            ),
+            child: const Text('Fechar'),
+          ),
+        ),
+      ],
+    );
+  }
+
+  Widget _buildExpirado() {
+    return Column(
+      children: [
+        Container(
+          padding: const EdgeInsets.all(20),
+          decoration: BoxDecoration(
+            color: const Color(0xFFFEF2F2),
+            shape: BoxShape.circle,
+          ),
+          child: const Icon(Icons.error_outline_rounded, color: Color(0xFFF04438), size: 64),
+        ),
+        const SizedBox(height: 16),
+        Text(
+          'PIX expirado',
+          style: GoogleFonts.plusJakartaSans(fontSize: 20, fontWeight: FontWeight.w700, color: const Color(0xFFF04438)),
+        ),
+        const SizedBox(height: 8),
+        Text(
+          'O código PIX não é mais válido.',
+          style: GoogleFonts.plusJakartaSans(fontSize: 14, color: const Color(0xFF6E7894)),
+        ),
+        const SizedBox(height: 20),
+        SizedBox(
+          width: double.infinity,
+          child: ElevatedButton.icon(
+            onPressed: _gerarPix,
+            icon: const Icon(Icons.refresh_rounded, size: 16),
+            label: const Text('Gerar novo PIX'),
+            style: ElevatedButton.styleFrom(
+              backgroundColor: const Color(0xFF6A1B9A),
+              foregroundColor: Colors.white,
+              padding: const EdgeInsets.symmetric(vertical: 14),
+            ),
+          ),
+        ),
+      ],
+    );
+  }
 }
 
 // ══════════════════════════════════════════════
@@ -3738,7 +4882,10 @@ class _CardContatos extends StatelessWidget {
 // ══════════════════════════════════════════════
 
 class _CardSuporte extends StatelessWidget {
-  const _CardSuporte();
+  const _CardSuporte({required this.uidLoja, this.lojaNome});
+
+  final String uidLoja;
+  final String? lojaNome;
 
   @override
   Widget build(BuildContext context) {
@@ -3772,7 +4919,11 @@ class _CardSuporte extends StatelessWidget {
               padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 10),
               shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(10)),
             ),
-            onPressed: () => context.navegarPainel('/atendimento_suporte'),
+            onPressed: () => abrirSuporteLojistaChatModal(
+              context: context,
+              lojaId: uidLoja,
+              lojaNome: lojaNome,
+            ),
           ),
         ],
       ),

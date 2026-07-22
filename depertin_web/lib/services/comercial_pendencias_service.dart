@@ -168,6 +168,10 @@ abstract final class ComercialPendenciasService {
               c?.nome ?? 'Cliente #${entry.key.substring(0, 6)}',
           clienteCpf: c?.cpf,
           clienteTelefone: c?.telefone,
+          clienteWhatsApp: (c?.whatsapp != null && c!.whatsapp!.trim().isNotEmpty)
+              ? c.whatsapp
+              : c?.telefone,
+          clienteEmail: c?.email,
           parcelas: parcelasCli,
           codigoVenda: codigo,
           configJurosMulta: config,

@@ -21,10 +21,13 @@ abstract final class FiscalErroTranslator {
         'O CEP informado não é válido. Verifique o endereço.'),
     '205': _ErroInfo('UF do destinatário diferente da IE',
         'A UF informada não corresponde à Inscrição Estadual do destinatário.'),
-    '208': _ErroInfo('CNPJ do emitente不一致',
+    '208': _ErroInfo('CNPJ do emitente inconsistente',
         'O CNPJ informado não corresponde ao certificado digital.'),
-    '210': _ErroInfo('IE do destinatário obrigatória',
-        'Para operações interestaduais com contribuinte, a IE do destinatário é obrigatória.'),
+    '209': _ErroInfo('IE do emitente inválida',
+        'A Inscrição Estadual da empresa está inválida ou vazia. '
+        'Se for MEI/isento, use "ISENTO". Se tiver IE, cadastre o número correto (SINTEGRA) nos dados fiscais.'),
+    '210': _ErroInfo('IE do destinatário inválida',
+        'A Inscrição Estadual do cliente está incorreta. Verifique o campo IE do cliente.'),
     '220': _ErroInfo('NCM inválido',
         'O código NCM de um dos produtos não é válido (deve ter 8 dígitos). Revise os produtos.'),
     '221': _ErroInfo('CFOP inválido',
@@ -35,12 +38,14 @@ abstract final class FiscalErroTranslator {
         'O CSOSN informado não é válido para o Simples Nacional.'),
     '225': _ErroInfo('CEST inválido',
         'O código CEST informado não é válido (deve ter 7 dígitos).'),
-    '230': _ErroInfo('Valor total diverge dos itens',
-        'A soma dos produtos não confere com o total da nota. Verifique os valores.'),
-    '231': _ErroInfo('Base de cálculo do ICMS incorreta',
-        'A base de cálculo do ICMS não confere com o valor dos produtos. Verifique os impostos.'),
-    '232': _ErroInfo('Valor do ICMS incorreto',
-        'O valor do ICMS calculado não confere com a base de cálculo e alíquota.'),
+    '229': _ErroInfo('IE do emitente não informada',
+        'A Inscrição Estadual da empresa não foi informada. Preencha a IE ou marque como isenta (MEI).'),
+    '230': _ErroInfo('IE do emitente não cadastrada',
+        'A IE informada não está cadastrada na SEFAZ do estado. Verifique o cadastro estadual.'),
+    '231': _ErroInfo('IE do emitente não vinculada ao CNPJ',
+        'A Inscrição Estadual não está vinculada a este CNPJ na SEFAZ. Confira IE e CNPJ no SINTEGRA.'),
+    '232': _ErroInfo('IE do destinatário não informada',
+        'A Inscrição Estadual do destinatário não foi informada. Verifique se o cliente é contribuinte de ICMS.'),
     '240': _ErroInfo('Prazo de cancelamento expirado',
         'O prazo legal de 24 horas para cancelamento foi excedido. Não é mais possível cancelar esta NF-e.'),
     '241': _ErroInfo('NF-e já cancelada',
@@ -127,6 +132,11 @@ abstract final class FiscalErroTranslator {
     // Tenta inferir pela mensagem original
     if (mensagemOriginal != null) {
       final lower = mensagemOriginal.toLowerCase();
+      if (lower.contains('ie do emitente') || lower.contains('inscricao estadual do emitente') || lower.contains('inscrição estadual do emitente')) {
+        return (titulo: 'IE do emitente inválida',
+            descricao: 'A Inscrição Estadual da empresa está inválida ou vazia. '
+                'Para MEI/isento o sistema envia "ISENTO". Se houver IE, cadastre o número correto nos dados fiscais.');
+      }
       if (lower.contains('certificate') || lower.contains('certificado')) {
         return (titulo: 'Problema com certificado digital',
             descricao: 'Verifique se o certificado digital A1 está válido e instalado corretamente.');
@@ -165,13 +175,18 @@ abstract final class FiscalErroTranslator {
   /// Extrai código de rejeição de uma string de erro.
   static String? extrairCodigoRejeicao(String? erro) {
     if (erro == null) return null;
-    // "Rejeição 220: NCM inválido"
-    final regex = RegExp(r'(?:Rejei[cç][aã]o|Erro)\s*[:\-]?\s*(\d{3})');
+    // "Rejeição 220: NCM inválido" / "Rejeicao: IE..." com código separado
+    final regex = RegExp(r'(?:Rejei[cç][aã]o|Erro|SEFAZ)\s*[:\-]?\s*(\d{3})\b', caseSensitive: false);
     final match = regex.firstMatch(erro);
     if (match != null) return match.group(1);
 
+    // "código 209" / "codigo_sefaz": 209
+    final regexAlt = RegExp(r'(?:c[oó]digo|codigo_sefaz|status_sefaz)\s*[:\-]?\s*"?(\d{3})"?', caseSensitive: false);
+    final matchAlt = regexAlt.firstMatch(erro);
+    if (matchAlt != null) return matchAlt.group(1);
+
     // Códigos JSON (em providerResponse)
-    final regex2 = RegExp(r'"codigo"\s*:\s*"(\d{3})"');
+    final regex2 = RegExp(r'"(?:codigo|codigo_sefaz|status_sefaz)"\s*:\s*"?(\d{3})"?');
     final match2 = regex2.firstMatch(erro);
     if (match2 != null) return match2.group(1);
 

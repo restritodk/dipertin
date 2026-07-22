@@ -344,12 +344,13 @@ class _LojasScreenState extends State<LojasScreen> {
             decoration: BoxDecoration(
               borderRadius: BorderRadius.circular(20),
               border: Border.all(color: PainelAdminTheme.dashboardBorder),
-              gradient: LinearGradient(
+              // Mesmo gradiente premium da Central de Clientes.
+              gradient: const LinearGradient(
                 begin: Alignment.topLeft,
                 end: Alignment.bottomRight,
                 colors: [
-                  Colors.white,
-                  PainelAdminTheme.roxo.withValues(alpha: 0.04),
+                  Color(0xFF42127A),
+                  Color(0xFF6A1B9A),
                 ],
               ),
               boxShadow: PainelAdminTheme.sombraCardSuave(),
@@ -367,14 +368,11 @@ class _LojasScreenState extends State<LojasScreen> {
                           width: 48,
                           height: 48,
                           decoration: BoxDecoration(
-                            gradient: LinearGradient(
-                              colors: [
-                                PainelAdminTheme.roxo,
-                                PainelAdminTheme.roxo
-                                    .withValues(alpha: 0.75),
-                              ],
-                            ),
+                            color: Colors.white.withValues(alpha: 0.18),
                             borderRadius: BorderRadius.circular(14),
+                            border: Border.all(
+                              color: Colors.white.withValues(alpha: 0.32),
+                            ),
                           ),
                           child: const Icon(
                             Icons.storefront_rounded,
@@ -392,7 +390,7 @@ class _LojasScreenState extends State<LojasScreen> {
                                 style: GoogleFonts.plusJakartaSans(
                                   fontSize: 22,
                                   fontWeight: FontWeight.w800,
-                                  color: PainelAdminTheme.dashboardInk,
+                                  color: Colors.white,
                                   letterSpacing: -0.5,
                                 ),
                               ),
@@ -401,7 +399,7 @@ class _LojasScreenState extends State<LojasScreen> {
                                 'Aprove parceiros e defina os planos de comissão.',
                                 style: GoogleFonts.plusJakartaSans(
                                   fontSize: 14,
-                                  color: PainelAdminTheme.textoSecundario,
+                                  color: Colors.white.withValues(alpha: 0.82),
                                   height: 1.45,
                                 ),
                               ),
@@ -498,28 +496,24 @@ class _LojasScreenState extends State<LojasScreen> {
         child: Container(
           padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 9),
           decoration: BoxDecoration(
-            color: selecionado
-                ? info.color.withValues(alpha: 0.14)
-                : info.color.withValues(alpha: 0.08),
+            color: PainelAdminTheme.laranja,
             borderRadius: BorderRadius.circular(12),
             border: Border.all(
-              color: selecionado
-                  ? info.color.withValues(alpha: 0.45)
-                  : info.color.withValues(alpha: 0.2),
+              color: Colors.white.withValues(alpha: selecionado ? 0.55 : 0.28),
               width: selecionado ? 1.5 : 1,
             ),
           ),
           child: Row(
             mainAxisSize: MainAxisSize.min,
             children: [
-              Icon(info.icon, size: 16, color: info.color),
+              Icon(info.icon, size: 16, color: Colors.white),
               const SizedBox(width: 8),
               Text(
                 '${info.label}: ',
                 style: GoogleFonts.plusJakartaSans(
                   fontSize: 12,
                   fontWeight: FontWeight.w600,
-                  color: PainelAdminTheme.textoSecundario,
+                  color: Colors.white.withValues(alpha: 0.92),
                 ),
               ),
               Text(
@@ -527,7 +521,7 @@ class _LojasScreenState extends State<LojasScreen> {
                 style: GoogleFonts.plusJakartaSans(
                   fontSize: 12.5,
                   fontWeight: FontWeight.w800,
-                  color: info.color,
+                  color: Colors.white,
                 ),
               ),
             ],

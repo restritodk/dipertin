@@ -293,7 +293,8 @@ async function validate({ storeId, integrationId, nfePayload }) {
     missingFields.push("emitente.razao_social");
   }
 
-  // ── Nome fantasia: company_tax_data.nome_fantasia > top-level > users ──
+  // ── Nome fantasia: OPCIONAL (xFant na NF-e). MEI e demais regimes
+  //    podem emitir só com razão social (xNome). Não bloqueia se vazio.
   const nomeFantasia = field(
     taxData.nome_fantasia,
     storeFiscalSettings?.nome_fantasia,
@@ -301,9 +302,10 @@ async function validate({ storeId, integrationId, nfePayload }) {
     storeData?.nome_fantasia,
     storeData?.nome_loja
   );
-  if (!nomeFantasia || nomeFantasia.trim().length < 2) {
-    errors.push("Loja está sem nome fantasia configurado.");
-    missingFields.push("emitente.nome_fantasia");
+  if (nomeFantasia) {
+    console.log(`[FiscalPayloadValidator] nome_fantasia presente: "${nomeFantasia.substring(0, 40)}"`);
+  } else {
+    console.log("[FiscalPayloadValidator] nome_fantasia ausente — OK (opcional; usa razão social)");
   }
 
   // ── Inscrição Estadual: company_tax_data.ie > company_tax_data.inscricao_estadual > top-level ──

@@ -143,6 +143,8 @@ class PendenciaFinanceiraCliente {
     required this.clienteNome,
     this.clienteCpf,
     this.clienteTelefone,
+    this.clienteWhatsApp,
+    this.clienteEmail,
     required this.parcelas,
     required this.codigoVenda,
     this.configJurosMulta = const JurosMultaConfig(),
@@ -167,6 +169,8 @@ class PendenciaFinanceiraCliente {
   final String clienteNome;
   final String? clienteCpf;
   final String? clienteTelefone;
+  final String? clienteWhatsApp;
+  final String? clienteEmail;
   final List<ComercialParcelaCliente> parcelas;
   final String codigoVenda;
   final JurosMultaConfig configJurosMulta;
@@ -214,7 +218,42 @@ class PendenciaFinanceiraCliente {
       nome: clienteNome,
       cpf: clienteCpf,
       telefone: clienteTelefone,
+      whatsapp: clienteWhatsApp,
+      email: clienteEmail,
     );
+  }
+
+  /// Parcelas com vencimento anterior a hoje e valor em aberto.
+  List<ComercialParcelaCliente> get parcelasVencidas {
+    final hoje = DateTime.now();
+    final hojeClean = DateTime(hoje.year, hoje.month, hoje.day);
+    return parcelas.where((p) {
+      if (p.valorEmAberto <= 0.009) return false;
+      final venc = DateTime(
+        p.dataVencimento.year,
+        p.dataVencimento.month,
+        p.dataVencimento.day,
+      );
+      return venc.isBefore(hojeClean);
+    }).toList();
+  }
+
+  /// Dias de atraso da parcela vencida mais antiga (0 se nenhuma).
+  int get diasAtrasoMaximo {
+    if (parcelasVencidas.isEmpty) return 0;
+    final hoje = DateTime.now();
+    final hojeClean = DateTime(hoje.year, hoje.month, hoje.day);
+    var maxD = 0;
+    for (final p in parcelasVencidas) {
+      final venc = DateTime(
+        p.dataVencimento.year,
+        p.dataVencimento.month,
+        p.dataVencimento.day,
+      );
+      final d = hojeClean.difference(venc).inDays;
+      if (d > maxD) maxD = d;
+    }
+    return maxD;
   }
 
   // ── helpers estáticos ──

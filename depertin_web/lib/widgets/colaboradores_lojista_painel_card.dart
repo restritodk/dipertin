@@ -1043,12 +1043,14 @@ class _DialogoColaboradorState extends State<_DialogoColaborador> {
                           ),
                           DropdownMenuItem(
                             value: 2,
-                            child: Text('Nível II — + Meus produtos'),
+                            child: Text(
+                              'Nível II — + Meus produtos e Gestão Comercial',
+                            ),
                           ),
                           DropdownMenuItem(
                             value: 3,
                             child: Text(
-                              'Nível III — Carteira, configurações e equipe',
+                              'Nível III — Carteira, configurações, equipe e Gestão Comercial',
                             ),
                           ),
                         ],

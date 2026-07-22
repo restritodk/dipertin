@@ -85,13 +85,19 @@ class DadosEmpresaFiscal {
   }
 
   /// Valida os campos obrigatórios e formatos.
+  ///
+  /// Nome fantasia é opcional (NF-e: xFant). MEI e demais regimes podem
+  /// emitir apenas com razão social (xNome).
   String? validar() {
     if (razaoSocial.trim().isEmpty) return 'Razão social é obrigatória.';
     if (razaoSocial.trim().length < 3) return 'Razão social deve ter ao menos 3 caracteres.';
-    if (nomeFantasia.trim().isEmpty) return 'Nome fantasia é obrigatório.';
     if (cnpj.replaceAll(RegExp(r'\D'), '').length != 14) return 'CNPJ deve ter 14 dígitos.';
     if (!_validarCnpjDigitos(cnpj.replaceAll(RegExp(r'\D'), ''))) return 'CNPJ inválido (dígitos verificadores não conferem).';
-    if (ie.replaceAll(RegExp(r'\D'), '').isEmpty) return 'Inscrição estadual é obrigatória.';
+    final regimeNorm = regimeTributario.trim().toLowerCase().replaceAll(' ', '_');
+    final ieIsentaMei = regimeNorm == 'mei';
+    if (!ieIsentaMei && ie.replaceAll(RegExp(r'\D'), '').isEmpty) {
+      return 'Inscrição estadual é obrigatória.';
+    }
     if (regimeTributario.isEmpty) return 'Regime tributário é obrigatório.';
     if (cnae.replaceAll(RegExp(r'\D'), '').length != 7) return 'CNAE deve ter 7 dígitos.';
     if (crt.isEmpty) return 'CRT é obrigatório.';
@@ -321,11 +327,8 @@ class _FiscalDadosEmpresaModalState extends State<FiscalDadosEmpresaModal> {
                         const SizedBox(width: 16),
                         Expanded(
                           child: _buildTextField(
-                            label: 'Nome Fantasia',
+                            label: 'Nome Fantasia (opcional)',
                             controller: _nomeFantasiaCtrl,
-                            validator: (v) => v == null || v.trim().isEmpty
-                                ? 'Obrigatório'
-                                : null,
                           ),
                         ),
                       ]),
@@ -347,16 +350,23 @@ class _FiscalDadosEmpresaModalState extends State<FiscalDadosEmpresaModal> {
                         const SizedBox(width: 16),
                         Expanded(
                           child: _buildTextField(
-                            label: 'Inscrição Estadual',
+                            label: _regimeTributario.toLowerCase() == 'mei'
+                                ? 'Inscrição Estadual (opcional para MEI)'
+                                : 'Inscrição Estadual',
                             controller: _ieCtrl,
                             inputFormatters: [
                               FilteringTextInputFormatter.digitsOnly,
                             ],
                             keyboardType: TextInputType.number,
-                            validator: (v) => v == null ||
-                                    v.replaceAll(RegExp(r'\D'), '').isEmpty
-                                ? 'Obrigatório'
-                                : null,
+                            validator: (v) {
+                              if (_regimeTributario.toLowerCase() == 'mei') {
+                                return null;
+                              }
+                              return v == null ||
+                                      v.replaceAll(RegExp(r'\D'), '').isEmpty
+                                  ? 'Obrigatório'
+                                  : null;
+                            },
                           ),
                         ),
                         const SizedBox(width: 16),

@@ -189,10 +189,12 @@ class FiscalValidator {
 
     _validarCnpj(emit.cnpj, 'emitente.cnpj', erros);
 
-    if (emit.ie.trim().isEmpty) {
+    if (!emit.ieIsento && emit.ie.trim().isEmpty) {
       erros.add(const ValidationError(
           'emitente.ie', 'Inscrição estadual do emitente é obrigatória'));
-    } else if (!RegExp(_ieRegex).hasMatch(emit.ie.replaceAll(RegExp(r'\D'), ''))) {
+    } else if (!emit.ieIsento &&
+        emit.ie.trim().isNotEmpty &&
+        !RegExp(_ieRegex).hasMatch(emit.ie.replaceAll(RegExp(r'\D'), ''))) {
       avisos.add(ValidationWarning(
           'emitente.ie', 'IE com formato atípico: ${emit.ie}'));
     }

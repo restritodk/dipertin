@@ -1807,14 +1807,15 @@ class _DashboardScreenState extends State<DashboardScreen>
           const SizedBox(height: 20),
 
           // Botão ver relatório
-          SizedBox(
-            width: double.infinity,
+          Align(
+            alignment: Alignment.center,
             child: OutlinedButton.icon(
               onPressed: () => context.navegarPainel('/financeiro'),
               icon: const Icon(Icons.open_in_new_rounded, size: 16),
               label: const Text('Ver relatório completo'),
               style: OutlinedButton.styleFrom(
-                padding: const EdgeInsets.symmetric(vertical: 14),
+                padding: const EdgeInsets.symmetric(
+                    horizontal: 24, vertical: 14),
                 shape: RoundedRectangleBorder(
                   borderRadius: BorderRadius.circular(12),
                 ),

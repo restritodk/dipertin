@@ -27,11 +27,6 @@ class FiscalProviderService {
 
     final lista = <FiscalProvider>[
       FocusNFeProvider(),
-      NuvemFiscalProvider(),
-      PlugNotasProvider(),
-      WebmaniaProvider(),
-      EnotasProvider(),
-      CustomFiscalProvider(),
     ];
 
     for (final p in lista) {
@@ -94,28 +89,20 @@ class FiscalProviderService {
     return p.documentosSuportados.contains(tipoDocumento);
   }
 
-  /// Obtém ou cria a configuração do provedor a partir dos dados da integração.
+  /// Obtém configuração pública do provedor a partir dos dados da integração.
+  ///
+  /// SEGURANÇA: Apenas campos operacionais/públicos são extraídos.
+  /// Credenciais (credentials_encrypted, api_key, client_secret etc.) NUNCA
+  /// saem do backend — as Cloud Functions as leem diretamente de
+  /// fiscal_integrations via Admin SDK.
   Map<String, dynamic> extrairConfig(
     Map<String, dynamic> integrationData, {
     String? integrationId,
   }) {
     return {
       'integration_id': integrationId ?? integrationData['id'] as String? ?? '',
-      'api_key': integrationData['credentials_encrypted'] ?? '',
-      'client_id': integrationData['client_id'] ?? '',
-      'client_secret': integrationData['client_secret'] ?? '',
-      'consumer_key': integrationData['consumer_key'] ?? '',
-      'consumer_secret': integrationData['consumer_secret'] ?? '',
-      'access_token': integrationData['access_token'] ?? '',
-      'access_token_secret': integrationData['access_token_secret'] ?? '',
-      'base_url_sandbox': integrationData['base_url_sandbox'] ?? '',
-      'base_url_production': integrationData['base_url_production'] ?? '',
-      // Enotas: ID da empresa na plataforma
-      'empresa_id': integrationData['empresa_id'] ?? '',
-      // Custom: endpoints e metodo de autenticacao
-      'endpoint_emissao': integrationData['endpoint_emissao'] ?? '',
-      'endpoint_cancelamento': integrationData['endpoint_cancelamento'] ?? '',
-      'metodo_autenticacao': integrationData['metodo_autenticacao'] ?? '',
+      'environment': integrationData['environment'] ?? 'sandbox',
+      'provider': integrationData['provider'] ?? '',
     };
   }
 }

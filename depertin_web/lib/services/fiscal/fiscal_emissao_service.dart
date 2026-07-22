@@ -14,7 +14,6 @@ import 'fiscal_xml_builder.dart';
 import 'fiscal_series_service.dart';
 import 'fiscal_contingencia_service.dart';
 import 'fiscal_erro_translator.dart';
-import 'fiscal_audit_service.dart';
 import 'fiscal_cancelamento_service.dart';
 import 'fiscal_carta_correcao_service.dart';
 import 'fiscal_inutilizacao_service.dart';
@@ -153,7 +152,7 @@ class FiscalEmissaoService {
         }
       }
 
-      // 2c. Log diagnóstico detalhado
+      // 2c. Log diagnóstico sanitizado (sem CPF/CNPJ/e-mail completos)
       debugPrint('[FiscalEmissaoService] ═══ DIAGNÓSTICO CONFIG FISCAL ═══');
       debugPrint('[FiscalEmissaoService] lojaId=$lojaId');
       debugPrint('[FiscalEmissaoService] integrationId=$integrationId');
@@ -162,21 +161,16 @@ class FiscalEmissaoService {
       if (storeSettings != null) {
         debugPrint('[FiscalEmissaoService] storeSettings.integrationId="${storeSettings.integrationId}"');
         debugPrint('[FiscalEmissaoService] storeSettings.companyTaxData presente=${storeSettings.companyTaxData != null && storeSettings.companyTaxData!.isNotEmpty}');
-        debugPrint('[FiscalEmissaoService] storeSettings.companyTaxData keys=${storeSettings.companyTaxData?.keys.join(', ') ?? '(null)'}');
         final tax = storeSettings.companyTaxData ?? {};
-        debugPrint('[FiscalEmissaoService] razao_social="${tax['razao_social'] ?? tax['razaoSocial'] ?? tax['nome'] ?? '(vazio)'}"');
-        debugPrint('[FiscalEmissaoService] cnpj="${tax['cnpj'] ?? '(vazio)'}"');
-        debugPrint('[FiscalEmissaoService] ie="${tax['ie'] ?? tax['inscricao_estadual'] ?? '(vazio)'}"');
-        debugPrint('[FiscalEmissaoService] logradouro="${tax['logradouro'] ?? tax['endereco_logradouro'] ?? '(vazio)'}"');
-        debugPrint('[FiscalEmissaoService] numero="${tax['numero'] ?? tax['endereco_numero'] ?? '(vazio)'}"');
-        debugPrint('[FiscalEmissaoService] bairro="${tax['bairro'] ?? tax['endereco_bairro'] ?? '(vazio)'}"');
-        debugPrint('[FiscalEmissaoService] cidade="${tax['cidade'] ?? tax['endereco_cidade'] ?? '(vazio)'}"');
-        debugPrint('[FiscalEmissaoService] uf="${tax['uf'] ?? tax['endereco_uf'] ?? '(vazio)'}"');
-        debugPrint('[FiscalEmissaoService] cep="${tax['cep'] ?? tax['endereco_cep'] ?? '(vazio)'}"');
+        debugPrint('[FiscalEmissaoService] razao_social presente=${_str(tax, ['razao_social', 'razaoSocial', 'nome']).isNotEmpty}');
+        debugPrint('[FiscalEmissaoService] cnpj presente=${_str(tax, ['cnpj', 'cpf_cnpj']).isNotEmpty}');
+        debugPrint('[FiscalEmissaoService] ie presente=${_str(tax, ['ie', 'inscricao_estadual']).isNotEmpty}');
         debugPrint('[FiscalEmissaoService] crt="${tax['crt'] ?? tax['regime_tributario_codigo'] ?? '(vazio)'}"');
         debugPrint('[FiscalEmissaoService] regime_tributario="${tax['regime_tributario'] ?? '(vazio)'}"');
-        debugPrint('[FiscalEmissaoService] cnae="${tax['cnae'] ?? '(vazio)'}"');
-        debugPrint('[FiscalEmissaoService] codigo_cidade="${tax['codigo_cidade'] ?? tax['ibge_cidade'] ?? '(vazio)'}"');
+        debugPrint('[FiscalEmissaoService] cnae presente=${_str(tax, ['cnae']).isNotEmpty}');
+        debugPrint('[FiscalEmissaoService] codigo_cidade presente=${_str(tax, ['codigo_cidade', 'ibge_cidade']).isNotEmpty}');
+        debugPrint('[FiscalEmissaoService] logradouro presente=${_str(tax, ['logradouro', 'endereco_logradouro']).isNotEmpty}');
+        debugPrint('[FiscalEmissaoService] cidade presente=${_str(tax, ['cidade', 'endereco_cidade', 'municipio']).isNotEmpty}');
       } else {
         debugPrint('[FiscalEmissaoService] storeSettings NULO. storeSettingsData presente=${storeSettingsData != null}');
         if (storeSettingsData != null) {
@@ -203,33 +197,72 @@ class FiscalEmissaoService {
       }
 
       // ─── 3. Integracao ───
-      Map<String, dynamic>? integrationDoc =
-          await _buscarIntegracao(storeSettings.integrationId);
+      // Diagnóstico da configuração da loja
+      final integId = storeSettings.integrationId;
 
-      // Fallback: se não achou em fiscal_integrations (lojista não tem permissão),
-      // usa integration_data desnormalizado em store_fiscal_settings
-      if (integrationDoc == null && storeSettingsData != null) {
-        final integrationData = storeSettingsData['integration_data']
-            as Map<String, dynamic>?;
-        if (integrationData != null && integrationData.isNotEmpty) {
-          debugPrint('[FiscalEmissaoService] Usando integration_data '
-              'desnormalizado: provider=${integrationData['provider']}');
-          integrationDoc = integrationData;
-        }
+      if (integId.isEmpty) {
+        debugPrint('[FiscalEmissaoService] integration_id AUSENTE');
+        return FiscalEmissaoResult(
+          sucesso: false,
+          erro: 'Loja sem integração fiscal vinculada. ' +
+              'Solicite ao administrador que vincule uma integração.',
+          errosValidacao: validacao.erros,
+          avisosValidacao: validacao.avisos,
+        );
       }
 
-      if (integrationDoc == null) {
-        debugPrint('[FiscalEmissaoService] Integração NÃO ENCONTRADA para '
-            'integrationId="${storeSettings.integrationId}"');
-        return FiscalEmissaoResult(sucesso: false, erro: 'Integração fiscal não encontrada.', errosValidacao: validacao.erros, avisosValidacao: validacao.avisos);
+      final removidaEm = storeSettingsData?['integration_removida_em'];
+      if (removidaEm != null) {
+        debugPrint('[FiscalEmissaoService] integration_removida_em PRESENTE');
+        return FiscalEmissaoResult(
+          sucesso: false,
+          erro: 'Integração fiscal removida. ' +
+              'Solicite reparo do vínculo ou nova integração.',
+          errosValidacao: validacao.erros,
+          avisosValidacao: validacao.avisos,
+        );
       }
-      debugPrint('[FiscalEmissaoService] Integração ENCONTRADA: '
-          'provider=${integrationDoc['provider']}, '
-          'provider_name=${integrationDoc['provider_name']}');
+
+      final integrationData = storeSettingsData?['integration_data'] as Map<String, dynamic>?;
+      if (integrationData == null || integrationData.isEmpty) {
+        debugPrint('[FiscalEmissaoService] integration_data AUSENTE');
+        return FiscalEmissaoResult(
+          sucesso: false,
+          erro: 'Dados da integração não propagados. ' +
+              'Execute reparo do vínculo ou salve a integração novamente.',
+          errosValidacao: validacao.erros,
+          avisosValidacao: validacao.avisos,
+        );
+      }
+
+      final providerStr = integrationData['provider'] as String?;
+      if (providerStr == null || providerStr.isEmpty) {
+        debugPrint('[FiscalEmissaoService] provider AUSENTE');
+        return FiscalEmissaoResult(
+          sucesso: false,
+          erro: 'Provedor fiscal não configurado.',
+          errosValidacao: validacao.erros,
+          avisosValidacao: validacao.avisos,
+        );
+      }
+
+      final integStatus = (integrationData['status'] as String? ?? '').toLowerCase().trim();
+      if (integStatus == 'inactive') {
+        debugPrint('[FiscalEmissaoService] Integração INATIVA');
+        return FiscalEmissaoResult(
+          sucesso: false,
+          erro: 'Integração fiscal inativa. Ative-a no Painel Admin.',
+          errosValidacao: validacao.erros,
+          avisosValidacao: validacao.avisos,
+        );
+      }
+
+      debugPrint('[FiscalEmissaoService] Integração OK: '
+          'provider=$providerStr, status=$integStatus');
 
       // ─── 4. Provider ───
       final config = _providerService.extrairConfig(
-        integrationDoc,
+        integrationData,
         integrationId: storeSettings.integrationId,
       );
       config['store_id'] = lojaId;
@@ -245,12 +278,18 @@ class FiscalEmissaoService {
       }
 
       // Passa ie_isento (Inscrição Estadual dispensada) da company_tax_data
-      final comTaxData = storeSettingsData?['company_tax_data'] as Map<String, dynamic>?;
-      if (comTaxData != null && comTaxData['ie_isento'] == true) {
+      final comTaxData =
+          (storeSettingsData?['company_tax_data'] as Map<String, dynamic>?) ??
+              storeSettings.companyTaxData;
+      if (comTaxData != null &&
+          (comTaxData['ie_isento'] == true ||
+              resolverIeIsentoEmitente(comTaxData))) {
+        config['ie_isento'] = true;
+      } else if (payload.emitente.ieIsento) {
         config['ie_isento'] = true;
       }
 
-      final provider = _providerService.resolverDeIntegracao(integrationDoc);
+      final provider = _providerService.resolverDeIntegracao(integrationData);
       if (provider == null) {
         return FiscalEmissaoResult(sucesso: false, erro: 'Provedor fiscal não encontrado.', errosValidacao: validacao.erros, avisosValidacao: validacao.avisos);
       }
@@ -258,7 +297,13 @@ class FiscalEmissaoService {
       // ─── 5. Limite ───
       final limiteOk = await _verificarLimiteEmissao(lojaId);
       if (!limiteOk) {
-        return FiscalEmissaoResult(sucesso: false, erro: 'Limite mensal atingido.', errosValidacao: validacao.erros, avisosValidacao: validacao.avisos);
+        return FiscalEmissaoResult(
+          sucesso: false,
+          erro:
+              'Você atingiu o limite de emissões do seu plano. Aguarde a renovação do plano ou faça um upgrade para continuar emitindo NF-e.',
+          errosValidacao: validacao.erros,
+          avisosValidacao: validacao.avisos,
+        );
       }
 
       // ─── 6. Contingencia ───
@@ -305,8 +350,10 @@ class FiscalEmissaoService {
       // O token/api_key nunca transita no frontend.
       final resultado = await provider.emitirNota(p2, cfg);
 
-      // ─── 11. Persistir ───
-      FiscalDocumentModel? docModel;
+      // ─── 11. Persistência EXCLUSIVA pelo backend ───
+      // Toda criação/atualização de fiscal_documents, fiscal_emission_operations,
+      // saldo_notas e notificações é feita pela Cloud Function via Admin SDK.
+      // O frontend NUNCA escreve diretamente nessas coleções.
       String? msgFinal;
       String? codRej;
       ({String titulo, String descricao}) traducao = (
@@ -314,8 +361,21 @@ class FiscalEmissaoService {
         descricao: resultado.erro ?? '',
       );
       if (!resultado.sucesso) {
-        codRej = FiscalErroTranslator.extrairCodigoRejeicao(resultado.erro);
-        traducao = FiscalErroTranslator.traduzir(codRej, mensagemOriginal: resultado.erro);
+        codRej = resultado.sefazCode?.trim().isNotEmpty == true
+            ? resultado.sefazCode!.trim()
+            : FiscalErroTranslator.extrairCodigoRejeicao(
+                [
+                  resultado.erro,
+                  resultado.sefazMessage,
+                  resultado.mensagem,
+                  ...resultado.validationErrors,
+                  resultado.focusResponse,
+                ].whereType<String>().join(' | '),
+              );
+        traducao = FiscalErroTranslator.traduzir(
+          codRej,
+          mensagemOriginal: resultado.sefazMessage ?? resultado.erro,
+        );
       }
 
       if (resultado.sucesso) {
@@ -329,54 +389,11 @@ class FiscalEmissaoService {
             debugPrint('[FiscalEmissaoService] Erro ao confirmar numeração: $e');
           }
         }
-        docModel = FiscalDocumentModel(
-          id: '', storeId: lojaId, customerId: p2.clienteId,
-          documentType: p2.tipoDocumento.codigo, provider: provider.id,
-          status: emContingencia ? StatusFiscal.contingencia : StatusFiscal.autorizada,
-          accessKey: resultado.chaveAcesso, protocol: resultado.protocolo,
-          number: resultado.numero ?? (numeroUsar > 0 ? numeroUsar.toString() : null),
-          series: resultado.serie ?? serieUsar,
-          xmlUrl: resultado.xmlUrl, pdfUrl: resultado.pdfUrl,
-          providerResponse: resultado.providerResponse,
-          emContingencia: emContingencia, motivoContingencia: emContingencia ? 'SEFAZ offline' : null,
-          issuedAt: Timestamp.now(), createdAt: Timestamp.now(), updatedAt: Timestamp.now(),
-        );
-        try {
-          // FONTE ÚNICA DE VERDADE: fiscal_documents
-          // NOTA: O caller (ex: FiscalEmissaoModal) é responsável por atualizar
-          // users/{storeId}/notas_fiscais com os dados pós-emissão.
-          await FiscalIntegrationsService.registrarDocumento(docModel);
-        } catch (e) {
-          debugPrint('[FiscalEmissaoService] Erro ao salvar documento em fiscal_documents: $e');
-        }
-        try {
-          await _atualizarContagemEmissao(lojaId);
-        } catch (e) {
-          debugPrint('[FiscalEmissaoService] Erro ao atualizar contagem: $e');
-        }
         msgFinal = 'NF-e emitida${emContingencia ? " em contingência" : ""}.';
-        FiscalAuditService.registrar(lojaId: lojaId, acao: FiscalAuditService.acaoEmissao,
-          descricao: 'NF-e ${resultado.numero ?? ""} emitida${emContingencia ? " em contingência" : ""}',
-          documentoId: docModel.id, chaveAcesso: resultado.chaveAcesso, provedor: provider.id);
       } else {
-        docModel = FiscalDocumentModel(
-          id: '', storeId: lojaId, customerId: p2.clienteId,
-          documentType: p2.tipoDocumento.codigo, provider: provider.id,
-          status: StatusFiscal.rejeitada, accessKey: resultado.chaveAcesso,
-          number: numeroUsar > 0 ? numeroUsar.toString() : null, series: serieUsar,
-          rejectionReason: resultado.erro, rejectionCode: codRej,
-          providerResponse: resultado.providerResponse,
-          createdAt: Timestamp.now(), updatedAt: Timestamp.now(),
-        );
-        try {
-          await FiscalIntegrationsService.registrarDocumento(docModel);
-          // NOTA: o modal (FiscalEmissaoModal) já atualiza users/{storeId}/notas_fiscais
-        } catch (e) {
-          debugPrint('[FiscalEmissaoService] Erro ao salvar documento rejeitado: $e');
-        }
-        msgFinal = traducao.titulo;
-        FiscalAuditService.registrar(lojaId: lojaId, acao: 'emissao_rejeitada',
-          descricao: 'Rejeitada: ${traducao.titulo}', documentoId: docModel.id, provedor: provider.id);
+        msgFinal = codRej != null
+            ? 'Rejeição SEFAZ $codRej: ${traducao.titulo}'
+            : traducao.titulo;
       }
 
       return FiscalEmissaoResult(
@@ -389,14 +406,26 @@ class FiscalEmissaoService {
             : resultado.sucesso ? StatusFiscal.autorizada : StatusFiscal.rejeitada,
         mensagem: msgFinal, erro: resultado.erro,
         errosValidacao: validacao.erros, avisosValidacao: validacao.avisos,
-        documentoId: docModel.id.isNotEmpty ? docModel.id : null,
+        // documentoId é gerado pelo backend (Admin SDK) — frontend não persiste mais
+        documentoId: null,
         providerResponse: resultado.providerResponse, codigoRejeicao: codRej,
         // ─── Campos estruturados de erro ───
         focusStatusCode: resultado.focusStatusCode,
         focusResponse: resultado.focusResponse,
-        sefazCode: resultado.sefazCode,
-        sefazMessage: resultado.sefazMessage,
-        validationErrors: resultado.validationErrors,
+        sefazCode: resultado.sefazCode ?? codRej,
+        sefazMessage: resultado.sefazMessage ??
+            (codRej != null ? traducao.descricao : resultado.erro),
+        validationErrors: () {
+          final lista = <String>[...resultado.validationErrors];
+          final codigo = codRej;
+          if (codigo != null && codigo.isNotEmpty) {
+            final msg = 'Rejeição SEFAZ $codigo: ${traducao.titulo}';
+            if (!lista.any((e) => e.contains(codigo))) lista.insert(0, msg);
+          } else if (lista.isEmpty && msgFinal != null) {
+            lista.add(msgFinal);
+          }
+          return lista;
+        }(),
       );
     } catch (e) {
       return FiscalEmissaoResult(sucesso: false, erro: 'Erro interno na emissão: $e');
@@ -458,7 +487,7 @@ class FiscalEmissaoService {
             taxData = topLevelTax;
             debugPrint('[FiscalEmissaoService] Fallback: usando campos top-level. Encontrados: ${topLevelTax.keys.join(', ')}');
           } else {
-            debugPrint('[FiscalEmissaoService] company_tax_data VAZIO e sem campos top-level. Dados completos: $settingsData');
+            debugPrint('[FiscalEmissaoService] company_tax_data VAZIO e sem campos top-level. Dados presentes: keys=${settingsData.keys.join(', ')}');
           }
         }
       }
@@ -644,10 +673,12 @@ class FiscalEmissaoService {
     final razao = _str(d, ['razao_social', 'razaoSocial', 'nome', 'name']);
     final cnpj = _digitos(_str(d, ['cnpj', 'cpf_cnpj']));
     final ie = _str(d, ['ie', 'inscricao_estadual']);
-    if (razao.isEmpty || cnpj.isEmpty || ie.isEmpty) return null;
+    final ieIsento = resolverIeIsentoEmitente(d);
+    if (razao.isEmpty || cnpj.isEmpty) return null;
+    if (!ieIsento && ie.isEmpty) return null;
     return FiscalEmitente(
       razaoSocial: razao, nomeFantasia: _str(d, ['nome_fantasia', 'nomeFantasia', 'nome', 'name']),
-      cnpj: cnpj, ie: ie,
+      cnpj: cnpj, ie: ie, ieIsento: ieIsento,
       im: _strOrNull(d, ['im', 'inscricao_municipal']),
       crt: _strOrNull(d, ['crt', 'regime_tributario_codigo']),
       regimeTributario: _strOrNull(d, ['regime_tributario']),
@@ -694,6 +725,9 @@ class FiscalEmissaoService {
   }
 
   /// Constrói [StoreFiscalSettingsModel] diretamente de um Map sem fake DocSnapshot.
+  ///
+  /// SEGURANÇA: certificate_data_encrypted não é mais lido de store_fiscal_settings.
+  /// Certificado é buscado diretamente de fiscal_certificates quando necessário.
   StoreFiscalSettingsModel _settingsDoMap(Map<String, dynamic> data) {
     return StoreFiscalSettingsModel(
       id: data['id'] as String? ?? '',
@@ -703,7 +737,7 @@ class FiscalEmissaoService {
       enableNfce: data['enable_nfce'] as bool? ?? false,
       enableNfse: data['enable_nfse'] as bool? ?? false,
       companyTaxData: data['company_tax_data'] as Map<String, dynamic>?,
-      certificateDataEncrypted: data['certificate_data_encrypted'] as String?,
+      // certificate_data_encrypted não é mais lido de store_fiscal_settings
       nfeSettings: data['nfe_settings'] as Map<String, dynamic>?,
       nfceSettings: data['nfce_settings'] as Map<String, dynamic>?,
       nfseSettings: data['nfse_settings'] as Map<String, dynamic>?,
@@ -714,29 +748,17 @@ class FiscalEmissaoService {
     );
   }
 
-  Future<Map<String, dynamic>?> _buscarIntegracao(String integrationId) async {
-    if (integrationId.isEmpty) return null;
-    try {
-      final doc = await FirebaseFirestore.instance
-          .collection('fiscal_integrations')
-          .doc(integrationId)
-          .get();
-      if (doc.exists) return doc.data();
-      return null;
-    } catch (_) {
-      return null;
-    }
-  }
-
   Future<bool> _verificarLimiteEmissao(String storeId) async {
     try {
       final i = await LojistaIntegracaoService.buscarIntegracaoPorStore(storeId);
-      return i != null && i.notasRestantes > 0;
-    } catch (_) { return false; }
-  }
-
-  Future<void> _atualizarContagemEmissao(String storeId) async {
-    await LojistaIntegracaoService.registrarEmissao(storeId);
+      // Sem integração admin: não bloqueia aqui (backend valida GC/assinatura).
+      if (i == null) return true;
+      if (i.ehIlimitado) return true;
+      return !i.semVagaParaNovaEmissao;
+    } catch (_) {
+      // Fail-open: a API é a autoridade final do saldo.
+      return true;
+    }
   }
 
   String _str(Map<String, dynamic> d, List<String> chaves) {

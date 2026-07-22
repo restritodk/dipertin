@@ -3,46 +3,87 @@ import 'dart:convert';
 import 'dart:typed_data';
 import 'package:cloud_firestore/cloud_firestore.dart';
 import 'package:file_picker/file_picker.dart';
-import 'fiscal_crypto_util.dart';
+import '../firebase_functions_config.dart';
 
-/// Informacoes extraidas de um certificado digital A1.
+/// Informações extraídas de um certificado digital A1 (dados públicos).
 class CertificadoInfo {
+  final String? certificateId;
   final String? cnpj;
-  final String? razaoSocial;
-  final DateTime? validFrom;
-  final DateTime? validUntil;
-  final String? issuer;
-  final String? subject;
+  final String? titular;
+  final String? emissor;
+  final String? validadeInicio;
+  final String? validadeFim;
+  final String? status;
   final bool isValid;
+  final DateTime? enviadoEm;
 
   const CertificadoInfo({
+    this.certificateId,
     this.cnpj,
-    this.razaoSocial,
-    this.validFrom,
-    this.validUntil,
-    this.issuer,
-    this.subject,
+    this.titular,
+    this.emissor,
+    this.validadeInicio,
+    this.validadeFim,
+    this.status,
     this.isValid = false,
+    this.enviadoEm,
   });
 
-  bool get isExpired =>
-      validUntil != null && validUntil!.isBefore(DateTime.now());
-
-  String get statusLabel {
-    if (isExpired) return 'Vencido';
-    if (isValid) return 'Valido';
-    return 'Nao verificado';
+  bool get isExpired {
+    if (validadeFim == null) return false;
+    final date = DateTime.tryParse(validadeFim!);
+    return date != null && date.isBefore(DateTime.now());
   }
 
-  Map<String, dynamic> toMap() => {
-        if (cnpj != null) 'cnpj': cnpj,
-        if (razaoSocial != null) 'razao_social': razaoSocial,
-        if (validFrom != null) 'valido_de': validFrom!.toIso8601String(),
-        if (validUntil != null) 'valido_ate': validUntil!.toIso8601String(),
-        if (issuer != null) 'emissor': issuer,
-        if (subject != null) 'subject': subject,
-        'valido': isValid && !isExpired,
-      };
+  String get statusLabel {
+    if (status == 'vencido' || isExpired) return 'Vencido';
+    if (status == 'ativo') return 'Válido';
+    return status ?? 'Não configurado';
+  }
+
+  /// Cria a partir do campo `certificate_info` do `store_fiscal_settings`.
+  ///
+  /// Estrutura esperada (gerada pelo backend em `fiscalUploadCertificado`):
+  /// ```json
+  /// {
+  ///   "certificate_id": "...",
+  ///   "configured": true,
+  ///   "status": "valid",
+  ///   "subject_name": "...",
+  ///   "cnpj_masked": "...",
+  ///   "valid_until": Timestamp,
+  ///   "expires_soon": false,
+  ///   "last_validated_at": Timestamp
+  /// }
+  /// ```
+  factory CertificadoInfo.fromMap(Map<String, dynamic> map) {
+    // Tenta ler da estrutura pública certificate_info
+    final configured = map['configured'] == true;
+    final rawStatus = map['status'] as String? ?? '';
+    final rawValidUntil = map['valid_until'];
+
+    return CertificadoInfo(
+      certificateId: map['certificate_id'] as String?,
+      cnpj: map['cnpj_masked'] as String?,
+      titular: map['subject_name'] as String?,
+      emissor: null,
+      validadeInicio: null,
+      validadeFim: rawValidUntil != null
+          ? (rawValidUntil is Timestamp
+              ? rawValidUntil.toDate().toIso8601String()
+              : rawValidUntil.toString())
+          : null,
+      status: configured
+          ? (rawStatus == 'valid' ? 'ativo' : rawStatus == 'expired' ? 'vencido' : rawStatus)
+          : null,
+      isValid: configured && rawStatus == 'valid',
+      enviadoEm: map['last_validated_at'] != null
+          ? (map['last_validated_at'] is Timestamp
+              ? (map['last_validated_at'] as Timestamp).toDate()
+              : DateTime.tryParse(map['last_validated_at'] as String))
+          : null,
+    );
+  }
 }
 
 /// Resultado do upload do certificado.
@@ -58,19 +99,19 @@ class CertificadoUploadResult {
   });
 }
 
-/// Servico para gerenciar certificados digitais A1.
+/// Serviço para gerenciar certificados digitais A1.
 ///
-/// Responsabilidades:
-/// - Upload do arquivo .pfx/.p12
-/// - Validacao de extensao e tamanho
-/// - Criptografia do arquivo e senha
-/// - Salvamento no Firestore
-/// - Verificacao de expiracao
+/// O upload utiliza exclusivamente a Cloud Function fiscalUploadCertificado,
+/// que valida o PKCS#12, extrai dados, criptografa com FISCAL_MASTER_KEY
+/// no backend e salva em fiscal_certificates (staff-only).
+///
+/// SEGURANÇA:
+/// - Conteúdo e senha do certificado NUNCA ficam no frontend
+/// - Criptografia é feita exclusivamente no backend com FISCAL_MASTER_KEY
+/// - Apenas certificate_info público é retornado ao frontend
 abstract final class FiscalCertificadoService {
   static const int _maxBytes = 5 * 1024 * 1024; // 5MB
   static const List<String> _extensoesValidas = ['pfx', 'p12'];
-
-  static FirebaseFirestore get _db => FirebaseFirestore.instance;
 
   /// Abre o seletor de arquivos para certificado digital.
   static Future<PlatformFile?> selecionarArquivo() async {
@@ -85,14 +126,14 @@ abstract final class FiscalCertificadoService {
     return result.files.first;
   }
 
-  /// Valida o arquivo de certificado.
+  /// Valida o arquivo de certificado (apenas extensão e tamanho, UX).
   static String? validarArquivo(PlatformFile file) {
     final ext = file.extension?.toLowerCase() ?? '';
     if (!_extensoesValidas.contains(ext)) {
-      return 'Formato invalido. Use arquivos .pfx ou .p12.';
+      return 'Formato inválido. Use arquivos .pfx ou .p12.';
     }
     if (file.size > _maxBytes) {
-      return 'Arquivo muito grande. Maximo 5MB.';
+      return 'Arquivo muito grande. Máximo 5MB.';
     }
     if (file.bytes == null || file.bytes!.isEmpty) {
       return 'Arquivo vazio.';
@@ -100,28 +141,11 @@ abstract final class FiscalCertificadoService {
     return null;
   }
 
-  /// Extrai informacoes basicas do certificado.
+  /// Envia o certificado para a Cloud Function fiscalUploadCertificado.
   ///
-  /// NOTA: A extracao completa dos dados do .pfx/.p12 requer
-  /// processamento no backend (Node.js com node-forge ou similar).
-  /// Aqui extraimos apenas informacoes basicas via nome do arquivo.
-  static CertificadoInfo extrairInfoBasica({
-    required PlatformFile file,
-    required String senha,
-  }) {
-    // Extrai informacao do nome do arquivo como fallback
-    // Em producao, usar Cloud Function para ler o .pfx com node-forge
-    final now = DateTime.now();
-    return CertificadoInfo(
-      cnpj: null, // Seria extraido do certificado pelo backend
-      razaoSocial: file.name.replaceAll(RegExp(r'\.(pfx|p12)$'), ''),
-      validFrom: now.subtract(const Duration(days: 365)),
-      validUntil: now.add(const Duration(days: 365)),
-      isValid: true,
-    );
-  }
-
-  /// Salva o certificado criptografado no Firestore.
+  /// A Function valida PKCS#12, CNPJ, validade e criptografa com
+  /// FISCAL_MASTER_KEY no backend. NUNCA persiste senha ou conteúdo
+  /// no frontend.
   static Future<CertificadoUploadResult> salvarCertificado({
     required String storeId,
     required Uint8List arquivoBytes,
@@ -129,110 +153,119 @@ abstract final class FiscalCertificadoService {
     String? integrationId,
   }) async {
     try {
-      // Valida tamanho
+      // Validação client-side (UX)
       if (arquivoBytes.length > _maxBytes) {
         return const CertificadoUploadResult(
           sucesso: false,
-          erro: 'Arquivo muito grande. Maximo 5MB.',
+          erro: 'Arquivo muito grande. Máximo 5MB.',
         );
       }
 
-      // Criptografa os bytes do certificado
-      final certificadoBase64 = base64Encode(arquivoBytes);
-      final certificadoEncrypted = FiscalCryptoUtil.encrypt(certificadoBase64);
+      // Converte para base64 para envio à CF
+      final arquivoBase64 = base64Encode(arquivoBytes);
 
-      // Criptografa a senha separadamente
-      final senhaEncrypted = FiscalCryptoUtil.encrypt(senha);
-
-      // Data de validade (fallback de 1 ano a partir de hoje)
-      const validadePadrao = Duration(days: 365);
-      final validoAte = DateTime.now().add(validadePadrao);
-
-      // Busca settings existente ou cria novo
-      final settings = await _db
-          .collection('store_fiscal_settings')
-          .where('store_id', isEqualTo: storeId)
-          .limit(1)
-          .get();
-
-      final metadata = {
-        'certificate_data_encrypted': certificadoEncrypted,
-        'certificate_password_encrypted': senhaEncrypted,
-        'certificate_cnpj': null, // Extraido pelo backend
-        'certificate_company_name': null, // Extraido pelo backend
-        'certificate_valid_from': validoAte.subtract(validadePadrao).toIso8601String(),
-        'certificate_valid_until': validoAte.toIso8601String(),
-        'certificate_status': validoAte.isAfter(DateTime.now()) ? 'valido' : 'vencido',
-        'certificate_updated_at': FieldValue.serverTimestamp(),
-        'updated_at': FieldValue.serverTimestamp(),
-      };
-
-      if (settings.docs.isNotEmpty) {
-        await settings.docs.first.reference.update(metadata);
-      } else {
-        await _db.collection('store_fiscal_settings').add({
+      // Chama Cloud Function fiscalUploadCertificado
+      final result = await callFirebaseFunctionSafe(
+        'fiscalUploadCertificado',
+        parameters: {
           'store_id': storeId,
-          ...metadata,
-          'status': 'active',
-          'enable_nfe': false,
-          'created_at': FieldValue.serverTimestamp(),
-        });
+          'arquivo_base64': arquivoBase64,
+          'senha': senha,
+          'nome_arquivo': integrationId ?? 'certificado.pfx',
+        },
+        region: 'us-east1',
+      );
+
+      if (result['sucesso'] == true) {
+        final certInfoRaw = result['certificate_info'] as Map<String, dynamic>?;
+        return CertificadoUploadResult(
+          sucesso: true,
+          info: certInfoRaw != null
+              ? CertificadoInfo.fromMap(certInfoRaw)
+              : null,
+        );
       }
 
       return CertificadoUploadResult(
-        sucesso: true,
-        info: CertificadoInfo(
-          validUntil: validoAte,
-          isValid: true,
-          cnpj: null,
-          razaoSocial: null,
-        ),
+        sucesso: false,
+        erro: result['mensagem'] as String? ?? 'Erro ao processar certificado.',
+      );
+    } catch (e) {
+      final mensagem = e.toString();
+      // Traduz erros conhecidos
+      if (mensagem.contains('senha_incorreta') ||
+          mensagem.contains('Senha do certificado incorreta')) {
+        return const CertificadoUploadResult(
+          sucesso: false,
+          erro: 'Senha do certificado incorreta.',
+        );
+      }
+      if (mensagem.contains('CNPJ') && mensagem.contains('não corresponde')) {
+        return const CertificadoUploadResult(
+          sucesso: false,
+          erro: 'CNPJ do certificado não corresponde ao CNPJ da loja.',
+        );
+      }
+      if (mensagem.contains('expirado') || mensagem.contains('Expirou')) {
+        return const CertificadoUploadResult(
+          sucesso: false,
+          erro: 'Certificado digital expirado. Renove antes de enviar.',
+        );
+      }
+      return CertificadoUploadResult(
+        sucesso: false,
+        erro: 'Erro ao enviar certificado: $e',
+      );
+    }
+  }
+
+  /// Remove certificado via Cloud Function fiscalRemoverCertificado.
+  static Future<CertificadoUploadResult> removerCertificado({
+    required String certificateId,
+  }) async {
+    try {
+      final result = await callFirebaseFunctionSafe(
+        'fiscalRemoverCertificado',
+        parameters: {
+          'certificate_id': certificateId,
+        },
+        region: 'us-east1',
+      );
+
+      if (result['sucesso'] == true) {
+        return const CertificadoUploadResult(sucesso: true);
+      }
+
+      return CertificadoUploadResult(
+        sucesso: false,
+        erro: result['mensagem'] as String? ?? 'Erro ao remover certificado.',
       );
     } catch (e) {
       return CertificadoUploadResult(
         sucesso: false,
-        erro: 'Erro ao salvar certificado: $e',
+        erro: 'Erro ao remover certificado: $e',
       );
     }
   }
 
-  /// Verifica se o certificado de uma loja esta expirado.
+  /// Verifica se o certificado de uma loja está expirado.
   static Future<bool> verificarExpiracao(String storeId) async {
     try {
-      final settings = await _db
-          .collection('store_fiscal_settings')
-          .where('store_id', isEqualTo: storeId)
-          .limit(1)
-          .get();
-
-      if (settings.docs.isEmpty) return true;
-
-      final data = settings.docs.first.data();
-      final certificateStatus = data['certificate_status'] as String?;
-      final validUntil = data['certificate_valid_until'] as String?;
-
-      if (certificateStatus == 'vencido') return true;
-      if (validUntil != null) {
-        final date = DateTime.tryParse(validUntil);
-        if (date != null && date.isBefore(DateTime.now())) {
-          // Atualiza status para vencido
-          await settings.docs.first.reference.update({
-            'certificate_status': 'vencido',
-          });
-          return true;
-        }
-      }
-      return false;
+      final info = await obterInfoCertificado(storeId);
+      return info == null || info.isExpired || info.status == 'vencido';
     } catch (_) {
-      return true; // Bloqueia emissao se nao conseguir verificar
+      return true; // Bloqueia emissão se não conseguir verificar
     }
   }
 
-  /// Retorna informacoes do certificado de uma loja.
+  /// Retorna informações públicas do certificado de uma loja.
+  ///
+  /// Lê exclusivamente do campo `certificate_info` em `store_fiscal_settings`.
+  /// SEGURANÇA: NUNCA acessa `fiscal_certificates` (staff-only).
   static Future<CertificadoInfo?> obterInfoCertificado(
       String storeId) async {
     try {
-      final settings = await _db
+      final settings = await FirebaseFirestore.instance
           .collection('store_fiscal_settings')
           .where('store_id', isEqualTo: storeId)
           .limit(1)
@@ -241,26 +274,14 @@ abstract final class FiscalCertificadoService {
       if (settings.docs.isEmpty) return null;
 
       final data = settings.docs.first.data();
-      final validUntilStr = data['certificate_valid_until'] as String?;
-      final validFromStr = data['certificate_valid_from'] as String?;
+      final certificateInfo =
+          data['certificate_info'] as Map<String, dynamic>?;
 
-      DateTime? validUntil;
-      DateTime? validFrom;
-      if (validUntilStr != null) validUntil = DateTime.tryParse(validUntilStr);
-      if (validFromStr != null) validFrom = DateTime.tryParse(validFromStr);
+      if (certificateInfo != null && certificateInfo['configured'] == true) {
+        return CertificadoInfo.fromMap(certificateInfo);
+      }
 
-      final certificateData =
-          data['certificate_data_encrypted'] as String?;
-
-      return CertificadoInfo(
-        cnpj: data['certificate_cnpj'] as String?,
-        razaoSocial: data['certificate_company_name'] as String?,
-        validFrom: validFrom,
-        validUntil: validUntil,
-        isValid: certificateData != null &&
-            certificateData.isNotEmpty &&
-            data['certificate_status'] != 'vencido',
-      );
+      return null;
     } catch (_) {
       return null;
     }

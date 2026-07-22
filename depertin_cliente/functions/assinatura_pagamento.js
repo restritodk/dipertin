@@ -19,6 +19,8 @@ const { onSchedule } = require("firebase-functions/v2/scheduler");
 const admin = require("firebase-admin");
 
 const MP_API = "https://api.mercadopago.com";
+const ASSINATURA_MP_WEBHOOK_URL =
+    "https://us-central1-depertin-f940f.cloudfunctions.net/webhookMercadoPagoGestaoComercial";
 
 // =============================================================================
 // HELPERS MP
@@ -251,12 +253,33 @@ async function resolverMetodoPagamentoPorBinMp(gateway, bin) {
 
 /**
  * Busca status do pagamento no MP.
+ * Falha se HTTP não for 2xx ou se o body não tiver id/status válidos.
  */
 async function fetchPaymentFromMp(accessToken, paymentId) {
-    const res = await fetch(MP_API + "/v1/payments/" + paymentId, {
+    const id = String(paymentId || "").trim();
+    if (!id) {
+        throw new Error("payment_id_ausente");
+    }
+    const res = await fetch(MP_API + "/v1/payments/" + encodeURIComponent(id), {
         headers: { Authorization: "Bearer " + accessToken },
     });
-    return await res.json().catch(() => ({}));
+    const body = await res.json().catch(() => ({}));
+    if (!res.ok) {
+        const msg = (body && (body.message || body.error)) || ("HTTP " + res.status);
+        throw new Error("mp_fetch_falhou: " + msg);
+    }
+    if (!body || body.id == null) {
+        throw new Error("mp_resposta_invalida");
+    }
+    return body;
+}
+
+/**
+ * PIX (e renovação) só confirma com status exatamente "approved".
+ * "authorized" NÃO conta — é fluxo de cartão/pré-autorização, não pagamento liquidado.
+ */
+function mpStatusEhAprovado(status) {
+    return String(status || "").trim().toLowerCase() === "approved";
 }
 
 /**
@@ -407,6 +430,9 @@ async function ativarAssinatura(db, assinaturaId, dados) {
  * Resposta: { assinaturaId, paymentId, qrCode, qrCodeBase64, pixCopiaECola, expiresAt }
  */
 exports.assinarPlanoCriarPagamentoPix = onCall(
+    // TODO: voltar para `enforceAppCheck: true` após corrigir a Secret Key do
+    // reCAPTCHA v3 no Firebase Console → App Check → depertin_web.
+    // Sem token App Check o cliente recebe 401 UNAUTHENTICATED (Auth ok).
     { region: "us-central1", enforceAppCheck: false, timeoutSeconds: 60 },
     async (request) => {
         if (!request.auth) {
@@ -505,6 +531,15 @@ exports.assinarPlanoCriarPagamentoPix = onCall(
                 first_name: ownerName || lojaNome || "Lojista",
             },
             external_reference: externalRef,
+            notification_url: ASSINATURA_MP_WEBHOOK_URL,
+            metadata: {
+                tipo: "assinatura_contratacao",
+                assinatura_id: assinaturaId,
+                assinaturaId: assinaturaId,
+                store_id: lojaId,
+                storeId: lojaId,
+                plan_id: planId,
+            },
         };
 
         // 4. Criar PIX no MP
@@ -556,6 +591,7 @@ exports.assinarPlanoCriarPagamentoPix = onCall(
  * Resposta: { status, pago, plano, assinaturaId }
  */
 exports.assinarPlanoConsultarStatusPix = onCall(
+    // TODO: voltar para enforceAppCheck:true após corrigir Secret Key reCAPTCHA.
     { region: "us-central1", enforceAppCheck: false, timeoutSeconds: 30 },
     async (request) => {
         if (!request.auth) {
@@ -579,13 +615,17 @@ exports.assinarPlanoConsultarStatusPix = onCall(
 
         const assinatura = assinaturaSnap.data() || {};
 
-        // Se já está ativo, retorna sucesso
+        // Se já está ativo, retorna sucesso (ativação prévia com pagamento real)
         if (assinatura.status === "ativo") {
             return {
+                success: true,
+                payment_status: "approved",
+                approved: true,
                 status: "ativo",
                 pago: true,
                 plano: assinatura.plan_name || "",
                 assinaturaId: assinaturaId,
+                payment_id: assinatura.mp_payment_id || assinatura.pagamento_mp_payment_id || null,
             };
         }
 
@@ -629,7 +669,8 @@ exports.assinarPlanoConsultarStatusPix = onCall(
 
         const mpStatus = String(mpPayment.status || "");
 
-        if (mpStatus === "approved" || mpStatus === "authorized") {
+        // PIX: somente status === "approved" (não "authorized")
+        if (mpStatusEhAprovado(mpStatus)) {
             // Ativar assinatura!
             await ativarAssinatura(db, assinaturaId, {
                 lojaId: assinatura.store_id,
@@ -645,10 +686,14 @@ exports.assinarPlanoConsultarStatusPix = onCall(
             });
 
             return {
+                success: true,
+                payment_status: "approved",
+                approved: true,
                 status: "ativo",
                 pago: true,
                 plano: assinatura.plan_name || "",
                 assinaturaId: assinaturaId,
+                payment_id: paymentId,
             };
         }
 
@@ -658,10 +703,26 @@ exports.assinarPlanoConsultarStatusPix = onCall(
                 mp_status: mpStatus,
                 updated_at: admin.firestore.Timestamp.now(),
             });
-            return { status: "recusado", pago: false, assinaturaId: assinaturaId };
+            return {
+                success: true,
+                payment_status: mpStatus,
+                approved: false,
+                status: "recusado",
+                pago: false,
+                assinaturaId: assinaturaId,
+                payment_id: paymentId,
+            };
         }
 
-        return { status: "pagamento_pendente", pago: false, assinaturaId: assinaturaId };
+        return {
+            success: true,
+            payment_status: mpStatus || "pending",
+            approved: false,
+            status: "pagamento_pendente",
+            pago: false,
+            assinaturaId: assinaturaId,
+            payment_id: paymentId,
+        };
     },
 );
 
@@ -679,6 +740,7 @@ exports.assinarPlanoConsultarStatusPix = onCall(
  * Resposta: { aprovado, assinaturaId, mp_status, mensagem }
  */
 exports.assinarPlanoProcessarCartao = onCall(
+    // TODO: voltar para enforceAppCheck:true após corrigir Secret Key reCAPTCHA.
     { region: "us-central1", enforceAppCheck: false, timeoutSeconds: 120 },
     async (request) => {
         if (!request.auth) {
@@ -933,22 +995,33 @@ async function renovarAssinatura(db, assinaturaId, dados) {
         pagamento_mp_payment_id: dados.mpPaymentId || null,
         pagamento_mp_status: "approved",
         pagamento_aprovado_em: now,
-        // Limpa atraso
+        renovacao_processada_payment_id: dados.mpPaymentId || null,
+        renovacao_processada_em: now,
+        // Limpa atraso e bloqueio
         dias_em_atraso: 0,
         multa_calculada: 0,
         juros_calculados: 0,
         total_atualizado: dados.valor || 0,
         ultimo_pagamento_valor: dados.valor || 0,
         updated_at: now,
-        historico: admin.firestore.FieldValue.arrayUnion([
-            {
-                tipo: "renovacao",
-                descricao: "Assinatura renovada com pagamento aprovado via Mercado Pago.",
-                data_em: now,
-                valor_pago: dados.valor || 0,
-                mp_payment_id: dados.mpPaymentId || null,
-            },
-        ]),
+        blocked_at: admin.firestore.FieldValue.delete(),
+        block_reason: admin.firestore.FieldValue.delete(),
+        status_renovacao: admin.firestore.FieldValue.delete(),
+        renovacao_valor: admin.firestore.FieldValue.delete(),
+        renovacao_external_ref: admin.firestore.FieldValue.delete(),
+        renovacao_expira_em: admin.firestore.FieldValue.delete(),
+        renovacao_mp_payment_id: admin.firestore.FieldValue.delete(),
+        renovacao_mp_status: admin.firestore.FieldValue.delete(),
+        renovacao_qr_code: admin.firestore.FieldValue.delete(),
+        renovacao_qr_code_base64: admin.firestore.FieldValue.delete(),
+        historico: admin.firestore.FieldValue.arrayUnion({
+            tipo: "renovacao",
+            descricao: "Assinatura renovada com pagamento aprovado via Mercado Pago.",
+            data_em: now,
+            valor_pago: dados.valor || 0,
+            mp_payment_id: dados.mpPaymentId || null,
+            origem: dados.origem || "polling",
+        }),
     });
     // Audit log
     try {
@@ -975,6 +1048,7 @@ async function renovarAssinatura(db, assinaturaId, dados) {
  * Entrada: { assinaturaId, lojaId, ownerName, ownerEmail, ownerPhone, valor, planName }
  */
 exports.assinarPlanoRenovarPix = onCall(
+    // TODO: voltar para enforceAppCheck:true após corrigir Secret Key reCAPTCHA.
     { region: "us-central1", enforceAppCheck: false, timeoutSeconds: 60 },
     async (request) => {
         if (!request.auth) throw new HttpsError("unauthenticated", "Login necessário.");
@@ -1005,15 +1079,21 @@ exports.assinarPlanoRenovarPix = onCall(
             throw new HttpsError("failed-precondition", "Gateway de pagamento não configurado.");
         }
 
-        // Prepara doc com status renovacao_pendente
+        // Sempre gera um novo PIX de antecipação.
+        // NÃO tratar "plano já ativo" / último pagamento antigo como pago desta cobrança.
         const now = admin.firestore.Timestamp.now();
-        const expiresAt = new Date(Date.now() + 5 * 60 * 1000);
-        const externalRef = "renovar_" + assinaturaId;
+        const expiresAt = new Date(Date.now() + 30 * 60 * 1000);
+        const externalRef = "renovar_" + assinaturaId + "_" + Date.now();
         await db.collection("assinaturas_clientes").doc(assinaturaId).update({
             status_renovacao: "renovacao_pendente",
             renovacao_valor: valor,
             renovacao_external_ref: externalRef,
             renovacao_expira_em: expiresAt.toISOString(),
+            // limpa espelho do PIX anterior (evita confirmar pagamento velho)
+            renovacao_mp_payment_id: admin.firestore.FieldValue.delete(),
+            renovacao_mp_status: admin.firestore.FieldValue.delete(),
+            renovacao_qr_code: admin.firestore.FieldValue.delete(),
+            renovacao_qr_code_base64: admin.firestore.FieldValue.delete(),
             updated_at: now,
         });
 
@@ -1028,6 +1108,14 @@ exports.assinarPlanoRenovarPix = onCall(
                 first_name: ownerName || lojaId || "Lojista",
             },
             external_reference: externalRef,
+            notification_url: ASSINATURA_MP_WEBHOOK_URL,
+            metadata: {
+                tipo: "assinatura_renovacao",
+                assinatura_id: assinaturaId,
+                assinaturaId: assinaturaId,
+                store_id: lojaId,
+                storeId: lojaId,
+            },
         };
 
         let mpResponse;
@@ -1070,9 +1158,20 @@ exports.assinarPlanoRenovarPix = onCall(
 // =============================================================================
 
 /**
- * onCall v2: Consulta status do PIX de renovação e ativa se pago.
+ * onCall v2: Consulta status do PIX de renovação.
+ *
+ * REGRA: só confirma pagamento quando Mercado Pago retorna status === "approved".
+ * Assinatura já "ativo", HTTP 200, success, payment_id ou QR gerado NÃO confirmam PIX.
+ *
+ * Resposta (sempre):
+ *   success          — consulta executada OK (nunca significa pago)
+ *   payment_status   — pending | approved | expired | rejected | ...
+ *   approved         — true somente se MP status === approved
+ *   pago             — alias de approved (legado)
+ *   payment_id
  */
 exports.assinarPlanoRenovarConsultarStatusPix = onCall(
+    // TODO: voltar para enforceAppCheck:true após corrigir Secret Key reCAPTCHA.
     { region: "us-central1", enforceAppCheck: false, timeoutSeconds: 30 },
     async (request) => {
         if (!request.auth) throw new HttpsError("unauthenticated", "Login necessário.");
@@ -1081,70 +1180,296 @@ exports.assinarPlanoRenovarConsultarStatusPix = onCall(
         if (!assinaturaId) throw new HttpsError("invalid-argument", "assinaturaId é obrigatório.");
 
         const db = admin.firestore();
-        const snap = await db.collection("assinaturas_clientes").doc(assinaturaId).get();
-        if (!snap.exists) return { status: "nao_encontrado", pago: false };
+        const ref = db.collection("assinaturas_clientes").doc(assinaturaId);
+        const snap = await ref.get();
+        if (!snap.exists) {
+            return {
+                success: true,
+                payment_status: "nao_encontrado",
+                approved: false,
+                pago: false,
+                status: "nao_encontrado",
+                payment_id: null,
+            };
+        }
 
         const assinatura = snap.data() || {};
-
-        // Se já está ativo (renovação concluída)
-        if (assinatura.status === "ativo" && assinatura.status_renovacao !== "renovacao_pendente") {
-            return { status: "ativo", pago: true, assinaturaId: assinaturaId };
+        const storeId = String(assinatura.store_id || "").trim();
+        const callerUid = request.auth.uid;
+        // Dono da loja ou o próprio store_id
+        if (storeId && storeId !== callerUid) {
+            // Colaborador: users/{caller}.lojista_owner_uid === storeId
+            let permitido = false;
+            try {
+                const userSnap = await db.collection("users").doc(callerUid).get();
+                const u = userSnap.exists ? (userSnap.data() || {}) : {};
+                if (String(u.lojista_owner_uid || "").trim() === storeId) permitido = true;
+            } catch (_) { /* ignore */ }
+            if (!permitido) {
+                throw new HttpsError("permission-denied", "Sem acesso a esta assinatura.");
+            }
         }
 
-        // Verificar expiração
-        const expiraEm = assinatura.renovacao_expira_em ? new Date(assinatura.renovacao_expira_em) : null;
-        if (expiraEm && expiraEm < new Date()) {
-            await db.collection("assinaturas_clientes").doc(assinaturaId).update({
-                status_renovacao: "expirado",
-                updated_at: admin.firestore.Timestamp.now(),
-            });
-            return { status: "expirado", pago: false, assinaturaId: assinaturaId };
+        // Somente o PIX desta antecipação (renovacao_mp_payment_id).
+        // Plano já "ativo" / pagamento antigo NÃO confirma esta cobrança.
+        const paymentId = assinatura.renovacao_mp_payment_id
+            ? String(assinatura.renovacao_mp_payment_id)
+            : "";
+        const statusRenovacao = String(assinatura.status_renovacao || "");
+
+        // Idempotência: ESTE payment_id da renovação em aberto já foi processado
+        if (paymentId
+            && String(assinatura.renovacao_processada_payment_id || "") === paymentId
+            && String(assinatura.pagamento_mp_status || "") === "approved") {
+            return {
+                success: true,
+                payment_status: "approved",
+                approved: true,
+                pago: true,
+                status: "ativo",
+                payment_id: paymentId,
+                assinaturaId: assinaturaId,
+                already: true,
+            };
         }
 
-        const gateway = await getMercadoPagoAccessToken();
-        if (!gateway) return { status: "erro_gateway", pago: false, assinaturaId: assinaturaId };
+        if (statusRenovacao !== "renovacao_pendente" && statusRenovacao !== "expirado") {
+            return {
+                success: true,
+                payment_status: "idle",
+                approved: false,
+                pago: false,
+                status: statusRenovacao || "sem_renovacao_pendente",
+                payment_id: paymentId || null,
+                assinaturaId: assinaturaId,
+            };
+        }
 
-        const paymentId = assinatura.renovacao_mp_payment_id;
-        if (!paymentId) return { status: "renovacao_pendente", pago: false, assinaturaId: assinaturaId };
+        if (!paymentId) {
+            return {
+                success: true,
+                payment_status: "pending",
+                approved: false,
+                pago: false,
+                status: "renovacao_pendente",
+                payment_id: null,
+                assinaturaId: assinaturaId,
+            };
+        }
+
+        const accessToken = await getMercadoPagoAccessToken();
+        if (!accessToken) {
+            return {
+                success: false,
+                payment_status: "erro_gateway",
+                approved: false,
+                pago: false,
+                status: "erro_gateway",
+                payment_id: paymentId,
+                assinaturaId: assinaturaId,
+            };
+        }
 
         let mpPayment;
         try {
-            mpPayment = await fetchPaymentFromMp(gateway, paymentId);
+            mpPayment = await fetchPaymentFromMp(accessToken, paymentId);
         } catch (e) {
-            return { status: "renovacao_pendente", pago: false, assinaturaId: assinaturaId };
+            console.warn("[renovar-status-pix] MP fetch:", e.message || e);
+            return {
+                success: true,
+                payment_status: "pending",
+                approved: false,
+                pago: false,
+                status: "renovacao_pendente",
+                payment_id: paymentId,
+                assinaturaId: assinaturaId,
+            };
         }
 
-        const mpStatus = String(mpPayment.status || "");
-        if (mpStatus === "approved" || mpStatus === "authorized") {
-            await renovarAssinatura(db, assinaturaId, {
-                lojaId: assinatura.store_id,
-                planName: assinatura.plan_name,
-                valor: assinatura.renovacao_valor || assinatura.monthly_amount || 0,
-                mpPaymentId: paymentId,
-            });
-            // Limpa campos temporários de renovação
-            await db.collection("assinaturas_clientes").doc(assinaturaId).update({
-                status_renovacao: admin.firestore.FieldValue.delete(),
-                renovacao_valor: admin.firestore.FieldValue.delete(),
-                renovacao_external_ref: admin.firestore.FieldValue.delete(),
-                renovacao_expira_em: admin.firestore.FieldValue.delete(),
-                renovacao_mp_payment_id: admin.firestore.FieldValue.delete(),
-                renovacao_mp_status: admin.firestore.FieldValue.delete(),
-                renovacao_qr_code: admin.firestore.FieldValue.delete(),
-                renovacao_qr_code_base64: admin.firestore.FieldValue.delete(),
-            });
-            return { status: "ativo", pago: true, assinaturaId: assinaturaId };
+        const mpId = String(mpPayment.id || "");
+        if (mpId && mpId !== paymentId) {
+            return {
+                success: true,
+                payment_status: "pending",
+                approved: false,
+                pago: false,
+                status: "renovacao_pendente",
+                payment_id: paymentId,
+                assinaturaId: assinaturaId,
+            };
         }
 
-        if (mpStatus === "rejected" || mpStatus === "cancelled" || mpStatus === "refunded") {
-            await db.collection("assinaturas_clientes").doc(assinaturaId).update({
+        const meta = mpPayment.metadata || {};
+        const metaAssinatura = String(meta.assinatura_id || meta.assinaturaId || "").trim();
+        const extRef = String(mpPayment.external_reference || "");
+        const extOk = extRef === ("renovar_" + assinaturaId)
+            || extRef.indexOf("renovar_" + assinaturaId) === 0;
+        const valorEsperado = Number(assinatura.renovacao_valor || assinatura.monthly_amount || 0);
+        const valorPago = Number(mpPayment.transaction_amount || 0);
+        const mpStatus = String(mpPayment.status || "").trim().toLowerCase();
+
+        try {
+            await ref.update({
+                renovacao_mp_status: mpStatus || "pending",
+                updated_at: admin.firestore.Timestamp.now(),
+            });
+        } catch (_) { /* ignore */ }
+
+        if (mpStatusEhAprovado(mpStatus)) {
+            if (metaAssinatura && metaAssinatura !== assinaturaId) {
+                return {
+                    success: false,
+                    payment_status: "bloqueado",
+                    approved: false,
+                    pago: false,
+                    status: "bloqueado",
+                    payment_id: paymentId,
+                    assinaturaId: assinaturaId,
+                };
+            }
+            if (!extOk && !metaAssinatura) {
+                return {
+                    success: false,
+                    payment_status: "bloqueado",
+                    approved: false,
+                    pago: false,
+                    status: "bloqueado",
+                    payment_id: paymentId,
+                    assinaturaId: assinaturaId,
+                };
+            }
+            if (valorEsperado > 0 && Math.abs(valorPago - valorEsperado) > 0.009) {
+                return {
+                    success: false,
+                    payment_status: "bloqueado",
+                    approved: false,
+                    pago: false,
+                    status: "bloqueado",
+                    payment_id: paymentId,
+                    assinaturaId: assinaturaId,
+                };
+            }
+
+            const resultadoTx = await db.runTransaction(async (tx) => {
+                const fresh = await tx.get(ref);
+                if (!fresh.exists) return { ok: false, reason: "nao_encontrado" };
+                const a = fresh.data() || {};
+                const pid = String(a.renovacao_mp_payment_id || "");
+                if (pid !== paymentId) {
+                    if (String(a.renovacao_processada_payment_id || "") === paymentId
+                        && String(a.pagamento_mp_status || "") === "approved") {
+                        return { ok: true, already: true };
+                    }
+                    return { ok: false, reason: "payment_id_desatualizado" };
+                }
+                if (String(a.renovacao_processada_payment_id || "") === paymentId
+                    && String(a.pagamento_mp_status || "") === "approved") {
+                    return { ok: true, already: true };
+                }
+                tx.update(ref, {
+                    status_renovacao: "renovacao_pendente",
+                    renovacao_processada_payment_id: paymentId,
+                    renovacao_processada_em: admin.firestore.FieldValue.serverTimestamp(),
+                });
+                return { ok: true, already: false };
+            });
+
+            if (resultadoTx && resultadoTx.ok && !resultadoTx.already) {
+                await renovarAssinatura(db, assinaturaId, {
+                    lojaId: storeId || assinatura.store_id,
+                    planName: assinatura.plan_name,
+                    valor: valorEsperado || valorPago,
+                    mpPaymentId: paymentId,
+                    origem: "polling",
+                });
+            } else if (resultadoTx && !resultadoTx.ok) {
+                const again = await ref.get();
+                const a2 = again.exists ? (again.data() || {}) : {};
+                if (String(a2.renovacao_processada_payment_id || "") === paymentId
+                    && String(a2.pagamento_mp_status || "") === "approved") {
+                    return {
+                        success: true,
+                        payment_status: "approved",
+                        approved: true,
+                        pago: true,
+                        status: "ativo",
+                        payment_id: paymentId,
+                        assinaturaId: assinaturaId,
+                        already: true,
+                    };
+                }
+                return {
+                    success: true,
+                    payment_status: "pending",
+                    approved: false,
+                    pago: false,
+                    status: "renovacao_pendente",
+                    payment_id: paymentId,
+                    assinaturaId: assinaturaId,
+                };
+            }
+
+            return {
+                success: true,
+                payment_status: "approved",
+                approved: true,
+                pago: true,
+                status: "ativo",
+                payment_id: paymentId,
+                assinaturaId: assinaturaId,
+                message: "Pagamento aprovado! Assinatura renovada.",
+            };
+        }
+
+        if (mpStatus === "rejected" || mpStatus === "cancelled" || mpStatus === "refunded"
+            || mpStatus === "charged_back") {
+            await ref.update({
                 status_renovacao: "recusado",
                 updated_at: admin.firestore.Timestamp.now(),
             });
-            return { status: "recusado", pago: false, assinaturaId: assinaturaId };
+            return {
+                success: true,
+                payment_status: mpStatus,
+                approved: false,
+                pago: false,
+                status: "recusado",
+                payment_id: paymentId,
+                assinaturaId: assinaturaId,
+            };
         }
 
-        return { status: "renovacao_pendente", pago: false, assinaturaId: assinaturaId };
+        const expiraEm = assinatura.renovacao_expira_em
+            ? new Date(assinatura.renovacao_expira_em)
+            : null;
+        if (expiraEm && expiraEm < new Date()) {
+            try {
+                await ref.update({
+                    status_renovacao: "expirado",
+                    updated_at: admin.firestore.Timestamp.now(),
+                });
+            } catch (_) { /* ignore */ }
+            return {
+                success: true,
+                payment_status: "expired",
+                approved: false,
+                pago: false,
+                status: "expirado",
+                payment_id: paymentId,
+                assinaturaId: assinaturaId,
+                message: "Este PIX expirou. Gere uma nova cobrança para continuar.",
+            };
+        }
+
+        return {
+            success: true,
+            payment_status: mpStatus || "pending",
+            approved: false,
+            pago: false,
+            status: "renovacao_pendente",
+            payment_id: paymentId,
+            assinaturaId: assinaturaId,
+            message: "Aguardando confirmação do pagamento",
+        };
     },
 );
 
@@ -1156,6 +1481,7 @@ exports.assinarPlanoRenovarConsultarStatusPix = onCall(
  * onCall v2: Processa pagamento com cartão para renovar assinatura existente.
  */
 exports.assinarPlanoRenovarCartao = onCall(
+    // TODO: voltar para enforceAppCheck:true após corrigir Secret Key reCAPTCHA.
     { region: "us-central1", enforceAppCheck: false, timeoutSeconds: 120 },
     async (request) => {
         if (!request.auth) throw new HttpsError("unauthenticated", "Login necessário.");
@@ -1309,14 +1635,21 @@ function traduzirRecusaMp(statusDetail) {
  * Regra: suspende se diasAposVencimento > (toleranciaDias + suspenderAposDias)
  */
 exports.assinaturaVerificarSuspensaoScheduled = onSchedule(
-    "every day 02:00",
+    {
+        schedule: "0 2 * * *",
+        timeZone: "America/Sao_Paulo",
+        region: "us-central1",
+        timeoutSeconds: 540,
+    },
     async (event) => {
         const db = admin.firestore();
+        const avisos = require("./assinatura_avisos");
         const now = admin.firestore.Timestamp.now();
         const agoraMs = Date.now();
         const UM_DIA_MS = 24 * 60 * 60 * 1000;
         let suspensas = 0;
         let erros = 0;
+        const emailsPendentes = [];
 
         // Buscar assinaturas ativas ou em atraso
         const snap = await db.collection("assinaturas_clientes")
@@ -1352,6 +1685,7 @@ exports.assinaturaVerificarSuspensaoScheduled = onSchedule(
                 if (diasAposVencimento <= 0) continue;
 
                 // Verificar se excedeu tolerancia + suspender_apos_dias
+                // NÃO usa tentativas de e-mail — apenas a regra de dias do plano.
                 const limiteSuspensao = tolerancia + Number(suspenderApos);
                 if (diasAposVencimento > limiteSuspensao) {
                     batch.update(doc.ref, {
@@ -1359,14 +1693,21 @@ exports.assinaturaVerificarSuspensaoScheduled = onSchedule(
                         blocked_at: now,
                         block_reason: "Inadimplência automática — prazo de tolerância e suspensão excedido.",
                         updated_at: now,
-                        historico: admin.firestore.FieldValue.arrayUnion([
-                            {
-                                tipo: "suspensao_automatica",
-                                descricao: "Assinatura suspensa automaticamente por inadimplência (" +
-                                    diasAposVencimento + " dias após vencimento, limite " + limiteSuspensao + " dias).",
-                                data_em: now,
-                            },
-                        ]),
+                        historico: admin.firestore.FieldValue.arrayUnion({
+                            tipo: "suspensao_automatica",
+                            descricao: "Assinatura suspensa automaticamente por inadimplência (" +
+                                diasAposVencimento + " dias após vencimento, limite " + limiteSuspensao + " dias).",
+                            data_em: now,
+                        }),
+                    });
+                    emailsPendentes.push({
+                        email: a.email || "",
+                        lojaNome: a.store_name || "",
+                        planoNome: a.plan_name || "",
+                        valor: a.monthly_amount,
+                        vencimento: avisos.formatDateBr(nextBilling),
+                        situacao: "Suspenso",
+                        formaPagamento: a.tipo_cobranca || "—",
                     });
                     suspensas++;
                     ops++;
@@ -1387,6 +1728,111 @@ exports.assinaturaVerificarSuspensaoScheduled = onSchedule(
             await batch.commit();
         }
 
+        for (const d of emailsPendentes) {
+            try {
+                await avisos.enviarEmailSuspenso(d);
+            } catch (_) { /* best-effort */ }
+        }
+
         console.log("[assinatura-suspensao] Concluído: " + suspensas + " suspensas, " + erros + " erros.");
     },
 );
+
+/**
+ * Processa webhook PIX de contratação ou renovação (metadata.tipo).
+ * Exportado para mercado_pago_gestao_comercial.js.
+ */
+async function processarPagamentoPixAssinaturaDireto(payment) {
+    const db = admin.firestore();
+    const metadata = (payment && payment.metadata) || {};
+    const tipo = String(metadata.tipo || "");
+    const statusMp = String(payment.status || "").toLowerCase();
+    // PIX: somente approved (authorized NÃO confirma liquidação)
+    if (!mpStatusEhAprovado(statusMp)) {
+        return { ok: false, reason: "status_nao_aprovado", status_mp: statusMp };
+    }
+
+    const assinaturaId = String(metadata.assinaturaId || metadata.assinatura_id || "").trim();
+    if (!assinaturaId) {
+        // Fallback via external_reference
+        const ext = String(payment.external_reference || "");
+        const m = ext.match(/^(assinatura_|renovar_)([A-Za-z0-9_-]+)/);
+        if (m) {
+            return processarPagamentoPixAssinaturaDireto({
+                ...payment,
+                metadata: {
+                    ...metadata,
+                    tipo: m[1] === "renovar_" ? "assinatura_renovacao" : "assinatura_contratacao",
+                    assinatura_id: m[2],
+                    assinaturaId: m[2],
+                },
+            });
+        }
+        return { ok: false, reason: "assinatura_id_ausente" };
+    }
+
+    const ref = db.collection("assinaturas_clientes").doc(assinaturaId);
+    const snap = await ref.get();
+    if (!snap.exists) return { ok: false, reason: "assinatura_nao_encontrada" };
+    const a = snap.data() || {};
+    const paymentId = String(payment.id || "");
+
+    if (tipo === "assinatura_renovacao" || String(a.status_renovacao || "") === "renovacao_pendente") {
+        // Idempotência: mesmo payment_id já processado
+        if (paymentId
+            && (String(a.renovacao_processada_payment_id || "") === paymentId
+                || (String(a.pagamento_mp_payment_id || "") === paymentId
+                    && String(a.pagamento_mp_status || "") === "approved"))) {
+            return { ok: true, already: true };
+        }
+        // Não renovar só porque o plano já está "ativo".
+        // Aceita renovacao_pendente, expirado local, ou mesmo payment_id em aberto.
+        const pidRenovacao = String(a.renovacao_mp_payment_id || "");
+        const stRen = String(a.status_renovacao || "");
+        const renovacaoEmAberto = stRen === "renovacao_pendente"
+            || stRen === "expirado"
+            || (pidRenovacao && pidRenovacao === paymentId);
+        if (!renovacaoEmAberto) {
+            return { ok: false, reason: "sem_renovacao_pendente" };
+        }
+        const valorEsperado = Number(a.renovacao_valor || a.monthly_amount || 0);
+        const valorPago = Number(payment.transaction_amount || 0);
+        if (valorEsperado > 0 && Math.abs(valorPago - valorEsperado) > 0.009) {
+            return { ok: false, reason: "valor_divergente", esperado: valorEsperado, pago: valorPago };
+        }
+        await renovarAssinatura(db, assinaturaId, {
+            lojaId: a.store_id,
+            planName: a.plan_name,
+            valor: valorEsperado || valorPago,
+            mpPaymentId: payment.id,
+            origem: "webhook",
+        });
+        return { ok: true, processado: true, tipo: "renovacao" };
+    }
+
+    // Contratação
+    if (a.status === "ativo") {
+        return { ok: true, already: true };
+    }
+    if (a.status !== "pagamento_pendente") {
+        return { ok: false, reason: "status_invalido", status: a.status };
+    }
+
+    await ativarAssinatura(db, assinaturaId, {
+        lojaId: a.store_id,
+        lojaNome: a.store_name,
+        ownerName: a.owner_name,
+        ownerEmail: a.email,
+        ownerPhone: a.phone,
+        planId: a.plan_id || a.plano_id,
+        planName: a.plan_name,
+        valor: Number(payment.transaction_amount || a.monthly_amount || 0),
+        modulos: a.modulos_extras || [],
+        mpPaymentId: payment.id,
+    });
+    return { ok: true, processado: true, tipo: "contratacao" };
+}
+
+exports.processarPagamentoPixAssinaturaDireto = processarPagamentoPixAssinaturaDireto;
+exports.ASSINATURA_MP_WEBHOOK_URL = ASSINATURA_MP_WEBHOOK_URL;
+exports.mpStatusEhAprovado = mpStatusEhAprovado;

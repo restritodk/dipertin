@@ -62,7 +62,7 @@ void main() {
       expect(providers.any((p) => p.id == 'custom'), isTrue);
     });
 
-    test('deve extrair configuração da integração', () {
+    test('deve extrair configuração da integração (apenas campos públicos)', () {
       final config = FiscalProviderService.instance.extrairConfig({
         'provider': 'focus_nfe',
         'environment': 'homologacao',
@@ -70,15 +70,16 @@ void main() {
       });
       expect(config, isNotNull);
       expect(config['environment'], equals('homologacao'));
-      expect(config['api_key'], equals('encrypted_token'));
+      // credentials_encrypted NÃO é mais exposto ao frontend
+      expect(config, isNot(contains('api_key')));
+      expect(config, isNot(contains('credentials_encrypted')));
     });
 
     test('deve usar homologação como ambiente padrão', () {
       final config = FiscalProviderService.instance.extrairConfig({
         'provider': 'enotas',
-        'credentials_encrypted': 'teste',
       });
-      expect(config['environment'], equals('homologacao'));
+      expect(config['environment'], equals('sandbox'));
     });
 
     test('deve resolver provedor pelo nome', () {

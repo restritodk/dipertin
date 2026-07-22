@@ -115,23 +115,11 @@ abstract final class LojistaIntegracaoService {
     await _db.collection(_colecao).doc(id).delete();
   }
 
-  /// Incrementa o contador de notas emitidas de um lojista.
-  ///
-  /// [storeId] é o ID da loja (`store_id` no documento), não o ID do documento.
-  /// O método faz o lookup interno pelo campo `store_id`.
+  /// NÃO incrementa contador no cliente.
+  /// O consumo do plano é feito só no backend após autorização SEFAZ
+  /// (`fiscal_saldo_helper.confirmarConsumo`). Mantido como no-op por
+  /// compatibilidade com chamadas legadas.
   static Future<void> registrarEmissao(String storeId) async {
-    final snap = await _db
-        .collection(_colecao)
-        .where('store_id', isEqualTo: storeId)
-        .limit(1)
-        .get();
-    if (snap.docs.isEmpty) return;
-    final doc = snap.docs.first;
-    final model = LojistaIntegracaoModel.fromFirestore(doc);
-    final emitidas = model.notasEmitidas + 1;
-    await _db.collection(_colecao).doc(doc.id).update({
-      'notas_emitidas': emitidas,
-      'updated_at': FieldValue.serverTimestamp(),
-    });
+    // no-op — evita consumo duplicado / consumo sem autorização
   }
 }

@@ -33,6 +33,7 @@ class FiscalEmitente {
     required this.nomeFantasia,
     required this.cnpj,
     required this.ie,
+    this.ieIsento = false,
     this.im,
     this.crt,
     this.cnae,
@@ -53,6 +54,8 @@ class FiscalEmitente {
   final String nomeFantasia;
   final String cnpj;
   final String ie;
+  /// IE dispensada (MEI / flag ie_isento no cadastro admin).
+  final bool ieIsento;
   final String? im;
   final String? crt;
   final String? cnae;
@@ -73,6 +76,7 @@ class FiscalEmitente {
         'nome_fantasia': nomeFantasia,
         'cnpj': cnpj,
         'ie': ie,
+        if (ieIsento) 'ie_isento': true,
         if (im != null) 'im': im,
         if (crt != null) 'crt': crt,
         if (cnae != null) 'cnae': cnae,
@@ -90,6 +94,21 @@ class FiscalEmitente {
         if (emailFiscal != null) 'email_fiscal': emailFiscal,
         if (codigoCidade != null) 'codigo_cidade': codigoCidade,
       };
+}
+
+/// Resolve se o emitente está isento de Inscrição Estadual.
+///
+/// - Flag explícita `ie_isento` no cadastro admin
+/// - MEI sem IE informada (dispensada por lei)
+bool resolverIeIsentoEmitente(Map<String, dynamic> taxData) {
+  if (taxData['ie_isento'] == true) return true;
+  final ie = (taxData['ie'] ?? taxData['inscricao_estadual'] ?? '')
+      .toString()
+      .trim();
+  if (ie.isNotEmpty) return false;
+  final regime =
+      (taxData['regime_tributario'] ?? '').toString().toLowerCase().trim();
+  return regime.contains('mei');
 }
 
 /// Dados do destinatário (cliente que recebe a nota).
@@ -304,7 +323,7 @@ class FiscalPayload {
     this.pedidoId,
     this.vendaId,
     this.clienteId,
-    this.configuracoesExtras = const {},
+    this.configuracoesExtras = const <String, dynamic>{},
   });
 
   final TipoDocumentoFiscal tipoDocumento;

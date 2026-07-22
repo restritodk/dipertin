@@ -1,4 +1,5 @@
 import 'package:cloud_firestore/cloud_firestore.dart';
+import 'package:firebase_auth/firebase_auth.dart';
 import 'package:flutter/material.dart';
 import 'package:google_fonts/google_fonts.dart';
 import 'package:intl/intl.dart';
@@ -6,7 +7,6 @@ import '../models/modulo_config_model.dart';
 import '../models/plano_assinatura_model.dart';
 import '../services/modulos_config_service.dart';
 import '../services/modulos_planos_service.dart';
-import '../services/firebase_functions_config.dart';
 import '../theme/painel_admin_theme.dart';
 
 // ============================================================
@@ -46,6 +46,9 @@ final LinearGradient _gradienteFaixa = LinearGradient(
   begin: Alignment.centerLeft,
   end: Alignment.centerRight,
 );
+
+/// Altura padronizada dos campos da barra de filtros.
+const double _alturaCampoFiltro = 40;
 
 // ============================================================
 // TELA PRINCIPAL
@@ -118,17 +121,29 @@ class _AssinaturasPlanosScreenState extends State<AssinaturasPlanosScreen> {
   // HEADER
   // ============================================================
   Widget _buildHeader() {
+    final user = FirebaseAuth.instance.currentUser;
+    final nomeUsuario = () {
+      final display = user?.displayName?.trim() ?? '';
+      if (display.isNotEmpty) return display;
+      final email = user?.email?.trim() ?? '';
+      if (email.contains('@')) return email.split('@').first;
+      if (email.isNotEmpty) return email;
+      return 'Usuário';
+    }();
+    final inicial = nomeUsuario.isNotEmpty
+        ? nomeUsuario.substring(0, 1).toUpperCase()
+        : 'U';
+
     return Container(
       width: double.infinity,
       color: Colors.white,
-      padding: const EdgeInsets.fromLTRB(20, 12, 20, 0),
+      padding: const EdgeInsets.fromLTRB(20, 24, 20, 0),
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
-          // Linha superior: título à esquerda, perfil à direita
           Row(
+            crossAxisAlignment: CrossAxisAlignment.center,
             children: [
-              // Título com ícone
               Expanded(
                 child: Row(
                   children: [
@@ -175,123 +190,30 @@ class _AssinaturasPlanosScreenState extends State<AssinaturasPlanosScreen> {
                   ],
                 ),
               ),
-              const Spacer(),
-              // Perfil + ícones
-              Row(
-                children: [
-                  // Ajuda
-                  _IconeCircular(Icons.help_outline_rounded),
-                  const SizedBox(width: 8),
-                  // Sino com badge
-                  _SinoComBadge('3'),
-                  const SizedBox(width: 12),
-                  // Avatar
-                  Container(
-                    width: 32,
-                    height: 32,
-                    decoration: BoxDecoration(
-                      gradient: const LinearGradient(
-                        colors: [Color(0xFFFF8F00), Color(0xFFE91E63)],
-                        begin: Alignment.topLeft,
-                        end: Alignment.bottomRight,
-                      ),
-                      borderRadius: BorderRadius.circular(8),
-                    ),
-                    alignment: Alignment.center,
-                    child: Text(
-                      'M',
-                      style: GoogleFonts.plusJakartaSans(
-                        fontSize: 14,
-                        fontWeight: FontWeight.w700,
-                        color: Colors.white,
-                      ),
-                    ),
+              Container(
+                width: 36,
+                height: 36,
+                decoration: BoxDecoration(
+                  gradient: const LinearGradient(
+                    colors: [Color(0xFFFF8F00), Color(0xFFE91E63)],
+                    begin: Alignment.topLeft,
+                    end: Alignment.bottomRight,
                   ),
-                  const SizedBox(width: 8),
-                  Column(
-                    crossAxisAlignment: CrossAxisAlignment.start,
-                    mainAxisSize: MainAxisSize.min,
-                    children: [
-                      Text(
-                        'Master',
-                        style: GoogleFonts.plusJakartaSans(
-                          fontSize: 13,
-                          fontWeight: FontWeight.w600,
-                          color: _textoPrimario,
-                        ),
-                      ),
-                      Text(
-                        'Administrador',
-                        style: GoogleFonts.plusJakartaSans(
-                          fontSize: 11,
-                          color: _textoSecundario,
-                        ),
-                      ),
-                    ],
+                  borderRadius: BorderRadius.circular(8),
+                ),
+                alignment: Alignment.center,
+                child: Text(
+                  inicial,
+                  style: GoogleFonts.plusJakartaSans(
+                    fontSize: 14,
+                    fontWeight: FontWeight.w700,
+                    color: Colors.white,
                   ),
-                  const SizedBox(width: 4),
-                  const Icon(
-                    Icons.arrow_drop_down_rounded,
-                    color: _textoSecundario,
-                    size: 20,
-                  ),
-                ],
+                ),
               ),
             ],
           ),
-          const SizedBox(height: 14),
-          // Linha inferior: botões
-          Wrap(
-            spacing: 8,
-            runSpacing: 8,
-            alignment: WrapAlignment.spaceBetween,
-            crossAxisAlignment: WrapCrossAlignment.center,
-            children: [
-              // Recalcular contadores
-              _BotaoRecalcularContadores(
-                onTap: _recalcularContadores,
-              ),
-              // Grupo direito
-              Row(
-                mainAxisSize: MainAxisSize.min,
-                children: [
-                  // Configurações de cobrança
-                  OutlinedButton.icon(
-                    onPressed: () {},
-                    icon: const Icon(Icons.settings_rounded, size: 16),
-                    label: Text(
-                      'Configurações de cobrança',
-                      style: GoogleFonts.plusJakartaSans(
-                        fontSize: 13,
-                        fontWeight: FontWeight.w600,
-                        color: _roxoCard,
-                      ),
-                    ),
-                    style: OutlinedButton.styleFrom(
-                      side: const BorderSide(color: Color(0xFFD4C8F0)),
-                      padding: const EdgeInsets.symmetric(horizontal: 14),
-                      minimumSize: Size.zero,
-                      tapTargetSize: MaterialTapTargetSize.shrinkWrap,
-                      shape: RoundedRectangleBorder(
-                        borderRadius: BorderRadius.circular(8),
-                      ),
-                      backgroundColor: Colors.white,
-                    ),
-                  ),
-                  const SizedBox(width: 10),
-                  // Novo plano
-                  _BotaoGradiente(
-                    onTap: _abrirModalCriarPlano,
-                    icone: Icons.add_rounded,
-                    label: 'Novo plano',
-                    altura: 38,
-                  ),
-                ],
-              ),
-            ],
-          ),
-          const SizedBox(height: 12),
-          // Borda inferior
+          const SizedBox(height: 16),
           Container(height: 1, color: _bordaHeader),
         ],
       ),
@@ -424,49 +346,28 @@ class _AssinaturasPlanosScreenState extends State<AssinaturasPlanosScreen> {
           return SingleChildScrollView(
             scrollDirection: Axis.horizontal,
             child: Row(
+              crossAxisAlignment: CrossAxisAlignment.end,
               children: [
-                // Busca
                 SizedBox(
                   width: 340,
-                  height: 46,
-                  child: TextField(
-                    style: GoogleFonts.plusJakartaSans(
-                      fontSize: 14,
-                      color: _textoPrimario,
-                    ),
-                    decoration: InputDecoration(
-                      hintText: 'Buscar plano por nome...',
-                      hintStyle: GoogleFonts.plusJakartaSans(
-                        fontSize: 14,
-                        color: _textoSecundario,
-                      ),
-                      prefixIcon: const Icon(
-                        Icons.search_rounded,
-                        color: _textoSecundario,
-                        size: 20,
-                      ),
-                      filled: true,
-                      fillColor: Colors.white,
-                      contentPadding: const EdgeInsets.symmetric(
-                        vertical: 12,
-                        horizontal: 14,
-                      ),
-                      border: OutlineInputBorder(
-                        borderRadius: BorderRadius.circular(8),
-                        borderSide: const BorderSide(color: _bordaInput),
-                      ),
-                      enabledBorder: OutlineInputBorder(
-                        borderRadius: BorderRadius.circular(8),
-                        borderSide: const BorderSide(color: _bordaInput),
-                      ),
-                      focusedBorder: OutlineInputBorder(
-                        borderRadius: BorderRadius.circular(8),
-                        borderSide: const BorderSide(
-                          color: _roxoCard,
-                          width: 1.5,
+                  child: Column(
+                    crossAxisAlignment: CrossAxisAlignment.start,
+                    mainAxisSize: MainAxisSize.min,
+                    children: [
+                      _labelFiltro('Buscar'),
+                      const SizedBox(height: 4),
+                      SizedBox(
+                        height: _alturaCampoFiltro,
+                        child: TextField(
+                          style: GoogleFonts.plusJakartaSans(
+                            fontSize: 13,
+                            color: _textoPrimario,
+                            height: 1.2,
+                          ),
+                          decoration: _inputBusca(),
                         ),
                       ),
-                    ),
+                    ],
                   ),
                 ),
                 const SizedBox(width: 16),
@@ -480,27 +381,40 @@ class _AssinaturasPlanosScreenState extends State<AssinaturasPlanosScreen> {
                   largura: 196,
                 ),
                 const SizedBox(width: 16),
-                OutlinedButton.icon(
-                  onPressed: () {},
-                  icon: const Icon(Icons.filter_alt_outlined, size: 16),
-                  label: Text(
-                    'Limpar filtros',
-                    style: GoogleFonts.plusJakartaSans(
-                      fontSize: 13,
-                      fontWeight: FontWeight.w600,
-                      color: _roxoCard,
+                Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  mainAxisSize: MainAxisSize.min,
+                  children: [
+                    // Reserva a faixa do label para alinhar o botão aos campos
+                    _labelFiltro('\u00A0'),
+                    const SizedBox(height: 4),
+                    SizedBox(
+                      height: _alturaCampoFiltro,
+                      child: OutlinedButton.icon(
+                        onPressed: () {},
+                        icon: const Icon(Icons.filter_alt_outlined, size: 16),
+                        label: Text(
+                          'Limpar filtros',
+                          style: GoogleFonts.plusJakartaSans(
+                            fontSize: 13,
+                            fontWeight: FontWeight.w600,
+                            color: _roxoCard,
+                          ),
+                        ),
+                        style: OutlinedButton.styleFrom(
+                          side: const BorderSide(color: Color(0xFFD4C8F0)),
+                          padding: const EdgeInsets.symmetric(horizontal: 14),
+                          minimumSize: const Size(0, _alturaCampoFiltro),
+                          maximumSize: const Size(double.infinity, _alturaCampoFiltro),
+                          tapTargetSize: MaterialTapTargetSize.shrinkWrap,
+                          shape: RoundedRectangleBorder(
+                            borderRadius: BorderRadius.circular(8),
+                          ),
+                          backgroundColor: Colors.white,
+                        ),
+                      ),
                     ),
-                  ),
-                  style: OutlinedButton.styleFrom(
-                    side: const BorderSide(color: Color(0xFFD4C8F0)),
-                    padding: const EdgeInsets.symmetric(horizontal: 14),
-                    minimumSize: const Size(0, 40),
-                    tapTargetSize: MaterialTapTargetSize.shrinkWrap,
-                    shape: RoundedRectangleBorder(
-                      borderRadius: BorderRadius.circular(8),
-                    ),
-                    backgroundColor: Colors.white,
-                  ),
+                  ],
                 ),
               ],
             ),
@@ -510,13 +424,16 @@ class _AssinaturasPlanosScreenState extends State<AssinaturasPlanosScreen> {
           return Column(
             crossAxisAlignment: CrossAxisAlignment.start,
             children: [
+              _labelFiltro('Buscar'),
+              const SizedBox(height: 4),
               SizedBox(
                 width: double.infinity,
-                height: 46,
+                height: _alturaCampoFiltro,
                 child: TextField(
                   style: GoogleFonts.plusJakartaSans(
-                    fontSize: 14,
+                    fontSize: 13,
                     color: _textoPrimario,
+                    height: 1.2,
                   ),
                   decoration: _inputBusca(),
                 ),
@@ -525,6 +442,7 @@ class _AssinaturasPlanosScreenState extends State<AssinaturasPlanosScreen> {
               Wrap(
                 spacing: 12,
                 runSpacing: 12,
+                crossAxisAlignment: WrapCrossAlignment.end,
                 children: [
                   _FiltroDropdownCompact(label: 'Status', valor: 'Todos'),
                   _FiltroDropdownCompact(label: 'Duração', valor: 'Todos'),
@@ -532,26 +450,31 @@ class _AssinaturasPlanosScreenState extends State<AssinaturasPlanosScreen> {
                     label: 'Ordenar por',
                     valor: 'Mais recentes',
                   ),
-                  OutlinedButton.icon(
-                    onPressed: () {},
-                    icon: const Icon(Icons.filter_alt_outlined, size: 16),
-                    label: Text(
-                      'Limpar filtros',
-                      style: GoogleFonts.plusJakartaSans(
-                        fontSize: 13,
-                        fontWeight: FontWeight.w600,
-                        color: _roxoCard,
+                  SizedBox(
+                    height: _alturaCampoFiltro,
+                    child: OutlinedButton.icon(
+                      onPressed: () {},
+                      icon: const Icon(Icons.filter_alt_outlined, size: 16),
+                      label: Text(
+                        'Limpar filtros',
+                        style: GoogleFonts.plusJakartaSans(
+                          fontSize: 13,
+                          fontWeight: FontWeight.w600,
+                          color: _roxoCard,
+                        ),
                       ),
-                    ),
-                    style: OutlinedButton.styleFrom(
-                      side: const BorderSide(color: Color(0xFFD4C8F0)),
-                      padding: const EdgeInsets.symmetric(horizontal: 14),
-                      minimumSize: const Size(0, 40),
-                      tapTargetSize: MaterialTapTargetSize.shrinkWrap,
-                      shape: RoundedRectangleBorder(
-                        borderRadius: BorderRadius.circular(8),
+                      style: OutlinedButton.styleFrom(
+                        side: const BorderSide(color: Color(0xFFD4C8F0)),
+                        padding: const EdgeInsets.symmetric(horizontal: 14),
+                        minimumSize: const Size(0, _alturaCampoFiltro),
+                        maximumSize:
+                            const Size(double.infinity, _alturaCampoFiltro),
+                        tapTargetSize: MaterialTapTargetSize.shrinkWrap,
+                        shape: RoundedRectangleBorder(
+                          borderRadius: BorderRadius.circular(8),
+                        ),
+                        backgroundColor: Colors.white,
                       ),
-                      backgroundColor: Colors.white,
                     ),
                   ),
                 ],
@@ -563,21 +486,35 @@ class _AssinaturasPlanosScreenState extends State<AssinaturasPlanosScreen> {
     );
   }
 
+  Widget _labelFiltro(String texto) {
+    return Text(
+      texto,
+      style: GoogleFonts.plusJakartaSans(
+        fontSize: 11,
+        fontWeight: FontWeight.w600,
+        color: _textoSecundario,
+        height: 1.2,
+      ),
+    );
+  }
+
   InputDecoration _inputBusca() {
     return InputDecoration(
       hintText: 'Buscar plano por nome...',
       hintStyle: GoogleFonts.plusJakartaSans(
-        fontSize: 14,
+        fontSize: 13,
         color: _textoSecundario,
+        height: 1.2,
       ),
       prefixIcon: const Icon(
         Icons.search_rounded,
         color: _textoSecundario,
         size: 20,
       ),
+      isDense: true,
       filled: true,
       fillColor: Colors.white,
-      contentPadding: const EdgeInsets.symmetric(vertical: 12, horizontal: 14),
+      contentPadding: const EdgeInsets.symmetric(vertical: 10, horizontal: 14),
       border: OutlineInputBorder(
         borderRadius: BorderRadius.circular(8),
         borderSide: const BorderSide(color: _bordaInput),
@@ -723,143 +660,21 @@ class _AssinaturasPlanosScreenState extends State<AssinaturasPlanosScreen> {
     }
   }
 
-  bool _recalculando = false;
-
-  Future<void> _recalcularContadores() async {
-    if (_recalculando) return;
-    setState(() => _recalculando = true);
-    try {
-      final result = await callFirebaseFunctionSafe(
-        'adminRecalcularContadoresAssinaturas',
-        parameters: {},
-        timeout: const Duration(seconds: 120),
-      );
-      if (mounted) {
-        final processados = result['planosProcessados'] ?? result['planos'] ?? 0;
-        _sucessoDialog(
-          context: context,
-          titulo: 'Contadores recalculados',
-          subtitulo: '$processados plano(s) atualizado(s).',
-        );
-      }
-    } catch (e) {
-      if (mounted) {
-        ScaffoldMessenger.of(context).showSnackBar(
-          SnackBar(
-            content: Text('Erro ao recalcular contadores: $e'),
-            backgroundColor: Colors.red,
-          ),
-        );
-      }
-    } finally {
-      if (mounted) setState(() => _recalculando = false);
-    }
-  }
 }
 
 // ============================================================
 // COMPONENTES REUTILIZÁVEIS
 // ============================================================
 
-// --- ICONE CIRCULAR ---
-class _IconeCircular extends StatelessWidget {
-  final IconData icone;
-  const _IconeCircular(this.icone);
-
-  @override
-  Widget build(BuildContext context) {
-    return Container(
-      width: 32,
-      height: 32,
-      decoration: BoxDecoration(
-        color: _fundoPagina,
-        borderRadius: BorderRadius.circular(16),
-      ),
-      alignment: Alignment.center,
-      child: Icon(icone, size: 18, color: _textoSecundario),
-    );
-  }
-}
-
-// --- SINO COM BADGE ---
-class _SinoComBadge extends StatelessWidget {
-  final String badge;
-  const _SinoComBadge(this.badge);
-
-  @override
-  Widget build(BuildContext context) {
-    return Stack(
-      children: [
-        const _IconeCircular(Icons.notifications_outlined),
-        Positioned(
-          top: 2,
-          right: 2,
-          child: Container(
-            width: 16,
-            height: 16,
-            decoration: const BoxDecoration(
-              color: _roxoCard,
-              shape: BoxShape.circle,
-            ),
-            alignment: Alignment.center,
-            child: Text(
-              badge,
-              style: GoogleFonts.plusJakartaSans(
-                fontSize: 9,
-                fontWeight: FontWeight.w700,
-                color: Colors.white,
-              ),
-            ),
-          ),
-        ),
-      ],
-    );
-  }
-}
-
-// --- BOTÃO RECALCULAR CONTADORES ---
-class _BotaoRecalcularContadores extends StatelessWidget {
-  final VoidCallback onTap;
-  const _BotaoRecalcularContadores({required this.onTap});
-
-  @override
-  Widget build(BuildContext context) {
-    return OutlinedButton.icon(
-      onPressed: onTap,
-      icon: const Icon(Icons.refresh_rounded, size: 16),
-      label: Text(
-        'Recalcular contadores',
-        style: GoogleFonts.plusJakartaSans(
-          fontSize: 13,
-          fontWeight: FontWeight.w600,
-          color: PainelAdminTheme.roxo,
-        ),
-      ),
-      style: OutlinedButton.styleFrom(
-        side: const BorderSide(color: Color(0xFFD4C8F0)),
-        padding: const EdgeInsets.symmetric(horizontal: 14),
-        minimumSize: Size.zero,
-        tapTargetSize: MaterialTapTargetSize.shrinkWrap,
-        shape: RoundedRectangleBorder(
-          borderRadius: BorderRadius.circular(8),
-        ),
-        backgroundColor: Colors.white,
-      ),
-    );
-  }
-}
-
 // --- BOTÃO GRADIENTE ---
 class _BotaoGradiente extends StatelessWidget {
   final VoidCallback onTap;
   final IconData icone;
   final String label;
-  final double? altura;
   const _BotaoGradiente({
     required this.onTap,
     required this.icone,
     required this.label,
-    this.altura,
   });
 
   @override
@@ -870,7 +685,7 @@ class _BotaoGradiente extends StatelessWidget {
         borderRadius: BorderRadius.circular(8),
         onTap: onTap,
         child: Container(
-          height: altura ?? 38,
+          height: 38,
           padding: const EdgeInsets.symmetric(horizontal: 16),
           decoration: BoxDecoration(
             gradient: _gradienteBtn,
@@ -1016,11 +831,12 @@ class _FiltroDropdown extends StatelessWidget {
               fontSize: 11,
               fontWeight: FontWeight.w600,
               color: _textoSecundario,
+              height: 1.2,
             ),
           ),
           const SizedBox(height: 4),
           Container(
-            height: 40,
+            height: _alturaCampoFiltro,
             padding: const EdgeInsets.symmetric(horizontal: 12),
             decoration: BoxDecoration(
               color: Colors.white,
@@ -1035,6 +851,7 @@ class _FiltroDropdown extends StatelessWidget {
                     style: GoogleFonts.plusJakartaSans(
                       fontSize: 13,
                       color: _textoPrimario,
+                      height: 1.2,
                     ),
                   ),
                 ),
@@ -1072,11 +889,12 @@ class _FiltroDropdownCompact extends StatelessWidget {
               fontSize: 11,
               fontWeight: FontWeight.w600,
               color: _textoSecundario,
+              height: 1.2,
             ),
           ),
           const SizedBox(height: 4),
           Container(
-            height: 40,
+            height: _alturaCampoFiltro,
             padding: const EdgeInsets.symmetric(horizontal: 12),
             decoration: BoxDecoration(
               color: Colors.white,
@@ -1091,6 +909,7 @@ class _FiltroDropdownCompact extends StatelessWidget {
                     style: GoogleFonts.plusJakartaSans(
                       fontSize: 13,
                       color: _textoPrimario,
+                      height: 1.2,
                     ),
                   ),
                 ),

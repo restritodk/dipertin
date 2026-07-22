@@ -249,7 +249,8 @@ class EnotasProvider implements FiscalProvider {
       'emitente': {
         'cnpj': payload.emitente.cnpj,
         'razao_social': payload.emitente.razaoSocial,
-        'nome_fantasia': payload.emitente.nomeFantasia,
+        if (payload.emitente.nomeFantasia.trim().isNotEmpty)
+          'nome_fantasia': payload.emitente.nomeFantasia.trim(),
         'inscricao_estadual': payload.emitente.ie,
         if (payload.emitente.im != null) 'im': payload.emitente.im,
         if (payload.emitente.crt != null)

@@ -21,7 +21,7 @@ abstract final class FiscalPosEmissaoService {
   static const String statusCancelada = 'cancelada';
   static const String statusErro = 'erro';
 
-  static const String _region = 'southamerica-east1';
+  static const String _region = 'us-east1';
   static const Duration _timeout = Duration(seconds: 120);
 
   /// Mapa de status para cores (frontend)

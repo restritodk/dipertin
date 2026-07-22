@@ -83,22 +83,22 @@ abstract final class FiscalInutilizacaoService {
         );
       }
 
-      final integrationDoc = await FirebaseFirestore.instance
-          .collection('fiscal_integrations')
-          .doc(integrationId)
-          .get();
-      if (!integrationDoc.exists) {
+      // Lê dados públicos da integração de store_fiscal_settings.integration_data
+      // (propagado pelo trigger onFiscalIntegrationWrite — NUNCA lê credentials_encrypted)
+      final integrationData =
+          settings['integration_data'] as Map<String, dynamic>?;
+      if (integrationData == null || integrationData.isEmpty) {
         return FiscalProviderResult(
           sucesso: false,
-          erro: 'Integração fiscal não encontrada.',
+          erro: 'Dados da integração fiscal indisponíveis.',
           statusEnvio: 'erro',
         );
       }
 
       final providerService = FiscalProviderService.instance;
-      final config = providerService.extrairConfig(integrationDoc.data()!);
+      final config = providerService.extrairConfig(integrationData);
       final provider =
-          providerService.resolverDeIntegracao(integrationDoc.data()!);
+          providerService.resolverDeIntegracao(integrationData);
       if (provider == null) {
         return FiscalProviderResult(
           sucesso: false,

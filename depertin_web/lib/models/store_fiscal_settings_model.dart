@@ -3,6 +3,11 @@ import 'package:cloud_firestore/cloud_firestore.dart';
 /// Configuração fiscal de uma loja.
 ///
 /// Coleção: `store_fiscal_settings/{id}`
+///
+/// SEGURANÇA:
+/// - credentials_encrypted NÃO está neste documento (está em fiscal_integrations, staff-only)
+/// - certificate_data_encrypted NÃO está neste documento (está em fiscal_certificates, staff-only)
+/// - Apenas certificate_info PÚBLICO fica aqui (configured, status, subject_name, valid_until)
 class StoreFiscalSettingsModel {
   final String id;
   final String storeId;
@@ -11,7 +16,6 @@ class StoreFiscalSettingsModel {
   final bool enableNfce;
   final bool enableNfse;
   final Map<String, dynamic>? companyTaxData;
-  final String? certificateDataEncrypted;
   final Map<String, dynamic>? nfeSettings;
   final Map<String, dynamic>? nfceSettings;
   final Map<String, dynamic>? nfseSettings;
@@ -19,6 +23,9 @@ class StoreFiscalSettingsModel {
   final String status; // active | inactive | error
   final Timestamp? createdAt;
   final Timestamp? updatedAt;
+
+  /// Informações públicas do certificado (campos seguros, sem conteúdo ou senha).
+  final Map<String, dynamic>? certificateInfo;
 
   StoreFiscalSettingsModel({
     required this.id,
@@ -28,7 +35,6 @@ class StoreFiscalSettingsModel {
     this.enableNfce = false,
     this.enableNfse = false,
     this.companyTaxData,
-    this.certificateDataEncrypted,
     this.nfeSettings,
     this.nfceSettings,
     this.nfseSettings,
@@ -36,6 +42,7 @@ class StoreFiscalSettingsModel {
     this.status = 'inactive',
     this.createdAt,
     this.updatedAt,
+    this.certificateInfo,
   });
 
   bool get isAtivo => status == 'active';
@@ -51,8 +58,7 @@ class StoreFiscalSettingsModel {
       enableNfce: d['enable_nfce'] as bool? ?? false,
       enableNfse: d['enable_nfse'] as bool? ?? false,
       companyTaxData: d['company_tax_data'] as Map<String, dynamic>?,
-      certificateDataEncrypted:
-          d['certificate_data_encrypted'] as String?,
+      certificateInfo: d['certificate_info'] as Map<String, dynamic>?,
       nfeSettings: d['nfe_settings'] as Map<String, dynamic>?,
       nfceSettings: d['nfce_settings'] as Map<String, dynamic>?,
       nfseSettings: d['nfse_settings'] as Map<String, dynamic>?,
@@ -70,7 +76,6 @@ class StoreFiscalSettingsModel {
         'enable_nfce': enableNfce,
         'enable_nfse': enableNfse,
         'company_tax_data': companyTaxData,
-        'certificate_data_encrypted': certificateDataEncrypted,
         'nfe_settings': nfeSettings,
         'nfce_settings': nfceSettings,
         'nfse_settings': nfseSettings,

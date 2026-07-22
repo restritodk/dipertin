@@ -138,6 +138,8 @@ exports.auditLogNotificacaoUsuarioItemOnCreate =
     auditLogsPipeline.auditLogNotificacaoUsuarioItemOnCreate;
 exports.registrarEventoAuditoriaApp = auditLogsPipeline.registrarEventoAuditoriaApp;
 
+const { registrarAuditLog, buscarDadosUsuario } = require("./audit_log_helper");
+
 // ==========================================
 // Entrega concluída → creditar saldos + notificar loja
 // Dispara quando status muda para 'entregue'.
@@ -954,6 +956,15 @@ exports.assinarPlanoRenovarConsultarStatusPix = assinaturaPagamento.assinarPlano
 exports.assinarPlanoRenovarCartao = assinaturaPagamento.assinarPlanoRenovarCartao;
 exports.assinaturaVerificarSuspensaoScheduled = assinaturaPagamento.assinaturaVerificarSuspensaoScheduled;
 
+// Assinaturas — Cartão Recorrente (preapproval) - Etapa 3.1
+const assinaturaCartaoRecorrente = require("./assinatura_cartao_recorrente");
+exports.assinarPlanoCriarCartaoRecorrente = assinaturaCartaoRecorrente.assinarPlanoCriarCartaoRecorrente;
+exports.cancelarAssinaturaCartaoRecorrente = assinaturaCartaoRecorrente.cancelarAssinaturaCartaoRecorrente;
+
+// Assinaturas — Cartão Recorrente (webhook) - Etapa 3.3
+exports.webhookCartaoRecorrente =
+    require("./assinatura_cartao_recorrente_webhook").webhookCartaoRecorrente;
+
 // Assinaturas — cancelamento admin
 const assinaturaAdmin = require("./assinatura_admin");
 exports.adminCancelarPlanoAssinatura = assinaturaAdmin.adminCancelarPlanoAssinatura;
@@ -973,6 +984,14 @@ exports.assinaturaCobrancaAutoScheduled = assinaturaCobrancas.assinaturaCobranca
 exports.adminEnviarEmailPagamentoConfirmado = assinaturaCobrancas.adminEnviarEmailPagamentoConfirmado;
 exports.adminEnviarEmailCobrancaAtraso = assinaturaCobrancas.adminEnviarEmailCobrancaAtraso;
 exports.assinaturaCobrancaAtrasoScheduled = assinaturaCobrancas.assinaturaCobrancaAtrasoScheduled;
+
+// Assinaturas — PIX de cobrança (painel lojista Extrato de Pagamentos)
+exports.assinaturaCobrancaGerarPix = assinaturaCobrancas.assinaturaCobrancaGerarPix;
+exports.assinaturaCobrancaConsultarStatusPix = assinaturaCobrancas.assinaturaCobrancaConsultarStatusPix;
+
+// Assinaturas — régua de avisos (3 tentativas / 24h) — NÃO controla bloqueio
+const assinaturaAvisos = require("./assinatura_avisos");
+exports.assinaturaAvisosTentativasScheduled = assinaturaAvisos.assinaturaAvisosTentativasScheduled;
 
 // Assinaturas — contador automático (atualiza assinaturas_ativas nos planos)
 const assinaturaContador = require("./assinatura_contador_trigger");
@@ -1185,6 +1204,27 @@ exports.cadastrarColaboradorPainelLojista = functions.https.onCall(async (data, 
         );
     }
 
+    try {
+        const callerPerfil = await buscarDadosUsuario(db, callerUid);
+        await registrarAuditLog(db, {
+            acao: "colaborador_criado",
+            categoria: "admin",
+            origem: "painel_web",
+            atorUid: callerUid,
+            atorNome: callerPerfil.nome || null,
+            atorEmail: callerPerfil.email || null,
+            atorRole: "Lojista",
+            modulo: "Usuários",
+            tela: "Cadastro de Acesso",
+            detalhe: {
+                novo_colaborador_uid: newUid,
+                novo_colaborador_email: email,
+                nivel_atribuido: nivel,
+                loja_uid: ownerUid,
+            },
+        });
+    } catch (_) { /* falha silenciosa */ }
+
     return { ok: true, uid: newUid };
 });
 
@@ -1259,6 +1299,9 @@ exports.atualizarColaboradorPainelLojista = functions.https.onCall(async (data, 
     const db = admin.firestore();
     const { ownerUid } = await assertGerirColaboradoresPainel(db, callerUid);
     const { targetRef, t } = await assertColaboradorDaLoja(db, ownerUid, targetUid);
+
+    const nivelAntigo = t.painel_colaborador_nivel || 1;
+    const nomeAlvo = t.nome || t.nome_completo || targetUid;
 
     const patch = {};
     if (data.nomeCompleto != null) {
@@ -1335,6 +1378,37 @@ exports.atualizarColaboradorPainelLojista = functions.https.onCall(async (data, 
         }
     }
 
+    try {
+        const callerPerfil = await buscarDadosUsuario(db, callerUid);
+        const nivelNovo = patch.painel_colaborador_nivel != null
+            ? patch.painel_colaborador_nivel
+            : nivelAntigo;
+        const detalheAudit = {
+            colaborador_uid: targetUid,
+            colaborador_nome: nomeAlvo,
+            nivel_anterior: nivelAntigo,
+            nivel_novo: nivelNovo,
+            loja_uid: ownerUid,
+        };
+        let descricaoAcao = `colaborador_alterado`;
+        if (nivelAntigo !== nivelNovo) {
+            detalheAudit.concedeu_gestao_comercial = nivelNovo >= 2;
+            detalheAudit.removeu_gestao_comercial = nivelAntigo >= 2 && nivelNovo < 2;
+        }
+        await registrarAuditLog(db, {
+            acao: descricaoAcao,
+            categoria: "admin",
+            origem: "painel_web",
+            atorUid: callerUid,
+            atorNome: callerPerfil.nome || null,
+            atorEmail: callerPerfil.email || null,
+            atorRole: "Lojista",
+            modulo: "Usuários",
+            tela: "Cadastro de Acesso",
+            detalhe: detalheAudit,
+        });
+    } catch (_) { /* falha silenciosa */ }
+
     return { ok: true };
 });
 
@@ -1356,7 +1430,9 @@ exports.removerColaboradorPainelLojista = functions.https.onCall(async (data, co
 
     const db = admin.firestore();
     const { ownerUid } = await assertGerirColaboradoresPainel(db, callerUid);
-    await assertColaboradorDaLoja(db, ownerUid, targetUid);
+    const { t } = await assertColaboradorDaLoja(db, ownerUid, targetUid);
+    const nomeAlvo = t.nome || t.nome_completo || targetUid;
+    const nivelAlvo = t.painel_colaborador_nivel || 1;
 
     try {
         await admin.auth().deleteUser(targetUid);
@@ -1375,6 +1451,26 @@ exports.removerColaboradorPainelLojista = functions.https.onCall(async (data, co
     } catch (e) {
         console.error("removerColaboradorPainelLojista deleteDoc", e);
     }
+    try {
+        const callerPerfil = await buscarDadosUsuario(db, callerUid);
+        await registrarAuditLog(db, {
+            acao: "colaborador_removido",
+            categoria: "admin",
+            origem: "painel_web",
+            atorUid: callerUid,
+            atorNome: callerPerfil.nome || null,
+            atorEmail: callerPerfil.email || null,
+            atorRole: "Lojista",
+            modulo: "Usuários",
+            tela: "Cadastro de Acesso",
+            detalhe: {
+                colaborador_uid: targetUid,
+                colaborador_nome: nomeAlvo,
+                nivel_removido: nivelAlvo,
+                loja_uid: ownerUid,
+            },
+        });
+    } catch (_) { /* falha silenciosa */ }
     return { ok: true };
 });
 
@@ -1761,12 +1857,16 @@ exports.fiscalTestarConexaoFocus = fiscalNFeProxy.fiscalTestarConexaoFocus;
 exports.fiscalListarNotas = fiscalNFeProxy.fiscalListarNotas;
 exports.fiscalBaixarXml = fiscalNFeProxy.fiscalBaixarXml;
 exports.fiscalBaixarDanfe = fiscalNFeProxy.fiscalBaixarDanfe;
+exports.fiscalSalvarIntegracao = fiscalNFeProxy.fiscalSalvarIntegracao;
+exports.fiscalVincularIntegracaoLoja = fiscalNFeProxy.fiscalVincularIntegracaoLoja;
+exports.fiscalRepararVinculoIntegracao = fiscalNFeProxy.fiscalRepararVinculoIntegracao;
 
 // ═══════════════════════════════════════════════════
 // Fiscal Pós-Emissão — consulta automática, Storage, histórico
 // ═══════════════════════════════════════════════════
 const fiscalPosEmissao = require("./fiscal_pos_emissao");
 exports.fiscalConsultarEAtualizarStatus = fiscalPosEmissao.fiscalConsultarEAtualizarStatus;
+exports.fiscalDownloadArquivo = fiscalPosEmissao.fiscalDownloadArquivo;
 
 // ═══════════════════════════════════════════════════
 // Fiscal — Sincronização automática de integrações
@@ -1781,3 +1881,46 @@ exports.onFiscalIntegrationWrite = fiscalIntegrationSync.onFiscalIntegrationWrit
 // ═══════════════════════════════════════════════════
 const fiscalRotina = require("./fiscal_monthly_reset");
 exports.fiscalRotinaMensalReset = fiscalRotina.fiscalRotinaMensalReset;
+
+const fiscalCertificado = require("./fiscal_certificado");
+exports.fiscalUploadCertificado = fiscalCertificado.fiscalUploadCertificado;
+exports.fiscalRemoverCertificado = fiscalCertificado.fiscalRemoverCertificado;
+exports.fiscalLimparCertificadosPendentes = fiscalCertificado.fiscalLimparCertificadosPendentes;
+
+// ═══════════════════════════════════════════════════
+// Auditoria — Triggers extras (estornos, planos, fiscal, gateway, etc.)
+// ═══════════════════════════════════════════════════
+const auditExtras = require("./audit_logs_extras");
+exports.auditLogEstornoOnCreate = auditExtras.auditLogEstornoOnCreate;
+exports.auditLogPlanoAssinaturaOnUpdate = auditExtras.auditLogPlanoAssinaturaOnUpdate;
+exports.auditLogPlanoAssinaturaOnCreate = auditExtras.auditLogPlanoAssinaturaOnCreate;
+exports.auditLogFiscalIntegrationOnWrite = auditExtras.auditLogFiscalIntegrationOnWrite;
+exports.auditLogGatewayPagamentoOnWrite = auditExtras.auditLogGatewayPagamentoOnWrite;
+exports.auditLogCupomOnCreate = auditExtras.auditLogCupomOnCreate;
+exports.auditLogCupomOnUpdate = auditExtras.auditLogCupomOnUpdate;
+exports.auditLogCupomOnDelete = auditExtras.auditLogCupomOnDelete;
+exports.auditLogUserDeleted = auditExtras.auditLogUserDeleted;
+exports.auditLogUserStatusOnUpdate = auditExtras.auditLogUserStatusOnUpdate;
+exports.auditLogEncomendaStatusOnUpdate = auditExtras.auditLogEncomendaStatusOnUpdate;
+exports.auditLogRegistrarLogin = auditExtras.auditLogRegistrarLogin;
+exports.auditLogAcessoTelaAuditoria = auditExtras.auditLogAcessoTelaAuditoria;
+exports.auditLogExportacao = auditExtras.auditLogExportacao;
+exports.auditLogPurgarAntigos = auditExtras.auditLogPurgarAntigos;
+
+// ═══════════════════════════════════════════════════
+// Auditoria — Callables para a tela do painel web
+// ═══════════════════════════════════════════════════
+const auditQuery = require("./audit_logs_query");
+exports.auditLogsPesquisarUsuarios = auditQuery.auditLogsPesquisarUsuarios;
+exports.auditLogsListarEventos = auditQuery.auditLogsListarEventos;
+exports.auditLogsExportar = auditQuery.auditLogsExportar;
+exports.auditLogsEstatisticas = auditQuery.auditLogsEstatisticas;
+
+// ═══════════════════════════════════════════════════
+// Wallet Reservas — gerenciamento transacional de saldo
+// ═══════════════════════════════════════════════════
+const walletReservas = require("./wallet_reservas");
+exports.walletReservarSaldo = walletReservas.walletReservarSaldo;
+exports.walletConfirmarDebito = walletReservas.walletConfirmarDebito;
+exports.walletCancelarReserva = walletReservas.walletCancelarReserva;
+exports.walletLimparReservasExpiradas = walletReservas.walletLimparReservasExpiradas;

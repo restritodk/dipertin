@@ -241,6 +241,9 @@ class _SidebarNovo extends StatelessWidget {
     final n = nivelPainelLojista;
     final showMeuCardapio = n == null || n >= 2;
     final showCarteiraEConfig = n == null || n >= 3;
+    final showGestaoComercial = lojista
+        ? (n != null && n >= 2)
+        : perfil == 'master' || perfil == 'master_city' || perfil == 'superadmin';
 
     final itens = <Widget>[];
 
@@ -331,11 +334,12 @@ class _SidebarNovo extends StatelessWidget {
 
     if (lojista) {
       itens.addAll([
-        _GrupoGestaoComercial(
-          rotaAtual: rotaAtual,
-          collapsed: compacto,
-          onTapItem: onTapItem,
-        ),
+        if (showGestaoComercial)
+          _GrupoGestaoComercial(
+            rotaAtual: rotaAtual,
+            collapsed: compacto,
+            onTapItem: onTapItem,
+          ),
         _NavRow(
           rota: '/meus_pedidos',
           label: 'Meus pedidos',
@@ -504,6 +508,15 @@ class _SidebarNovo extends StatelessWidget {
           onTap: (c) =>
               onTapItem(c, '/conteudo_legal', rotaAtual == '/conteudo_legal'),
         ),
+        _NavRow(
+          rota: '/auditoria',
+          label: 'Auditoria',
+          icon: Icons.fact_check_outlined,
+          rotaAtual: rotaAtual,
+          collapsed: compacto,
+          onTap: (c) =>
+              onTapItem(c, '/auditoria', rotaAtual == '/auditoria'),
+        ),
       ]);
     }
 
@@ -561,11 +574,6 @@ class _SidebarNovo extends StatelessWidget {
                     ),
                     const Divider(height: 1, thickness: 1, color: _TemaNav.borda),
                     if (lojista) _SeccaoPlano(collapsed: layoutCompacto),
-                    _RodapeUsuario(
-                      perfil: perfil,
-                      collapsed: layoutCompacto,
-                      nomeLoja: lojista ? nomeLoja : null,
-                    ),
                     _RodapeSair(
                       collapsed: layoutCompacto,
                       onSair: () async {
@@ -2017,6 +2025,7 @@ class _GrupoGestaoComercialState extends State<_GrupoGestaoComercial> {
   late bool _aberto;
   late bool _abertoFinanceiro;
   bool _temPlano = false;
+  bool _temModuloNfe = false;
   bool _suspensoAdmin = false;
   bool _carregandoPlano = true;
 
@@ -2094,6 +2103,7 @@ class _GrupoGestaoComercialState extends State<_GrupoGestaoComercial> {
         if (mounted) {
           setState(() {
             _temPlano = false;
+            _temModuloNfe = false;
             _suspensoAdmin = false;
             _carregandoPlano = false;
           });
@@ -2104,6 +2114,7 @@ class _GrupoGestaoComercialState extends State<_GrupoGestaoComercial> {
       final ctx = await AssinaturaGestaoComercialService.carregarContexto();
 
       bool tem = false;
+      bool temNfe = false;
       bool suspensoAdmin = false;
       for (final doc in subSnap.docs) {
         final assinatura = ClienteAssinaturaModel.fromFirestore(doc);
@@ -2123,20 +2134,32 @@ class _GrupoGestaoComercialState extends State<_GrupoGestaoComercial> {
           assinatura,
         )) {
           tem = true;
-          break;
+          if (AssinaturaGestaoComercialService.assinaturaTemEmissaoNfe(
+            assinatura,
+            ctx,
+          )) {
+            temNfe = true;
+          }
         }
       }
 
       if (mounted) {
         setState(() {
           _temPlano = tem;
+          _temModuloNfe = temNfe;
           _suspensoAdmin = suspensoAdmin;
           _carregandoPlano = false;
         });
       }
     } catch (e) {
       if (kDebugMode) debugPrint('[Sidebar] erro verificar plano: $e');
-      if (mounted) setState(() { _temPlano = false; _carregandoPlano = false; });
+      if (mounted) {
+        setState(() {
+          _temPlano = false;
+          _temModuloNfe = false;
+          _carregandoPlano = false;
+        });
+      }
     }
   }
 
@@ -2153,12 +2176,12 @@ class _GrupoGestaoComercialState extends State<_GrupoGestaoComercial> {
             '/comercial_dashboard',
             'Dashboard Comercial',
           ),
-          _iconColapsado(
-            Icons.store_rounded,
-            '/minha_loja',
-            'Minha Loja',
-          ),
           if (_temSubmenus) ...[
+            _iconColapsado(
+              Icons.store_rounded,
+              '/minha_loja',
+              'Minha Loja',
+            ),
             _iconColapsado(
               Icons.point_of_sale_rounded,
               '/pdv',
@@ -2172,7 +2195,10 @@ class _GrupoGestaoComercialState extends State<_GrupoGestaoComercial> {
             _iconColapsado(
               Icons.receipt_long_rounded,
               '/modulo_fiscal',
-              'Módulo Fiscal',
+              _temModuloNfe
+                  ? 'Módulo Fiscal'
+                  : 'Módulo Fiscal (bloqueado)',
+              mostrarCadeado: !_temModuloNfe,
             ),
             _iconColapsado(
               Icons.account_balance_rounded,
@@ -2290,13 +2316,13 @@ class _GrupoGestaoComercialState extends State<_GrupoGestaoComercial> {
                   icon: Icons.dashboard_rounded,
                   label: 'Dashboard Comercial',
                 ),
-                _subItem(
-                  context,
-                  rota: '/minha_loja',
-                  icon: Icons.store_rounded,
-                  label: 'Minha Loja',
-                ),
                 if (_temSubmenus) ...[
+                  _subItem(
+                    context,
+                    rota: '/minha_loja',
+                    icon: Icons.store_rounded,
+                    label: 'Minha Loja',
+                  ),
                   _subItem(
                     context,
                     rota: '/pdv',
@@ -2314,6 +2340,7 @@ class _GrupoGestaoComercialState extends State<_GrupoGestaoComercial> {
                     rota: '/modulo_fiscal',
                     icon: Icons.receipt_long_rounded,
                     label: 'Módulo Fiscal',
+                    mostrarCadeado: !_temModuloNfe,
                   ),
                   // ── sub-accordion Financeiro ──
                   _buildFinanceiroSubAccordion(),
@@ -2516,7 +2543,6 @@ class _GrupoGestaoComercialState extends State<_GrupoGestaoComercial> {
                   rota: '/comercial_credito',
                   icon: Icons.credit_card_rounded,
                   label: 'Crédito de Cliente',
-                  badge: 'Novo',
                 ),
                 _subItem(
                   context,
@@ -2551,7 +2577,12 @@ class _GrupoGestaoComercialState extends State<_GrupoGestaoComercial> {
     );
   }
 
-  Widget _iconColapsado(IconData icon, String rota, String tooltip) {
+  Widget _iconColapsado(
+    IconData icon,
+    String rota,
+    String tooltip, {
+    bool mostrarCadeado = false,
+  }) {
     final ativo = widget.rotaAtual == rota;
     return Tooltip(
       message: tooltip,
@@ -2563,10 +2594,25 @@ class _GrupoGestaoComercialState extends State<_GrupoGestaoComercial> {
             width: 44,
             height: 44,
             alignment: Alignment.center,
-            child: Icon(
-              icon,
-              color: ativo ? _TemaNav.ativoCor : _TemaNav.textoMuted,
-              size: 22,
+            child: Stack(
+              clipBehavior: Clip.none,
+              children: [
+                Icon(
+                  icon,
+                  color: ativo ? _TemaNav.ativoCor : _TemaNav.textoMuted,
+                  size: 22,
+                ),
+                if (mostrarCadeado)
+                  Positioned(
+                    right: -4,
+                    bottom: -2,
+                    child: Icon(
+                      Icons.lock_rounded,
+                      size: 12,
+                      color: _TemaNav.accent.withValues(alpha: 0.9),
+                    ),
+                  ),
+              ],
             ),
           ),
         ),
@@ -2581,6 +2627,7 @@ class _GrupoGestaoComercialState extends State<_GrupoGestaoComercial> {
     required String label,
     bool enabled = true,
     String? badge,
+    bool mostrarCadeado = false,
   }) {
     final ativo = widget.rotaAtual == rota;
     return Padding(
@@ -2603,7 +2650,9 @@ class _GrupoGestaoComercialState extends State<_GrupoGestaoComercial> {
                 Icon(
                   icon,
                   size: 18,
-                  color: (enabled && ativo) ? _TemaNav.ativoCor : _TemaNav.textoMuted.withOpacity(enabled ? 1.0 : 0.6),
+                  color: (enabled && ativo)
+                      ? _TemaNav.ativoCor
+                      : _TemaNav.textoMuted.withOpacity(enabled ? 1.0 : 0.6),
                 ),
                 const SizedBox(width: 10),
                 Expanded(
@@ -2613,12 +2662,25 @@ class _GrupoGestaoComercialState extends State<_GrupoGestaoComercial> {
                     overflow: TextOverflow.ellipsis,
                     style: TextStyle(
                       fontSize: 13,
-                      fontWeight: (enabled && ativo) ? FontWeight.w600 : FontWeight.w500,
-                      color: (enabled && ativo) ? _TemaNav.texto : _TemaNav.textoMuted.withOpacity(enabled ? 1.0 : 0.7),
+                      fontWeight: (enabled && ativo)
+                          ? FontWeight.w600
+                          : FontWeight.w500,
+                      color: (enabled && ativo)
+                          ? _TemaNav.texto
+                          : _TemaNav.textoMuted.withOpacity(enabled ? 1.0 : 0.7),
                     ),
                   ),
                 ),
-                if (badge != null)
+                if (mostrarCadeado)
+                  Padding(
+                    padding: const EdgeInsets.only(right: 10),
+                    child: Icon(
+                      Icons.lock_outline_rounded,
+                      size: 14,
+                      color: _TemaNav.accent.withValues(alpha: 0.85),
+                    ),
+                  )
+                else if (badge != null)
                   Padding(
                     padding: const EdgeInsets.only(right: 8),
                     child: Container(
@@ -2664,6 +2726,7 @@ class _GrupoGestaoComercialState extends State<_GrupoGestaoComercial> {
     );
   }
 }
+
 
 // ——— Grupo expansível: Gestão de Assinaturas ———
 
@@ -3237,124 +3300,6 @@ class _GrupoCarteiraState extends State<_GrupoCarteira> {
   }
 }
 
-// ——— Rodapé / usuário logado ———
-
-class _RodapeUsuario extends StatelessWidget {
-  const _RodapeUsuario({
-    required this.perfil,
-    required this.collapsed,
-    this.nomeLoja,
-  });
-
-  final String perfil;
-  final bool collapsed;
-  final String? nomeLoja;
-
-  String _iniciais(String email, String? nome) {
-    if (nome != null && nome.trim().isNotEmpty) {
-      final partes = nome.trim().split(' ');
-      if (partes.length >= 2) {
-        return (partes[0].substring(0, 1) + partes[1].substring(0, 1)).toUpperCase();
-      }
-      if (nome.trim().length >= 2) {
-        return nome.trim().substring(0, 2).toUpperCase();
-      }
-    }
-    final parte = email.split('@').first.trim();
-    if (parte.length >= 2) return parte.substring(0, 2).toUpperCase();
-    if (parte.isNotEmpty) return parte[0].toUpperCase();
-    return '?';
-  }
-
-  @override
-  Widget build(BuildContext context) {
-    final email = FirebaseAuth.instance.currentUser?.email?.trim() ?? 'loja@dipertin.com.br';
-    final exibirNomeLoja = nomeLoja ?? 'Loja Exemplo';
-
-    final avatar = Container(
-      width: 36,
-      height: 36,
-      decoration: BoxDecoration(
-        gradient: LinearGradient(
-          colors: [
-            _TemaNav.accent.withValues(alpha: 0.9),
-            _TemaNav.ativoCor.withValues(alpha: 0.6),
-          ],
-        ),
-        borderRadius: BorderRadius.circular(10),
-      ),
-      alignment: Alignment.center,
-      child: Text(
-        _iniciais(email, exibirNomeLoja),
-        style: const TextStyle(
-          color: Colors.white,
-          fontWeight: FontWeight.w800,
-          fontSize: 12,
-          decoration: TextDecoration.none,
-        ),
-      ),
-    );
-
-    if (collapsed) {
-      return Padding(
-        padding: const EdgeInsets.fromLTRB(0, 8, 0, 4),
-        child: Tooltip(
-          message: '$exibirNomeLoja\n$email',
-          preferBelow: false,
-          child: Center(child: avatar),
-        ),
-      );
-    }
-
-    return Padding(
-      padding: const EdgeInsets.fromLTRB(12, 10, 12, 4),
-      child: Container(
-        padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 10),
-        decoration: BoxDecoration(
-          color: _TemaNav.fundoElevado,
-          borderRadius: BorderRadius.circular(12),
-          border: Border.all(color: _TemaNav.borda),
-        ),
-        child: Row(
-          children: [
-            avatar,
-            const SizedBox(width: 10),
-            Expanded(
-              child: Column(
-                crossAxisAlignment: CrossAxisAlignment.start,
-                children: [
-                  Text(
-                    exibirNomeLoja,
-                    maxLines: 1,
-                    overflow: TextOverflow.ellipsis,
-                    style: const TextStyle(
-                      fontSize: 12,
-                      fontWeight: FontWeight.w700,
-                      color: _TemaNav.texto,
-                      decoration: TextDecoration.none,
-                    ),
-                  ),
-                  const SizedBox(height: 2),
-                  Text(
-                    email,
-                    maxLines: 1,
-                    overflow: TextOverflow.ellipsis,
-                    style: const TextStyle(
-                      fontSize: 11,
-                      color: _TemaNav.textoMuted,
-                      decoration: TextDecoration.none,
-                    ),
-                  ),
-                ],
-              ),
-            ),
-          ],
-        ),
-      ),
-    );
-  }
-}
-
 // ——— Rodapé / sair ———
 
 class _RodapeSair extends StatelessWidget {
@@ -3764,7 +3709,7 @@ class _SeccaoPlanoState extends State<_SeccaoPlano> {
   }
 
   void _abrirPlanos(BuildContext context) {
-    context.navegarPainel('/comercial_dashboard');
+    context.navegarPainel('/minha_loja');
   }
 
   @override

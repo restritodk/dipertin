@@ -81,7 +81,21 @@ class _LeadsBasePanelState extends State<LeadsBasePanel> {
   final TextEditingController _buscaCtrl = TextEditingController();
   String _busca = '';
   String _statusFiltro = '';
+  String _cidade = '';
   _ModoVis _modo = _ModoVis.pipeline;
+
+  /// Extrai cidades únicas (não vazias) dos documentos carregados, ordenadas A-Z.
+  List<String> _cidadesUnicas(
+    List<QueryDocumentSnapshot<Map<String, dynamic>>> docs,
+  ) {
+    final cidades = <String>{};
+    for (final d in docs) {
+      final cid = (d.data()['cidade'] ?? '').toString().trim();
+      if (cid.isNotEmpty) cidades.add(cid);
+    }
+    final lista = cidades.toList()..sort((a, b) => a.compareTo(b));
+    return lista;
+  }
 
   LeadConfig get cfg => widget.config;
 
@@ -98,7 +112,10 @@ class _LeadsBasePanelState extends State<LeadsBasePanel> {
         _cabecalho(),
         Expanded(
           child: StreamBuilder<QuerySnapshot<Map<String, dynamic>>>(
-            stream: MarketingLeadsService.stream(cfg.colecao),
+            stream: MarketingLeadsService.stream(
+              cfg.colecao,
+              cidade: _cidade.isNotEmpty ? _cidade : null,
+            ),
             builder: (context, snap) {
               if (snap.hasError) {
                 return _erroBox(snap.error.toString());
@@ -544,6 +561,41 @@ class _LeadsBasePanelState extends State<LeadsBasePanel> {
     );
   }
 
+  Widget _cidadeDropdown(
+    List<QueryDocumentSnapshot<Map<String, dynamic>>> todos,
+  ) {
+    final cidades = _cidadesUnicas(todos);
+    return Container(
+      constraints: const BoxConstraints(minWidth: 170, maxWidth: 260),
+      decoration: BoxDecoration(
+        color: Colors.white,
+        borderRadius: BorderRadius.circular(12),
+        border: Border.all(color: _border),
+      ),
+      padding: const EdgeInsets.symmetric(horizontal: 12),
+      child: DropdownButtonHideUnderline(
+        child: DropdownButton<String>(
+          value: _cidade.isEmpty ? null : _cidade,
+          isExpanded: true,
+          hint: const _CidadeHint(),
+          items: [
+            const DropdownMenuItem(
+              value: '',
+              child: _CidadeItem(label: 'Todas as cidades', selecionada: false),
+            ),
+            ...cidades.map(
+              (c) => DropdownMenuItem(
+                value: c,
+                child: _CidadeItem(label: c, selecionada: c == _cidade),
+              ),
+            ),
+          ],
+          onChanged: (v) => setState(() => _cidade = v ?? ''),
+        ),
+      ),
+    );
+  }
+
   Widget _ferramentas(
     List<QueryDocumentSnapshot<Map<String, dynamic>>> todos,
     List<QueryDocumentSnapshot<Map<String, dynamic>>> filtrados,
@@ -617,7 +669,9 @@ class _LeadsBasePanelState extends State<LeadsBasePanel> {
           crossAxisAlignment: CrossAxisAlignment.stretch,
           children: [
             busca,
-            const SizedBox(height: 12),
+            const SizedBox(height: 10),
+            _cidadeDropdown(todos),
+            const SizedBox(height: 10),
             SingleChildScrollView(
               scrollDirection: Axis.horizontal,
               child: acoes,
@@ -628,7 +682,9 @@ class _LeadsBasePanelState extends State<LeadsBasePanel> {
       return Row(
         children: [
           Expanded(child: busca),
-          const SizedBox(width: 12),
+          const SizedBox(width: 10),
+          _cidadeDropdown(todos),
+          const SizedBox(width: 10),
           acoes,
         ],
       );
@@ -1294,6 +1350,60 @@ class _LeadFormDialogState extends State<_LeadFormDialog> {
           ),
       ],
       onChanged: (v) => setState(() => _status = v ?? _status),
+    );
+  }
+}
+
+// ——— Widgets auxiliares do dropdown de cidade ———
+
+class _CidadeHint extends StatelessWidget {
+  const _CidadeHint();
+
+  @override
+  Widget build(BuildContext context) {
+    return Row(
+      mainAxisSize: MainAxisSize.min,
+      children: [
+        Icon(Icons.location_on_outlined,
+            size: 16, color: PainelAdminTheme.textoSecundario),
+        const SizedBox(width: 6),
+        Text(
+          'Todas as cidades',
+          style: TextStyle(
+            fontSize: 13.5,
+            color: PainelAdminTheme.textoSecundario,
+          ),
+        ),
+      ],
+    );
+  }
+}
+
+class _CidadeItem extends StatelessWidget {
+  const _CidadeItem({required this.label, required this.selecionada});
+  final String label;
+  final bool selecionada;
+
+  @override
+  Widget build(BuildContext context) {
+    return Row(
+      mainAxisSize: MainAxisSize.min,
+      children: [
+        Icon(
+          selecionada ? Icons.location_on_rounded : Icons.location_on_outlined,
+          size: 16,
+          color: selecionada ? PainelAdminTheme.roxo : PainelAdminTheme.textoSecundario,
+        ),
+        const SizedBox(width: 6),
+        Text(
+          label,
+          style: TextStyle(
+            fontSize: 13.5,
+            fontWeight: selecionada ? FontWeight.w700 : FontWeight.w400,
+            color: selecionada ? PainelAdminTheme.dashboardInk : null,
+          ),
+        ),
+      ],
     );
   }
 }

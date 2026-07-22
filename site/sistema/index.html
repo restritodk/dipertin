@@ -1,0 +1,220 @@
+<!DOCTYPE html>
+<html lang="pt-BR">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <meta name="robots" content="noindex, nofollow">
+  <!-- Anti-cache: força o navegador a baixar a versão mais recente -->
+  <meta http-equiv="Cache-Control" content="no-cache, no-store, must-revalidate">
+  <meta http-equiv="Pragma" content="no-cache">
+  <meta http-equiv="Expires" content="0">
+  <title>DiPertin — Novidades em breve</title>
+
+  <!-- Favicon SVG -->
+  <link rel="icon" type="image/svg+xml" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 32 32'%3E%3Cdefs%3E%3ClinearGradient id='g' x1='0%25' y1='0%25' x2='100%25' y2='100%25'%3E%3Cstop offset='0%25' stop-color='%236A1B9A'/%3E%3Cstop offset='100%25' stop-color='%23FF8F00'/%3E%3C/linearGradient%3E%3C/defs%3E%3Crect width='32' height='32' rx='8' fill='url(%23g)'/%3E%3Ctext x='50%25' y='50%25' dominant-baseline='central' text-anchor='middle' font-family='system-ui' font-weight='bold' font-size='16' fill='white'%3ED%3C/text%3E%3C/svg%3E">
+
+  <!-- Fonts -->
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link href="https://fonts.googleapis.com/css2?family=Plus+Jakarta+Sans:wght@400;500;600;700;800&display=swap" rel="stylesheet">
+
+  <!-- CSS Inline de Fallback: fundo escuro mesmo se protection.css demorar ou falhar -->
+  <style>
+    html, body {
+      background: #0D0A1A !important;
+      margin: 0;
+      min-height: 100vh;
+    }
+  </style>
+
+  <!-- Styles -->
+  <link rel="stylesheet" href="css/protection.css">
+</head>
+<body style="background: #0D0A1A; margin: 0; min-height: 100vh;">
+  <!-- Animated Background -->
+  <div class="bg-animation">
+    <div class="bg-orb bg-orb--1"></div>
+    <div class="bg-orb bg-orb--2"></div>
+    <div class="bg-orb bg-orb--3"></div>
+    <div class="bg-grid"></div>
+  </div>
+
+  <!-- Main Container -->
+  <main class="protection-container">
+    <!-- Card Principal -->
+    <div class="protection-card" id="mainCard">
+      <!-- Header com Logo -->
+      <div class="card-header">
+        <div class="logo-container">
+          <div class="logo-icon">
+            <svg viewBox="0 0 48 48" fill="none" xmlns="http://www.w3.org/2000/svg">
+              <defs>
+                <linearGradient id="logoGrad" x1="0%" y1="0%" x2="100%" y2="100%">
+                  <stop offset="0%" stop-color="#6A1B9A"/>
+                  <stop offset="100%" stop-color="#FF8F00"/>
+                </linearGradient>
+              </defs>
+              <rect width="48" height="48" rx="14" fill="url(#logoGrad)"/>
+              <path d="M24 10L32 14V20C32 26.627 28.075 32.8 24 35C19.925 32.8 16 26.627 16 20V14L24 10Z" fill="white" fill-opacity="0.9"/>
+              <circle cx="24" cy="20" r="4" fill="#6A1B9A"/>
+            </svg>
+          </div>
+          <span class="logo-text">DiPertin</span>
+        </div>
+
+        <!-- Badge de status -->
+        <div class="status-badge">
+          <span class="status-dot"></span>
+          <span>Em manutenção</span>
+        </div>
+      </div>
+
+      <!-- Conteúdo Principal -->
+      <div class="card-content">
+        <!-- Ícone animado -->
+        <div class="icon-wrapper">
+          <div class="icon-glow"></div>
+          <div class="icon-main">
+            <svg viewBox="0 0 64 64" fill="none" xmlns="http://www.w3.org/2000/svg">
+              <path d="M32 8L44 16V28C44 40.15 38.525 51.45 32 56C25.475 51.45 20 40.15 20 28V16L32 8Z" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"/>
+              <path d="M26 32L30 36L38 28" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"/>
+            </svg>
+          </div>
+          <div class="icon-particles">
+            <span></span><span></span><span></span><span></span><span></span>
+          </div>
+        </div>
+
+        <!-- Título Principal -->
+        <h1 class="main-title">
+          Estamos preparando<br>
+          <span class="gradient-text">grandes novidades!</span>
+        </h1>
+
+        <!-- Texto Complementar -->
+        <p class="main-description">
+          Em breve disponibilizaremos uma nova experiência para você.
+        </p>
+
+        <!-- Formulário de Senha -->
+        <form class="password-form" id="passwordForm">
+          <div class="input-wrapper">
+            <label for="adminPassword" class="input-label">
+              Digite a senha do administrador
+            </label>
+
+            <div class="input-container" id="inputContainer">
+              <svg class="input-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                <rect x="3" y="11" width="18" height="11" rx="2" ry="2"/>
+                <path d="M7 11V7a5 5 0 0 1 10 0v4"/>
+              </svg>
+
+              <input
+                type="password"
+                id="adminPassword"
+                class="password-input"
+                placeholder="••••••••"
+                autocomplete="current-password"
+                required
+                autofocus
+              >
+
+              <button type="button" class="toggle-visibility" id="togglePassword" aria-label="Mostrar senha">
+                <svg class="icon-show" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                  <path d="M1 12s4-8 11-8 11 8 11 8-4 8-11 8-11-8-11-8z"/>
+                  <circle cx="12" cy="12" r="3"/>
+                </svg>
+                <svg class="icon-hide" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                  <path d="M17.94 17.94A10.07 10.07 0 0 1 12 20c-7 0-11-8-11-8a18.45 18.45 0 0 1 5.06-5.94M9.9 4.24A9.12 9.12 0 0 1 12 4c7 0 11 8 11 8a18.5 18.5 0 0 1-2.16 3.19m-6.72-1.07a3 3 0 1 1-4.24-4.24"/>
+                  <line x1="1" y1="1" x2="23" y2="23"/>
+                </svg>
+              </button>
+            </div>
+
+            <!-- Mensagem de erro -->
+            <div class="error-message" id="errorMessage">
+              <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                <circle cx="12" cy="12" r="10"/>
+                <line x1="12" y1="8" x2="12" y2="12"/>
+                <line x1="12" y1="16" x2="12.01" y2="16"/>
+              </svg>
+              <span>Senha inválida.</span>
+            </div>
+          </div>
+
+          <button type="submit" class="submit-button" id="submitButton">
+            <span class="btn-text">Continuar</span>
+            <span class="btn-icon">
+              <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5">
+                <path d="M5 12h14M12 5l7 7-7 7"/>
+              </svg>
+            </span>
+            <span class="btn-loader"></span>
+          </button>
+        </form>
+      </div>
+
+      <!-- Footer -->
+      <div class="card-footer">
+        <p class="footer-text">
+          Acesso restrito • DiPertin © 2026 - Micro Hard Center
+        </p>
+      </div>
+    </div>
+
+    <!-- Versão Mobile do Card -->
+    <div class="protection-card-mobile" id="mobileCard" style="display: none;">
+      <div class="mobile-header">
+        <div class="logo-icon-sm">
+          <svg viewBox="0 0 32 32" fill="none">
+            <defs>
+              <linearGradient id="logoGradSm" x1="0%" y1="0%" x2="100%" y2="100%">
+                <stop offset="0%" stop-color="#6A1B9A"/>
+                <stop offset="100%" stop-color="#FF8F00"/>
+              </linearGradient>
+            </defs>
+            <rect width="32" height="32" rx="10" fill="url(#logoGradSm)"/>
+            <path d="M16 6L22 9V14C22 18.418 19.418 22.267 16 24C12.582 22.267 10 18.418 10 14V9L16 6Z" fill="white" fill-opacity="0.9"/>
+            <circle cx="16" cy="14" r="2.5" fill="#6A1B9A"/>
+          </svg>
+        </div>
+        <span class="logo-text-sm">DiPertin</span>
+      </div>
+
+      <h1 class="mobile-title">
+        Estamos preparando<br>
+        <span class="gradient-text">grandes novidades!</span>
+      </h1>
+
+      <p class="mobile-description">
+        Em breve disponibilizaremos uma nova experiência para você.
+      </p>
+
+      <form class="password-form-mobile" id="passwordFormMobile">
+        <input
+          type="password"
+          id="adminPasswordMobile"
+          class="password-input-mobile"
+          placeholder="Senha do administrador"
+          autocomplete="current-password"
+          required
+        >
+
+        <div class="error-message-mobile" id="errorMessageMobile">
+          Senha inválida.
+        </div>
+
+        <button type="submit" class="submit-button-mobile" id="submitButtonMobile">
+          <span>Continuar</span>
+          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5">
+            <path d="M5 12h14M12 5l7 7-7 7"/>
+          </svg>
+        </button>
+      </form>
+    </div>
+  </main>
+
+  <!-- Scripts -->
+  <script src="js/protection.js"></script>
+</body>
+</html>

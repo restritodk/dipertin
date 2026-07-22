@@ -34,10 +34,32 @@ const db = admin.firestore();
 // HELPERS
 // =============================================================================
 
-function validarAutenticacao(context) {
-    if (!context.auth) {
+/**
+ * Valida autenticação e permissão de acesso à Gestão Comercial.
+ * Proprietário: permitido. Colaborador: exige nivel >= 2.
+ */
+async function validarAutenticacao(request) {
+    if (!request.auth) {
         throw new HttpsError("unauthenticated", "Usuário não autenticado.");
     }
+    const callerUid = request.auth.uid;
+    const callerSnap = await db.collection("users").doc(callerUid).get();
+    if (!callerSnap.exists) {
+        throw new HttpsError("failed-precondition", "Perfil não encontrado.");
+    }
+    const caller = callerSnap.data() || {};
+    const role = String(caller.role || caller.tipoUsuario || "").toLowerCase();
+    if (role !== "lojista") {
+        throw new HttpsError("permission-denied", "Apenas lojistas podem acessar a Gestão Comercial.");
+    }
+    const ownerUid = String(caller.lojista_owner_uid || "").trim();
+    if (ownerUid) {
+        const nivel = Number(caller.painel_colaborador_nivel || 0);
+        if (nivel < 2) {
+            throw new HttpsError("permission-denied", "Sem permissão para acessar a Gestão Comercial.");
+        }
+    }
+    return request.auth.uid;
 }
 
 /**

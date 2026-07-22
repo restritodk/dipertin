@@ -1,5 +1,6 @@
+import 'dart:async';
 import 'package:flutter_localizations/flutter_localizations.dart';
-import 'package:flutter/foundation.dart' show kDebugMode, kIsWeb;
+import 'package:flutter/foundation.dart' show debugPrint, kDebugMode, kIsWeb;
 import 'package:flutter/material.dart';
 import 'package:cloud_firestore/cloud_firestore.dart';
 import 'package:firebase_auth/firebase_auth.dart';
@@ -8,6 +9,7 @@ import 'package:intl/intl.dart';
 import 'package:intl/date_symbol_data_local.dart';
 import 'firebase_options.dart';
 import 'services/painel_google_redirect_pending.dart';
+import 'services/firebase_functions_config.dart' show AppCheckException;
 import 'services/sessao_painel_service.dart';
 import 'navigation/painel_routes.dart';
 import 'theme/painel_admin_theme.dart';
@@ -16,16 +18,21 @@ import 'widgets/painel_shell_screen.dart';
 
 void main() async {
   WidgetsFlutterBinding.ensureInitialized();
-  // Português do Brasil (Material, intl/DateFormat, números).
+  // Português do Brasil (Material, intl/DateFormat, numbers).
   Intl.defaultLocale = 'pt_BR';
   // Carrega os símbolos de data do locale (nomes de mês/dia). Sem isto,
   // DateFormat('MMM'/'EEEE', 'pt_BR') lança LocaleDataException em runtime.
   await initializeDateFormatting('pt_BR', null);
   await Firebase.initializeApp(options: DefaultFirebaseOptions.currentPlatform);
-  // App Check **não** é dependência deste projeto: com o plugin presente, o
-  // Firebase Auth (web) tentava obter token reCAPTCHA e gerava
-  // appCheck/recaptcha-error + falhas no painel. Reintroduzir exige
-  // firebase_app_check + domínios no reCAPTCHA / App Check.
+
+  // App Check INTENCIONALMENTE DESATIVADO no painel web (jul/2026).
+  // Motivo: reCAPTCHA v3 (exchangeRecaptchaV3Token) falhava em produção (400)
+  // e gerava ruído + 401 UNAUTHENTICATED nas callables com enforceAppCheck.
+  // Callables usam enforceAppCheck: false; autenticação = Auth Bearer apenas.
+  // NÃO chamar FirebaseAppCheck.instance.activate sem corrigir Secret Key
+  // / domínios no Console e redeploy das functions.
+  debugPrint('[AppCheck] Desativado no painel web (Auth Bearer apenas).');
+
   // OAuth redirect: getRedirectResult só pode ser chamado uma vez; com hash routing
   // o resultado perdia-se se fosse só no LoginScreen.
   // Timeout defensivo: em alguns cenários (CSP, iframe bloqueado, 3rd party cookies
@@ -49,7 +56,21 @@ void main() async {
       );
     } catch (_) {}
   }
-  runApp(const DiPertinAdminApp());
+  // Tratador global para AppCheckException que escapar dos try/catch locais
+  // em telas que chamam callFirebaseFunctionSafe sem captura específica.
+  // Impede Uncaught Error no console do navegador.
+  runZonedGuarded(() {
+    runApp(const DiPertinAdminApp());
+  }, (Object error, StackTrace stack) {
+    // Apenas AppCheckException não tratado — outros erros seguem normais
+    if (error is AppCheckException) {
+      debugPrint('[AppCheckGlobalHandler] AppCheckException não tratado '
+          'capturado globalmente:\n$error');
+    } else {
+      // Para outros erros, loga normalmente (não engole)
+      debugPrint('[AppCheckGlobalHandler] Erro não tratado: $error\n$stack');
+    }
+  });
 }
 
 /// Rota sem animação (troca instantânea) — usada ao abrir URLs diretas do painel no web.

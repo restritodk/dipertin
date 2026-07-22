@@ -218,6 +218,9 @@ if (-not $SkipBuild) {
 
     Write-Host "=== Flutter build web (base-href /sistema/, PWA off) ===" -ForegroundColor Cyan
 
+    # App Check desativado no painel (main.dart); callables com enforceAppCheck:false.
+    Write-Host "App Check: desativado no painel (Auth Bearer apenas)." -ForegroundColor DarkGray
+
     flutter pub get
 
     if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
@@ -273,6 +276,14 @@ if (Test-Path -LiteralPath $buildIndexHtml) {
 
     Write-Host "index.html: flutter_bootstrap.js?v=$ver (cache-bust)" -ForegroundColor DarkGray
 
+    # Preserva o HTML do Flutter ANTES da tela de proteção sobrescrever index.html.
+    # Sem isso, -SkipBuild após um deploy anterior gera app.html = página de senha (bug).
+    if ($idx -match 'flutter_bootstrap\.js') {
+        $flutterSourceBackup = Join-Path $buildRoot "index.flutter.html"
+        [System.IO.File]::WriteAllText($flutterSourceBackup, $idx, [System.Text.UTF8Encoding]::new($false))
+        Write-Host "Backup Flutter index → index.flutter.html" -ForegroundColor DarkGray
+    }
+
 }
 
 # 2) flutter_bootstrap.js: cache-bust main.dart.js
@@ -327,6 +338,45 @@ if (Test-Path -LiteralPath $buildFontManifest) {
 
 }
 
+# 4) Painel Flutter em index.html (+ app.html espelho p/ links antigos de e-mail).
+#    A tela "Estamos preparando grandes novidades" (senha admin) foi REMOVIDA.
+#    Fluxo: /sistema/ → login Flutter (#/login). Sem barreira sessionStorage.
+$flutterIndexPath = Join-Path $buildRoot "index.html"
+$flutterSourcePath = Join-Path $buildRoot "index.flutter.html"
+$appHtmlPath = Join-Path $buildRoot "app.html"
+
+if (Test-Path -LiteralPath $flutterIndexPath) {
+    $sourceForApp = $null
+    if (Test-Path -LiteralPath $flutterSourcePath) {
+        $candidate = [System.IO.File]::ReadAllText($flutterSourcePath)
+        if ($candidate -match 'flutter_bootstrap\.js') {
+            $sourceForApp = $candidate
+        }
+    }
+    if (-not $sourceForApp) {
+        $candidate = [System.IO.File]::ReadAllText($flutterIndexPath)
+        if ($candidate -match 'flutter_bootstrap\.js') {
+            $sourceForApp = $candidate
+            [System.IO.File]::WriteAllText($flutterSourcePath, $candidate, [System.Text.UTF8Encoding]::new($false))
+        }
+    }
+    if (-not $sourceForApp) {
+        Write-Host "ERRO: nao ha HTML Flutter valido em build\web\index.html." -ForegroundColor Red
+        Write-Host "Rode o deploy SEM -SkipBuild para regenerar build\web." -ForegroundColor Red
+        exit 1
+    }
+
+    # Garante index.html = Flutter (nao sobrescreve com tela de senha).
+    [System.IO.File]::WriteAllText($flutterIndexPath, $sourceForApp, [System.Text.UTF8Encoding]::new($false))
+    # app.html = mesma entrada (compat com e-mails /sistema/app.html#/...)
+    [System.IO.File]::WriteAllText($appHtmlPath, $sourceForApp, [System.Text.UTF8Encoding]::new($false))
+
+    Write-Host "Painel: index.html + app.html (Flutter, sem tela de manutencao)" -ForegroundColor DarkGray
+} else {
+    Write-Host "ERRO: build\web\index.html nao encontrado." -ForegroundColor Red
+    exit 1
+}
+
 # .htaccess: sem mod_rewrite (hash routes). mod_headers reduz cache agressivo em JS/WASM/JSON.
 
 $htPath = Join-Path $buildRoot ".htaccess"
@@ -351,8 +401,8 @@ $htSafe = @"
 
   # CSP para Flutter Web — sobrescreve a CSP do .htaccess raiz (site estatico).
   # script-src: accounts.google.com = GSI (gsi/client). www.google.com + recaptcha.net = reCAPTCHA v3 (App Check).
-  # connect-src: Firebase (Functions/Firestore/Auth/Storage) + firebaseappcheck (token exchange) + IBGE (lista de municipios do Brasil para picker de cidades).
-  Header always set Content-Security-Policy "default-src 'self'; script-src 'self' 'unsafe-inline' 'wasm-unsafe-eval' https://www.gstatic.com https://apis.google.com https://accounts.google.com https://www.google.com https://www.recaptcha.net; style-src 'self' 'unsafe-inline' https://fonts.googleapis.com https://accounts.google.com; font-src 'self' https://fonts.gstatic.com data:; img-src 'self' data: https: blob:; connect-src 'self' blob: https://us-central1-depertin-f940f.cloudfunctions.net https://*.cloudfunctions.net https://*.run.app https://firestore.googleapis.com https://firebase.googleapis.com https://firebaseinstallations.googleapis.com https://firebaseappcheck.googleapis.com https://identitytoolkit.googleapis.com https://securetoken.googleapis.com https://www.googleapis.com https://fonts.googleapis.com https://fonts.gstatic.com https://*.gstatic.com https://accounts.google.com https://apis.google.com https://firebasestorage.googleapis.com https://storage.googleapis.com https://www.google.com https://www.recaptcha.net https://servicodados.ibge.gov.br; frame-src 'self' https://accounts.google.com https://www.google.com https://www.recaptcha.net https://www.gstatic.com https://depertin-f940f.firebaseapp.com https://*.firebaseapp.com https://firebasestorage.googleapis.com https://storage.googleapis.com https://docs.google.com; worker-src 'self' blob:; object-src 'none'; base-uri 'self'; frame-ancestors 'self'"
+  # connect-src: Firebase (Functions/Firestore/Auth/Storage) + firebaseappcheck (token exchange) + IBGE (municipios) + ViaCEP (autocomplete de endereco).
+  Header always set Content-Security-Policy "default-src 'self'; script-src 'self' 'unsafe-inline' 'wasm-unsafe-eval' https://www.gstatic.com https://apis.google.com https://accounts.google.com https://www.google.com https://www.recaptcha.net; style-src 'self' 'unsafe-inline' https://fonts.googleapis.com https://accounts.google.com; font-src 'self' https://fonts.gstatic.com data:; img-src 'self' data: https: blob:; connect-src 'self' blob: https://us-central1-depertin-f940f.cloudfunctions.net https://*.cloudfunctions.net https://*.run.app https://firestore.googleapis.com https://firebase.googleapis.com https://firebaseinstallations.googleapis.com https://firebaseappcheck.googleapis.com https://content-firebaseappcheck.googleapis.com https://identitytoolkit.googleapis.com https://securetoken.googleapis.com https://www.googleapis.com https://fonts.googleapis.com https://fonts.gstatic.com https://*.gstatic.com https://accounts.google.com https://apis.google.com https://firebasestorage.googleapis.com https://storage.googleapis.com https://www.google.com https://www.recaptcha.net https://servicodados.ibge.gov.br https://viacep.com.br; frame-src 'self' https://accounts.google.com https://www.google.com https://www.recaptcha.net https://www.gstatic.com https://depertin-f940f.firebaseapp.com https://*.firebaseapp.com https://firebasestorage.googleapis.com https://storage.googleapis.com https://docs.google.com; worker-src 'self' blob:; object-src 'none'; base-uri 'self'; frame-ancestors 'self'"
   Header always set Cross-Origin-Opener-Policy "same-origin-allow-popups"
   Header always set X-Content-Type-Options "nosniff"
   Header always set X-Frame-Options "SAMEORIGIN"

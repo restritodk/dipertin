@@ -23,6 +23,20 @@ const COLECAO_ASSINATURAS = "assinaturas_clientes";
 const COLECAO_BILLING_SETTINGS = "billing_settings";
 const CONTADOR_REF = "contadores/assinaturas_cobrancas";
 
+/** Prazo para pagar o PIX após gerar o QR (minutos). */
+const PIX_PRAZO_MINUTOS = 5;
+const MP_API = "https://api.mercadopago.com";
+
+/** Webhook GC (us-central1) — confirma PIX de assinatura sem depender de polling. */
+const ASSINATURA_MP_WEBHOOK_URL =
+    "https://us-central1-depertin-f940f.cloudfunctions.net/webhookMercadoPagoGestaoComercial";
+
+/** Fonte canônica: plan_id. Fallback legado: plano_id. */
+function planIdDaAssinatura(assinatura) {
+    const a = assinatura || {};
+    return String(a.plan_id || a.plano_id || "").trim();
+}
+
 const STATUS_VALIDOS = [
     "em_aberto",
     "vencida",
@@ -108,6 +122,7 @@ function statusPorVencimento(vencimentoDate) {
 }
 
 function baseCobrancaDeAssinatura(assinatura, assinaturaId) {
+    const planId = planIdDaAssinatura(assinatura);
     return {
         assinatura_id: assinaturaId,
         store_id: assinatura.store_id || "",
@@ -115,8 +130,12 @@ function baseCobrancaDeAssinatura(assinatura, assinaturaId) {
         owner_name: assinatura.owner_name || "",
         email: assinatura.email || "",
         modulo: derivarModulo(assinatura),
+        plan_id: planId,
         plan_name: assinatura.plan_name || "",
         valor: Number(assinatura.monthly_amount) || 0,
+        // Régua de avisos (não controla bloqueio)
+        tentativas_aviso: 0,
+        status_notificacao: "pendente",
     };
 }
 
@@ -194,15 +213,24 @@ async function _gerarParaAssinatura(db, assinaturaId, base, proxVenc, ultPagto) 
                 fatura: numero,
                 fatura_seq: seq,
                 ciclo,
+                competencia: ciclo,
                 vencimento: admin.firestore.Timestamp.fromDate(proxVenc),
                 status: novoStatus,
                 origem: "assinatura",
+                tentativas_aviso: 0,
+                status_notificacao: "pendente",
+                // Tentativa 1 no vencimento (ou imediatamente se já vencida)
+                proxima_tentativa_em: admin.firestore.Timestamp.fromDate(
+                    novoStatus === "vencida" ? new Date() : proxVenc
+                ),
                 criado_em: admin.firestore.FieldValue.serverTimestamp(),
                 atualizado_em: admin.firestore.FieldValue.serverTimestamp(),
                 historico: [{
                     tipo: "geracao",
                     descricao: "Cobrança gerada a partir da assinatura.",
                     data_em: admin.firestore.Timestamp.now(),
+                    competencia: ciclo,
+                    idempotency_key: id,
                 }],
             });
             return { criada: true, atualizada: false };
@@ -1272,10 +1300,14 @@ async function _gerarCobrancaUnica(db, assinatura, assinaturaId, settings) {
     const modulo = derivarModulo(assinatura);
 
     // Se configurado para filtrar por módulo/plano
+    // Fonte canônica: plan_id (fallback legado plano_id via planIdDaAssinatura)
     const settingsAllPlans = settings.all_plans !== false;
     if (!settingsAllPlans) {
         const planIds = Array.isArray(settings.selected_plan_ids) ? settings.selected_plan_ids : [];
-        if (planIds.length > 0 && !planIds.includes(assinaturaId) && !planIds.includes(String(assinatura.plano_id || ""))) {
+        const planIdAssinatura = planIdDaAssinatura(assinatura);
+        if (planIds.length > 0 &&
+            !planIds.includes(assinaturaId) &&
+            !planIds.includes(planIdAssinatura)) {
             return null;
         }
     }
@@ -1317,15 +1349,23 @@ async function _gerarCobrancaUnica(db, assinatura, assinaturaId, settings) {
             fatura: numero,
             fatura_seq: seq,
             ciclo,
+            competencia: ciclo,
             vencimento: admin.firestore.Timestamp.fromDate(vencimentoDate),
             status: statusCobranca,
             origem: "auto",
+            tentativas_aviso: 0,
+            status_notificacao: "pendente",
+            proxima_tentativa_em: admin.firestore.Timestamp.fromDate(
+                statusCobranca === "vencida" ? new Date() : vencimentoDate
+            ),
             criado_em: admin.firestore.FieldValue.serverTimestamp(),
             atualizado_em: admin.firestore.FieldValue.serverTimestamp(),
             historico: [{
                 tipo: "geracao_auto",
                 descricao: "Cobrança gerada automaticamente pelo sistema.",
                 data_em: admin.firestore.Timestamp.now(),
+                competencia: ciclo,
+                idempotency_key: id,
             }],
         });
 
@@ -1757,5 +1797,621 @@ exports.assinaturaCobrancaAtrasoScheduled = onSchedule(
         return null;
     },
 );
+
+// =============================================================================
+// HELPERS MERCADO PAGO (reutilizados de assinatura_pagamento.js)
+// =============================================================================
+
+async function getMercadoPagoGatewayConfig() {
+    const doc = await admin
+        .firestore()
+        .collection("gateways_pagamento")
+        .doc("mercado_pago")
+        .get();
+    if (!doc.exists || doc.data().ativo !== true) return null;
+    const d = doc.data() || {};
+    const accessToken = d.access_token && String(d.access_token).trim()
+        ? String(d.access_token).trim()
+        : null;
+    if (!accessToken) return null;
+    return { accessToken };
+}
+
+/**
+ * Cria pagamento PIX no Mercado Pago.
+ */
+async function criarPagamentoPixMp(accessToken, payload, idRef) {
+    const idempotencyKey = "cobranca-pix-" + String(idRef || Date.now());
+    const res = await fetch(MP_API + "/v1/payments", {
+        method: "POST",
+        headers: {
+            Authorization: "Bearer " + accessToken,
+            "Content-Type": "application/json",
+            "X-Idempotency-Key": idempotencyKey,
+        },
+        body: JSON.stringify(payload),
+    });
+    const body = await res.json().catch(() => ({}));
+    if (!res.ok) {
+        const err = new Error(body.message || "MP PIX " + res.status);
+        err.status = res.status;
+        err.body = body;
+        throw err;
+    }
+    return body;
+}
+
+/**
+ * Consulta pagamento no Mercado Pago.
+ */
+async function fetchPaymentFromMp(accessToken, paymentId) {
+    const res = await fetch(MP_API + "/v1/payments/" + paymentId, {
+        headers: { Authorization: "Bearer " + accessToken },
+    });
+    return await res.json().catch(() => ({}));
+}
+
+// =============================================================================
+// ASSINATURA COBRANCA — GERAR PIX
+// =============================================================================
+
+/**
+ * onCall v2: Gera PIX para pagar uma cobrança existente.
+ * Chamado pelo painel lojista (Extrato de Pagamentos).
+ *
+ * Entrada: { cobranca_id }
+ * Saída: { qrCode, qrCodeBase64, pixCopiaECola, expiresAt, paymentId, status }
+ */
+exports.assinaturaCobrancaGerarPix = onCall(
+    { region: "us-central1", enforceAppCheck: false, timeoutSeconds: 60 },
+    async (request) => {
+        if (!request.auth) {
+            throw new HttpsError("unauthenticated", "Login necessário.");
+        }
+        const data = request.data || {};
+        // Aceita ambos os formatos: camelCase (padrão do projeto) e snake_case
+        const cobrancaId = String(data.cobrancaId || data.cobranca_id || "").trim();
+
+        if (!cobrancaId) {
+            throw new HttpsError("invalid-argument", "cobranca_id é obrigatório.");
+        }
+
+        const db = admin.firestore();
+
+        // 1. Buscar a cobrança
+        const cobrancaRef = db.collection(COLECAO).doc(cobrancaId);
+        const cobrancaSnap = await cobrancaRef.get();
+        if (!cobrancaSnap.exists) {
+            throw new HttpsError("not-found", "Cobrança não encontrada.");
+        }
+        const cobranca = cobrancaSnap.data() || {};
+
+        // 2. Validar que a cobrança pertence ao lojista logado
+        const storeIdCobranca = String(cobranca.store_id || "").trim();
+        if (storeIdCobranca !== request.auth.uid) {
+            throw new HttpsError("permission-denied", "Cobrança não pertence a este lojista.");
+        }
+
+        // 3. Validar status da cobrança
+        const statusCobranca = String(cobranca.status || "");
+        if (statusCobranca !== "em_aberto" && statusCobranca !== "vencida") {
+            throw new HttpsError(
+                "failed-precondition",
+                "Cobrança não pode ser paga (status: " + statusCobranca + ").",
+            );
+        }
+
+        // 4. Verificar se já existe PIX válido
+        const mpPaymentIdExistente = cobranca.mp_payment_id;
+        const pixExpiraEm = tsParaDate(cobranca.pix_expira_em);
+        const mpStatus = String(cobranca.mp_status || "");
+
+        if (mpPaymentIdExistente && pixExpiraEm) {
+            const agora = new Date();
+            // Se ainda não expirou e está pendente, retornar o existente
+            if (pixExpiraEm > agora && (mpStatus === "pending" || mpStatus === "authorized")) {
+                return {
+                    qrCode: cobranca.mp_qr_code || "",
+                    qrCodeBase64: cobranca.mp_qr_code_base64 || "",
+                    pixCopiaECola: cobranca.mp_qr_code || "",
+                    expiresAt: cobranca.pix_expira_em instanceof admin.firestore.Timestamp
+                        ? cobranca.pix_expira_em.toDate().toISOString()
+                        : String(cobranca.pix_expira_em || ""),
+                    paymentId: mpPaymentIdExistente,
+                    status: mpStatus,
+                    reutilizado: true,
+                };
+            }
+        }
+
+        // 5. Obter gateway MP
+        const gateway = await getMercadoPagoGatewayConfig();
+        if (!gateway || !gateway.accessToken) {
+            throw new HttpsError("failed-precondition", "Gateway de pagamento não configurado.");
+        }
+
+        // 6. Buscar dados do lojista para o payer
+        const userRef = db.collection("users").doc(request.auth.uid);
+        const userSnap = await userRef.get();
+        const userData = userSnap.data() || {};
+        const ownerName = String(cobranca.owner_name || userData.nome || userData.nome_completo || request.auth.uid);
+        const ownerEmail = String(cobranca.email || userData.email || request.auth.token?.email || "nao-informado@dipertin.com");
+
+        // 7. Preparar external_reference único e capturar IDs para metadata
+        const externalRef = "cobranca_" + cobrancaId + "_" + Date.now();
+        const assinaturaIdCobranca = String(cobranca.assinatura_id || "").trim();
+
+        // 8. Criar PIX no MP
+        const expiresAt = new Date(Date.now() + PIX_PRAZO_MINUTOS * 60 * 1000);
+        const description = "Cobrança " + String(cobranca.fatura || cobrancaId) + " - DiPertin";
+        const valor = Number(cobranca.valor) || 0;
+
+        const pixPayload = {
+            transaction_amount: valor,
+            description: description,
+            payment_method_id: "pix",
+            payer: {
+                email: ownerEmail,
+                first_name: ownerName,
+            },
+            external_reference: externalRef,
+            notification_url: ASSINATURA_MP_WEBHOOK_URL,
+            metadata: {
+                tipo: "assinatura_cobranca",
+                cobranca_id: cobrancaId,
+                cobrancaId: cobrancaId,
+                assinatura_id: assinaturaIdCobranca,
+                assinaturaId: assinaturaIdCobranca,
+                store_id: storeIdCobranca,
+                storeId: storeIdCobranca,
+            },
+        };
+
+        let mpResponse;
+        try {
+            mpResponse = await criarPagamentoPixMp(gateway.accessToken, pixPayload, "cobranca_" + cobrancaId);
+        } catch (mpErr) {
+            console.error("[assinatura-cobranca-gerar-pix] MP error:", mpErr.message);
+            throw new HttpsError("internal", "Erro ao gerar PIX. Tente novamente.");
+        }
+
+        const paymentId = mpResponse.id;
+        const transactionData = mpResponse.point_of_interaction && mpResponse.point_of_interaction.transaction_data;
+        const qrCode = transactionData ? transactionData.qr_code : "";
+        const qrCodeBase64 = transactionData ? transactionData.qr_code_base64 : "";
+        const mpStatusNew = mpResponse.status || "pending";
+
+        // 9. Salvar na cobrança (com transação para evitar concorrência)
+        await db.runTransaction(async (tx) => {
+            const snap = await tx.get(cobrancaRef);
+            const current = snap.data() || {};
+
+            // Verificar novamente se não foi gerado por outra requisição
+            const currentMpId = current.mp_payment_id;
+            const currentExpira = tsParaDate(current.pix_expira_em);
+            const currentStatus = String(current.mp_status || "");
+
+            if (currentMpId && currentExpira && currentExpira > new Date() &&
+                (currentStatus === "pending" || currentStatus === "authorized")) {
+                // Já existe PIX válido, não sobrescrever
+                return;
+            }
+
+            tx.update(cobrancaRef, {
+                mp_payment_id: paymentId,
+                mp_status: mpStatusNew,
+                mp_qr_code: qrCode,
+                mp_qr_code_base64: qrCodeBase64,
+                mp_external_reference: externalRef,
+                pix_gerado_em: admin.firestore.Timestamp.now(),
+                pix_expira_em: admin.firestore.Timestamp.fromDate(expiresAt),
+                status_pagamento_gateway: "pendente",
+                atualizado_em: admin.firestore.Timestamp.now(),
+                historico: admin.firestore.FieldValue.arrayUnion({
+                    tipo: "pix_gerado",
+                    descricao: "PIX gerado para pagamento via Mercado Pago.",
+                    data_em: admin.firestore.Timestamp.now(),
+                    payment_id: paymentId,
+                    valor: valor,
+                }),
+            });
+        });
+
+        console.log("[assinatura-cobranca-gerar-pix] PIX criado: cobranca=" + cobrancaId + ", payment=" + paymentId);
+
+        return {
+            qrCode: qrCode,
+            qrCodeBase64: qrCodeBase64,
+            pixCopiaECola: qrCode,
+            expiresAt: expiresAt.toISOString(),
+            paymentId: paymentId,
+            status: mpStatusNew,
+            reutilizado: false,
+        };
+    },
+);
+
+// =============================================================================
+// ASSINATURA COBRANCA — CONSULTAR STATUS PIX
+// =============================================================================
+
+/**
+ * onCall v2: Consulta status do PIX de uma cobrança e renova a assinatura se pago.
+ * Chamado pelo painel lojista (polling após gerar PIX).
+ *
+ * Entrada: { cobranca_id }
+ * Saída: { status, pago, message }
+ */
+exports.assinaturaCobrancaConsultarStatusPix = onCall(
+    { region: "us-central1", enforceAppCheck: false, timeoutSeconds: 30 },
+    async (request) => {
+        if (!request.auth) {
+            throw new HttpsError("unauthenticated", "Login necessário.");
+        }
+        const data = request.data || {};
+        // Aceita ambos os formatos: camelCase (padrão do projeto) e snake_case
+        const cobrancaId = String(data.cobrancaId || data.cobranca_id || "").trim();
+
+        if (!cobrancaId) {
+            throw new HttpsError("invalid-argument", "cobranca_id é obrigatório.");
+        }
+
+        const db = admin.firestore();
+
+        // 1. Buscar a cobrança
+        const cobrancaRef = db.collection(COLECAO).doc(cobrancaId);
+        const cobrancaSnap = await cobrancaRef.get();
+        if (!cobrancaSnap.exists) {
+            return { status: "nao_encontrado", pago: false, message: "Cobrança não encontrada." };
+        }
+        const cobranca = cobrancaSnap.data() || {};
+
+        // 2. Validar que a cobrança pertence ao lojista logado
+        const storeIdCobranca = String(cobranca.store_id || "").trim();
+        if (storeIdCobranca !== request.auth.uid) {
+            throw new HttpsError("permission-denied", "Cobrança não pertence a este lojista.");
+        }
+
+        // 3. Verificar se já está paga
+        if (cobranca.status === "paga") {
+            return { status: "paga", pago: true, message: "Cobrança já foi paga." };
+        }
+
+        // 4. Verificar se tem payment_id
+        const mpPaymentId = cobranca.mp_payment_id;
+        if (!mpPaymentId) {
+            return { status: "sem_pix", pago: false, message: "PIX não foi gerado para esta cobrança." };
+        }
+
+        // 5. Verificar expiração local (fallback)
+        const pixExpiraEm = tsParaDate(cobranca.pix_expira_em);
+        if (pixExpiraEm && pixExpiraEm < new Date()) {
+            // Atualizar status local como expirado
+            await cobrancaRef.update({
+                status_pagamento_gateway: "expirado",
+                atualizado_em: admin.firestore.Timestamp.now(),
+                historico: admin.firestore.FieldValue.arrayUnion({
+                    tipo: "pix_expirado",
+                    descricao: "PIX expirou sem pagamento.",
+                    data_em: admin.firestore.Timestamp.now(),
+                }),
+            });
+            return { status: "expirado", pago: false, message: "PIX expirou. Gere um novo." };
+        }
+
+        // 6. Consultar Mercado Pago
+        const gateway = await getMercadoPagoGatewayConfig();
+        if (!gateway) {
+            return { status: "erro_gateway", pago: false, message: "Gateway não configurado." };
+        }
+
+        let mpPayment;
+        try {
+            mpPayment = await fetchPaymentFromMp(gateway.accessToken, mpPaymentId);
+        } catch (e) {
+            console.warn("[assinatura-cobranca-status-pix] erro MP:", e.message);
+            return { status: "pendente", pago: false, message: "Consultando..." };
+        }
+
+        const mpStatus = String(mpPayment.status || "").toLowerCase();
+
+        // 7. Atualizar status da cobrança
+        let novoStatusGateway = cobranca.status_pagamento_gateway || "pendente";
+        if (mpStatus === "approved" || mpStatus === "authorized") {
+            novoStatusGateway = "aprovado";
+        } else if (mpStatus === "cancelled" || mpStatus === "refunded") {
+            novoStatusGateway = "cancelado";
+        } else if (mpStatus === "pending") {
+            novoStatusGateway = "pendente";
+        }
+
+        // 8. Se aprovado, processar pagamento completo (mesmo helper do webhook — idempotente)
+        if (mpStatus === "approved" || mpStatus === "authorized") {
+            const paymentComMeta = Object.assign({}, mpPayment, {
+                metadata: Object.assign({}, mpPayment.metadata || {}, {
+                    tipo: "assinatura_cobranca",
+                    cobranca_id: cobrancaId,
+                    cobrancaId: cobrancaId,
+                    assinatura_id: String(cobranca.assinatura_id || ""),
+                    assinaturaId: String(cobranca.assinatura_id || ""),
+                    store_id: storeIdCobranca,
+                    storeId: storeIdCobranca,
+                }),
+            });
+            const r = await processarPagamentoCobrancaAssinatura(paymentComMeta);
+            if (r && (r.ok || r.already)) {
+                console.log("[assinatura-cobranca-status-pix] Pago: cobranca=" + cobrancaId);
+                return { status: "paga", pago: true, message: "Pagamento aprovado! Assinatura renovada." };
+            }
+            console.warn("[assinatura-cobranca-status-pix] processamento:", JSON.stringify(r));
+            return {
+                status: "pendente",
+                pago: false,
+                message: (r && r.message) || "Não foi possível confirmar o pagamento ainda.",
+            };
+        }
+
+        // 9. Atualizar apenas status do gateway (se mudou)
+        if (novoStatusGateway !== cobranca.status_pagamento_gateway) {
+            await cobrancaRef.update({
+                mp_status: mpStatus,
+                status_pagamento_gateway: novoStatusGateway,
+                atualizado_em: admin.firestore.Timestamp.now(),
+            });
+        }
+
+        // 10. Retornar status atual
+        if (mpStatus === "cancelled" || mpStatus === "refunded") {
+            return { status: "cancelado", pago: false, message: "Pagamento cancelado/reembolsado." };
+        }
+
+        return { status: "pendente", pago: false, message: "Aguardando pagamento..." };
+    },
+);
+
+// =============================================================================
+// WEBHOOK GESTÃO COMERCIAL — Processar pagamento de cobrança recorrente
+// =============================================================================
+
+/**
+ * Função chamada pelo webhook Mercado Pago da Gestão Comercial.
+ *
+ * Processa pagamento aprovado de cobrança de assinatura (Plano Gestão Comercial).
+ *
+ * Valida:
+ * - metadata.tipo === "assinatura_cobranca"
+ * - cobrança existe
+ * - payment.id === cobranca.mp_payment_id
+ * - valor confere
+ * - store_id e assinatura_id conferem
+ * - status MP é approved/authorized
+ *
+ * Idempotente: se já paga, não processa novamente.
+ *
+ * Atualiza:
+ * - Cobrança → status "paga", pago_em, mp_status, status_pagamento_gateway
+ * - Assinatura → status "ativo", last_payment_date, next_billing_date
+ */
+async function processarPagamentoCobrancaAssinatura(payment) {
+    const db = admin.firestore();
+    const avisos = require("./assinatura_avisos");
+
+    // 1. Validar metadata
+    const metadata = (payment && payment.metadata) || {};
+    if (metadata.tipo !== "assinatura_cobranca") {
+        return { ok: false, reason: "tipo_invalido", message: "metadata.tipo != assinatura_cobranca" };
+    }
+
+    // Aceita ambos formatos: camelCase e snake_case
+    const cobrancaId = String(
+        metadata.cobrancaId || metadata.cobranca_id || ""
+    ).trim();
+    const assinaturaIdMeta = String(
+        metadata.assinaturaId || metadata.assinatura_id || ""
+    ).trim();
+    const storeIdMeta = String(
+        metadata.storeId || metadata.store_id || ""
+    ).trim();
+
+    if (!cobrancaId) {
+        return { ok: false, reason: "cobranca_id_ausente", message: "metadata sem cobrancaId/cobranca_id" };
+    }
+
+    // 2. Buscar cobrança
+    const cobrancaRef = db.collection(COLECAO).doc(cobrancaId);
+    const cobrancaSnap = await cobrancaRef.get();
+    if (!cobrancaSnap.exists) {
+        console.warn(`[assinatura-webhook] Cobrança não encontrada: ${cobrancaId}`);
+        return { ok: false, reason: "cobranca_nao_encontrada" };
+    }
+
+    const cobranca = cobrancaSnap.data() || {};
+    const statusAtual = String(cobranca.status || "");
+    const mpPaymentId = String(cobranca.mp_payment_id || "");
+    const paymentIdRecebido = String(payment && payment.id ? payment.id : "").trim();
+
+    // 3. Validar payment_id — se cobranca ainda não tem, aceita e grava (race webhook)
+    if (mpPaymentId && paymentIdRecebido && mpPaymentId !== paymentIdRecebido) {
+        console.warn(
+            `[assinatura-webhook] payment_id divergente: mp=${mpPaymentId} vs recebido=${paymentIdRecebido}`
+        );
+        return { ok: false, reason: "payment_id_diferente" };
+    }
+    if (!paymentIdRecebido) {
+        return { ok: false, reason: "payment_id_ausente" };
+    }
+
+    // 4. IDEMPOTÊNCIA: se já paga, não processa
+    if (statusAtual === "paga") {
+        console.log(`[assinatura-webhook] Cobrança ${cobrancaId} já está paga. Ignorando.`);
+        return { ok: true, already: true };
+    }
+
+    // 5. Validar store_id (se metadata informar)
+    if (storeIdMeta && cobranca.store_id && storeIdMeta !== cobranca.store_id) {
+        console.warn(
+            `[assinatura-webhook] store_id divergente: meta=${storeIdMeta} vs cobranca=${cobranca.store_id}`
+        );
+        return { ok: false, reason: "store_id_diferente" };
+    }
+
+    // 6. Validar assinatura_id (se metadata informar)
+    if (assinaturaIdMeta && cobranca.assinatura_id && assinaturaIdMeta !== cobranca.assinatura_id) {
+        console.warn(
+            `[assinatura-webhook] assinatura_id divergente: meta=${assinaturaIdMeta} vs cobranca=${cobranca.assinatura_id}`
+        );
+        return { ok: false, reason: "assinatura_id_diferente" };
+    }
+
+    // 7. Validar status do Mercado Pago
+    const statusMp = String(payment.status || "").toLowerCase();
+    if (statusMp !== "approved" && statusMp !== "authorized") {
+        console.log(`[assinatura-webhook] Status MP não aprovado: ${statusMp}`);
+        return { ok: false, reason: "status_nao_aprovado", status_mp: statusMp };
+    }
+
+    // 8. Validar valor do pagamento
+    const valorCobranca = Number(cobranca.valor) || 0;
+    const valorMp = Number(payment.transaction_amount) || 0;
+    if (valorCobranca <= 0) {
+        return { ok: false, reason: "valor_cobranca_invalido" };
+    }
+    const diff = Math.abs(valorCobranca - valorMp);
+    if (diff > 0.05) {
+        console.warn(
+            `[assinatura-webhook] Valor divergente: cobranca=${valorCobranca} vs mp=${valorMp}`
+        );
+        return { ok: false, reason: "valor_diferente", valor_cobranca: valorCobranca, valor_mp: valorMp };
+    }
+
+    // 9. Processar tudo dentro de uma transação (idempotente e atômica)
+    const now = admin.firestore.Timestamp.now();
+    const assinaturaIdCobranca = String(cobranca.assinatura_id || "").trim();
+    let assinaturaEmailDados = null;
+    let estavaSuspenso = false;
+
+    await db.runTransaction(async (tx) => {
+        // Re-verificar dentro da transação (outro webhook pode ter checado antes)
+        const snapTx = await tx.get(cobrancaRef);
+        const currentTx = snapTx.data() || {};
+        if (currentTx.status === "paga") {
+            // Já processado, não fazer nada
+            return;
+        }
+
+        // 9a. Atualizar cobrança como paga
+        tx.update(cobrancaRef, {
+            status: "paga",
+            pago_em: now,
+            mp_payment_id: paymentIdRecebido,
+            mp_status: statusMp,
+            status_pagamento_gateway: "aprovado",
+            status_notificacao: "paga",
+            atualizado_em: now,
+            historico: admin.firestore.FieldValue.arrayUnion({
+                tipo: "pagamento_aprovado_webhook",
+                descricao: "Pagamento aprovado via webhook Mercado Pago.",
+                data_em: now,
+                payment_id: paymentIdRecebido,
+                origem: "webhook",
+                idempotency_key: "pago_" + cobrancaId + "_" + paymentIdRecebido,
+            }),
+        });
+
+        // 9b. Renovar assinatura se tiver assinatura_id
+        if (assinaturaIdCobranca) {
+            const assinaturaRef = db.collection(COLECAO_ASSINATURAS).doc(assinaturaIdCobranca);
+            const assSnap = await tx.get(assinaturaRef);
+            if (assSnap.exists) {
+                const a = assSnap.data() || {};
+                estavaSuspenso = String(a.status || "") === "suspenso" || !!a.blocked_at;
+
+                // Calcular próximo vencimento (30 dias ou duracao_dias)
+                let duracaoDias = Number(a.duracao_dias);
+                if (!Number.isFinite(duracaoDias) || duracaoDias <= 0) {
+                    duracaoDias = 30;
+                }
+
+                const proxVencimento = new Date();
+                proxVencimento.setDate(proxVencimento.getDate() + duracaoDias);
+
+                assinaturaEmailDados = {
+                    email: a.email || cobranca.email || "",
+                    lojaNome: a.store_name || cobranca.store_name || "",
+                    planoNome: a.plan_name || cobranca.plan_name || "",
+                    valor: valorCobranca,
+                    vencimento: avisos.formatDateBr(proxVencimento),
+                    fatura: String(cobranca.fatura || cobrancaId),
+                    cobrancaId: cobrancaId,
+                    formaPagamento: "PIX",
+                    situacao: "Ativo / renovado",
+                };
+
+                tx.update(assinaturaRef, {
+                    status: "ativo",
+                    last_payment_date: now,
+                    next_billing_date: admin.firestore.Timestamp.fromDate(proxVencimento),
+                    dias_em_atraso: 0,
+                    multa_calculada: 0,
+                    juros_calculados: 0,
+                    total_atualizado: valorCobranca,
+                    ultimo_pagamento_valor: valorCobranca,
+                    updated_at: now,
+                    blocked_at: admin.firestore.FieldValue.delete(),
+                    block_reason: admin.firestore.FieldValue.delete(),
+                    historico: admin.firestore.FieldValue.arrayUnion({
+                        tipo: estavaSuspenso ? "reativacao_webhook" : "renovacao_webhook",
+                        descricao: estavaSuspenso
+                            ? "Assinatura reativada e desbloqueada via webhook de pagamento."
+                            : "Assinatura renovada via webhook de pagamento.",
+                        data_em: now,
+                        cobranca_id: cobrancaId,
+                        cobranca_fatura: String(cobranca.fatura || ""),
+                        valor_pago: valorCobranca,
+                        payment_id: paymentIdRecebido,
+                        origem: "webhook",
+                    }),
+                });
+            }
+        }
+    });
+
+    if (assinaturaEmailDados) {
+        try {
+            await avisos.enviarEmailPagamentoAprovado(assinaturaEmailDados);
+            if (estavaSuspenso) {
+                await avisos.enviarEmailReativado(assinaturaEmailDados);
+            }
+        } catch (eMail) {
+            console.warn("[assinatura-webhook] e-mail pós-pagamento:", eMail.message || eMail);
+        }
+    }
+
+    console.log(
+        `[assinatura-webhook] PROCESSADO: cobranca=${cobrancaId}, pagamento=${paymentIdRecebido}, assinatura=${assinaturaIdCobranca}`
+    );
+    return { ok: true, processado: true };
+}
+
+/**
+ * Helper EXPORTADO — chamado por mercado_pago_gestao_comercial.js
+ * Verifica metadata.tipo e roteia para processarPagamentoCobrancaAssinatura.
+ */
+async function processarPagamentoGestaoComercial(payment) {
+    if (!payment || typeof payment !== "object") {
+        return { ok: false, reason: "payment_invalido" };
+    }
+    const metadata = payment.metadata || {};
+    if (metadata.tipo === "assinatura_cobranca") {
+        return await processarPagamentoCobrancaAssinatura(payment);
+    }
+    // Não é assinatura_cobranca → não é nossa responsabilidade
+    return { ok: false, reason: "nao_eh_assinatura_cobranca" };
+}
+
+exports.processarPagamentoGestaoComercial = processarPagamentoGestaoComercial;
+exports.processarPagamentoCobrancaAssinatura = processarPagamentoCobrancaAssinatura;
+exports.planIdDaAssinatura = planIdDaAssinatura;
+exports.ASSINATURA_MP_WEBHOOK_URL = ASSINATURA_MP_WEBHOOK_URL;
 
 void STATUS_VALIDOS;

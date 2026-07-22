@@ -3,6 +3,7 @@ import 'package:depertin_web/services/firebase_functions_config.dart';
 import 'package:depertin_web/theme/painel_admin_theme.dart';
 import 'package:depertin_web/utils/lojista_painel_context.dart';
 import 'package:depertin_web/widgets/comercial/comercial_email_transacional_modal.dart';
+import 'package:depertin_web/widgets/comercial/comercial_whatsapp_modal.dart';
 import 'package:depertin_web/widgets/dipertin_feedback_premium_modal.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
@@ -290,6 +291,15 @@ class _CanalCobranca {
   String templateMensagem;
   bool ativo;
   Map<String, dynamic>? emailTransacional;
+  // WhatsApp multi-provedor
+  String provedor;
+  String clientToken;
+  String clientSecret;
+  String instanceId;
+  String authMethod;
+  String endpointEnvio;
+  bool conexaoOk;
+  String telefoneConectado;
 
   _CanalCobranca({
     this.nome = '',
@@ -301,6 +311,14 @@ class _CanalCobranca {
     this.templateMensagem = '',
     this.ativo = false,
     this.emailTransacional,
+    this.provedor = '',
+    this.clientToken = '',
+    this.clientSecret = '',
+    this.instanceId = '',
+    this.authMethod = 'bearer',
+    this.endpointEnvio = '',
+    this.conexaoOk = false,
+    this.telefoneConectado = '',
   });
 
   bool get configurado => nome.isNotEmpty || apiUrl.isNotEmpty || token.isNotEmpty;
@@ -308,7 +326,19 @@ class _CanalCobranca {
   bool estaConfigurado(String chave) {
     switch (chave) {
       case 'whatsapp':
-        return apiUrl.trim().isNotEmpty && token.trim().isNotEmpty;
+        switch (provedor) {
+          case 'vzaps':
+            return instanceId.trim().isNotEmpty &&
+                clientToken.trim().isNotEmpty &&
+                token.trim().isNotEmpty;
+          case 'meta':
+          case 'evolution':
+          case 'zapi':
+          case 'custom':
+            return apiUrl.trim().isNotEmpty && token.trim().isNotEmpty;
+          default:
+            return apiUrl.trim().isNotEmpty && token.trim().isNotEmpty;
+        }
       case 'email':
         final et = emailTransacional;
         if (et != null) {
@@ -353,6 +383,14 @@ class _CanalCobranca {
       emailTransacional: m['emailTransacional'] is Map
           ? Map<String, dynamic>.from(m['emailTransacional'] as Map)
           : null,
+      provedor: m['provedor']?.toString() ?? '',
+      clientToken: m['clientToken']?.toString() ?? '',
+      clientSecret: m['clientSecret']?.toString() ?? '',
+      instanceId: m['instanceId']?.toString() ?? '',
+      authMethod: m['authMethod']?.toString() ?? 'bearer',
+      endpointEnvio: m['endpointEnvio']?.toString() ?? '',
+      conexaoOk: m['conexaoOk'] == true,
+      telefoneConectado: m['telefoneConectado']?.toString() ?? '',
     );
   }
 
@@ -384,7 +422,54 @@ class _CanalCobranca {
         'templateMensagem': templateMensagem,
         'ativo': ativo,
         if (emailTransacional != null) 'emailTransacional': emailTransacional,
+        if (tipo == 'whatsapp' || provedor.isNotEmpty) ...{
+          'provedor': provedor,
+          'clientToken': clientToken,
+          'clientSecret': clientSecret,
+          'instanceId': instanceId,
+          'authMethod': authMethod,
+          'endpointEnvio': endpointEnvio,
+          'conexaoOk': conexaoOk,
+          'telefoneConectado': telefoneConectado,
+        },
       };
+
+  void aplicarWhatsAppConfig(WhatsAppCanalConfig cfg) {
+    nome = cfg.nome;
+    tipo = 'whatsapp';
+    provedor = cfg.provedor;
+    apiUrl = cfg.apiUrl;
+    token = cfg.token;
+    clientToken = cfg.clientToken;
+    clientSecret = cfg.clientSecret;
+    instanceId = cfg.instanceId;
+    remetente = cfg.remetente;
+    authMethod = cfg.authMethod;
+    endpointEnvio = cfg.endpointEnvio;
+    templateMensagem = cfg.templateMensagem;
+    ativo = cfg.ativo;
+    conexaoOk = cfg.conexaoOk;
+    telefoneConectado = cfg.telefoneConectado;
+  }
+
+  String get provedorWhatsAppRotulo {
+    switch (provedor) {
+      case 'vzaps':
+        return 'VZaps';
+      case 'meta':
+        return 'Meta Cloud';
+      case 'evolution':
+        return 'Evolution API';
+      case 'zapi':
+        return 'Z-API';
+      case 'custom':
+        return 'Outro provedor';
+      default:
+        if (apiUrl.toLowerCase().contains('vzaps')) return 'VZaps';
+        if (apiUrl.isNotEmpty || token.isNotEmpty) return 'Outro provedor';
+        return 'Não configurado';
+    }
+  }
 }
 
 class _RegrasAutomaticas {
@@ -2409,7 +2494,7 @@ class _ComercialConfiguracoesScreenState
   List<String> _recursosCanalCobranca(String chave) {
     switch (chave) {
       case 'whatsapp':
-        return ['WhatsApp', 'Lembrete', 'Template'];
+        return ['WhatsApp', 'Multi-provedor', 'Template'];
       case 'email':
         return ['E-mail', 'Lembrete', 'Template'];
       case 'sms':
@@ -2436,13 +2521,51 @@ class _ComercialConfiguracoesScreenState
     }
   }
 
+  String _subtituloWhatsAppCard(_CanalCobranca canal) {
+    return 'Provedor: ${canal.provedorWhatsAppRotulo}';
+  }
+
+  Widget _badgeWhatsApp(_CanalCobranca canal) {
+    final conectado =
+        canal.ativo && canal.estaConfigurado('whatsapp') && canal.conexaoOk;
+    final cor =
+        conectado ? const Color(0xFF16A34A) : const Color(0xFFFF8F00);
+    final fundo =
+        conectado ? const Color(0xFFE8F5E9) : const Color(0xFFFFF3E0);
+    final texto = conectado ? 'Conectado' : 'Configuração pendente';
+    return Container(
+      padding: const EdgeInsets.symmetric(horizontal: 7, vertical: 2),
+      decoration: BoxDecoration(
+        color: fundo,
+        borderRadius: BorderRadius.circular(20),
+      ),
+      child: Row(
+        mainAxisSize: MainAxisSize.min,
+        children: [
+          Container(
+              width: 6,
+              height: 6,
+              decoration:
+                  BoxDecoration(color: cor, shape: BoxShape.circle)),
+          const SizedBox(width: 4),
+          Text(texto,
+              style: GoogleFonts.plusJakartaSans(
+                  fontSize: 10,
+                  fontWeight: FontWeight.w700,
+                  color: cor)),
+        ],
+      ),
+    );
+  }
+
   Widget _buildCanalCard(
       String nome, IconData icone, String chave, _CanalCobranca canal) {
     final configurado = canal.estaConfigurado(chave);
+    final ehWhatsApp = chave == 'whatsapp';
     return MouseRegion(
       cursor: SystemMouseCursors.click,
       child: Container(
-        height: 168,
+        height: ehWhatsApp ? 176 : 168,
         padding: const EdgeInsets.all(18),
         decoration: BoxDecoration(
           color: Colors.white,
@@ -2465,13 +2588,17 @@ class _ComercialConfiguracoesScreenState
                   width: 28,
                   height: 28,
                   decoration: BoxDecoration(
-                    color: configurado
+                    color: (ehWhatsApp
+                            ? (canal.conexaoOk && configurado)
+                            : configurado)
                         ? const Color(0xFFE8F5E9)
                         : const Color(0xFFF1F5F9),
                     borderRadius: BorderRadius.circular(8),
                   ),
                   child: Icon(icone,
-                      color: configurado
+                      color: (ehWhatsApp
+                              ? (canal.conexaoOk && configurado)
+                              : configurado)
                           ? const Color(0xFF16A34A)
                           : const Color(0xFF94A3B8),
                       size: 16),
@@ -2487,14 +2614,19 @@ class _ComercialConfiguracoesScreenState
                               fontSize: 13,
                               fontWeight: FontWeight.w700,
                               color: const Color(0xFF1F2937))),
-                      Text(_subtituloCanalCobranca(chave),
+                      Text(
+                          ehWhatsApp
+                              ? _subtituloWhatsAppCard(canal)
+                              : _subtituloCanalCobranca(chave),
                           style: GoogleFonts.plusJakartaSans(
                               fontSize: 10,
                               color: const Color(0xFF94A3B8))),
                     ],
                   ),
                 ),
-                _badgeStatus(canal.ativo && configurado),
+                ehWhatsApp
+                    ? _badgeWhatsApp(canal)
+                    : _badgeStatus(canal.ativo && configurado),
               ],
             ),
             const SizedBox(height: 6),
@@ -2602,11 +2734,36 @@ class _ComercialConfiguracoesScreenState
       return;
     }
 
+    if (chave == 'whatsapp') {
+      showComercialWhatsAppModal(
+        context,
+        lojaId: _lojaId,
+        canalAtual: canal.toMap(),
+        onSalvo: (cfg) {
+          setState(() {
+            final atual = _config.cobranca['whatsapp'] ??
+                _CanalCobranca(tipo: 'whatsapp', nome: 'WhatsApp');
+            atual.aplicarWhatsAppConfig(cfg);
+            _config.cobranca['whatsapp'] = atual;
+          });
+          _salvar(
+            tituloSucesso: 'WhatsApp configurado',
+            mensagemSucesso:
+                'Provedor ${cfg.provedorRotulo} pronto para envio de cobranças.',
+          );
+        },
+      );
+      return;
+    }
+
+    final tokenOriginalSalvo = canal.token;
+    final tokenEhCifrado = tokenOriginalSalvo.startsWith('enc:v1:');
     final edit = _CanalCobranca(
       nome: canal.nome.isNotEmpty ? canal.nome : nome,
       tipo: chave,
       apiUrl: canal.apiUrl,
-      token: canal.token,
+      // Não exibir ciphertext no campo secreto — máscara + backend usa o salvo.
+      token: tokenEhCifrado ? '••••••••' : canal.token,
       remetente: canal.remetente,
       emailRemetente: canal.emailRemetente,
       templateMensagem: canal.templateMensagem.isEmpty
@@ -2703,16 +2860,51 @@ class _ComercialConfiguracoesScreenState
                                 testOk = false;
                               });
                               try {
+                                final params = <String, dynamic>{
+                                  'lojaId': _lojaId,
+                                };
+                                if (chave == 'sms') {
+                                  final tok = edit.token.trim();
+                                  final tokenPareceMascarado = tok.isEmpty ||
+                                      tok == '••••••••' ||
+                                      tok == '********';
+                                  final temTokenSalvo =
+                                      tokenOriginalSalvo.trim().isNotEmpty;
+                                  // Permite testar Auth Key digitada antes de salvar.
+                                  // Se o campo estiver vazio/máscara, o backend usa a key já salva.
+                                  if (tokenPareceMascarado && !temTokenSalvo) {
+                                    setModalState(() {
+                                      testando = false;
+                                      testOk = false;
+                                      testMsg =
+                                          'Informe a Auth Key da Comtele antes de testar.';
+                                    });
+                                    return;
+                                  }
+                                  params['credenciais'] = {
+                                    'token': tokenPareceMascarado ? '' : tok,
+                                    'apiUrl': _kComteleSmsApiUrl,
+                                    'remetente': edit.remetente.trim(),
+                                  };
+                                } else if (chave == 'api_externa') {
+                                  params['credenciais'] = {
+                                    'token': edit.token.trim(),
+                                    'apiUrl': edit.apiUrl.trim(),
+                                  };
+                                }
+
                                 final result = await callFirebaseFunctionSafe(
                                   testFunctionName(chave),
-                                  parameters: {'lojaId': _lojaId},
+                                  parameters: params,
                                   region: 'southamerica-east1',
                                 );
                                 if (ctx.mounted) {
                                   setModalState(() {
                                     testando = false;
                                     testOk = result['ok'] == true;
-                                    testMsg = result['mensagem'] ?? 'Resposta inesperada.';
+                                    testMsg = (result['mensagem'] ??
+                                            'Resposta inesperada.')
+                                        .toString();
                                   });
                                 }
                               } catch (e) {
@@ -2720,7 +2912,9 @@ class _ComercialConfiguracoesScreenState
                                   setModalState(() {
                                     testando = false;
                                     testOk = false;
-                                    testMsg = e.toString();
+                                    testMsg = e is CallableHttpException
+                                        ? mensagemCallableHttpException(e)
+                                        : e.toString();
                                   });
                                 }
                               }
@@ -2753,22 +2947,25 @@ class _ComercialConfiguracoesScreenState
                 child: const Text('Cancelar'),
               ),
               FilledButton(
-                onPressed: () {
+                onPressed: () async {
                   edit.templateMensagem = templateCtrl.text;
                   _aplicarDefaultsCanalCobranca(edit, chave);
+                  // Não gravar máscara como token (preserva key já salva no Firestore).
+                  final tok = edit.token.trim();
+                  if (tok.isEmpty ||
+                      tok == '••••••••' ||
+                      tok == '********') {
+                    edit.token = tokenOriginalSalvo;
+                  }
                   setState(() {
                     _config.cobranca[chave] = edit;
                   });
                   Navigator.pop(ctx);
-                  _salvar();
-                  ScaffoldMessenger.of(context).showSnackBar(
-                    SnackBar(
-                      content: Text('$nome configurado com sucesso.'),
-                      backgroundColor: const Color(0xFF16A34A),
-                      behavior: SnackBarBehavior.floating,
-                      shape: RoundedRectangleBorder(
-                          borderRadius: BorderRadius.circular(10)),
-                    ),
+                  await _salvar(
+                    tituloSucesso: '$nome salvo',
+                    mensagemSucesso: chave == 'sms'
+                        ? 'Integração Comtele SMS gravada. Use Ativo para habilitar o envio de cobranças.'
+                        : 'Canal $nome configurado com sucesso.',
                   );
                 },
                 style: FilledButton.styleFrom(
@@ -2790,10 +2987,8 @@ class _ComercialConfiguracoesScreenState
     edit.tipo = chave;
     if (chave == 'sms') {
       edit.apiUrl = _kComteleSmsApiUrl;
-      if (edit.nome.trim().isEmpty) edit.nome = 'Comtele SMS';
-    }
-    if (edit.token.trim().isNotEmpty && edit.estaConfigurado(chave)) {
-      edit.ativo = true;
+      if (edit.nome.trim().isEmpty) edit.nome = 'SMS Comtele';
+      // Não forçar ativo=true: o switch Ativo/Inativo do lojista deve prevalecer.
     }
   }
 

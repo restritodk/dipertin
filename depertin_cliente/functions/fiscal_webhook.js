@@ -10,12 +10,18 @@
  * - Registra log completo do webhook recebido
  * - Trata reenvios sem duplicar registros (idempotência por chave + status)
  *
+ * Integração de Saldo:
+ * - Quando autorizada: confirmarConsumo via saldo helper
+ * - Quando rejeitada: estornarSaldo via saldo helper
+ * - Webhook duplicado: ignorado idempotentemente
+ *
  * Endpoint: POST /fiscalWebhookNFe
  */
 const functions = require('firebase-functions/v1');
 const admin = require('firebase-admin');
 const crypto = require('crypto');
 const logger = require('./fiscal_logger');
+const saldoHelper = require('./fiscal_saldo_helper');
 
 const WEBHOOK_SECRET = process.env.FISCAL_WEBHOOK_SECRET || '';
 
@@ -209,7 +215,7 @@ exports.fiscalWebhookNFe = functions.https.onRequest(async (req, res) => {
     if (dados.rejectionReason) updateData.rejection_reason = dados.rejectionReason;
     if (dados.rejectionCode) updateData.rejection_code = dados.rejectionCode;
 
-    // Se autorizada, salva XML/DANFE no Storage
+    // Se autorizada, salva XML/DANFE no Storage (mantidos PRIVADOS)
     if (statusMapeado === 'autorizada') {
       updateData.issued_at = admin.firestore.FieldValue.serverTimestamp();
 
@@ -226,11 +232,11 @@ exports.fiscalWebhookNFe = functions.https.onRequest(async (req, res) => {
               contentType: 'application/xml',
               metadata: { store_id: storeId || lojaId, documento_id: documentoId },
             });
-            await xmlFile.makePublic();
-            updateData.xml_url = `https://storage.googleapis.com/${bucket.name}/${xmlPath}`;
+            // NÃO usa makePublic() — arquivo permanece privado
+            updateData.xml_url = xmlPath; // Salva caminho interno, não URL pública
           }
         } catch (e) {
-          updateData.xml_url = dados.xmlUrl; // fallback
+          updateData.xml_url = null; // Não salva URL externa
         }
       }
 
@@ -247,11 +253,11 @@ exports.fiscalWebhookNFe = functions.https.onRequest(async (req, res) => {
               contentType: 'application/pdf',
               metadata: { store_id: storeId || lojaId, documento_id: documentoId },
             });
-            await pdfFile.makePublic();
-            updateData.pdf_url = `https://storage.googleapis.com/${bucket.name}/${danfePath}`;
+            // NÃO usa makePublic() — arquivo permanece privado
+            updateData.pdf_url = danfePath; // Salva caminho interno, não URL pública
           }
         } catch (e) {
-          updateData.pdf_url = dados.pdfUrl; // fallback
+          updateData.pdf_url = null; // Não salva URL externa
         }
       }
     } else {
@@ -274,6 +280,45 @@ exports.fiscalWebhookNFe = functions.https.onRequest(async (req, res) => {
       `[fiscal-webhook] Documento ${documentoId} atualizado: ${statusAtual} → ${statusMapeado}` +
       ` provider=${provider} chave=${dados.chaveAcesso || ''}`
     );
+
+    // ═══════════════════════════════════════════════════════════════════════
+    // 10.5. ATUALIZAR SALDO VIA HELPER TRANSACIONAL
+    // ═══════════════════════════════════════════════════════════════════════
+    // Buscar provider_ref para vincular ao controle de saldo
+    let providerRef = dados.idExterno || null;
+    if (!providerRef && dados.chaveAcesso) {
+      // Gerar ref padrão se não vier do provedor
+      providerRef = dados.chaveAcesso.slice(-20);
+    }
+
+    if (providerRef && storeId) {
+      try {
+        // Buscar operação pela provider_ref
+        const operacao = await saldoHelper.obterOperacaoPorProviderRef(db, providerRef);
+
+        if (operacao) {
+          // Atualizar via helper (idempotente)
+          const saldoResultado = await saldoHelper.processarWebhookAutorizacao(
+            db,
+            providerRef,
+            statusMapeado,
+            documentoId,
+            {
+              status: dados.statusProvedor,
+              message: dados.rejectionReason || null,
+            }
+          );
+
+          console.log(`[fiscal-webhook] Saldo processado: operacao=${operacao.idempotency_key}, resultado=${saldoResultado.status}`);
+        } else {
+          // Operação não encontrada - documento pode ter sido criado fora do fluxo normal
+          console.log(`[fiscal-webhook] Operacao nao encontrada para provider_ref=${providerRef} - documento pode ter sido criado fora do fluxo normal`);
+        }
+      } catch (saldoErr) {
+        // Erro no saldo helper não deve falhar o webhook
+        console.error(`[fiscal-webhook] Erro ao processar saldo: ${saldoErr.message}`);
+      }
+    }
 
     // 11. Salvar em fiscal_webhooks (com event hash para idempotência)
     try {
